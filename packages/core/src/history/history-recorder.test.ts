@@ -3,6 +3,7 @@ import { HistoryRecorder } from './history-recorder';
 import { HistoryStack } from './history-stack';
 import { ElementStore } from '../elements/element-store';
 import { createNote } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import { LayerManager } from '../layers/layer-manager';
 
 function setup() {
@@ -120,6 +121,123 @@ describe('HistoryRecorder', () => {
       ['b', 'b'],
     ]);
     expect(store.getById('child')).toMatchObject({ layerId: 'b', parentId: 'parent' });
+  });
+
+  it('undoes a detached child and removed frame without restoring an invalid link', () => {
+    const { store, stack, recorder } = setup();
+    const parent = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 }, index: 'a0' }),
+      id: 'parent',
+    };
+    const child = {
+      ...createNote({ position: { x: 10, y: 30 }, parentId: parent.id }),
+      id: 'child',
+    };
+    store.add(parent);
+    store.add(child);
+    stack.clear();
+
+    recorder.run(() => {
+      store.update(child.id, { parentId: undefined });
+      store.remove(parent.id);
+    });
+
+    expect(stack.undoCount).toBe(1);
+    expect(() => stack.undo(store)).not.toThrow();
+    expect(store.getById(parent.id)).toBeDefined();
+    expect(store.getById(child.id)?.parentId).toBe(parent.id);
+
+    expect(() => stack.redo(store)).not.toThrow();
+    expect(store.getById(parent.id)).toBeUndefined();
+    expect(store.getById(child.id)?.parentId).toBeUndefined();
+  });
+
+  it('keeps nested structural history open until the outer commit', () => {
+    const { store, stack, recorder } = setup();
+    const parent = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 }, index: 'a0' }),
+      id: 'parent',
+    };
+    const child = {
+      ...createNote({ position: { x: 10, y: 30 }, parentId: parent.id }),
+      id: 'child',
+    };
+    store.add(parent);
+    store.add(child);
+    stack.clear();
+    let transactionEnds = 0;
+    recorder.onTransactionEnd(() => transactionEnds++);
+
+    recorder.begin();
+    recorder.run(() => {
+      store.update(child.id, { parentId: undefined });
+      store.remove(parent.id);
+    });
+
+    expect(stack.undoCount).toBe(0);
+    expect(transactionEnds).toBe(0);
+    recorder.commit();
+
+    expect(stack.undoCount).toBe(1);
+    expect(transactionEnds).toBe(1);
+    expect(() => stack.undo(store)).not.toThrow();
+    expect(store.getById(child.id)?.parentId).toBe(parent.id);
+    expect(() => stack.redo(store)).not.toThrow();
+    expect(store.getById(child.id)?.parentId).toBeUndefined();
+  });
+
+  it('preserves detached child and unrelated update order around a removal', () => {
+    const { store, stack, recorder } = setup();
+    const parent = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 }, index: 'a0' }),
+      id: 'parent',
+    };
+    const first = {
+      ...createNote({ position: { x: 10, y: 30 }, parentId: parent.id }),
+      id: 'first',
+    };
+    const second = {
+      ...createNote({ position: { x: 20, y: 40 }, parentId: parent.id }),
+      id: 'second',
+    };
+    const unrelated = { ...createNote({ position: { x: 300, y: 0 } }), id: 'unrelated' };
+    store.add(parent);
+    store.add(first);
+    store.add(second);
+    store.add(unrelated);
+    stack.clear();
+
+    recorder.run(() => {
+      store.update(first.id, { parentId: undefined });
+      store.update(second.id, { parentId: undefined });
+      store.update(unrelated.id, { position: { x: 320, y: 0 } });
+      store.update(unrelated.id, { position: { x: 340, y: 0 } });
+      store.remove(parent.id);
+    });
+
+    const events: string[] = [];
+    store.on('add', (element) => events.push(`add:${element.id}`));
+    store.on('remove', (element) => events.push(`remove:${element.id}`));
+    store.on('update', ({ current }) =>
+      events.push(`update:${current.id}:${current.parentId ?? ''}`),
+    );
+
+    recorder.pause();
+    expect(() => stack.undo(store)).not.toThrow();
+    expect(() => stack.redo(store)).not.toThrow();
+    recorder.resume();
+
+    expect(events).toEqual([
+      'add:parent',
+      'update:first:parent',
+      'update:second:parent',
+      'update:unrelated:',
+      'update:first:',
+      'update:second:',
+      'update:unrelated:',
+      'remove:parent',
+    ]);
+    expect(store.getById(unrelated.id)?.position).toEqual({ x: 340, y: 0 });
   });
 
   it('does not record during undo', () => {

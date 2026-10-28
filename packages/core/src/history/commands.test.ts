@@ -8,6 +8,7 @@ import {
 } from './commands';
 import { ElementStore } from '../elements/element-store';
 import { createNote, createStroke } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 
 describe('AddElementCommand', () => {
   it('adds element on execute', () => {
@@ -169,5 +170,40 @@ describe('BatchCommand', () => {
     batch.undo(store);
     expect(store.count).toBe(1);
     expect(store.getById(existing.id)).toBeDefined();
+  });
+
+  it('restores a frame before restoring detached child links', () => {
+    const store = new ElementStore();
+    const parent = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 }, index: 'a0' }),
+      id: 'parent',
+    };
+    const first = {
+      ...createNote({ position: { x: 10, y: 30 }, parentId: parent.id, index: 'a1' }),
+      id: 'first',
+    };
+    const second = {
+      ...createNote({ position: { x: 20, y: 40 }, parentId: parent.id, index: 'a2' }),
+      id: 'second',
+    };
+    store.add(parent);
+    store.add(first);
+    store.add(second);
+
+    const detach = new UpdateElementsCommand([
+      { previous: first, current: { ...first, parentId: undefined } },
+      { previous: second, current: { ...second, parentId: undefined } },
+    ]);
+    const batch = new BatchCommand([detach, new RemoveElementCommand(parent)]);
+
+    batch.execute(store);
+    expect(store.getById(parent.id)).toBeUndefined();
+    expect(store.getById(first.id)?.parentId).toBeUndefined();
+    expect(store.getById(second.id)?.parentId).toBeUndefined();
+
+    batch.undo(store);
+    expect(store.getById(parent.id)).toBeDefined();
+    expect(store.getById(first.id)?.parentId).toBe(parent.id);
+    expect(store.getById(second.id)?.parentId).toBe(parent.id);
   });
 });
