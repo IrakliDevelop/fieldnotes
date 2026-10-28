@@ -143,13 +143,20 @@ describe('HistoryRecorder', () => {
     });
 
     expect(stack.undoCount).toBe(1);
+    expect(stack.redoCount).toBe(0);
+    recorder.pause();
     expect(() => stack.undo(store)).not.toThrow();
+    expect(stack.undoCount).toBe(0);
+    expect(stack.redoCount).toBe(1);
     expect(store.getById(parent.id)).toBeDefined();
     expect(store.getById(child.id)?.parentId).toBe(parent.id);
 
     expect(() => stack.redo(store)).not.toThrow();
+    expect(stack.undoCount).toBe(1);
+    expect(stack.redoCount).toBe(0);
     expect(store.getById(parent.id)).toBeUndefined();
     expect(store.getById(child.id)?.parentId).toBeUndefined();
+    recorder.resume();
   });
 
   it('keeps nested structural history open until the outer commit', () => {
@@ -179,11 +186,18 @@ describe('HistoryRecorder', () => {
     recorder.commit();
 
     expect(stack.undoCount).toBe(1);
+    expect(stack.redoCount).toBe(0);
     expect(transactionEnds).toBe(1);
+    recorder.pause();
     expect(() => stack.undo(store)).not.toThrow();
+    expect(stack.undoCount).toBe(0);
+    expect(stack.redoCount).toBe(1);
     expect(store.getById(child.id)?.parentId).toBe(parent.id);
     expect(() => stack.redo(store)).not.toThrow();
+    expect(stack.undoCount).toBe(1);
+    expect(stack.redoCount).toBe(0);
     expect(store.getById(child.id)?.parentId).toBeUndefined();
+    recorder.resume();
   });
 
   it('preserves detached child and unrelated update order around a removal', () => {
