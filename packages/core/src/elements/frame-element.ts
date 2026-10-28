@@ -135,7 +135,7 @@ export function isFrameElement(value: unknown): value is FrameElement {
     el.size.w >= MIN_WIDTH &&
     el.size.h >= MIN_HEIGHT &&
     el.rotation === undefined &&
-    el.parentId === undefined &&
+    (el.parentId === undefined || typeof el.parentId === 'string') &&
     typeof el.index === 'string' &&
     typeof el.version === 'number' &&
     Number.isFinite(el.version) &&

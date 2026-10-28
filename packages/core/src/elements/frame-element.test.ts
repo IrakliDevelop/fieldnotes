@@ -54,12 +54,17 @@ describe('frame element', () => {
     const adapter = registry.getAdapter(FRAME_ELEMENT_TYPE);
     if (!adapter) throw new Error('Missing frame adapter');
     const valid = frame();
+    const parented = { ...valid, parentId: 'parent' };
     expect(adapter.validateEnvelope(valid)).toBe(true);
+    expect(isFrameElement(parented)).toBe(true);
+    expect(frameElementDefinition.unwrap(parented)).toBe(parented);
+    expect(adapter.validateElement?.(parented)).toBe(true);
+    expect(adapter.validateEnvelope(parented)).toBe(true);
     for (const invalid of [
       { ...valid, size: { w: 79, h: 90 } },
       { ...valid, position: { x: Number.NaN, y: 20 } },
       { ...valid, rotation: 0 },
-      { ...valid, parentId: 'parent' },
+      { ...valid, parentId: 1 },
       { ...valid, size: undefined },
       { ...valid, data: { title: 1, color: '#64748b' } },
       { ...valid, data: { title: 'Frame', color: 1 } },
