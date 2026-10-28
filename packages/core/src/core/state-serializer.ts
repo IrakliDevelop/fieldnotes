@@ -375,6 +375,9 @@ export function migrateElementData(
   registry: ElementRegistry = getDefaultElementRegistry(),
 ): CanvasElement {
   if (element.type !== 'extension') return element;
+  if (!isOptional(element.dataVersion, isPositiveInteger)) {
+    throw new Error(`Invalid element "${element.id}": invalid dataVersion`);
+  }
   return migrateEnvelope(element, registry.getAdapter(element.extensionType));
 }
 

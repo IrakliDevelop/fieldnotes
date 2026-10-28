@@ -1299,6 +1299,13 @@ describe('extension dataVersion', () => {
         'Invalid element "m1": malformed test:marker data',
       );
     });
+
+    it.each([0, 1.5, '2'])('rejects dataVersion %j', (dataVersion) => {
+      const { registry } = versionedRegistry();
+      expect(() =>
+        migrateElementData(asElement(envelope({ name: 'a' }, dataVersion)), registry),
+      ).toThrow('Invalid element "m1": invalid dataVersion');
+    });
   });
 
   describe('with the default registry', () => {
