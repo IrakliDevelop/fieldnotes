@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   exportState,
+  migrateElementData,
   migrateState,
   parseState,
   registerLegacyStateMigrator,
@@ -1227,6 +1228,83 @@ describe('extension dataVersion', () => {
       );
       expect(viewport.store.getAll().map((el) => el.id)).toEqual(['m0']);
       viewport.destroy();
+    });
+  });
+
+  describe('migrateElementData', () => {
+    const asElement = (raw: object) => raw as unknown as CanvasElement;
+
+    it('migrates data without dataVersion from 1 and stamps the current version', () => {
+      const { registry, migrate } = versionedRegistry();
+      const input = asElement(envelope({ name: 'a' }));
+      const before = structuredClone(input);
+      expect(migrateElementData(input, registry)).toMatchObject({
+        dataVersion: 3,
+        data: { label: 'a@1' },
+      });
+      expect(migrate).toHaveBeenCalledWith({ name: 'a' }, 1);
+      expect(input).toEqual(before);
+    });
+
+    it('migrates an older dataVersion from that version', () => {
+      const { registry } = versionedRegistry();
+      expect(migrateElementData(asElement(envelope({ name: 'a' }, 2)), registry)).toMatchObject({
+        dataVersion: 3,
+        data: { label: 'a@2' },
+      });
+    });
+
+    it.each([3, 4])('returns dataVersion %i data unchanged', (dataVersion) => {
+      const { registry, migrate } = versionedRegistry();
+      const input = asElement(envelope({ label: 'x' }, dataVersion));
+      expect(migrateElementData(input, registry)).toBe(input);
+      expect(migrate).not.toHaveBeenCalled();
+    });
+
+    it('returns unknown extension types and core elements unchanged', () => {
+      const unknown = asElement(envelope({ name: 'a' }));
+      expect(migrateElementData(unknown, new ElementRegistry())).toBe(unknown);
+      const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
+      expect(migrateElementData(shape, versionedRegistry().registry)).toBe(shape);
+    });
+
+    it('returns an element unchanged when its type has no dataVersion', () => {
+      const registry = new ElementRegistry();
+      registry.register(markerDefinition);
+      const input = asElement(envelope({ label: 'a' }));
+      expect(migrateElementData(input, registry)).toBe(input);
+    });
+
+    it('throws the load-path errors', () => {
+      const throwing = new ElementRegistry();
+      throwing.register({
+        ...markerDefinition,
+        dataVersion: 2,
+        migrate: () => {
+          throw new Error('boom');
+        },
+      });
+      const malformed = new ElementRegistry();
+      malformed.register({
+        ...markerDefinition,
+        dataVersion: 2,
+        migrate: () => 'nope' as unknown as Record<string, unknown>,
+      });
+      const input = asElement(envelope({ name: 'a' }));
+
+      expect(() => migrateElementData(input, throwing)).toThrow(
+        'Invalid element "m1": test:marker migrate failed: boom',
+      );
+      expect(() => migrateElementData(input, malformed)).toThrow(
+        'Invalid element "m1": malformed test:marker data',
+      );
+    });
+
+    it.each([0, 1.5, '2'])('rejects dataVersion %j', (dataVersion) => {
+      const { registry } = versionedRegistry();
+      expect(() =>
+        migrateElementData(asElement(envelope({ name: 'a' }, dataVersion)), registry),
+      ).toThrow('Invalid element "m1": invalid dataVersion');
     });
   });
 

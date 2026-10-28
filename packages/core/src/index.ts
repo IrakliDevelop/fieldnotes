@@ -1,9 +1,10 @@
-export const VERSION = '0.100.0';
+export const VERSION = '0.101.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
 export {
   CANVAS_STATE_VERSION,
+  migrateElementData,
   registerLegacyStateMigrator,
   unregisterLegacyStateMigrator,
 } from './core/state-serializer';

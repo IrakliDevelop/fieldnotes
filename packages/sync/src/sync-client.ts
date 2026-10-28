@@ -1,3 +1,4 @@
+import { migrateElementData } from '@fieldnotes/core';
 import type { CanvasElement, ElementRegistry, ElementStore, Layer } from '@fieldnotes/core';
 import type { SyncTransport } from './sync-transport';
 import {
@@ -911,13 +912,20 @@ export class SyncClient {
     authoritative: boolean,
   ): void {
     if (op.kind === 'upsert') {
-      const el = op.element;
+      let el: CanvasElement = op.element;
       const existing = this.store.getById(el.id);
       if (
         !authoritative &&
         !isNewerVersion(el, this.localVersion(el.id) ?? this.tombstones.get(el.id))
       ) {
         this.hubKnownIds.add(el.id); // even a stale upsert proves the hub has the element
+        return;
+      }
+      try {
+        el = migrateElementData(el, this.store.elementRegistry);
+      } catch (error) {
+        this.hubKnownIds.add(el.id); // the hub has it even though this client cannot apply it
+        globalThis.reportError?.(error);
         return;
       }
       this.deleteTombstone(el.id);

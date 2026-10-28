@@ -356,7 +356,7 @@ These contracts were proven in `packages/contract-spike`:
   `loadJSON`, `loadState` and `AutoSave.load`: `migrate` runs once for lower stored versions, the
   result must be a record, and the current version is stamped; every path but `loadState` also
   validates the result. Legacy decodes are stamped current. `exportState` stamps a missing
-  `dataVersion`. Sync paths do not migrate.
+  `dataVersion`.
 - **`cloneRemap(el, idMap)`** is called on paste and duplicate with the full source-to-clone id map;
   core keeps the clone's base fields and replaces `data` with the result's `data`.
 - **Envelope `size`.** An optional `size` on `ExtensionElementEnvelope` opts the element into the
@@ -367,6 +367,12 @@ These contracts were proven in `packages/contract-spike`:
 
 - **`renderMode: 'dom'`** is rejected: `ElementRegistry.register` throws for it. Extension elements
   are never DOM elements; `'canvas'`, `'hybrid'` and `'none'` all draw through `render`.
+
+## Implementation notes (0.101.0)
+
+- **Migration outside a load.** `migrateElementData(element, registry?)` and `SyncClient` incoming
+  upserts (sync 0.30.1) migrate lower stored versions with the record check only, and keep newer
+  data as is.
 
 ## Options Considered
 

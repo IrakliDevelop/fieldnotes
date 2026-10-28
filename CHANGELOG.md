@@ -6,6 +6,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.101.0 — extension data migration outside a load
+
+**Added**
+
+- `migrateElementData(element, registry?)` runs an extension type's `migrate` on one element that
+  arrives outside a load. Data with a lower stored `dataVersion` (absent means 1) is migrated and
+  stamped with the current version. Unknown types, core elements, and current or newer data are
+  returned unchanged. It throws the same errors as the load path and does not run `validateData`.
+
+**Fixed**
+
+- `AutoSave` without `elementRegistry` now reads the store's registry at each `load()` and
+  `save()`, so a registry set on the store after `AutoSave` was created applies. An explicit
+  `elementRegistry` still wins.
+
+### Sync 0.30.1 — incoming extension data migration
+
+**Fixed**
+
+- `SyncClient` migrates incoming extension elements to the current `dataVersion` on live, batch,
+  and snapshot upserts, using the store's current registry after the staleness check. Data with a
+  newer `dataVersion` is kept as is.
+- An element whose `migrate` throws is skipped: the local copy stays, the error goes to
+  `reportError`, and later operations still apply. `authority:1` rooms are not covered, since the
+  authority client does not write to a store.
+
+### Sync server 0.30.1 — sync pin
+
+**Changed**
+
+- Pins `@fieldnotes/sync` 0.30.1 and raises the `@fieldnotes/core` peer floor to 0.101.0.
+
+### Sync Redis 0.15.1 — core peer floor
+
+**Changed**
+
+- Raises the `@fieldnotes/core` peer floor to 0.101.0.
+
 ### Core 0.100.0 — hierarchy, clipping, and camera constraints
 
 **Added**

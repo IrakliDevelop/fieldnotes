@@ -39,4 +39,4 @@ A plugin adds element types, tools, render hooks, actions and services to a boar
 
 - `exportJSON`, `loadJSON`, `exportImage` and `exportSVG` on the viewport use its registry, so they know the marker type. The standalone `exportImage` and `exportSvg` functions need `elementRegistry: viewport.elementRegistry`.
 - A board without the plugin keeps the markers in a saved board, logs a warning and doesn't check their data.
-- Sync doesn't upgrade data, so everyone in a room should run the same version of the definition. When `data` changes shape, raise `dataVersion` and add `migrate`, as EXTENDING.md section 4 shows.
+- [`SyncClient`](/docs/multiplayer/) runs `migrate` on incoming elements with an older `dataVersion` and keeps newer data as is. A peer on an older definition can still edit newer data in its old shape, so everyone in a room should run the same version of the definition. When `data` changes shape, raise `dataVersion` and add `migrate`, as EXTENDING.md section 4 shows.

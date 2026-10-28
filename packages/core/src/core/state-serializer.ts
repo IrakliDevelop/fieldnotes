@@ -369,6 +369,18 @@ function validateElement(
   return envelope;
 }
 
+/** Migrates one element's extension data; returns the same reference when nothing changes. */
+export function migrateElementData(
+  element: CanvasElement,
+  registry: ElementRegistry = getDefaultElementRegistry(),
+): CanvasElement {
+  if (element.type !== 'extension') return element;
+  if (!isOptional(element.dataVersion, isPositiveInteger)) {
+    throw new Error(`Invalid element "${element.id}": invalid dataVersion`);
+  }
+  return migrateEnvelope(element, registry.getAdapter(element.extensionType));
+}
+
 function migrateEnvelope(
   envelope: ExtensionElementEnvelope,
   adapter: ElementTypeAdapter | undefined,
