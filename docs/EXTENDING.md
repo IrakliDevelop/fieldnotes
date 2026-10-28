@@ -196,7 +196,7 @@ const svg = await exportSvg(viewport.store, { elementRegistry: viewport.elementR
 ```
 
 Without it, the standalone exports fall back to the global registry and skip plugin elements' bounds
-and rendering. AutoSave defaults to the registry of the store it is given.
+and rendering. AutoSave defaults to the registry its store holds when it loads or saves.
 `viewport.loadJSON`, `viewport.exportState` and `viewport.exportImage`/`exportSVG` use the viewport
 registry automatically. In `@fieldnotes/sync`, `SyncClient` uses the registry of the store it is
 given, so `store: viewport.store` is enough; if you pass `elementRegistry` (also on
@@ -216,16 +216,19 @@ const definition: ElementTypeDefinition<Marker> = {
 ```
 
 - `register` throws when `dataVersion` is not a positive integer, or is above 1 without `migrate`.
-- `migrate` runs once per element on `parseState`, `viewport.loadJSON`, `viewport.loadState` and
-  `AutoSave.load` when the stored `dataVersion` (absent means 1) is lower than the current one. It
-  must return a plain object; the result is validated with `validateData` on
-  `parseState`/`loadJSON`/`AutoSave.load`; `loadState` trusts its input and only checks the result
-  is a record. The envelope is stamped with the current version. A throw fails the load with the
-  element id. Higher stored versions are left alone.
+- `migrate` runs once per element on `parseState`, `viewport.loadJSON`, `viewport.loadState`,
+  `AutoSave.load` and `migrateElementData(element, registry)` when the stored `dataVersion` (absent
+  means 1) is lower than the current one. `SyncClient` runs it on live, batch and snapshot upserts.
+  It must return a plain object and must not mutate the `data` it receives, which is passed by
+  reference. The result is validated with `validateData` on `parseState`/`loadJSON`/`AutoSave.load`;
+  `loadState`, `migrateElementData` and `SyncClient` only check the result is a record. The envelope
+  is stamped with the current version. A throw fails the load with the element id. Higher stored
+  versions are left alone.
 - Elements are stamped with the current `dataVersion` when added to a store whose registry knows
   the type, so saved and synced data always carries its version.
-- Sync never migrates: elements in memory are always current. Every peer in a room should run the
-  same definition version.
+- Remote data with a lower `dataVersion` is migrated on arrival; higher versions are kept as is. An
+  element whose `migrate` throws is skipped, the local copy stays, and the error goes to
+  `reportError`.
 
 ## 5. Paste and duplicate
 
