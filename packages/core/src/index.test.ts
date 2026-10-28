@@ -7,11 +7,23 @@ import type {
   ActionInvocation,
   ActionMenuPlacement,
   ActionSource,
+  CreateFrameOptions,
+  FrameData,
+  FrameElement,
 } from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
     expect(FN.VERSION).toBe('0.101.0');
+  });
+
+  it('exports the frame element surface', () => {
+    const data: FrameData = { title: 'Frame', color: '#64748b' };
+    const options: CreateFrameOptions = { position: { x: 0, y: 0 }, size: { w: 80, h: 48 } };
+    const frame: FrameElement = FN.createFrame(options);
+    expect(FN.FRAME_ELEMENT_TYPE).toBe('core:frame');
+    expect(FN.isFrameElement(frame)).toBe(true);
+    expect(FN.frameElementDefinition.validateData(data)).toBe(true);
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {

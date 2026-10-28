@@ -32,6 +32,7 @@ import { HistoryRecorder } from '../history/history-recorder';
 import type { Point } from '../core/types';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
+import { createFrame } from '../elements/frame-element';
 
 function makeSnapProxy(
   gridSize: number,
@@ -2907,6 +2908,32 @@ describe('SelectTool sized extension resize', () => {
       expect(renderSelection).toHaveBeenCalledTimes(1);
     },
   );
+
+  it('uses frame custom corner handles to clamp resize in one undo step', () => {
+    const frame = createFrame({ position: { x: 100, y: 100 }, size: { w: 120, h: 90 } });
+    const registry = new ElementRegistry();
+    const store = new ElementStore(registry);
+    store.add(frame);
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(store, stack);
+    const ctx = makeCtx({ store, elementRegistry: registry });
+    const tool = new SelectTool();
+    tool.onActivate(ctx);
+    tool.setSelection([frame.id]);
+
+    recorder.begin();
+    tool.onPointerDown(pt(96, 96), ctx);
+    tool.onPointerMove(pt(200, 200), ctx);
+    tool.onPointerUp(pt(200, 200), ctx);
+    recorder.commit();
+
+    const updated = store.getById(frame.id);
+    expect(updated?.position).toEqual({ x: 140, y: 142 });
+    expect('size' in (updated ?? {}) && updated.size).toEqual({ w: 80, h: 48 });
+    expect(stack.undoCount).toBe(1);
+    stack.undo(store);
+    expect(store.getById(frame.id)?.position).toEqual({ x: 100, y: 100 });
+  });
 });
 
 describe('SelectTool extension bounds from the context registry', () => {

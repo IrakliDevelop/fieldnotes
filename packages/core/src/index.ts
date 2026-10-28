@@ -218,6 +218,13 @@ export type { ElementUpdateEvent } from './elements/element-store';
 export type { ElementChangeMeta } from './elements/element-store';
 export type { FontSizePreset } from './elements/note-toolbar';
 export {
+  FRAME_ELEMENT_TYPE,
+  frameElementDefinition,
+  createFrame,
+  isFrameElement,
+} from './elements/frame-element';
+export type { FrameElement, FrameData, CreateFrameOptions } from './elements/frame-element';
+export {
   toggleBold,
   toggleItalic,
   toggleUnderline,

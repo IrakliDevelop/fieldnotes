@@ -179,6 +179,8 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   readonly legacyTypes: readonly string[];
   decodeLegacy(raw: Record<string, unknown>): T;
   validateData(data: Record<string, unknown>): boolean;
+  /** Validates the complete typed element after envelope data is unwrapped. */
+  validateElement?(el: T): boolean;
   unwrap(el: ExtensionElementEnvelope): T;
   wrap(el: T): ExtensionElementEnvelope;
   bounds(el: T): Bounds | null;
