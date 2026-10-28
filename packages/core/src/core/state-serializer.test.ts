@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   exportState,
+  CANVAS_STATE_VERSION,
   migrateElementData,
   migrateState,
   parseState,
@@ -24,6 +25,7 @@ import { createFrame } from '../elements/frame-element';
 import type { Layer } from '../layers/types';
 import { ElementRegistry } from '../elements/element-registry';
 import { Viewport } from '../canvas/viewport';
+import { SelectTool } from '../tools/select-tool';
 import { getDefaultElementRegistry, setDefaultElementRegistry } from '../elements/default-registry';
 import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
 
@@ -60,6 +62,9 @@ function makeCamera(x = 0, y = 0, zoom = 1) {
 }
 
 describe('exportState', () => {
+  it('keeps the persisted canvas format at version 6', () => {
+    expect(CANVAS_STATE_VERSION).toBe(6);
+  });
   it('exports version, camera, and elements', () => {
     const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] });
     const note = createNote({ position: { x: 10, y: 20 } });
@@ -1235,20 +1240,53 @@ describe('extension dataVersion', () => {
       const viewport = new Viewport(document.createElement('div'));
       const kept = createNote({ position: { x: 1, y: 2 } });
       viewport.store.add(kept);
+      const content = document.createElement('div');
+      content.textContent = 'kept content';
+      const htmlId = viewport.addHtmlElement(content, { x: 30, y: 40 });
+      const extraLayer = viewport.layerManager.createLayer('Kept layer');
+      viewport.layerManager.setActiveLayer(extraLayer.id);
+      viewport.camera.moveTo(40, 50);
+      viewport.camera.setZoom(2);
+      const select = new SelectTool();
+      viewport.toolManager.register(select);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      select.setSelection([kept.id]);
+      viewport.history.clear();
+      viewport.store.update(kept.id, { text: 'kept update' });
       const before = viewport.store.getById(kept.id);
       const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 } });
       const malformed = { ...frame, size: { w: 79, h: 48 } };
       const parented = { ...frame, parentId: kept.id };
+      const storeChanges = vi.fn();
+      const layerChanges = vi.fn();
+      const cameraChanges = vi.fn();
+      viewport.store.on('change', storeChanges);
+      viewport.layerManager.on('change', layerChanges);
+      viewport.camera.onChange(cameraChanges);
       const frameState = (element: CanvasElement): CanvasState => ({
         version: 6,
         camera: { position: { x: 0, y: 0 }, zoom: 1 },
         elements: [element],
-        layers: [layer],
+        layers: [layer, { ...extraLayer, id: 'incoming-layer' }],
       });
 
       expect(() => viewport.loadState(frameState(malformed))).toThrow('Invalid extension envelope');
       expect(() => viewport.loadState(frameState(parented))).toThrow(/Invalid hierarchy/);
       expect(viewport.store.getById(kept.id)).toEqual(before);
+      expect(viewport.store.getById(htmlId)?.type).toBe('html');
+      expect(content.textContent).toBe('kept content');
+      expect(viewport.layerManager.getLayers().map((current) => current.id)).toContain(
+        extraLayer.id,
+      );
+      expect(viewport.layerManager.activeLayerId).toBe(extraLayer.id);
+      expect(viewport.camera.position).toEqual({ x: 40, y: 50 });
+      expect(viewport.camera.zoom).toBe(2);
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.history.redoCount).toBe(0);
+      expect(viewport.getSelectedIds()).toEqual([kept.id]);
+      expect(storeChanges).not.toHaveBeenCalled();
+      expect(layerChanges).not.toHaveBeenCalled();
+      expect(cameraChanges).not.toHaveBeenCalled();
       viewport.destroy();
     });
   });
