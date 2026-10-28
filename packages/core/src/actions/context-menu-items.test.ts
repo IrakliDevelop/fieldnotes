@@ -310,4 +310,93 @@ describe('buildContextMenuItems', () => {
       expect(labels).not.toContain('Dissolve frame');
     }
   });
+
+  it.each([
+    ['an eligible root', ['root'], 'Frame selection'],
+    [
+      'a direct member with its redundant grandchild',
+      ['member', 'grandchild'],
+      'Remove from frame',
+    ],
+    ['one eligible frame', ['frame'], 'Dissolve frame'],
+  ])(
+    'adds exactly one frame command to the complete ordinary menu for %s',
+    (_name, selectedIds, label) => {
+      const registry = new ElementRegistry();
+      const store = new Store(registry);
+      const layers = new LayerManager(store);
+      const layerId = layers.activeLayerId;
+      const root = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+        id: 'root',
+      };
+      const frame = {
+        ...createFrame({
+          position: { x: 40, y: 0 },
+          size: { w: 100, h: 80 },
+          layerId,
+          index: 'a1',
+        }),
+        id: 'frame',
+      };
+      const member = {
+        ...createShape({
+          position: { x: 50, y: 30 },
+          size: { w: 20, h: 20 },
+          layerId,
+          index: 'a0',
+        }),
+        id: 'member',
+        parentId: frame.id,
+      };
+      const grandchild = {
+        ...createShape({
+          position: { x: 55, y: 35 },
+          size: { w: 10, h: 10 },
+          layerId,
+          index: 'a0',
+        }),
+        id: 'grandchild',
+        parentId: member.id,
+      };
+      store.add(root);
+      store.add(frame);
+      store.add(member);
+      store.add(grandchild);
+      const viewport = { elementRegistry: registry, layerManager: layers } as Viewport;
+      const ctx: ActionContext = { viewport, store, selectedIds };
+      const defs = createBuiltinActions({
+        keyboardActions: {} as never,
+        zoomByFactor: () => undefined,
+        zoomToLevel: () => undefined,
+        canPaste: () => false,
+      });
+      const items = buildContextMenuItems(fakeRegistry(defs, ctx), ctx);
+      expect(items).toEqual([
+        { label: 'Cut', action: 'edit.cut' },
+        { label: 'Copy', action: 'edit.copy' },
+        { label: 'Duplicate', action: 'edit.duplicate' },
+        { label: 'Delete', action: 'edit.delete' },
+        { separator: true },
+        { label: 'Bring to Front', action: 'arrange.bring-to-front' },
+        { label: 'Bring Forward', action: 'arrange.bring-forward' },
+        { label: 'Send Backward', action: 'arrange.send-backward' },
+        { label: 'Send to Back', action: 'arrange.send-to-back' },
+        {
+          label,
+          action:
+            label === 'Frame selection'
+              ? 'selection.frame'
+              : label === 'Remove from frame'
+                ? 'selection.remove-from-frame'
+                : 'selection.dissolve-frame',
+        },
+        { separator: true },
+        { label: 'Rotate 90° CW', action: 'arrange.rotate-cw' },
+        { label: 'Rotate 90° CCW', action: 'arrange.rotate-ccw' },
+        { separator: true },
+        { label: 'Lock', action: 'arrange.toggle-lock' },
+      ]);
+    },
+  );
 });

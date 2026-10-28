@@ -3,7 +3,7 @@ import type { Bounds } from '../core/types';
 import type { LayerManager } from '../layers/layer-manager';
 import { ElementStore } from './element-store';
 import { getElementVisualBounds } from './element-bounds';
-import { FRAME_ELEMENT_TYPE } from './frame-element';
+import { FRAME_ELEMENT_TYPE, isFrameElement } from './frame-element';
 import type { FrameElement } from './frame-element';
 import { getHierarchyClosure } from './hierarchy-ops';
 import type { ElementRegistry } from './element-registry';
@@ -29,7 +29,7 @@ function fail(message: string): never {
 }
 
 function isFrame(element: CanvasElement | undefined): element is FrameElement {
-  return element?.type === 'extension' && element.extensionType === FRAME_ELEMENT_TYPE;
+  return isFrameElement(element);
 }
 
 function scene(store: ElementStore): readonly CanvasElement[] {

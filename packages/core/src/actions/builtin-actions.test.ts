@@ -489,6 +489,51 @@ describe('createBuiltinActions', () => {
     expect(frameAction.perform(ctx(['missing']), defaultInvocation)).toBe(false);
     expect(viewport.frameSelection).toHaveBeenCalledTimes(1);
   });
+
+  it('returns false without calling stale frame commands', () => {
+    const registry = new ElementRegistry();
+    const store = new Store(registry);
+    const layers = new LayerManager(store);
+    const layerId = layers.activeLayerId;
+    const root = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'root',
+    };
+    const frame = {
+      ...createFrame({ position: { x: 30, y: 0 }, size: { w: 100, h: 80 }, layerId, index: 'a1' }),
+      id: 'frame',
+    };
+    const member = {
+      ...createShape({ position: { x: 40, y: 30 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'member',
+      parentId: frame.id,
+    };
+    store.add(root);
+    store.add(frame);
+    store.add(member);
+    const viewport = {
+      elementRegistry: registry,
+      layerManager: layers,
+      frameSelection: vi.fn(),
+      removeFromFrame: vi.fn(),
+      dissolveFrame: vi.fn(),
+    } as unknown as Viewport;
+    const actions = createBuiltinActions(makeDeps());
+    const ctx = (selectedIds: string[]): ActionContext => ({ viewport, store, selectedIds });
+    const cases = [
+      ['selection.frame', ['root'], root.id, 'frameSelection'],
+      ['selection.remove-from-frame', ['member'], member.id, 'removeFromFrame'],
+      ['selection.dissolve-frame', ['frame'], frame.id, 'dissolveFrame'],
+    ] as const;
+    for (const [actionId, selectedIds, id, command] of cases) {
+      const action = findAction(actions, actionId);
+      expect(action.enabled?.(ctx(selectedIds))).toBe(true);
+      store.update(id, { locked: true });
+      expect(action.perform(ctx(selectedIds), defaultInvocation)).toBe(false);
+      expect(viewport[command]).not.toHaveBeenCalled();
+      store.update(id, { locked: false });
+    }
+  });
 });
 
 describe('createToolAction', () => {

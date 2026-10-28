@@ -64,7 +64,7 @@ function menu(group: string, order: number): ActionMenuPlacement {
 // ---------------------------------------------------------------------------
 
 /**
- * Produce the 28 non-tool action definitions that replace the
+ * Produce the 31 non-tool action definitions that replace the
  * `KeyboardHandler.runAction` switch.  Order follows `DEFAULT_BINDINGS` in
  * `shortcut-map.ts`, with `edit.paste` inserted directly after `edit.copy`.
  */

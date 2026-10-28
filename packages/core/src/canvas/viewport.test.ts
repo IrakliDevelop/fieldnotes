@@ -4234,6 +4234,86 @@ describe('Viewport live html elements', () => {
       expect(viewport.redo()).toBe(true);
       expect(viewport.store.getById(frame.id)).toBeUndefined();
     });
+
+    it.each(['frame', 'add', 'remove', 'dissolve'] as const)(
+      '%s joins an outer transaction and replays membership on undo and redo',
+      (command) => {
+        const viewport = vp;
+        const layerId = viewport.layerManager.activeLayerId;
+        const root = {
+          ...createShape({
+            position: { x: 0, y: 0 },
+            size: { w: 20, h: 20 },
+            layerId,
+            index: 'a0',
+          }),
+          id: 'root',
+        };
+        const frame = {
+          ...createFrame({
+            position: { x: 30, y: 0 },
+            size: { w: 100, h: 80 },
+            layerId,
+            index: 'a1',
+          }),
+          id: 'frame',
+        };
+        const member = {
+          ...createShape({
+            position: { x: 40, y: 30 },
+            size: { w: 20, h: 20 },
+            layerId,
+            index: 'a0',
+          }),
+          id: 'member',
+          parentId: frame.id,
+        };
+        const grandchild = {
+          ...createShape({
+            position: { x: 45, y: 35 },
+            size: { w: 5, h: 5 },
+            layerId,
+            index: 'a0',
+          }),
+          id: 'grandchild',
+          parentId: member.id,
+        };
+        const unrelated = {
+          ...createShape({
+            position: { x: 150, y: 0 },
+            size: { w: 20, h: 20 },
+            layerId,
+            index: 'a2',
+          }),
+          id: 'unrelated',
+        };
+        viewport.store.add(root);
+        viewport.store.add(frame);
+        viewport.store.add(member);
+        viewport.store.add(grandchild);
+        viewport.store.add(unrelated);
+        select(viewport);
+        viewport.history.clear();
+        viewport.transaction(() => {
+          viewport.store.update(unrelated.id, { position: { x: 200, y: 0 } });
+          if (command === 'frame') viewport.frameSelection([root.id]);
+          if (command === 'add') viewport.addToFrame(frame.id, [root.id]);
+          if (command === 'remove') viewport.removeFromFrame(frame.id, [member.id, grandchild.id]);
+          if (command === 'dissolve') viewport.dissolveFrame(frame.id);
+        });
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.store.getById(unrelated.id)?.position).toEqual({ x: 200, y: 0 });
+        if (command === 'frame') expect(viewport.getSelectedIds()).toHaveLength(1);
+        if (command === 'add') expect(viewport.store.getById(root.id)?.parentId).toBe(frame.id);
+        if (command === 'remove')
+          expect(viewport.store.getById(member.id)?.parentId).toBeUndefined();
+        if (command === 'dissolve') expect(viewport.store.getById(frame.id)).toBeUndefined();
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(unrelated.id)?.position).toEqual({ x: 150, y: 0 });
+        expect(viewport.redo()).toBe(true);
+        expect(viewport.store.getById(unrelated.id)?.position).toEqual({ x: 200, y: 0 });
+      },
+    );
   });
 
   it('rejects cross-layer, full-canvas, and depth-33 parenting without side effects', () => {
