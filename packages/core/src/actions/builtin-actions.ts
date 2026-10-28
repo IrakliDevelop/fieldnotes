@@ -1,5 +1,6 @@
 import type { KeyboardActions } from '../canvas/keyboard-actions';
 import type { ActionContext, ActionDefinition, ActionMenuPlacement } from './types';
+import { canDissolveFrame, canFrameSelection, removableFrameId } from '../elements/frame-commands';
 
 /**
  * Dependencies required by the built-in action table.  The viewport wires
@@ -213,6 +214,84 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       menu: menu('arrange', 40),
       enabled: hasSelection,
       perform: () => ka.zOrder('back'),
+    },
+    {
+      id: 'selection.frame',
+      label: 'Frame selection',
+      keywords: ['frame', 'container'],
+      icon: 'frame',
+      menu: menu('arrange', 50),
+      enabled: (ctx) =>
+        canFrameSelection(
+          ctx.selectedIds,
+          ctx.store,
+          ctx.viewport.elementRegistry,
+          ctx.viewport.layerManager,
+        ),
+      perform: (ctx) => {
+        if (
+          !canFrameSelection(
+            ctx.selectedIds,
+            ctx.store,
+            ctx.viewport.elementRegistry,
+            ctx.viewport.layerManager,
+          )
+        ) {
+          return false;
+        }
+        ctx.viewport.frameSelection(ctx.selectedIds);
+      },
+    },
+    {
+      id: 'selection.remove-from-frame',
+      label: 'Remove from frame',
+      keywords: ['frame', 'remove', 'container'],
+      icon: 'frame-remove',
+      menu: menu('arrange', 60),
+      enabled: (ctx) =>
+        removableFrameId(
+          ctx.selectedIds,
+          ctx.store,
+          ctx.viewport.elementRegistry,
+          ctx.viewport.layerManager,
+        ) !== undefined,
+      perform: (ctx) => {
+        const frameId = removableFrameId(
+          ctx.selectedIds,
+          ctx.store,
+          ctx.viewport.elementRegistry,
+          ctx.viewport.layerManager,
+        );
+        if (!frameId) return false;
+        ctx.viewport.removeFromFrame(frameId, ctx.selectedIds);
+      },
+    },
+    {
+      id: 'selection.dissolve-frame',
+      label: 'Dissolve frame',
+      keywords: ['frame', 'dissolve', 'container'],
+      icon: 'frame-dissolve',
+      menu: menu('arrange', 70),
+      enabled: (ctx) =>
+        canDissolveFrame(
+          ctx.selectedIds,
+          ctx.store,
+          ctx.viewport.elementRegistry,
+          ctx.viewport.layerManager,
+        ),
+      perform: (ctx) => {
+        if (
+          !canDissolveFrame(
+            ctx.selectedIds,
+            ctx.store,
+            ctx.viewport.elementRegistry,
+            ctx.viewport.layerManager,
+          )
+        ) {
+          return false;
+        }
+        ctx.viewport.dissolveFrame(ctx.selectedIds[0] ?? '');
+      },
     },
     // --- view.zoom-to-fit (was 'zoom-fit') ---
     {

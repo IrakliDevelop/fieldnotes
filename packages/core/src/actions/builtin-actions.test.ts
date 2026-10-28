@@ -103,6 +103,9 @@ const EXPECTED_IDS = [
   'arrange.send-backward',
   'arrange.bring-to-front',
   'arrange.send-to-back',
+  'selection.frame',
+  'selection.remove-from-frame',
+  'selection.dissolve-frame',
   'view.zoom-to-fit',
   'view.zoom-in',
   'view.zoom-out',
@@ -135,6 +138,9 @@ const EXPECTED_SHORTCUTS: Record<string, readonly string[] | undefined> = {
   'arrange.send-backward': ['['],
   'arrange.bring-to-front': ['mod+]'],
   'arrange.send-to-back': ['mod+['],
+  'selection.frame': undefined,
+  'selection.remove-from-frame': undefined,
+  'selection.dissolve-frame': undefined,
   'view.zoom-to-fit': ['shift+1'],
   'view.zoom-in': ['mod+='],
   'view.zoom-out': ['mod+-'],
@@ -283,6 +289,9 @@ describe('createBuiltinActions', () => {
       'arrange.bring-forward': { group: 'arrange', order: 20 },
       'arrange.send-backward': { group: 'arrange', order: 30 },
       'arrange.send-to-back': { group: 'arrange', order: 40 },
+      'selection.frame': { group: 'arrange', order: 50 },
+      'selection.remove-from-frame': { group: 'arrange', order: 60 },
+      'selection.dissolve-frame': { group: 'arrange', order: 70 },
       'arrange.rotate-cw': { group: 'transform', order: 10 },
       'arrange.rotate-ccw': { group: 'transform', order: 20 },
       'arrange.toggle-lock': { group: 'lock', order: 10 },
@@ -297,9 +306,9 @@ describe('createBuiltinActions', () => {
       }
     }
 
-    // Verify exactly 12 menu actions
+    // Verify exactly 15 menu actions
     const menuActions = actions.filter((a) => a.menu !== undefined);
-    expect(menuActions).toHaveLength(12);
+    expect(menuActions).toHaveLength(15);
   });
 
   it('enabled: selection actions need selectedIds, edit.paste needs canPaste, undo/redo/view always', () => {

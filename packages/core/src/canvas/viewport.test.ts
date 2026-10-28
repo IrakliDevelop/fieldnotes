@@ -2707,13 +2707,13 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('viewport.actions.list() contains the 28 built-ins followed by tool.* for every registered tool, and shortcuts.getBindings() has canonical keys only', () => {
+    it('viewport.actions.list() contains the 31 built-ins followed by tool.* for every registered tool, and shortcuts.getBindings() has canonical keys only', () => {
       const viewport = new Viewport(container);
       setupSelect(viewport);
       const list = viewport.actions.list();
-      // 28 built-ins + tool.select (registered by setupSelect)
+      // 31 built-ins + tool.select (registered by setupSelect)
       const builtins = list.filter((a) => !a.id.startsWith('tool.'));
-      expect(builtins).toHaveLength(28);
+      expect(builtins).toHaveLength(31);
       const tools = list.filter((a) => a.id.startsWith('tool.'));
       expect(tools.some((t) => t.id === 'tool.select')).toBe(true);
       // getBindings has only canonical keys (every key contains '.')
@@ -2800,7 +2800,7 @@ describe('Viewport', () => {
       });
     }
 
-    it('with a selection the menu shows the 12 base items in base order with separators after Delete, Send to Back, Rotate 90° CCW', () => {
+    it('with a selection the menu includes frame selection after the z-order items', () => {
       const viewport = new Viewport(container);
       const select = setupSelect(viewport);
       const a = createNote({
@@ -2824,6 +2824,7 @@ describe('Viewport', () => {
         'Bring Forward',
         'Send Backward',
         'Send to Back',
+        'Frame selection',
         '---',
         'Rotate 90° CW',
         'Rotate 90° CCW',
