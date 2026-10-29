@@ -2711,7 +2711,6 @@ describe('Viewport', () => {
       const viewport = new Viewport(container);
       setupSelect(viewport);
       const list = viewport.actions.list();
-      // 31 built-ins + tool.select (registered by setupSelect)
       const builtins = list.filter((a) => !a.id.startsWith('tool.'));
       expect(builtins).toHaveLength(31);
       const tools = list.filter((a) => a.id.startsWith('tool.'));
@@ -4362,7 +4361,11 @@ describe('Viewport live html elements', () => {
         redoCount: viewport.history.redoCount,
       }).toEqual(before);
       expect(
-        viewport.store.getAll().some((element) => element.extensionType === 'core:frame'),
+        viewport.store
+          .getAll()
+          .some(
+            (element) => element.type === 'extension' && element.extensionType === 'core:frame',
+          ),
       ).toBe(false);
       expect(Object.hasOwn(viewport.store.getById(arrow.id) ?? {}, 'cachedControlPoint')).toBe(
         false,

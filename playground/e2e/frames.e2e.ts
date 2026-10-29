@@ -452,15 +452,20 @@ test('resizes a frame without moving children and clips the crossed child edge',
     const select = viewport.toolManager.getTool<SelectTool>('select');
     if (!select) throw new Error('select tool is missing');
     select.setSelection(['resize-frame']);
-    const frame = viewport.store.getById('resize-frame') as {
-      position: { x: number; y: number };
-      size: { w: number; h: number };
-    };
-    const child = viewport.store.getById('resize-child') as {
-      position: { x: number; y: number };
-      size: { w: number; h: number };
-      version: number;
-    };
+    const frame = viewport.store.getById('resize-frame');
+    if (
+      !frame ||
+      frame.type !== 'extension' ||
+      frame.extensionType !== 'core:frame' ||
+      !('size' in frame) ||
+      !frame.size
+    ) {
+      throw new Error('resize frame is missing or invalid');
+    }
+    const child = viewport.store.getById('resize-child');
+    if (!child || child.type !== 'shape' || !('size' in child)) {
+      throw new Error('resize child is missing or invalid');
+    }
     return {
       frame,
       child,
@@ -483,12 +488,20 @@ test('resizes a frame without moving children and clips the crossed child edge',
   }
   const resized = await page.evaluate(() => {
     const viewport = window.__playground.viewport;
-    const frame = viewport.store.getById('resize-frame') as { size: { w: number; h: number } };
-    const child = viewport.store.getById('resize-child') as {
-      position: { x: number; y: number };
-      size: { w: number; h: number };
-      version: number;
-    };
+    const frame = viewport.store.getById('resize-frame');
+    if (
+      !frame ||
+      frame.type !== 'extension' ||
+      frame.extensionType !== 'core:frame' ||
+      !('size' in frame) ||
+      !frame.size
+    ) {
+      throw new Error('resized frame is missing or invalid');
+    }
+    const child = viewport.store.getById('resize-child');
+    if (!child || child.type !== 'shape' || !('size' in child)) {
+      throw new Error('resized child is missing or invalid');
+    }
     return {
       frame: frame.size,
       child,
@@ -528,14 +541,19 @@ test('resizes a frame without moving children and clips the crossed child edge',
   expect(pixels.clipped[1]).toBeLessThan(100);
   await page.evaluate(() => window.__playground.viewport.undo());
   expect(
-    await page.evaluate(
-      () =>
-        (
-          window.__playground.viewport.store.getById('resize-frame') as {
-            size: { w: number; h: number };
-          }
-        ).size,
-    ),
+    await page.evaluate(() => {
+      const frame = window.__playground.viewport.store.getById('resize-frame');
+      if (
+        !frame ||
+        frame.type !== 'extension' ||
+        frame.extensionType !== 'core:frame' ||
+        !('size' in frame) ||
+        !frame.size
+      ) {
+        throw new Error('undone resize frame is missing or invalid');
+      }
+      return frame.size;
+    }),
   ).toEqual(fixture.frame.size);
   expect(errors).toEqual([]);
 });

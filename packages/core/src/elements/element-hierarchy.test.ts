@@ -98,7 +98,7 @@ describe('ElementHierarchy', () => {
 
     expect(() =>
       validateHierarchy(
-        new Map([
+        new Map<string, CanvasElement>([
           [root.id, root],
           [child.id, child],
         ]),

@@ -210,7 +210,7 @@ describe('ElementStore', () => {
       const change = vi.fn();
       store.on('add', add);
       store.on('update', update);
-      store.on('change', change);
+      store.onChange(change);
 
       expect(() => store.update(frame.id, partial, { origin: 'remote' })).toThrow(
         `Invalid extension envelope "${frame.id}" of type "core:frame"`,
@@ -233,7 +233,7 @@ describe('ElementStore', () => {
         const add = vi.fn();
         const change = vi.fn();
         store.on('add', add);
-        store.on('change', change);
+        store.onChange(change);
         const invalid = {
           ...createFrame({ position: { x: 200, y: 200 }, size: { w: 80, h: 48 } }),
           rotation: 1,
@@ -268,7 +268,7 @@ describe('ElementStore', () => {
         const update = vi.fn();
         const change = vi.fn();
         store.on('update', update);
-        store.on('change', change);
+        store.onChange(change);
 
         expect(() =>
           store.updateMany(
@@ -302,7 +302,7 @@ describe('ElementStore', () => {
         const change = vi.fn();
         store.on('clear', clear);
         store.on('add', add);
-        store.on('change', change);
+        store.onChange(change);
         const id = 'duplicate-frame';
         const malformed = {
           ...createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 } }),

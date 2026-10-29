@@ -512,7 +512,17 @@ describe('rotateSelection', () => {
     registry.register<ExtensionElementEnvelope>({
       type: 'test:rotatable',
       legacyTypes: [],
-      decodeLegacy: (raw) => raw as ExtensionElementEnvelope,
+      decodeLegacy: () => ({
+        id: 'legacy',
+        type: 'extension',
+        extensionType: 'test:rotatable',
+        position: { x: 0, y: 0 },
+        index: '',
+        version: 1,
+        locked: false,
+        layerId: '',
+        data: {},
+      }),
       validateData: () => true,
       unwrap: (element) => element,
       wrap: (element) => element,

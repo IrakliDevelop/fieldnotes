@@ -14,8 +14,10 @@ function frame(): FrameElement {
 
 function interaction() {
   const value = frameElementDefinition.interaction;
-  if (!value?.hitTestHandle || !value.updateHandle) throw new Error('Missing frame interaction');
-  return value;
+  const hitTestHandle = value?.hitTestHandle;
+  const updateHandle = value?.updateHandle;
+  if (!hitTestHandle || !updateHandle) throw new Error('Missing frame interaction');
+  return { hitTestHandle, updateHandle };
 }
 
 describe('frame element', () => {

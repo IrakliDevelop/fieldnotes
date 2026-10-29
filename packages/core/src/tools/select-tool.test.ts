@@ -2946,7 +2946,8 @@ describe('SelectTool sized extension resize', () => {
 
     const updated = store.getById(frame.id);
     expect(updated?.position).toEqual({ x: 140, y: 142 });
-    expect('size' in (updated ?? {}) && updated.size).toEqual({ w: 80, h: 48 });
+    if (!updated || !('size' in updated)) throw new Error('Resized frame is missing');
+    expect(updated.size).toEqual({ w: 80, h: 48 });
     expect(stack.undoCount).toBe(1);
     stack.undo(store);
     expect(store.getById(frame.id)?.position).toEqual({ x: 100, y: 100 });

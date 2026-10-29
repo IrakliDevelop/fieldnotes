@@ -311,7 +311,6 @@ describe('createBuiltinActions', () => {
       }
     }
 
-    // Verify exactly 15 menu actions
     const menuActions = actions.filter((a) => a.menu !== undefined);
     expect(menuActions).toHaveLength(15);
   });
@@ -469,7 +468,11 @@ describe('createBuiltinActions', () => {
     const frameAction = findAction(actions, 'selection.frame');
     const removeAction = findAction(actions, 'selection.remove-from-frame');
     const dissolveAction = findAction(actions, 'selection.dissolve-frame');
-    const ctx = (selectedIds: string[]): ActionContext => ({ viewport, store, selectedIds });
+    const ctx = (selectedIds: readonly string[]): ActionContext => ({
+      viewport,
+      store,
+      selectedIds,
+    });
 
     expect(frameAction.enabled?.(ctx(['root']))).toBe(true);
     expect(frameAction.perform(ctx(['root']), defaultInvocation)).toBeUndefined();
@@ -519,7 +522,11 @@ describe('createBuiltinActions', () => {
       dissolveFrame: vi.fn(),
     } as unknown as Viewport;
     const actions = createBuiltinActions(makeDeps());
-    const ctx = (selectedIds: string[]): ActionContext => ({ viewport, store, selectedIds });
+    const ctx = (selectedIds: readonly string[]): ActionContext => ({
+      viewport,
+      store,
+      selectedIds,
+    });
     const cases = [
       ['selection.frame', ['root'], root.id, 'frameSelection'],
       ['selection.remove-from-frame', ['member'], member.id, 'removeFromFrame'],

@@ -130,7 +130,11 @@ describe('frame commands', () => {
       { id: 'upper', partial: { parentId: undefined, index: 'ZzV' } },
       { id: 'lower', partial: { parentId: undefined, index: 'a0' } },
     ]);
-    expect(plan.updates.map((update) => update.partial.index).every(isValidIndexKey)).toBe(true);
+    expect(
+      plan.updates
+        .map((update) => update.partial.index)
+        .every((index) => typeof index === 'string' && isValidIndexKey(index)),
+    ).toBe(true);
   });
 
   it.each([
