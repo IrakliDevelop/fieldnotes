@@ -95,11 +95,14 @@ describe('exportSvg', () => {
     store.add(child);
     store.add(overlap);
 
-    const svg = await exportSvg(store, { frameId: frame.id });
+    const svg = await exportSvg(store, {
+      frameId: frame.id,
+      padding: 0.0625,
+      background: '#123456',
+    });
 
-    expect(svg).toContain(
-      'width="80.0625" height="24.0625" viewBox="10.0625 44.0625 80.0625 24.0625"',
-    );
+    expect(svg).toContain('width="80.1875" height="24.1875" viewBox="10 44 80.1875 24.1875"');
+    expect(svg).toContain('<rect x="10" y="44" width="80.1875" height="24.1875" fill="#123456" />');
     expect(svg).toContain('#00ff00');
     expect(svg).not.toContain('#ff0000');
     expect(svg).not.toContain('Frame');

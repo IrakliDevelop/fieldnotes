@@ -283,6 +283,7 @@ export async function exportSvg(
   const filter = options.filter;
   const registry = options.elementRegistry ?? getDefaultElementRegistry();
   const frameExport = resolveFrameExport(store, options.frameId);
+  const rootNumber = frameExport ? (value: number): string => `${value}` : n;
 
   const allElements = store.getAll();
   let visibleElements = frameExport
@@ -364,7 +365,7 @@ export async function exportSvg(
   for (const [id, uri] of canvasHtmlDataUris) htmlDataUris.set(id, uri);
 
   const backgroundSvg = options.background
-    ? `<rect x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" fill="${esc(options.background)}" />`
+    ? `<rect x="${rootNumber(bounds.x)}" y="${rootNumber(bounds.y)}" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" fill="${esc(options.background)}" />`
     : '';
 
   const fullCanvasSvg: string[] = [];
@@ -378,7 +379,7 @@ export async function exportSvg(
       const adapter = registry.getAdapter(el.extensionType);
       if (adapter?.emitSvg) {
         const viewBox = { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h };
-        const emitted = adapter.emitSvg(el, visibleElements, viewBox);
+        const emitted = adapter.emitSvg(el, allElements, viewBox);
         const opacity = layerManager?.getLayer?.(el.layerId)?.opacity ?? 1;
         fullCanvasSvg.push(opacity === 1 ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`);
       }
@@ -489,7 +490,6 @@ export async function exportSvg(
 
   body += hookSvg.join('');
 
-  const rootNumber = frameExport ? (value: number): string => `${value}` : n;
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" ` +
     `viewBox="${rootNumber(bounds.x)} ${rootNumber(bounds.y)} ${rootNumber(bounds.w)} ${rootNumber(bounds.h)}">${body}</svg>`

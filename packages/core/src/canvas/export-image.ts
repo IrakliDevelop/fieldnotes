@@ -651,7 +651,7 @@ export async function exportImage(
         maxX: bounds.x + bounds.w,
         maxY: bounds.y + bounds.h,
       };
-      adapter.render(ctx, el, visibleElements, worldBounds);
+      adapter.render(ctx, el, allElements, worldBounds);
       ctx.restore();
     }
   }

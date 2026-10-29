@@ -15,8 +15,11 @@ export function resolveFrameExport(
   const clipBounds = store.elementRegistry.getAdapter(frame.extensionType)?.clipBounds;
   if (!clipBounds) throw new RangeError('frameId must identify a frame with clip bounds');
 
+  const region = clipBounds(frame);
+  if (!region) throw new RangeError('frameId must identify a frame with clip bounds');
+
   return {
-    region: { ...clipBounds(frame) },
+    region: { ...region },
     descendantIds: new Set(store.getDescendants(frameId).map((element) => element.id)),
   };
 }
