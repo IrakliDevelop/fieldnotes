@@ -108,6 +108,126 @@ describe('exportSvg', () => {
     expect(svg).not.toContain('Frame');
   });
 
+  it('composes frame membership, filtered-parent clips, layer opacity, and exact background', async () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:frame-clip',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:frame-clip',
+        data: {},
+      }),
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 20, h: 20 }),
+      clipBounds: (element) => ({ x: element.position.x, y: element.position.y, w: 20, h: 20 }),
+      emitSvg: () => '',
+    });
+    const store = new ElementStore(registry);
+    const frame = createFrame({
+      position: { x: 10.0625, y: 20.0625 },
+      size: { w: 80.0625, h: 48.0625 },
+    });
+    frame.id = 'svg-frame';
+    frame.layerId = 'faded';
+    store.add(frame);
+    store.add({
+      id: 'clip',
+      type: 'extension',
+      extensionType: 'test:frame-clip',
+      position: { x: 20, y: 50 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: 'faded',
+      parentId: frame.id,
+      data: {},
+    });
+    store.add(
+      Object.assign(
+        createShape({
+          parentId: 'clip',
+          position: { x: 22, y: 52 },
+          size: { w: 8, h: 8 },
+          fillColor: '#00ff00',
+          layerId: 'faded',
+        }),
+        { id: 'included' },
+      ),
+    );
+    store.add(
+      Object.assign(
+        createShape({ position: { x: 22, y: 52 }, size: { w: 8, h: 8 }, fillColor: '#ff0000' }),
+        { id: 'overlap' },
+      ),
+    );
+
+    const svg = await exportSvg(
+      store,
+      {
+        frameId: frame.id,
+        padding: 0.0625,
+        background: '#123456',
+        filter: (element) => element.id !== 'clip',
+      },
+      { isLayerVisible: () => true, getLayer: () => ({ opacity: 0.5 }) } as never,
+    );
+
+    expect(svg).toContain('viewBox="10 44 80.1875 24.1875"');
+    expect(svg).toContain('<clipPath');
+    expect(svg).toContain('opacity="0.5"');
+    expect(svg).toContain('#00ff00');
+    expect(svg).toContain('#123456');
+    expect(svg).not.toContain('#ff0000');
+  });
+
+  it('runs empty-frame SVG hooks in order and fails capabilities closed', async () => {
+    const store = new ElementStore();
+    const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } });
+    store.add(frame);
+    const order: string[] = [];
+    const hooks = createRenderHooks();
+    hooks.svgExport.register(
+      { afterElements: () => order.push('registered') },
+      { satisfies: ['x'] },
+    );
+
+    const context = {
+      translate: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context);
+    const toDataUrl = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockReturnValue('data:image/png;base64,hook');
+
+    try {
+      const svg = await exportSvg(store, {
+        frameId: frame.id,
+        padding: 2,
+        afterElements: () => order.push('legacy'),
+        renderHooks: hooks,
+        requiredCapabilities: ['x'],
+      });
+      expect(order).toEqual(['legacy', 'registered']);
+      expect(svg).toContain('viewBox="-2 22 84 28"');
+      await expect(
+        exportSvg(store, {
+          frameId: frame.id,
+          renderHooks: hooks,
+          requiredCapabilities: ['missing'],
+        }),
+      ).rejects.toThrow('missing');
+    } finally {
+      getContext.mockRestore();
+      toDataUrl.mockRestore();
+    }
+  });
+
   it('emits exact scene-order clips without masking clipping parents', async () => {
     const registry = new ElementRegistry();
     registry.register({

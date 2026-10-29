@@ -379,7 +379,7 @@ export async function exportSvg(
       const adapter = registry.getAdapter(el.extensionType);
       if (adapter?.emitSvg) {
         const viewBox = { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h };
-        const emitted = adapter.emitSvg(el, allElements, viewBox);
+        const emitted = adapter.emitSvg(el, visibleElements, viewBox);
         const opacity = layerManager?.getLayer?.(el.layerId)?.opacity ?? 1;
         fullCanvasSvg.push(opacity === 1 ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`);
       }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createShape } from '../elements/element-factory';
 import { createFrame } from '../elements/frame-element';
 import { ElementStore } from '../elements/element-store';
@@ -78,5 +78,21 @@ describe('resolveFrameExport', () => {
 
     expect(resolveFrameExport(store, valid.id)?.region).toEqual({ x: 0, y: 24, w: 80, h: 24 });
     expect(() => resolveFrameExport(store, invalid.id)).toThrow(/frameId/);
+  });
+
+  it('rejects a frame adapter whose clip bounds are null', () => {
+    const store = new ElementStore();
+    const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } });
+    const adapter = store.elementRegistry.getAdapter(frame.extensionType);
+    if (!adapter?.clipBounds) throw new Error('Frame adapter has no clip bounds');
+    const clipBounds = vi.spyOn(adapter, 'clipBounds').mockReturnValue(null);
+
+    try {
+      store.add(frame);
+      expect(() => resolveFrameExport(store, frame.id)).toThrow(RangeError);
+      expect(() => resolveFrameExport(store, frame.id)).toThrow(/frameId/);
+    } finally {
+      clipBounds.mockRestore();
+    }
   });
 });

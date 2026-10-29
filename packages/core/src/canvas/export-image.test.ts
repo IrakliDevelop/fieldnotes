@@ -352,6 +352,81 @@ describe('exportImage', () => {
     createSpy.mockRestore();
   });
 
+  it('keeps exact frame bounds through layer/filter, padding, scale, and caps', async () => {
+    const store = new ElementStore();
+    const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 80, h: 48 } });
+    frame.id = 'exact-frame';
+    store.add(frame);
+    const createSpy = vi.spyOn(document, 'createElement');
+
+    await expect(
+      exportImage(store, {
+        frameId: frame.id,
+        padding: 3,
+        scale: 2,
+        filter: () => false,
+        maxDimension: 171,
+      }),
+    ).rejects.toThrow('maximum dimension');
+    await exportImage(store, {
+      frameId: frame.id,
+      padding: 3,
+      scale: 2,
+      scaleMode: 'fit',
+      filter: () => false,
+      maxDimension: 171,
+    });
+
+    const canvas = createSpy.mock.results.find(
+      (result) => result.type === 'return' && result.value instanceof HTMLCanvasElement,
+    )?.value as HTMLCanvasElement | undefined;
+    expect(canvas?.width).toBe(171);
+    expect(canvas?.height).toBeLessThanOrEqual(171);
+    createSpy.mockRestore();
+  });
+
+  it('runs empty-frame legacy and registered hooks in order and fails capabilities closed', async () => {
+    const store = new ElementStore();
+    const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } });
+    store.add(frame);
+    const order: string[] = [];
+    const hooks = createRenderHooks();
+    hooks.imageExport.register(
+      { afterElements: () => order.push('registered') },
+      { satisfies: ['x'] },
+    );
+
+    const context = mockCanvasCtx();
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as never);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toBlob')
+      .mockImplementation((callback) => callback(new Blob(['frame'])));
+
+    try {
+      await exportImage(store, {
+        frameId: frame.id,
+        padding: 2,
+        scale: 2,
+        afterElements: () => order.push('legacy'),
+        renderHooks: hooks,
+        requiredCapabilities: ['x'],
+      });
+      expect(order).toEqual(['legacy', 'registered']);
+      await expect(
+        exportImage(store, {
+          frameId: frame.id,
+          renderHooks: hooks,
+          requiredCapabilities: ['missing'],
+        }),
+      ).rejects.toThrow('missing');
+    } finally {
+      getContext.mockRestore();
+      toBlob.mockRestore();
+    }
+  });
+
   it.each([
     [{ scale: 0 }, 'scale'],
     [{ scale: Number.NaN }, 'scale'],

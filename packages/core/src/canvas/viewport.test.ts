@@ -3469,8 +3469,33 @@ describe('Viewport html painters', () => {
       expect(painter).toHaveBeenCalled();
     });
 
-    it('passes frameId through both exporters with the viewport registry', async () => {
+    it('inherits registry, painter, and export hooks for a frame crop', async () => {
       const vp = makeViewport();
+      const rendered: string[] = [];
+      const painted = vi.fn();
+      const imageHook = vi.fn();
+      const svgHook = vi.fn();
+      vp.elementRegistry.register({
+        type: 'test:viewport-export',
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('no legacy');
+        },
+        validateData: () => true,
+        unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+        wrap: ({ type: _type, ...base }) => ({
+          ...base,
+          type: 'extension',
+          extensionType: 'test:viewport-export',
+          data: {},
+        }),
+        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 5, h: 5 }),
+        render: (_ctx, element) => rendered.push(element.id),
+        emitSvg: (element) => `<g data-viewport-export="${element.id}" />`,
+      });
+      vp.registerHtmlPainter('viewport-export-html', painted);
+      vp.renderHooks.imageExport.register({ afterElements: imageHook });
+      vp.renderHooks.svgExport.register({ afterElements: svgHook });
       const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 80, h: 48 } });
       frame.id = 'frame-export';
       const child = createShape({
@@ -3479,11 +3504,39 @@ describe('Viewport html painters', () => {
         size: { w: 10, h: 10 },
         fillColor: '#00ff00',
       });
+      const extension: ExtensionElementEnvelope = {
+        id: 'viewport-export-extension',
+        type: 'extension',
+        extensionType: 'test:viewport-export',
+        position: { x: 30, y: 50 },
+        index: 'a1',
+        version: 1,
+        locked: false,
+        layerId: '',
+        parentId: frame.id,
+        data: {},
+      };
+      const html = createHtmlElement({
+        parentId: frame.id,
+        position: { x: 40, y: 50 },
+        size: { w: 5, h: 5 },
+        htmlType: 'viewport-export-html',
+      });
+      const overlap = createShape({ position: { x: 30, y: 50 }, size: { w: 5, h: 5 } });
       vp.store.add(frame);
       vp.store.add(child);
+      vp.store.add(extension);
+      vp.store.add(html);
+      vp.store.add(overlap);
 
       await expect(vp.exportImage({ frameId: frame.id, scale: 1 })).resolves.toBeInstanceOf(Blob);
-      await expect(vp.exportSVG({ frameId: frame.id })).resolves.toContain('viewBox="10 44 80 24"');
+      await expect(vp.exportSVG({ frameId: frame.id })).resolves.toContain(
+        'data-viewport-export="viewport-export-extension"',
+      );
+      expect(rendered).toEqual(['viewport-export-extension']);
+      expect(painted).toHaveBeenCalledTimes(2);
+      expect(imageHook).toHaveBeenCalledTimes(1);
+      expect(svgHook).toHaveBeenCalledTimes(1);
       vp.destroy();
     });
   });

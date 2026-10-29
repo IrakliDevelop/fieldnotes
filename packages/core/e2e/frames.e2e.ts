@@ -170,7 +170,7 @@ test.describe('frame tool', () => {
   });
 });
 
-test('exports a frame content crop without its chrome or overlapping roots', async ({ page }) => {
+test('exports rich frame contents as real PNG pixels and structured SVG', async ({ page }) => {
   const { errors } = await openCanvas(page);
   const result = await page.evaluate(async () => {
     const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
@@ -230,8 +230,22 @@ test('exports a frame content crop without its chrome or overlapping roots', asy
     const image = await viewport.exportImage({ frameId, scale: 1, padding: 24 });
     if (!image) throw new Error('Frame image was not created');
     const bitmap = await createImageBitmap(image);
+    const surface = document.createElement('canvas');
+    surface.width = bitmap.width;
+    surface.height = bitmap.height;
+    const context = surface.getContext('2d');
+    if (!context) throw new Error('Scratch canvas was not created');
+    context.drawImage(bitmap, 0, 0);
+    const sample = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
     const svg = await viewport.exportSVG({ frameId, padding: 24 });
-    return { width: bitmap.width, height: bitmap.height, svg };
+    return {
+      width: bitmap.width,
+      height: bitmap.height,
+      svg,
+      child: sample(35, 35),
+      header: sample(30, 5),
+      unrelated: sample(75, 45),
+    };
   });
 
   expect(result.width).toBe(128);
@@ -240,5 +254,86 @@ test('exports a frame content crop without its chrome or overlapping roots', asy
   expect(result.svg).toContain('#00ff00');
   expect(result.svg).not.toContain('#ff0000');
   expect(result.svg).not.toContain('Hidden chrome');
+  expect(result.child[1]).toBeGreaterThan(240);
+  expect(result.header[3]).toBe(0);
+  expect(result.unrelated[3]).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('exports empty frame backgrounds and encoding without changing board defaults', async ({
+  page,
+}) => {
+  const { errors } = await openCanvas(page);
+  const result = await page.evaluate(async () => {
+    const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+      store: { add: (element: unknown) => void };
+      exportImage: (options: {
+        frameId: string;
+        padding?: number;
+        scale?: number;
+        background?: string;
+        format?: 'jpeg';
+      }) => Promise<Blob | null>;
+      exportSVG: (options: {
+        frameId: string;
+        padding?: number;
+        background?: string;
+      }) => Promise<string>;
+    };
+    const frameId = 'e2e-empty-export-frame';
+    viewport.store.add({
+      id: frameId,
+      type: 'extension',
+      extensionType: 'core:frame',
+      position: { x: 10, y: 20 },
+      size: { w: 80, h: 48 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      dataVersion: 1,
+      data: { title: 'Empty', color: '#64748b' },
+    });
+    const png = await viewport.exportImage({ frameId, padding: 2, scale: 1 });
+    const colored = await viewport.exportImage({
+      frameId,
+      padding: 2,
+      scale: 1,
+      background: '#123456',
+    });
+    const jpeg = await viewport.exportImage({ frameId, format: 'jpeg', scale: 1 });
+    const svg = await viewport.exportSVG({ frameId, padding: 2, background: '#123456' });
+    if (!png || !colored || !jpeg) throw new Error('Empty frame image was not created');
+    const pngBitmap = await createImageBitmap(png);
+    const coloredBitmap = await createImageBitmap(colored);
+    const jpegBitmap = await createImageBitmap(jpeg);
+    const alpha = (bitmap: ImageBitmap) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Scratch canvas was not created');
+      context.drawImage(bitmap, 0, 0);
+      return [
+        ...context.getImageData(Math.floor(bitmap.width / 2), Math.floor(bitmap.height / 2), 1, 1)
+          .data,
+      ];
+    };
+    return {
+      png: [pngBitmap.width, pngBitmap.height, alpha(pngBitmap)],
+      colored: alpha(coloredBitmap),
+      jpeg: [jpegBitmap.width, jpegBitmap.height, jpeg.type, alpha(jpegBitmap)],
+      svg,
+    };
+  });
+
+  expect(result.png.slice(0, 2)).toEqual([84, 28]);
+  expect(result.png[2]?.[3]).toBe(0);
+  expect(result.colored).toEqual([18, 52, 86, 255]);
+  expect(result.jpeg.slice(0, 3)).toEqual([80, 24, 'image/jpeg']);
+  expect(result.jpeg[3]?.[0]).toBeGreaterThan(240);
+  expect(result.jpeg[3]?.[3]).toBe(255);
+  expect(result.svg).toContain('viewBox="8 42 84 28"');
+  expect(result.svg).toContain('#123456');
   expect(errors).toEqual([]);
 });
