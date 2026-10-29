@@ -887,7 +887,8 @@ describe('exportSvg', () => {
       bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
       emitSvg: (element, allElements) => {
         received.push({ id: element.id, scene: allElements.map(({ id }) => id) });
-        return `<rect data-frame-inline="${element.id}" />`;
+        const rootId = allElements.find(({ id }) => id === 'inline-root')?.id;
+        return `<rect data-frame-inline="${element.id}" data-scene-root="${rootId}" />`;
       },
     });
     registry.register({
@@ -941,8 +942,9 @@ describe('exportSvg', () => {
 
     const frameSvg = await exportSvg(store, { frameId: frame.id, elementRegistry: registry });
     expect(frameSvg).toContain('data-frame-inline="inline-child"');
-    expect(frameSvg).not.toContain('inline-root');
-    expect(frameSvg).not.toContain('full-root');
+    expect(frameSvg).toContain('data-scene-root="inline-root"');
+    expect(frameSvg).not.toContain('data-frame-inline="inline-root"');
+    expect(frameSvg).not.toContain('data-frame-full="full-root"');
     expect(received).toEqual([
       { id: inline.id, scene: ['frame', 'inline-child', 'inline-root', 'full-root'] },
     ]);

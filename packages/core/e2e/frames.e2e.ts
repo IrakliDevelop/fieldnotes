@@ -181,8 +181,6 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
       layerManager: {
         activeLayerId: string;
         setLayerOpacity(id: string, opacity: number): void;
-        createLayer(name: string): { id: string };
-        setLayerVisible(id: string, visible: boolean): boolean;
       };
       elementRegistry: { register(definition: Record<string, unknown>): void };
       addHtmlElement(
@@ -216,15 +214,18 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
         frameId: string;
         scale: number;
         padding: number;
+        filter: (element: { id: string }) => boolean;
         onAssetError: (diagnostic: { elementId: string }) => void;
       }) => Promise<Blob | null>;
-      exportSVG: (options: { frameId: string; padding: number }) => Promise<string>;
+      exportSVG: (options: {
+        frameId: string;
+        padding: number;
+        filter: (element: { id: string }) => boolean;
+      }) => Promise<string>;
     };
     const frameId = 'e2e-export-frame';
     const layerId = viewport.layerManager.activeLayerId;
     viewport.layerManager.setLayerOpacity(layerId, 0.5);
-    const hiddenLayerId = viewport.layerManager.createLayer('excluded export resources').id;
-    viewport.layerManager.setLayerVisible(hiddenLayerId, false);
     const painterIds: string[] = [];
     let collectPainterIds = false;
     const unregisterPainter = viewport.registerHtmlPainter(
@@ -338,20 +339,19 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
     });
     const excludedHtmlId = viewport.addHtmlElement(
       document.createElement('div'),
-      { x: 250, y: 150 },
+      { x: 10_000, y: 10_000 },
       { w: 20, h: 20 },
       { htmlType: 'e2e:frame-html' },
     );
-    viewport.store.update(excludedHtmlId, { layerId: hiddenLayerId });
     viewport.store.add({
       id: 'e2e-export-invalid-image',
       type: 'image',
-      position: { x: 250, y: 180 },
+      position: { x: 10_050, y: 10_000 },
       size: { w: 20, h: 20 },
       index: 'z0',
       version: 1,
       locked: false,
-      layerId: hiddenLayerId,
+      layerId,
       src: 'data:image/png;base64,not-a-real-image',
     });
     viewport.store.add({
@@ -390,6 +390,7 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
       frameId,
       scale: 1,
       padding: 24,
+      filter: (element) => element.id !== 'e2e-export-clip',
       onAssetError: ({ elementId }) => diagnostics.push(elementId),
     });
     if (!image) throw new Error('Frame image was not created');
@@ -400,19 +401,49 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
     const context = surface.getContext('2d');
     if (!context) throw new Error('Scratch canvas was not created');
     context.drawImage(bitmap, 0, 0);
-    const svg = await viewport.exportSVG({ frameId, padding: 24 });
+    const svg = await viewport.exportSVG({
+      frameId,
+      padding: 24,
+      filter: (element) => element.id !== 'e2e-export-clip',
+    });
     collectPainterIds = false;
     unregisterPainter();
     unregisterImageHook();
     unregisterSvgHook();
     const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
     const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
+    const nested = doc.querySelector('rect[fill="#0066ff"]');
+    const clipById = new Map(
+      [...doc.querySelectorAll('clipPath')].map((clip) => {
+        const rect = clip.querySelector('rect');
+        return [
+          clip.id,
+          [
+            rect?.getAttribute('x'),
+            rect?.getAttribute('y'),
+            rect?.getAttribute('width'),
+            rect?.getAttribute('height'),
+          ],
+        ];
+      }),
+    );
+    let nestedClip: (string | null | undefined)[] | null = null;
+    for (let ancestor = nested?.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      const match = /^url\(#(.+)\)$/.exec(ancestor.getAttribute('clip-path') ?? '');
+      if (match?.[1]) {
+        nestedClip = clipById.get(match[1]) ?? null;
+        break;
+      }
+    }
     return {
       width: bitmap.width,
       height: bitmap.height,
       pixels: {
         green: pixel(36, 30),
+        greenAboveFrame: pixel(44, 22),
         blue: pixel(75, 55),
+        blueOutsideNestedClip: pixel(59, 80),
+        filteredClip: pixel(134, 35),
         html: pixel(90, 60),
         image: pixel(115, 90),
         hook: pixel(5, 5),
@@ -421,6 +452,7 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
       },
       painterIds: [...new Set(painterIds)],
       htmlId,
+      excludedHtmlId,
       diagnostics,
       svg: {
         width: doc.documentElement.getAttribute('width'),
@@ -431,6 +463,7 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
         child: doc.querySelector('rect[fill="#00ff00"]') !== null,
         nested: doc.querySelector('rect[fill="#0066ff"]') !== null,
         clip: doc.querySelector('[data-frame-clip="included"]') !== null,
+        nestedClip,
         html: [...doc.querySelectorAll('image')].some((image) => image.getAttribute('x') === '155'),
         image: [...doc.querySelectorAll('image')].some(
           (image) => image.getAttribute('x') === '180',
@@ -439,7 +472,7 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
         frameChrome: svg.includes('Hidden chrome'),
         unrelated: svg.includes('#ff0000'),
         excludedHtml: [...doc.querySelectorAll('image')].some(
-          (image) => image.getAttribute('x') === '250',
+          (image) => image.getAttribute('x') === '10000',
         ),
         invalid: svg.includes('not-a-real-image'),
       },
@@ -451,13 +484,17 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
   const close = (pixel: number[], expected: number[], tolerance = 12) =>
     pixel.every((value, index) => Math.abs(value - (expected[index] ?? 0)) <= tolerance);
   expect(close(result.pixels.green, [0, 255, 0, 128])).toBe(true);
+  expect(result.pixels.greenAboveFrame[3]).toBe(0);
   expect(close(result.pixels.blue, [0, 102, 255, 128])).toBe(true);
+  expect(result.pixels.blueOutsideNestedClip[3]).toBe(0);
+  expect(result.pixels.filteredClip[3]).toBe(0);
   expect(close(result.pixels.html, [245, 124, 0, 128])).toBe(true);
   expect(result.pixels.image[1]).toBeGreaterThan(120);
   expect(close(result.pixels.hook, [18, 52, 86, 255])).toBe(true);
   expect(result.pixels.header[3]).toBe(0);
   expect(result.pixels.unrelated[3]).toBe(0);
   expect(result.painterIds).toEqual([result.htmlId]);
+  expect(result.painterIds).not.toContain(result.excludedHtmlId);
   expect(result.diagnostics).toEqual([]);
   expect(result.svg).toMatchObject({
     width: '288',
@@ -466,7 +503,7 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
     opacity: true,
     child: true,
     nested: true,
-    clip: true,
+    clip: false,
     html: true,
     image: true,
     hook: true,
@@ -476,6 +513,7 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
     invalid: false,
   });
   expect(result.svg.clips).toBeGreaterThanOrEqual(1);
+  expect(result.svg.nestedClip).toEqual(['140', '140', '60', '60']);
   expect(errors).toEqual([]);
 });
 
