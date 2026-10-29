@@ -180,7 +180,6 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
   },
   interaction: {
     hitTestHandle: (el, point, context) => {
-      if (context.selectedCount !== 1) return null;
       const radius = 8 / context.zoom;
       for (const id of ['nw', 'ne', 'sw', 'se']) {
         const corner = cornerAt(el, id, context.zoom);
@@ -238,7 +237,12 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
     ctx.stroke();
     ctx.font = '14px sans-serif';
     ctx.textBaseline = 'middle';
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(el.position.x, el.position.y, el.size.w, HEADER_HEIGHT);
+    ctx.clip();
     ctx.fillText(el.data.title, el.position.x + 8, el.position.y + HEADER_HEIGHT / 2);
+    ctx.restore();
     ctx.restore();
   },
   emitSvg: (el) => {
@@ -246,7 +250,7 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
     const title = escapeXml(el.data.title);
     const { x, y } = el.position;
     const { w, h } = el.size;
-    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-width="1"/><path d="M ${x} ${y + HEADER_HEIGHT} H ${x + w}" fill="none" stroke="${color}" stroke-width="1"/><text x="${x + 8}" y="${y + HEADER_HEIGHT / 2}" fill="${color}" dominant-baseline="middle">${title}</text>`;
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-width="1"/><path d="M ${x} ${y + HEADER_HEIGHT} H ${x + w}" fill="none" stroke="${color}" stroke-width="1"/><svg x="${x}" y="${y}" width="${w}" height="${HEADER_HEIGHT}" viewBox="${x} ${y} ${w} ${HEADER_HEIGHT}" overflow="hidden"><text x="${x + 8}" y="${y + HEADER_HEIGHT / 2}" fill="${color}" dominant-baseline="middle">${title}</text></svg>`;
   },
   dataVersion: 1,
 };

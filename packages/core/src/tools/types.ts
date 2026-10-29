@@ -18,6 +18,8 @@ export interface ToolContext {
   activeLayerId?: string;
   isLayerVisible?: (layerId: string) => boolean;
   isLayerLocked?: (layerId: string) => boolean;
+  /** Returns whether a layer still exists. */
+  hasLayer?: (layerId: string) => boolean;
   smartGuides?: boolean;
   getVisibleRect?: () => Bounds;
   constraintService?: ConstraintServiceAccess;

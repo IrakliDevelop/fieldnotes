@@ -2952,6 +2952,36 @@ describe('SelectTool sized extension resize', () => {
     stack.undo(store);
     expect(store.getById(frame.id)?.position).toEqual({ x: 100, y: 100 });
   });
+
+  it('uses frame corner minimums when resizing a multi-selection', () => {
+    const frame = createFrame({ position: { x: 100, y: 100 }, size: { w: 120, h: 90 } });
+    const shape = createShape({ position: { x: 300, y: 100 }, size: { w: 40, h: 40 } });
+    const registry = new ElementRegistry();
+    const store = new ElementStore(registry);
+    store.add(frame);
+    store.add(shape);
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(store, stack);
+    const ctx = makeCtx({ store, elementRegistry: registry });
+    const tool = new SelectTool();
+    tool.onActivate(ctx);
+    tool.setSelection([frame.id, shape.id]);
+
+    recorder.begin();
+    tool.onPointerDown(pt(96, 96), ctx);
+    tool.onPointerMove(pt(200, 200), ctx);
+    tool.onPointerUp(pt(200, 200), ctx);
+    recorder.commit();
+
+    const updated = store.getById(frame.id);
+    if (!updated || !('size' in updated)) throw new Error('Resized frame is missing');
+    expect(updated.size).toEqual({ w: 80, h: 48 });
+    expect(store.getById(shape.id)).toMatchObject({
+      position: { x: 300, y: 100 },
+      size: { w: 40, h: 40 },
+    });
+    expect(stack.undoCount).toBe(1);
+  });
 });
 
 describe('SelectTool extension bounds from the context registry', () => {

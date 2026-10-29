@@ -93,6 +93,8 @@ describe('frame element', () => {
       restore: () => calls.push('restore'),
       strokeRect,
       beginPath: () => calls.push('beginPath'),
+      rect: (...args: number[]) => calls.push(`rect:${args.join(',')}`),
+      clip: () => calls.push('clip'),
       moveTo,
       lineTo,
       stroke: () => calls.push('stroke'),
@@ -113,7 +115,12 @@ describe('frame element', () => {
       'moveTo:10,44',
       'lineTo:130,44',
       'stroke',
+      'save',
+      'beginPath',
+      'rect:10,20,120,24',
+      'clip',
       'fillText:<Frame &>,18,32',
+      'restore',
       'restore',
     ]);
     expect(calls).not.toContain('fillRect');
@@ -123,7 +130,7 @@ describe('frame element', () => {
     expect(ctx.font).toBe('14px sans-serif');
     expect(ctx.textBaseline).toBe('middle');
     expect(frameElementDefinition.emitSvg?.(value, [], { x: 0, y: 0, w: 1, h: 1 })).toBe(
-      '<rect x="10" y="20" width="120" height="90" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><path d="M 10 44 H 130" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><text x="18" y="32" fill="&quot;&lt;&amp;" dominant-baseline="middle">&lt;Frame &amp;&gt;</text>',
+      '<rect x="10" y="20" width="120" height="90" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><path d="M 10 44 H 130" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><svg x="10" y="20" width="120" height="24" viewBox="10 20 120 24" overflow="hidden"><text x="18" y="32" fill="&quot;&lt;&amp;" dominant-baseline="middle">&lt;Frame &amp;&gt;</text></svg>',
     );
   });
 

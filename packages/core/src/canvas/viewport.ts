@@ -368,6 +368,7 @@ export class Viewport {
       activeLayerId: this.layerManager.activeLayerId,
       isLayerVisible: (id: string) => this.layerManager.isLayerVisible(id),
       isLayerLocked: (id: string) => this.layerManager.isLayerLocked(id),
+      hasLayer: (id: string) => this.layerManager.getLayer(id) !== undefined,
       smartGuides: false,
       getVisibleRect: () =>
         this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),

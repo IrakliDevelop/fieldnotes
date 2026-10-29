@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Camera } from '../canvas/camera';
 import { ElementStore } from '../elements/element-store';
+import { LayerManager } from '../layers/layer-manager';
 import { FrameTool } from './frame-tool';
 import type { PointerState, ToolContext } from './types';
 
@@ -62,6 +63,30 @@ describe('FrameTool', () => {
     tool.onPointerUp(point(110, 110), ctx);
 
     expect(ctx.store.getElementsByType('extension')[0]).toMatchObject({ layerId: 'layer' });
+  });
+
+  it('does not create a frame after its captured layer is removed', () => {
+    const tool = new FrameTool();
+    const store = new ElementStore();
+    const layers = new LayerManager(store);
+    const captured = layers.activeLayerId;
+    layers.createLayer();
+    const ctx = makeContext({
+      store,
+      activeLayerId: captured,
+      hasLayer: (id) => layers.getLayer(id) !== undefined,
+      isLayerLocked: (id) => layers.isLayerLocked(id),
+    });
+
+    tool.onPointerDown(point(10, 10), ctx);
+    tool.onPointerMove(point(110, 110), ctx);
+    layers.removeLayer(captured);
+    tool.onPointerUp(point(110, 110), ctx);
+
+    expect(store.count).toBe(0);
+    expect(ctx.switchTool).not.toHaveBeenCalled();
+    expect(ctx.setSelection).not.toHaveBeenCalled();
+    expect(ctx.requestOverlayRender).toHaveBeenCalledTimes(2);
   });
 
   it('uses pointer-up coordinates and shift state for a square', () => {

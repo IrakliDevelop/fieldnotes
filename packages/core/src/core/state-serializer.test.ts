@@ -1359,6 +1359,16 @@ describe('extension dataVersion', () => {
       expect(migrateElementData(shape, versionedRegistry().registry)).toBe(shape);
     });
 
+    it('rejects a current registered envelope that fails adapter validation', () => {
+      const registry = new ElementRegistry();
+      registry.register(markerDefinition);
+      const invalid = asElement(envelope({ label: 1 }, 1));
+
+      expect(() => migrateElementData(invalid, registry)).toThrow(
+        'Invalid element "m1": malformed test:marker data',
+      );
+    });
+
     it('returns an element unchanged when its type has no dataVersion', () => {
       const registry = new ElementRegistry();
       registry.register(markerDefinition);

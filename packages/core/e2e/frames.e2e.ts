@@ -170,6 +170,61 @@ test.describe('frame tool', () => {
   });
 });
 
+test('clips a long frame title to its header bounds', async ({ page }) => {
+  const { errors } = await openCanvas(page);
+  const result = await page.evaluate(() => {
+    const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+      elementRegistry: {
+        getAdapter(type: string):
+          | {
+              render?: (
+                context: CanvasRenderingContext2D,
+                element: unknown,
+                allElements: unknown[],
+              ) => void;
+            }
+          | undefined;
+      };
+    };
+    const renderer = viewport.elementRegistry.getAdapter('core:frame')?.render;
+    if (!renderer) throw new Error('Frame renderer not registered');
+    const canvas = document.createElement('canvas');
+    canvas.width = 120;
+    canvas.height = 80;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Scratch canvas was not created');
+    renderer(
+      context,
+      {
+        id: 'long-title',
+        type: 'extension',
+        extensionType: 'core:frame',
+        position: { x: 10, y: 10 },
+        size: { w: 80, h: 48 },
+        index: 'a0',
+        version: 1,
+        locked: false,
+        layerId: '',
+        dataVersion: 1,
+        data: { title: 'A title that reaches far beyond this frame', color: '#64748b' },
+      },
+      [],
+    );
+    const alpha = (x: number, y: number) => context.getImageData(x, y, 1, 1).data[3] ?? 0;
+    let titlePixels = 0;
+    let outsidePixels = 0;
+    for (let y = 12; y < 32; y++) {
+      for (let x = 18; x < 89; x++) titlePixels += alpha(x, y) > 0 ? 1 : 0;
+      for (let x = 91; x < canvas.width; x++) outsidePixels += alpha(x, y) > 0 ? 1 : 0;
+    }
+    return { titlePixels, outsidePixels };
+  });
+
+  expect(result.titlePixels).toBeGreaterThan(0);
+  expect(result.outsidePixels).toBe(0);
+  expect(errors).toEqual([]);
+});
+
 test('exports rich frame contents as real PNG pixels and structured SVG', async ({ page }) => {
   const { errors } = await openCanvas(page);
   const result = await page.evaluate(async () => {

@@ -251,7 +251,11 @@ and nested parent clips intersect. `FrameElement` is a built-in root-only parent
 or rotate, and geometry alone never adds a child. Use `FrameTool` or `createFrame()` to make one:
 
 ```ts
-const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 320, h: 180 } });
+const frame = createFrame({
+  position: { x: 0, y: 0 },
+  size: { w: 320, h: 180 },
+  layerId: viewport.layerManager.activeLayerId,
+});
 store.add(frame);
 viewport.addToFrame(frame.id, [elementId]);
 viewport.removeFromFrame(frame.id, [elementId]);
@@ -693,8 +697,8 @@ const unsub = viewport.onSelectionChange((ids) => {
 
 Two methods on `Viewport` let you snap or space selected elements in one undo step.
 
-- **`viewport.alignSelection(edge)`** — `edge`: `AlignEdge` = `'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom'`; aligns every selected element to the corresponding edge or center of the selection's bounding box. Needs 2+ selected elements. Locked elements anchor the bounding box without moving.
-- **`viewport.distributeSelection(axis)`** — `axis`: `DistributeAxis` = `'horizontal' | 'vertical'`; evenly spaces selected elements' centers along the axis. Needs 3+ selected elements. Locked elements anchor the span without moving.
+- **`viewport.alignSelection(edge)`** — `edge`: `AlignEdge` = `'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom'`; aligns unlocked selected roots to the corresponding edge or center of their bounding box. Locked selected roots are ignored for bounds and eligibility. Needs 2+ unlocked roots.
+- **`viewport.distributeSelection(axis)`** — `axis`: `DistributeAxis` = `'horizontal' | 'vertical'`; evenly spaces unlocked selected roots' centers along the axis. Locked selected roots are ignored for bounds and eligibility. Needs 3+ unlocked roots.
 
 ```typescript
 viewport.alignSelection('left'); // flush left edges
