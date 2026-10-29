@@ -199,6 +199,9 @@ export class RenderLoop {
       previous.index !== current.index ||
       this.renderer.isDomElement(current) ||
       this.renderer.isFullCanvasElement(current) ||
+      (current.type === 'extension' &&
+        this.store.getChildren(id).length > 0 &&
+        this.store.elementRegistry.getAdapter(current.extensionType)?.clipBounds !== undefined) ||
       (this.layerManager.getLayer(current.layerId)?.opacity ?? 1) !== 1
     ) {
       this.live.delete(id);

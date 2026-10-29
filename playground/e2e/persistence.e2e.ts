@@ -39,6 +39,7 @@ interface SampleHierarchy {
     size: { w: number; h: number };
   };
   children: {
+    id: string;
     parentId: string;
     layerId: string;
     shape: string;
@@ -67,6 +68,7 @@ async function sampleHierarchy(page: Page): Promise<SampleHierarchy> {
       if (element.type !== 'shape' || !element.size) continue;
       if (element.parentId === frame.id) {
         children.push({
+          id: element.id,
           parentId: frame.id,
           layerId: element.layerId,
           shape: element.shape,
@@ -107,6 +109,7 @@ async function expectSample(page: Page): Promise<void> {
   expect(hierarchy.frame.size).toEqual({ w: 420, h: 220 });
   expect(hierarchy.children).toEqual([
     {
+      id: expect.any(String),
       parentId: hierarchy.frame.id,
       layerId: hierarchy.frame.layerId,
       shape: 'rectangle',
@@ -114,6 +117,7 @@ async function expectSample(page: Page): Promise<void> {
       size: { w: 150, h: 90 },
     },
     {
+      id: expect.any(String),
       parentId: hierarchy.frame.id,
       layerId: hierarchy.frame.layerId,
       shape: 'ellipse',
@@ -121,6 +125,7 @@ async function expectSample(page: Page): Promise<void> {
       size: { w: 140, h: 100 },
     },
   ]);
+  expect(new Set(hierarchy.children.map((child) => child.id)).size).toBe(2);
   expect(hierarchy.overlap).toEqual({
     layerId: hierarchy.frame.layerId,
     position: { x: 280, y: 748 },
