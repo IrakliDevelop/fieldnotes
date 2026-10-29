@@ -697,8 +697,8 @@ const unsub = viewport.onSelectionChange((ids) => {
 
 Two methods on `Viewport` let you snap or space selected elements in one undo step.
 
-- **`viewport.alignSelection(edge)`** — `edge`: `AlignEdge` = `'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom'`; aligns unlocked selected roots to the corresponding edge or center of their bounding box. Locked selected roots are ignored for bounds and eligibility. Needs 2+ unlocked roots.
-- **`viewport.distributeSelection(axis)`** — `axis`: `DistributeAxis` = `'horizontal' | 'vertical'`; evenly spaces unlocked selected roots' centers along the axis. Locked selected roots are ignored for bounds and eligibility. Needs 3+ unlocked roots.
+- **`viewport.alignSelection(edge)`**: `edge`: `AlignEdge` = `'left' | 'center-x' | 'right' | 'top' | 'middle' | 'bottom'`; aligns unlocked selected roots to the corresponding edge or center of their bounding box. Locked selected roots are ignored for bounds and eligibility. Needs 2+ unlocked roots.
+- **`viewport.distributeSelection(axis)`**: `axis`: `DistributeAxis` = `'horizontal' | 'vertical'`; evenly spaces unlocked selected roots' centers along the axis. Locked selected roots are ignored for bounds and eligibility. Needs 3+ unlocked roots.
 
 ```typescript
 viewport.alignSelection('left'); // flush left edges
