@@ -169,3 +169,76 @@ test.describe('frame tool', () => {
     expect(errors).toEqual([]);
   });
 });
+
+test('exports a frame content crop without its chrome or overlapping roots', async ({ page }) => {
+  const { errors } = await openCanvas(page);
+  const result = await page.evaluate(async () => {
+    const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+      store: { add: (element: unknown) => void };
+      exportImage: (options: {
+        frameId: string;
+        scale: number;
+        padding: number;
+      }) => Promise<Blob | null>;
+      exportSVG: (options: { frameId: string; padding: number }) => Promise<string>;
+    };
+    const frameId = 'e2e-export-frame';
+    viewport.store.add({
+      id: frameId,
+      type: 'extension',
+      extensionType: 'core:frame',
+      position: { x: 10, y: 20 },
+      size: { w: 80, h: 48 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      dataVersion: 1,
+      data: { title: 'Hidden chrome', color: '#64748b' },
+    });
+    viewport.store.add({
+      id: 'e2e-export-child',
+      type: 'shape',
+      position: { x: 20, y: 50 },
+      size: { w: 10, h: 10 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      parentId: frameId,
+      shape: 'rectangle',
+      fillColor: '#00ff00',
+      strokeColor: '#00ff00',
+      strokeWidth: 0,
+      opacity: 1,
+    });
+    viewport.store.add({
+      id: 'e2e-export-overlap',
+      type: 'shape',
+      position: { x: 10, y: 44 },
+      size: { w: 80, h: 24 },
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: '',
+      shape: 'rectangle',
+      fillColor: '#ff0000',
+      strokeColor: '#ff0000',
+      strokeWidth: 0,
+      opacity: 1,
+    });
+    const image = await viewport.exportImage({ frameId, scale: 1, padding: 24 });
+    if (!image) throw new Error('Frame image was not created');
+    const bitmap = await createImageBitmap(image);
+    const svg = await viewport.exportSVG({ frameId, padding: 24 });
+    return { width: bitmap.width, height: bitmap.height, svg };
+  });
+
+  expect(result.width).toBe(128);
+  expect(result.height).toBe(72);
+  expect(result.svg).toContain('viewBox="-14 20 128 72"');
+  expect(result.svg).toContain('#00ff00');
+  expect(result.svg).not.toContain('#ff0000');
+  expect(result.svg).not.toContain('Hidden chrome');
+  expect(errors).toEqual([]);
+});

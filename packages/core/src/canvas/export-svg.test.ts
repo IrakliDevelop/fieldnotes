@@ -10,6 +10,7 @@ import {
   createShape,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
+import { createFrame } from '../elements/frame-element';
 import { ElementRegistry } from '../elements/element-registry';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
 import type {
@@ -72,6 +73,38 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it('uses exact frame content bounds and excludes the frame and overlapping roots', async () => {
+    const store = new ElementStore();
+    const frame = createFrame({
+      position: { x: 10.0625, y: 20.0625 },
+      size: { w: 80.0625, h: 48.0625 },
+    });
+    frame.id = 'frame';
+    const child = createShape({
+      parentId: frame.id,
+      position: { x: 20, y: 50 },
+      size: { w: 10, h: 10 },
+      fillColor: '#00ff00',
+    });
+    const overlap = createShape({
+      position: { x: 10, y: 44 },
+      size: { w: 80, h: 24 },
+      fillColor: '#ff0000',
+    });
+    store.add(frame);
+    store.add(child);
+    store.add(overlap);
+
+    const svg = await exportSvg(store, { frameId: frame.id });
+
+    expect(svg).toContain(
+      'width="80.0625" height="24.0625" viewBox="10.0625 44.0625 80.0625 24.0625"',
+    );
+    expect(svg).toContain('#00ff00');
+    expect(svg).not.toContain('#ff0000');
+    expect(svg).not.toContain('Frame');
+  });
+
   it('emits exact scene-order clips without masking clipping parents', async () => {
     const registry = new ElementRegistry();
     registry.register({

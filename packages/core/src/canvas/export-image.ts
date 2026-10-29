@@ -23,8 +23,10 @@ import type {
   SvgExportHooks,
   TypedHookRegistry,
 } from './render-hooks';
+import { resolveFrameExport } from './frame-export';
 
 export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOptions {
+  frameId?: string;
   scale?: number;
   padding?: number;
   background?: string;
@@ -213,7 +215,7 @@ function computeBounds(
   };
 }
 
-function resolveExportBounds(
+export function resolveExportBounds(
   region: { x: number; y: number; w: number; h: number } | undefined,
   elements: CanvasElement[],
   padding: number,
@@ -384,6 +386,9 @@ export async function exportImage(
     'imageExport',
     options.requiredCapabilities,
   );
+  if (options.frameId !== undefined && options.region !== undefined) {
+    throw new RangeError('frameId and region cannot be used together');
+  }
   const requestedScale = positiveOption(options.scale, 2, 'scale');
   const scaleMode = options.scaleMode ?? 'exact';
   if (scaleMode !== 'exact' && scaleMode !== 'fit') {
@@ -401,20 +406,29 @@ export async function exportImage(
       throw new RangeError('quality must be a finite number in (0, 1]');
     }
   }
-  const background = options.background ?? '#ffffff';
   const filter = options.filter;
   const registry = options.elementRegistry ?? getDefaultElementRegistry();
+  const frameExport = resolveFrameExport(store, options.frameId);
+  const background =
+    options.background ?? (frameExport && format === 'png' ? 'transparent' : '#ffffff');
 
   const allElements = store.getAll();
-  let visibleElements = layerManager
-    ? allElements.filter((el) => layerManager.isLayerVisible(el.layerId))
+  let visibleElements = frameExport
+    ? allElements.filter((el) => frameExport.descendantIds.has(el.id))
     : allElements;
+  if (layerManager)
+    visibleElements = visibleElements.filter((el) => layerManager.isLayerVisible(el.layerId));
 
   if (filter) {
     visibleElements = visibleElements.filter(filter);
   }
 
-  const bounds = resolveExportBounds(options.region, visibleElements, padding, registry);
+  const bounds = resolveExportBounds(
+    frameExport?.region ?? options.region,
+    visibleElements,
+    padding,
+    registry,
+  );
   if (!bounds) return null;
 
   const fullCanvasElements: CanvasElement[] = [];

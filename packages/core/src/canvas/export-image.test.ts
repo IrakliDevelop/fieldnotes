@@ -16,6 +16,7 @@ import {
   createShape,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
+import { createFrame } from '../elements/frame-element';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
 import type { CanvasElement, ExtensionElementEnvelope, HtmlElement } from '../elements/types';
 import { ElementRegistry } from '../elements/element-registry';
@@ -330,6 +331,27 @@ describe('getElementRect — html element', () => {
 });
 
 describe('exportImage', () => {
+  it('uses an empty frame content crop and rejects a conflicting region before allocation', async () => {
+    const store = new ElementStore();
+    const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 80, h: 48 } });
+    frame.id = 'frame';
+    store.add(frame);
+    const createSpy = vi.spyOn(document, 'createElement');
+
+    await expect(
+      exportImage(store, { frameId: frame.id, region: { x: 0, y: 0, w: 1, h: 1 } }),
+    ).rejects.toThrow(/frameId.*region/);
+    expect(createSpy).not.toHaveBeenCalled();
+    await exportImage(store, { frameId: frame.id, scale: 1, padding: 3 });
+
+    const canvas = createSpy.mock.results.find(
+      (result) => result.type === 'return' && result.value instanceof HTMLCanvasElement,
+    )?.value as HTMLCanvasElement | undefined;
+    expect(canvas?.width).toBe(86);
+    expect(canvas?.height).toBe(30);
+    createSpy.mockRestore();
+  });
+
   it.each([
     [{ scale: 0 }, 'scale'],
     [{ scale: Number.NaN }, 'scale'],

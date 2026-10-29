@@ -3468,6 +3468,24 @@ describe('Viewport html painters', () => {
       await vp.exportSVG();
       expect(painter).toHaveBeenCalled();
     });
+
+    it('passes frameId through both exporters with the viewport registry', async () => {
+      const vp = makeViewport();
+      const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 80, h: 48 } });
+      frame.id = 'frame-export';
+      const child = createShape({
+        parentId: frame.id,
+        position: { x: 20, y: 50 },
+        size: { w: 10, h: 10 },
+        fillColor: '#00ff00',
+      });
+      vp.store.add(frame);
+      vp.store.add(child);
+
+      await expect(vp.exportImage({ frameId: frame.id, scale: 1 })).resolves.toBeInstanceOf(Blob);
+      await expect(vp.exportSVG({ frameId: frame.id })).resolves.toContain('viewBox="10 44 80 24"');
+      vp.destroy();
+    });
   });
 });
 
