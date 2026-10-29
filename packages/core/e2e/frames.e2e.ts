@@ -226,7 +226,9 @@ test('clips a long frame title to its header bounds', async ({ page }) => {
 });
 
 test('exports rich frame contents as real PNG pixels and structured SVG', async ({ page }) => {
+  await page.clock.install({ time: 0 });
   const { errors } = await openCanvas(page);
+  await page.clock.pauseAt(60_000);
   const result = await page.evaluate(async () => {
     const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
       store: {
@@ -437,9 +439,6 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
         ),
     });
     const diagnostics: string[] = [];
-    await new Promise<void>((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-    );
     collectPainterIds = true;
     const image = await viewport.exportImage({
       frameId,
