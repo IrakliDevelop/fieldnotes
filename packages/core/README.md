@@ -9,7 +9,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Sticky notes** — editable text notes with customizable colors
 - **Arrows** — curved bezier arrows with element binding
 - **Shapes** — rectangles, ellipses with fill and stroke
-- **Frames** — explicit, non-nested groups that clip their children
+- **Frames**: explicit, non-nested groups that clip their children
 - **Text** — standalone text elements with font size and alignment
 - **Images** — drag & drop or programmatic placement (canvas-rendered for proper layer ordering)
 - **HTML embedding** — add any DOM element as a fully interactive canvas citizen

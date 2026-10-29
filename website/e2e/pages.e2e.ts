@@ -61,9 +61,9 @@ test('the roadmap shows its three sections with frames built and the not built l
   await expect(
     page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem'),
   ).toHaveText(NOT_BUILT);
-  await expect(page.getByRole('region', { name: 'Built' }).getByRole('listitem')).toContainText(
-    BUILT_FRAMES,
-  );
+  await expect(
+    page.getByRole('region', { name: 'Built' }).getByText(BUILT_FRAMES, { exact: true }),
+  ).toHaveText(BUILT_FRAMES);
   await expect(page.getByRole('region', { name: 'Next' }).getByRole('listitem')).toHaveText(NEXT);
   await expect(page.getByRole('region', { name: 'Next' })).not.toContainText(BUILT_FRAMES);
 });

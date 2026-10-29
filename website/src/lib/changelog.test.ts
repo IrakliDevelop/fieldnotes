@@ -190,9 +190,10 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
       ),
     ).toHaveLength(1);
     expect(frames).toBeDefined();
-    if (!frames) return;
-    expect(frames?.date).toBeUndefined();
-    expect(prior?.date).toBeUndefined();
+    expect(prior).toBeDefined();
+    if (!frames || !prior) return;
+    expect(frames.date).toBeUndefined();
+    expect(prior.date).toBeUndefined();
     expect(releaseStatus(frames, {})).toBe('Not published yet');
   });
 
