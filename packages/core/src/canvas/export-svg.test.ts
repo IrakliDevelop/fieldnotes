@@ -867,6 +867,97 @@ describe('exportSvg', () => {
     expect(svg).toContain('data-inline-extension="true"');
   });
 
+  it('passes frame inline emitters the original scene but gates output by membership', async () => {
+    const received: { id: string; scene: string[] }[] = [];
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:frame-inline',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:frame-inline',
+        data: {},
+      }),
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+      emitSvg: (element, allElements) => {
+        received.push({ id: element.id, scene: allElements.map(({ id }) => id) });
+        return `<rect data-frame-inline="${element.id}" />`;
+      },
+    });
+    registry.register({
+      type: 'test:frame-full',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:frame-full',
+        data: {},
+      }),
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+      fullCanvas: true,
+      emitSvg: (element, allElements) => {
+        received.push({ id: element.id, scene: allElements.map(({ id }) => id) });
+        return `<rect data-frame-full="${element.id}" />`;
+      },
+    });
+    const store = new ElementStore(registry);
+    const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    frame.id = 'frame';
+    const inline = {
+      id: 'inline-child',
+      type: 'extension' as const,
+      extensionType: 'test:frame-inline',
+      position: { x: 20, y: 30 },
+      index: 'b',
+      version: 1,
+      locked: false,
+      layerId: '',
+      parentId: frame.id,
+      data: {},
+    };
+    const root = { ...inline, id: 'inline-root', index: 'c', parentId: undefined };
+    const full = {
+      ...inline,
+      id: 'full-root',
+      index: 'd',
+      parentId: undefined,
+      extensionType: 'test:frame-full',
+    };
+    store.add(frame);
+    store.add(inline);
+    store.add(root);
+    store.add(full);
+
+    const frameSvg = await exportSvg(store, { frameId: frame.id, elementRegistry: registry });
+    expect(frameSvg).toContain('data-frame-inline="inline-child"');
+    expect(frameSvg).not.toContain('inline-root');
+    expect(frameSvg).not.toContain('full-root');
+    expect(received).toEqual([
+      { id: inline.id, scene: ['frame', 'inline-child', 'inline-root', 'full-root'] },
+    ]);
+
+    received.length = 0;
+    await exportSvg(store, {
+      elementRegistry: registry,
+      filter: (element) => element.id === inline.id || element.id === full.id,
+    });
+    expect(received).toEqual([
+      { id: inline.id, scene: ['frame', 'inline-child', 'inline-root', 'full-root'] },
+      { id: full.id, scene: ['inline-child', 'full-root'] },
+    ]);
+  });
+
   it.each([
     [{ padding: -1 }, 'padding'],
     [{ rasterScale: 0 }, 'rasterScale'],
@@ -1069,6 +1160,33 @@ describe('exportSvg', () => {
       expect(Number(poly[1])).toBeCloseTo(300, 0);
       expect(Number(poly[1])).toBeLessThan(350);
     }
+  });
+
+  it('keeps frame arrows bound to excluded targets without emitting their output', async () => {
+    const store = new ElementStore();
+    const frame = createFrame({ position: { x: 100, y: 100 }, size: { w: 240, h: 164 } });
+    frame.id = 'arrow-frame';
+    const target = createShape({
+      position: { x: 400, y: 180 },
+      size: { w: 100, h: 40 },
+      fillColor: '#ff00ff',
+    });
+    target.id = 'excluded-target';
+    const arrow = createArrow({ from: { x: 200, y: 200 }, to: { x: 450, y: 200 } });
+    arrow.id = 'included-arrow';
+    arrow.parentId = frame.id;
+    arrow.toBinding = { elementId: target.id };
+    store.add(frame);
+    store.add(arrow);
+    store.add(target);
+
+    const svg = await exportSvg(store, { frameId: frame.id });
+    const path = svg.match(/<path d="M[^"]*L([\d.]+) ([\d.]+)"/);
+    const arrowhead = svg.match(/<polygon points="([\d.]+),([\d.]+)/);
+
+    expect(path?.slice(1)).toEqual(['400', '200']);
+    expect(arrowhead?.slice(1)).toEqual(['400', '200']);
+    expect(svg).not.toContain('#ff00ff');
   });
 
   it('emits stroke-dasharray="8 4" for a dashed arrow', async () => {

@@ -174,37 +174,114 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
   const { errors } = await openCanvas(page);
   const result = await page.evaluate(async () => {
     const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
-      store: { add: (element: unknown) => void };
+      store: {
+        add: (element: unknown) => void;
+        update(id: string, patch: Record<string, unknown>): void;
+      };
+      layerManager: {
+        activeLayerId: string;
+        setLayerOpacity(id: string, opacity: number): void;
+        createLayer(name: string): { id: string };
+        setLayerVisible(id: string, visible: boolean): boolean;
+      };
+      elementRegistry: { register(definition: Record<string, unknown>): void };
+      addHtmlElement(
+        dom: HTMLElement,
+        position: { x: number; y: number },
+        size: { w: number; h: number },
+        options: { htmlType: string },
+      ): string;
+      setParent(childId: string, parentId: string): void;
+      registerHtmlPainter(
+        type: string,
+        painter: (context: {
+          ctx: CanvasRenderingContext2D;
+          element: { id: string };
+          size: { w: number; h: number };
+        }) => void,
+      ): () => void;
+      renderHooks: {
+        imageExport: {
+          register(hooks: {
+            afterElements(context: { ctx: CanvasRenderingContext2D }): void;
+          }): () => void;
+        };
+        svgExport: {
+          register(hooks: {
+            afterElements(context: { appendSvg(fragment: string): void }): void;
+          }): () => void;
+        };
+      };
       exportImage: (options: {
         frameId: string;
         scale: number;
         padding: number;
+        onAssetError: (diagnostic: { elementId: string }) => void;
       }) => Promise<Blob | null>;
       exportSVG: (options: { frameId: string; padding: number }) => Promise<string>;
     };
     const frameId = 'e2e-export-frame';
+    const layerId = viewport.layerManager.activeLayerId;
+    viewport.layerManager.setLayerOpacity(layerId, 0.5);
+    const hiddenLayerId = viewport.layerManager.createLayer('excluded export resources').id;
+    viewport.layerManager.setLayerVisible(hiddenLayerId, false);
+    const painterIds: string[] = [];
+    let collectPainterIds = false;
+    const unregisterPainter = viewport.registerHtmlPainter(
+      'e2e:frame-html',
+      ({ ctx, element, size }) => {
+        if (collectPainterIds) painterIds.push(element.id);
+        ctx.fillStyle = '#f57c00';
+        ctx.fillRect(0, 0, size.w, size.h);
+      },
+    );
+    viewport.elementRegistry.register({
+      type: 'e2e:frame-clip',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      validateData: () => true,
+      decodeLegacy: (raw: unknown) => raw,
+      unwrap: (element: Record<string, unknown>) => element,
+      wrap: (element: Record<string, unknown>) => element,
+      bounds: (element: { data: { bounds: { x: number; y: number; w: number; h: number } } }) =>
+        element.data.bounds,
+      clipBounds: (element: { data: { clip: { x: number; y: number; w: number; h: number } } }) =>
+        element.data.clip,
+      render: (
+        ctx: CanvasRenderingContext2D,
+        element: { data: { bounds: { x: number; y: number; w: number; h: number } } },
+      ) => {
+        const { bounds } = element.data;
+        ctx.fillStyle = '#8b5cf6';
+        ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+      },
+      emitSvg: (element: { data: { bounds: { x: number; y: number; w: number; h: number } } }) => {
+        const { bounds } = element.data;
+        return `<rect data-frame-clip="included" x="${bounds.x}" y="${bounds.y}" width="${bounds.w}" height="${bounds.h}" fill="#8b5cf6" />`;
+      },
+    });
     viewport.store.add({
       id: frameId,
       type: 'extension',
       extensionType: 'core:frame',
-      position: { x: 10, y: 20 },
-      size: { w: 80, h: 48 },
+      position: { x: 100, y: 100 },
+      size: { w: 240, h: 164 },
       index: 'a0',
       version: 1,
       locked: false,
-      layerId: '',
+      layerId,
       dataVersion: 1,
       data: { title: 'Hidden chrome', color: '#64748b' },
     });
     viewport.store.add({
       id: 'e2e-export-child',
       type: 'shape',
-      position: { x: 20, y: 50 },
-      size: { w: 10, h: 10 },
+      position: { x: 110, y: 120 },
+      size: { w: 40, h: 40 },
       index: 'a0',
       version: 1,
       locked: false,
-      layerId: '',
+      layerId,
       parentId: frameId,
       shape: 'rectangle',
       fillColor: '#00ff00',
@@ -213,21 +290,108 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
       opacity: 1,
     });
     viewport.store.add({
-      id: 'e2e-export-overlap',
-      type: 'shape',
-      position: { x: 10, y: 44 },
-      size: { w: 80, h: 24 },
+      id: 'e2e-export-clip',
+      type: 'extension',
+      extensionType: 'e2e:frame-clip',
+      position: { x: 0, y: 0 },
+      size: { w: 1, h: 1 },
       index: 'a1',
       version: 1,
       locked: false,
-      layerId: '',
+      layerId,
+      dataVersion: 1,
+      data: { bounds: { x: 120, y: 130, w: 100, h: 80 }, clip: { x: 140, y: 140, w: 60, h: 60 } },
+    });
+    viewport.store.add({
+      id: 'e2e-export-nested',
+      type: 'shape',
       shape: 'rectangle',
+      position: { x: 130, y: 135 },
+      size: { w: 90, h: 80 },
+      index: 'a2',
+      version: 1,
+      locked: false,
+      layerId,
+      parentId: 'e2e-export-clip',
+      fillColor: '#0066ff',
+      strokeColor: '#0066ff',
+      strokeWidth: 0,
+    });
+    const htmlId = viewport.addHtmlElement(
+      document.createElement('div'),
+      { x: 155, y: 150 },
+      { w: 20, h: 20 },
+      { htmlType: 'e2e:frame-html' },
+    );
+    viewport.setParent(htmlId, frameId);
+    viewport.store.add({
+      id: 'e2e-export-image',
+      type: 'image',
+      position: { x: 180, y: 180 },
+      size: { w: 20, h: 20 },
+      index: 'a3',
+      version: 1,
+      locked: false,
+      layerId,
+      parentId: frameId,
+      src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="20" height="20"%3E%3Crect width="20" height="20" fill="%2300cc88"/%3E%3C/svg%3E',
+    });
+    const excludedHtmlId = viewport.addHtmlElement(
+      document.createElement('div'),
+      { x: 250, y: 150 },
+      { w: 20, h: 20 },
+      { htmlType: 'e2e:frame-html' },
+    );
+    viewport.store.update(excludedHtmlId, { layerId: hiddenLayerId });
+    viewport.store.add({
+      id: 'e2e-export-invalid-image',
+      type: 'image',
+      position: { x: 250, y: 180 },
+      size: { w: 20, h: 20 },
+      index: 'z0',
+      version: 1,
+      locked: false,
+      layerId: hiddenLayerId,
+      src: 'data:image/png;base64,not-a-real-image',
+    });
+    viewport.store.add({
+      id: 'e2e-export-overlap',
+      type: 'shape',
+      shape: 'rectangle',
+      position: { x: 100, y: 124 },
+      size: { w: 240, h: 140 },
+      index: 'z1',
+      version: 1,
+      locked: false,
+      layerId,
       fillColor: '#ff0000',
       strokeColor: '#ff0000',
       strokeWidth: 0,
-      opacity: 1,
     });
-    const image = await viewport.exportImage({ frameId, scale: 1, padding: 24 });
+    viewport.setParent('e2e-export-clip', frameId);
+    const unregisterImageHook = viewport.renderHooks.imageExport.register({
+      afterElements: ({ ctx }) => {
+        ctx.fillStyle = '#123456';
+        ctx.fillRect(80, 104, 8, 8);
+      },
+    });
+    const unregisterSvgHook = viewport.renderHooks.svgExport.register({
+      afterElements: ({ appendSvg }) =>
+        appendSvg(
+          '<rect data-frame-hook="padding" x="80" y="104" width="8" height="8" fill="#123456" />',
+        ),
+    });
+    const diagnostics: string[] = [];
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    collectPainterIds = true;
+    const image = await viewport.exportImage({
+      frameId,
+      scale: 1,
+      padding: 24,
+      onAssetError: ({ elementId }) => diagnostics.push(elementId),
+    });
     if (!image) throw new Error('Frame image was not created');
     const bitmap = await createImageBitmap(image);
     const surface = document.createElement('canvas');
@@ -236,27 +400,82 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
     const context = surface.getContext('2d');
     if (!context) throw new Error('Scratch canvas was not created');
     context.drawImage(bitmap, 0, 0);
-    const sample = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
     const svg = await viewport.exportSVG({ frameId, padding: 24 });
+    collectPainterIds = false;
+    unregisterPainter();
+    unregisterImageHook();
+    unregisterSvgHook();
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
     return {
       width: bitmap.width,
       height: bitmap.height,
-      svg,
-      child: sample(35, 35),
-      header: sample(30, 5),
-      unrelated: sample(75, 45),
+      pixels: {
+        green: pixel(36, 30),
+        blue: pixel(75, 55),
+        html: pixel(90, 60),
+        image: pixel(115, 90),
+        hook: pixel(5, 5),
+        header: pixel(30, 5),
+        unrelated: pixel(220, 80),
+      },
+      painterIds: [...new Set(painterIds)],
+      htmlId,
+      diagnostics,
+      svg: {
+        width: doc.documentElement.getAttribute('width'),
+        height: doc.documentElement.getAttribute('height'),
+        viewBox: doc.documentElement.getAttribute('viewBox'),
+        opacity: doc.querySelector('g[opacity="0.5"]') !== null,
+        clips: doc.querySelectorAll('clipPath').length,
+        child: doc.querySelector('rect[fill="#00ff00"]') !== null,
+        nested: doc.querySelector('rect[fill="#0066ff"]') !== null,
+        clip: doc.querySelector('[data-frame-clip="included"]') !== null,
+        html: [...doc.querySelectorAll('image')].some((image) => image.getAttribute('x') === '155'),
+        image: [...doc.querySelectorAll('image')].some(
+          (image) => image.getAttribute('x') === '180',
+        ),
+        hook: doc.querySelector('[data-frame-hook="padding"]') !== null,
+        frameChrome: svg.includes('Hidden chrome'),
+        unrelated: svg.includes('#ff0000'),
+        excludedHtml: [...doc.querySelectorAll('image')].some(
+          (image) => image.getAttribute('x') === '250',
+        ),
+        invalid: svg.includes('not-a-real-image'),
+      },
     };
   });
 
-  expect(result.width).toBe(128);
-  expect(result.height).toBe(72);
-  expect(result.svg).toContain('viewBox="-14 20 128 72"');
-  expect(result.svg).toContain('#00ff00');
-  expect(result.svg).not.toContain('#ff0000');
-  expect(result.svg).not.toContain('Hidden chrome');
-  expect(result.child[1]).toBeGreaterThan(240);
-  expect(result.header[3]).toBe(0);
-  expect(result.unrelated[3]).toBe(0);
+  expect(result.width).toBe(288);
+  expect(result.height).toBe(188);
+  const close = (pixel: number[], expected: number[], tolerance = 12) =>
+    pixel.every((value, index) => Math.abs(value - (expected[index] ?? 0)) <= tolerance);
+  expect(close(result.pixels.green, [0, 255, 0, 128])).toBe(true);
+  expect(close(result.pixels.blue, [0, 102, 255, 128])).toBe(true);
+  expect(close(result.pixels.html, [245, 124, 0, 128])).toBe(true);
+  expect(result.pixels.image[1]).toBeGreaterThan(120);
+  expect(close(result.pixels.hook, [18, 52, 86, 255])).toBe(true);
+  expect(result.pixels.header[3]).toBe(0);
+  expect(result.pixels.unrelated[3]).toBe(0);
+  expect(result.painterIds).toEqual([result.htmlId]);
+  expect(result.diagnostics).toEqual([]);
+  expect(result.svg).toMatchObject({
+    width: '288',
+    height: '188',
+    viewBox: '76 100 288 188',
+    opacity: true,
+    child: true,
+    nested: true,
+    clip: true,
+    html: true,
+    image: true,
+    hook: true,
+    frameChrome: false,
+    unrelated: false,
+    excludedHtml: false,
+    invalid: false,
+  });
+  expect(result.svg.clips).toBeGreaterThanOrEqual(1);
   expect(errors).toEqual([]);
 });
 
