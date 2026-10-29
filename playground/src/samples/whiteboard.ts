@@ -51,7 +51,7 @@ export function buildWhiteboardSample(viewport: Viewport): void {
     const frame = createFrame({
       position: { x: 0, y: 680 },
       size: { w: 420, h: 220 },
-      title: 'Frame example',
+      title: 'Explicit frame membership',
       color: '#6366f1',
       layerId: sketchId,
     });

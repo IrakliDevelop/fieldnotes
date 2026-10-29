@@ -16,7 +16,17 @@ import type { CanvasState, ImportableCanvasState, Tool, ViewportOptions } from '
 import { FIELDNOTES_VIEWPORT } from './context';
 import { FieldNotesCanvas } from './field-notes-canvas';
 
-const DEFAULT_TOOL_NAMES = ['hand', 'select', 'pencil', 'eraser', 'arrow', 'note', 'text', 'shape'];
+const DEFAULT_TOOL_NAMES = [
+  'hand',
+  'select',
+  'pencil',
+  'eraser',
+  'arrow',
+  'note',
+  'text',
+  'shape',
+  'frame',
+];
 
 interface HostInit {
   options?: ViewportOptions;
