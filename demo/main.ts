@@ -9,6 +9,7 @@ import {
   NoteTool,
   TextTool,
   ShapeTool,
+  FrameTool,
   LaserTool,
   RemoteLaserOverlay,
   PingTool,
@@ -128,6 +129,7 @@ const arrow = new ArrowTool({ color: '#1a1a1a', width: 2 });
 const note = new NoteTool();
 const text = new TextTool();
 const shape = new ShapeTool({ strokeColor: '#1a1a1a' });
+const frame = new FrameTool();
 const measure = new MeasureTool();
 // Movement measuring: 30 ft of a typical walk in green, the dash out to 60 ft
 // in amber, anything past that in the tool's own red.
@@ -151,6 +153,7 @@ viewport.toolManager.register(arrow);
 viewport.toolManager.register(note);
 viewport.toolManager.register(text);
 viewport.toolManager.register(shape);
+viewport.toolManager.register(frame);
 viewport.toolManager.register(measure);
 viewport.toolManager.register(path);
 viewport.toolManager.register(template);

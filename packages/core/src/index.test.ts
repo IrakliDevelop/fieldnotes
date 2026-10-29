@@ -154,6 +154,7 @@ describe('core public surface', () => {
       'TextTool',
       'ImageTool',
       'ShapeTool',
+      'FrameTool',
       'LaserTool',
       'PingTool',
       'PingInput',

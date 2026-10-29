@@ -3631,8 +3631,65 @@ describe('Viewport tools option and onStateChange', () => {
       'note',
       'text',
       'shape',
+      'frame',
     ]);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
+    viewport.destroy();
+  });
+
+  it('selects a completed default frame gesture and undoes it once', () => {
+    const viewport = new Viewport(container, { tools: 'default' });
+    const wrapper = wrapperOf(container);
+    viewport.runAction('tool.frame');
+    for (const [type, clientX, clientY] of [
+      ['pointerdown', 10, 20],
+      ['pointerup', 110, 120],
+    ] as const) {
+      wrapper.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          button: 0,
+          pointerId: 1,
+          pointerType: 'mouse',
+          clientX,
+          clientY,
+        }),
+      );
+    }
+
+    expect(viewport.store.count).toBe(1);
+    expect(viewport.getSelectedIds()).toHaveLength(1);
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.undo()).toBe(true);
+    expect(viewport.store.count).toBe(0);
+    viewport.destroy();
+  });
+
+  it('leaves selection and history unchanged when a default frame gesture is cancelled', () => {
+    const viewport = new Viewport(container, { tools: 'default' });
+    const wrapper = wrapperOf(container);
+    viewport.runAction('tool.frame');
+    for (const [type, clientX, clientY] of [
+      ['pointerdown', 10, 20],
+      ['pointermove', 110, 120],
+      ['pointercancel', 110, 120],
+      ['pointerup', 110, 120],
+    ] as const) {
+      wrapper.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          button: 0,
+          pointerId: 1,
+          pointerType: 'mouse',
+          clientX,
+          clientY,
+        }),
+      );
+    }
+
+    expect(viewport.store.count).toBe(0);
+    expect(viewport.getSelectedIds()).toEqual([]);
+    expect(viewport.history.undoCount).toBe(0);
     viewport.destroy();
   });
 

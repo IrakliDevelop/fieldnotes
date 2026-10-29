@@ -7,8 +7,9 @@ import { ArrowTool } from './arrow-tool';
 import { NoteTool } from './note-tool';
 import { TextTool } from './text-tool';
 import { ShapeTool } from './shape-tool';
+import { FrameTool } from './frame-tool';
 
-/** Fresh instances of the standard board tools: hand, select, pencil, eraser, arrow, note, text, shape. */
+/** Fresh instances of the standard board tools. */
 export function createDefaultTools(): Tool[] {
   return [
     new HandTool(),
@@ -19,5 +20,6 @@ export function createDefaultTools(): Tool[] {
     new NoteTool(),
     new TextTool(),
     new ShapeTool(),
+    new FrameTool(),
   ];
 }

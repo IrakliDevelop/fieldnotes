@@ -591,7 +591,7 @@ describe('createToolAction', () => {
     expect(switchTool).toHaveBeenCalledWith('pencil');
   });
 
-  it('DEFAULT_TOOL_SHORTCUTS has exactly the eight known tools', () => {
+  it('DEFAULT_TOOL_SHORTCUTS has exactly the nine known tools', () => {
     expect(DEFAULT_TOOL_SHORTCUTS).toEqual({
       select: ['v'],
       hand: ['h'],
@@ -601,6 +601,7 @@ describe('createToolAction', () => {
       note: ['n'],
       text: ['t'],
       shape: ['s'],
+      frame: ['f'],
     });
   });
 });

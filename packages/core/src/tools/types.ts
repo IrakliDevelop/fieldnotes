@@ -11,6 +11,7 @@ export interface ToolContext {
   /** Repaints only the overlay (this tool's renderOverlay and registered overlays). Use requestRender when the scene changed. */
   requestOverlayRender: () => void;
   switchTool?: (name: string) => void;
+  setSelection?: (ids: string[]) => void;
   editElement?: (id: string) => void;
   fitNoteHeight?: (id: string) => void;
   setCursor?: (cursor: string) => void;
@@ -75,5 +76,6 @@ export type ToolName =
   | 'image'
   | 'text'
   | 'shape'
+  | 'frame'
   | 'laser'
   | 'ping';

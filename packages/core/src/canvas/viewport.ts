@@ -359,6 +359,7 @@ export class Viewport {
       requestRender: () => this.requestRender(),
       requestOverlayRender: () => this.requestOverlayRender(),
       switchTool: (name: string) => this.toolManager.setTool(name, this.toolContext),
+      setSelection: (ids: string[]) => this.getSelectTool()?.setSelection(ids),
       editElement: (id: string) => this.interactions.startEditingElement(id),
       fitNoteHeight: (id: string) => this.interactions.fitNoteHeight(id),
       setCursor: (cursor: string) => {

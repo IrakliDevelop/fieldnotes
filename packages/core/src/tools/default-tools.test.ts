@@ -12,6 +12,7 @@ describe('createDefaultTools', () => {
       'note',
       'text',
       'shape',
+      'frame',
     ]);
   });
 

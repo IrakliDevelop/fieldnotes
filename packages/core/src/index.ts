@@ -340,6 +340,7 @@ export { ImageTool } from './tools/image-tool';
 export type { ImageToolOptions } from './tools/image-tool';
 export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
+export { FrameTool } from './tools/frame-tool';
 export { LaserTool } from './tools/laser-tool';
 export type { LaserToolOptions, LaserTrailEmission } from './tools/laser-tool';
 export { PingTool } from './tools/ping-tool';

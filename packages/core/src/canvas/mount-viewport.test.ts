@@ -11,7 +11,17 @@ import { createShape } from '../elements/element-factory';
 import type { CanvasState } from '../core/state-serializer';
 import type { Tool } from '../tools/types';
 
-const DEFAULT_TOOL_NAMES = ['hand', 'select', 'pencil', 'eraser', 'arrow', 'note', 'text', 'shape'];
+const DEFAULT_TOOL_NAMES = [
+  'hand',
+  'select',
+  'pencil',
+  'eraser',
+  'arrow',
+  'note',
+  'text',
+  'shape',
+  'frame',
+];
 
 const saved = {
   version: 6,
