@@ -1,3 +1,4 @@
+import { isFrameElement } from '@fieldnotes/core';
 import type { Viewport } from '@fieldnotes/core';
 import type { FogManager } from '@fieldnotes/vtt';
 import { attachPersistence } from './persistence';
@@ -105,6 +106,12 @@ function download(filename: string, blob: Blob): void {
 /** Wires persistence, the room and the file/board menu to a mounted scene. */
 function attach(instance: SceneInstance, sceneId: SceneId): Attached {
   const { viewport } = instance;
+  const selectedFrameId = (): string | undefined => {
+    const [id] = viewport.getSelectedIds();
+    if (!id || viewport.getSelectedIds().length !== 1) return undefined;
+    const element = viewport.store.getById(id);
+    return element && isFrameElement(element) && element.parentId === undefined ? id : undefined;
+  };
   const disposed = new AbortController();
   // An abort also stops the pending persistence load from republishing a destroyed viewport.
   try {
@@ -197,31 +204,43 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
           id: 'export-png',
           label: 'Export PNG',
           icon: 'image',
-          run: () =>
-            viewport
-              .exportImage({
-                scale: 2,
-                padding: 32,
-                background: '#ffffff',
-                renderHtml: renderWidgetForExport,
-              })
+          run: () => {
+            const frameId = selectedFrameId();
+            return viewport
+              .exportImage(
+                frameId
+                  ? { frameId, scale: 2, renderHtml: renderWidgetForExport }
+                  : {
+                      scale: 2,
+                      padding: 32,
+                      background: '#ffffff',
+                      renderHtml: renderWidgetForExport,
+                    },
+              )
               .then((blob) => {
                 if (blob) download(`fieldnotes-${sceneId}.png`, blob);
                 else shell.toast('Nothing to export');
               })
-              .catch(() => shell.toast('Export failed')),
+              .catch(() => shell.toast('Export failed'));
+          },
         },
         {
           id: 'export-svg',
           label: 'Export SVG',
           icon: 'file',
-          run: () =>
-            viewport
-              .exportSVG({ padding: 32, renderHtml: renderWidgetForExport })
+          run: () => {
+            const frameId = selectedFrameId();
+            return viewport
+              .exportSVG(
+                frameId
+                  ? { frameId, renderHtml: renderWidgetForExport }
+                  : { padding: 32, renderHtml: renderWidgetForExport },
+              )
               .then((svg) =>
                 download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' })),
               )
-              .catch(() => shell.toast('Export failed')),
+              .catch(() => shell.toast('Export failed'));
+          },
         },
       ]),
       addMenuItems('board', [

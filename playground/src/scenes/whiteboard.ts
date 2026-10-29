@@ -1,6 +1,7 @@
 import {
   ArrowTool,
   EraserTool,
+  FrameTool,
   HandTool,
   ImageTool,
   LaserTool,
@@ -63,6 +64,7 @@ export const whiteboard: Scene = {
         new EraserTool(),
         new ArrowTool(),
         shapeTool,
+        new FrameTool(),
         new NoteTool(),
         new TextTool(),
         imageTool,
@@ -132,6 +134,7 @@ export const whiteboard: Scene = {
             },
           ],
         },
+        { name: 'frame', label: 'Frame', icon: 'frame', key: 'f' },
         { name: 'note', label: 'Note', icon: 'note', key: '8' },
         { name: 'text', label: 'Text', icon: 'text', key: '9' },
         { name: 'image', label: 'Image', icon: 'image', key: '0', beforeActivate: pickImage },

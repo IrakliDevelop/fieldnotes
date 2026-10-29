@@ -3,7 +3,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { gotoBlank } from './helpers/board';
 import { singleFingerDraw } from './helpers/touch';
 
-const SAMPLE = { text: 1, note: 4, shape: 2, arrow: 1, stroke: 1 } as const;
+const SAMPLE = { text: 1, note: 4, shape: 5, extension: 1, arrow: 1, stroke: 1 } as const;
 
 async function open(page: Page): Promise<void> {
   await page.goto('/');
@@ -31,6 +31,70 @@ const typeCounts = (page: Page): Promise<Record<string, number>> =>
     return counts;
   });
 
+interface SampleHierarchy {
+  frame: {
+    id: string;
+    layerId: string;
+    position: { x: number; y: number };
+    size: { w: number; h: number };
+  };
+  children: {
+    parentId: string;
+    layerId: string;
+    shape: string;
+    position: { x: number; y: number };
+    size: { w: number; h: number };
+  }[];
+  overlap: {
+    parentId?: string;
+    layerId: string;
+    position: { x: number; y: number };
+    size: { w: number; h: number };
+  };
+}
+
+async function sampleHierarchy(page: Page): Promise<SampleHierarchy> {
+  return page.evaluate(() => {
+    const elements = window.__playground.viewport.store.getAll();
+    const frame = elements.find(
+      (element) => element.type === 'extension' && element.extensionType === 'core:frame',
+    );
+    const frameSize = frame && 'size' in frame ? frame.size : undefined;
+    if (!frame || !frameSize) throw new Error('sample frame is missing');
+    const children: SampleHierarchy['children'] = [];
+    let overlap: SampleHierarchy['overlap'] | undefined;
+    for (const element of elements) {
+      if (element.type !== 'shape' || !element.size) continue;
+      if (element.parentId === frame.id) {
+        children.push({
+          parentId: frame.id,
+          layerId: element.layerId,
+          shape: element.shape,
+          position: element.position,
+          size: element.size,
+        });
+      }
+      if (
+        element.parentId === undefined &&
+        element.position.x === 280 &&
+        element.position.y === 748
+      ) {
+        overlap = {
+          layerId: element.layerId,
+          position: element.position,
+          size: element.size,
+        };
+      }
+    }
+    if (!overlap) throw new Error('sample overlap is missing');
+    return {
+      frame: { id: frame.id, layerId: frame.layerId, position: frame.position, size: frameSize },
+      children: children.sort((a, b) => a.position.x - b.position.x),
+      overlap,
+    };
+  });
+}
+
 async function expectSample(page: Page): Promise<void> {
   await expect.poll(() => typeCounts(page)).toMatchObject(SAMPLE);
   expect(
@@ -38,6 +102,30 @@ async function expectSample(page: Page): Promise<void> {
       window.__playground.viewport.layerManager.getLayers().map((l) => l.name),
     ),
   ).toEqual(['Sketch', 'Notes']);
+  const hierarchy = await sampleHierarchy(page);
+  expect(hierarchy.frame.position).toEqual({ x: 0, y: 680 });
+  expect(hierarchy.frame.size).toEqual({ w: 420, h: 220 });
+  expect(hierarchy.children).toEqual([
+    {
+      parentId: hierarchy.frame.id,
+      layerId: hierarchy.frame.layerId,
+      shape: 'rectangle',
+      position: { x: 32, y: 736 },
+      size: { w: 150, h: 90 },
+    },
+    {
+      parentId: hierarchy.frame.id,
+      layerId: hierarchy.frame.layerId,
+      shape: 'ellipse',
+      position: { x: 240, y: 688 },
+      size: { w: 140, h: 100 },
+    },
+  ]);
+  expect(hierarchy.overlap).toEqual({
+    layerId: hierarchy.frame.layerId,
+    position: { x: 280, y: 748 },
+    size: { w: 110, h: 70 },
+  });
 }
 
 async function drawStroke(page: Page, testInfo: TestInfo, y = 560): Promise<void> {
@@ -75,6 +163,7 @@ test('edits survive reload', async ({ page }, testInfo) => {
   const ids = await page.evaluate(() =>
     window.__playground.viewport.store.getAll().map((el) => el.id),
   );
+  const hierarchy = await sampleHierarchy(page);
 
   // 'state' is IndexedDBAdapter's default store name (packages/core/src/core/storage).
   const saved = (): Promise<string | null> =>
@@ -109,6 +198,7 @@ test('edits survive reload', async ({ page }, testInfo) => {
   await page.reload();
   await page.waitForFunction(() => window.__playground !== undefined);
   await expect.poll(() => count(page)).toBe(before + 1);
+  expect(await sampleHierarchy(page)).toEqual(hierarchy);
 });
 
 test('Reset is one undo step', async ({ page }, testInfo) => {
