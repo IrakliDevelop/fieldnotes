@@ -90,6 +90,35 @@ describe('FrameTool', () => {
     expect(ctx.store.count).toBe(0);
   });
 
+  it('clears a preview when pointer up returns to the drag start', () => {
+    const tool = new FrameTool();
+    const ctx = makeContext();
+
+    tool.onPointerDown(point(10, 10), ctx);
+    tool.onPointerMove(point(110, 110), ctx);
+    tool.onPointerUp(point(10, 10), ctx);
+
+    expect(ctx.store.count).toBe(0);
+    expect(ctx.switchTool).not.toHaveBeenCalled();
+    expect(ctx.setSelection).not.toHaveBeenCalled();
+    expect(ctx.requestOverlayRender).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears a preview when the captured layer locks before pointer up', () => {
+    const tool = new FrameTool();
+    const ctx = makeContext();
+
+    tool.onPointerDown(point(10, 10), ctx);
+    tool.onPointerMove(point(110, 110), ctx);
+    ctx.isLayerLocked = () => true;
+    tool.onPointerUp(point(110, 110), ctx);
+
+    expect(ctx.store.count).toBe(0);
+    expect(ctx.switchTool).not.toHaveBeenCalled();
+    expect(ctx.setSelection).not.toHaveBeenCalled();
+    expect(ctx.requestOverlayRender).toHaveBeenCalledTimes(2);
+  });
+
   it('does not start without an active layer or finish after the layer locks', () => {
     const tool = new FrameTool();
     const ctx = makeContext({ activeLayerId: undefined });

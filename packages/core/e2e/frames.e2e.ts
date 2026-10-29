@@ -52,12 +52,28 @@ test.describe('frame tool', () => {
     expect((await state(page)).activeTool).toBe('frame');
     await page.evaluate(() => {
       const input = document.createElement('input');
+      input.id = 'frame-shortcut-input';
       document.body.append(input);
-      input.focus();
+      const live = document.createElement('div');
+      live.dataset.elementId = 'frame-shortcut-live';
+      live.dataset.fnLive = '';
+      const button = document.createElement('button');
+      button.id = 'frame-shortcut-live-control';
+      live.append(button);
+      document.body.append(live);
     });
-    await page.keyboard.press('v');
-    expect((await state(page)).activeTool).toBe('frame');
-    await page.evaluate(() => document.querySelector('input')?.remove());
+    await canvasPage.selectTool('hand');
+    await page.locator('#frame-shortcut-input').focus();
+    await page.keyboard.press('f');
+    expect((await state(page)).activeTool).toBe('hand');
+    await page.locator('#frame-shortcut-live-control').focus();
+    await page.keyboard.press('f');
+    expect((await state(page)).activeTool).toBe('hand');
+    await page.evaluate(() => {
+      document.querySelector('#frame-shortcut-input')?.remove();
+      document.querySelector('[data-element-id="frame-shortcut-live"]')?.remove();
+    });
+    await canvasPage.selectTool('frame');
 
     const box = await canvasPage.wrapper().boundingBox();
     if (!box) throw new Error('Wrapper not found');

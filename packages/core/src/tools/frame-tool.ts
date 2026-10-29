@@ -37,7 +37,10 @@ export class FrameTool implements Tool {
     const layerId = this.layerId;
     const rect = this.rect();
     this.reset();
-    if (!rect || ctx.isLayerLocked?.(layerId)) return;
+    if (!rect || ctx.isLayerLocked?.(layerId)) {
+      ctx.requestOverlayRender();
+      return;
+    }
 
     const frame = createFrame({ ...rect, layerId });
     ctx.store.add(frame);
