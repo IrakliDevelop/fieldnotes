@@ -130,12 +130,13 @@ test('frames, dissolves, undoes, and exports only the selected root frame', asyn
     const restored = snapshot();
     return { frameId, framed, dissolved, restored };
   });
-  expect(result.framed).toMatchObject({
+  expect(result.framed).toEqual({
     selection: [result.frameId],
     elements: [
       {
         id: result.frameId,
         parentId: undefined,
+        index: 'a0',
         position: { x: 76, y: 52 },
         size: { w: 248, h: 132 },
         type: 'core:frame',
@@ -143,6 +144,7 @@ test('frames, dissolves, undoes, and exports only the selected root frame', asyn
       {
         id: 'a',
         parentId: result.frameId,
+        index: 'a0',
         position: { x: 100, y: 100 },
         size: { w: 80, h: 60 },
         type: 'shape',
@@ -150,6 +152,7 @@ test('frames, dissolves, undoes, and exports only the selected root frame', asyn
       {
         id: 'b',
         parentId: result.frameId,
+        index: 'a1',
         position: { x: 220, y: 100 },
         size: { w: 80, h: 60 },
         type: 'shape',
@@ -157,18 +160,20 @@ test('frames, dissolves, undoes, and exports only the selected root frame', asyn
       {
         id: 'overlap',
         parentId: undefined,
+        index: 'a2',
         position: { x: 300, y: 100 },
         size: { w: 80, h: 60 },
         type: 'shape',
       },
     ],
   });
-  expect(result.dissolved).toMatchObject({
+  expect(result.dissolved).toEqual({
     selection: [],
     elements: [
       {
         id: 'a',
         parentId: undefined,
+        index: 'a0',
         position: { x: 100, y: 100 },
         size: { w: 80, h: 60 },
         type: 'shape',
@@ -176,6 +181,7 @@ test('frames, dissolves, undoes, and exports only the selected root frame', asyn
       {
         id: 'b',
         parentId: undefined,
+        index: 'a1',
         position: { x: 220, y: 100 },
         size: { w: 80, h: 60 },
         type: 'shape',
@@ -183,6 +189,7 @@ test('frames, dissolves, undoes, and exports only the selected root frame', asyn
       {
         id: 'overlap',
         parentId: undefined,
+        index: 'a2',
         position: { x: 300, y: 100 },
         size: { w: 80, h: 60 },
         type: 'shape',
@@ -212,9 +219,27 @@ test('frames, dissolves, undoes, and exports only the selected root frame', asyn
         viewBox: doc.documentElement.getAttribute('viewBox'),
         fills: [...doc.querySelectorAll('[fill]')].map((element) => element.getAttribute('fill')),
         text: doc.textContent,
+        strokes: [...doc.querySelectorAll('[stroke]')].map((element) =>
+          element.getAttribute('stroke'),
+        ),
+        stroked: [...doc.querySelectorAll('[stroke]')].filter(
+          (element) => element.getAttribute('stroke') !== 'none',
+        ).length,
+        paths: doc.querySelectorAll('path').length,
+        textElements: doc.querySelectorAll('text').length,
+        transparent: doc.querySelectorAll('[fill="none"]').length,
       };
     }, svg),
-  ).toEqual({ viewBox: '76 76 248 108', fills: ['#22c55e', '#facc15'], text: null });
+  ).toEqual({
+    viewBox: '76 76 248 108',
+    fills: ['#22c55e', '#facc15'],
+    text: null,
+    strokes: ['none', 'none'],
+    stroked: 0,
+    paths: 0,
+    textElements: 0,
+    transparent: 0,
+  });
   const pngDownload = page.waitForEvent('download');
   await page.locator('[data-chrome="menu"]').getByRole('button', { name: 'Menu' }).click();
   await page.locator('[data-menu-item="export-png"]').click();
@@ -301,7 +326,7 @@ test('moves a frame and its members by one pointer delta, then restores them wit
     if (message.type() === 'error') errors.push(message.text());
   });
   await gotoBlank(page);
-  const frame = await page.evaluate(() => {
+  const fixture = await page.evaluate(() => {
     const viewport = window.__playground.viewport;
     const layerId = viewport.layerManager.activeLayerId;
     for (const [id, x] of [
@@ -330,11 +355,23 @@ test('moves a frame and its members by one pointer delta, then restores them wit
     const id = viewport.getSelectedIds()[0];
     const element = id ? viewport.store.getById(id) : undefined;
     if (!id || !element || !('size' in element)) throw new Error('frame unavailable');
-    return { id, position: element.position, size: element.size };
+    return {
+      id,
+      position: element.position,
+      size: element.size,
+      positions: viewport.store
+        .getAll()
+        .filter((candidate) => candidate.id === id || candidate.parentId === id)
+        .sort(
+          (left, right) =>
+            [id, 'move-a', 'move-b'].indexOf(left.id) - [id, 'move-a', 'move-b'].indexOf(right.id),
+        )
+        .map((candidate) => ({ id: candidate.id, position: candidate.position })),
+    };
   });
   const stage = await page.locator('#stage').boundingBox();
   if (!stage) throw new Error('missing stage');
-  const start = { x: stage.x + frame.position.x + 20, y: stage.y + frame.position.y + 12 };
+  const start = { x: stage.x + fixture.position.x + 20, y: stage.y + fixture.position.y + 12 };
   const end = { x: start.x + 30, y: start.y + 20 };
   if (testInfo.project.name === 'ipad') await singleFingerDraw(page, [start, end]);
   else {
@@ -349,19 +386,26 @@ test('moves a frame and its members by one pointer delta, then restores them wit
         .getAll()
         .filter((element) => element.id === id || element.parentId === id)
         .map((element) => ({ id: element.id, position: element.position })),
-    frame.id,
+    fixture.id,
   );
   expect(moved).toEqual(
     expect.arrayContaining([
-      { id: frame.id, position: { x: frame.position.x + 30, y: frame.position.y + 20 } },
+      { id: fixture.id, position: { x: fixture.position.x + 30, y: fixture.position.y + 20 } },
       { id: 'move-a', position: { x: 130, y: 120 } },
       { id: 'move-b', position: { x: 250, y: 120 } },
     ]),
   );
   await page.evaluate(() => window.__playground.viewport.undo());
   expect(
-    await page.evaluate((id) => window.__playground.viewport.store.getById(id)?.position, frame.id),
-  ).toEqual(frame.position);
+    await page.evaluate((id) => {
+      const orderedIds = [id, 'move-a', 'move-b'];
+      return orderedIds.map((elementId) => {
+        const element = window.__playground.viewport.store.getById(elementId);
+        if (!element) throw new Error(`missing ${elementId}`);
+        return { id: element.id, position: element.position };
+      });
+    }, fixture.id),
+  ).toEqual(fixture.positions);
   expect(errors).toEqual([]);
 });
 
