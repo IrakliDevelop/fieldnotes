@@ -9,6 +9,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Sticky notes** — editable text notes with customizable colors
 - **Arrows** — curved bezier arrows with element binding
 - **Shapes** — rectangles, ellipses with fill and stroke
+- **Frames** — explicit, non-nested groups that clip their children
 - **Text** — standalone text elements with font size and alignment
 - **Images** — drag & drop or programmatic placement (canvas-rendered for proper layer ordering)
 - **HTML embedding** — add any DOM element as a fully interactive canvas citizen
@@ -43,7 +44,7 @@ npm install @fieldnotes/vtt
 import { Viewport } from '@fieldnotes/core';
 
 // Mount on any container element; 'default' registers hand, select, pencil, eraser,
-// arrow, note, text and shape tools and activates select
+// arrow, note, text, shape and frame tools and activates select
 const viewport = new Viewport(document.getElementById('canvas'), {
   background: { pattern: 'dots', spacing: 24 },
   tools: 'default',
@@ -136,7 +137,7 @@ Export the canvas as a PNG image:
 const blob = await viewport.exportImage({
   scale: 2, // pixel density (default 2)
   padding: 20, // world-space padding around content (default 0)
-  background: '#fff', // fill color (default '#ffffff')
+  background: '#fff', // fill color
   filter: (el) => el.type !== 'html', // optional per-element filter
   imageTimeoutMs: 10_000, // maximum wait per image
   maxDimension: 16_384, // maximum output width or height
@@ -146,6 +147,13 @@ const blob = await viewport.exportImage({
   },
 });
 ```
+
+`frameId` exports one root frame's exact content rectangle and only its descendants. It leaves out
+the frame title, border, padding chrome, and unrelated overlap. Empty frames still produce exact-size
+output. `frameId` works with `exportImage()` and `exportSVG()`. For raster export it conflicts with
+`region`, so supplying both throws. `filter`, explicit `background`, HTML renderers and painters,
+image diagnostics, registry capabilities, and render hooks still apply. Frame PNG export defaults to
+transparent; JPEG retains its opaque default.
 
 Remote images are requested with anonymous CORS using their original URLs; failures are omitted from
 the result and reported through `onAssetError` when supplied.
@@ -239,7 +247,19 @@ store.on('update', ({ previous, current }) => {
 `getAll`, type queries, and spatial queries use the visible hierarchy projection. A remote child
 whose parent has not arrived remains available through `getById` but is omitted from those queries.
 An extension parent can define `clipBounds` as an axis-aligned world rectangle; it clips descendants,
-and nested parent clips intersect. Frames are not an element type in this release.
+and nested parent clips intersect. `FrameElement` is a built-in root-only parent. Frames do not nest
+or rotate, and geometry alone never adds a child. Use `FrameTool` or `createFrame()` to make one:
+
+```ts
+const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 320, h: 180 } });
+store.add(frame);
+viewport.addToFrame(frame.id, [elementId]);
+viewport.removeFromFrame(frame.id, [elementId]);
+viewport.dissolveFrame(frame.id);
+```
+
+Resizing a frame keeps its children at their existing geometry. Deleting a frame deletes its
+subtree. Dissolving it removes the frame and preserves direct children as roots.
 
 ## Undo / Redo
 
@@ -329,7 +349,7 @@ Defaults (remappable): `Delete`/`Backspace` delete · `Escape` deselect · `mod+
 `mod+Y`/`mod+Shift+Z` redo · `mod+A` select all · `mod+C/V/D` copy/paste/duplicate ·
 `[`/`]` z-order (with `mod` = to back/front) · `Shift+1` zoom-to-fit · `mod+=` zoom in ·
 `mod+-` zoom out · `mod+0` reset zoom to 100% · arrows nudge · tool keys `V` select,
-`H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape.
+`H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape, `F` frame.
 
 `mod` = Ctrl or Cmd. Shortcuts fire only while the canvas has focus (click it once);
 pass `shortcuts: { scope: 'window' }` for page-wide handling.

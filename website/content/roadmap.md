@@ -23,6 +23,7 @@
 - Self-hosted WebSocket sync server, with Redis for persistence and fan-out across instances
 - Tabletop package with square and hex grids, fog of war, measuring, area templates and per-turn movement tracking on token drags
 - Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export
+- Frames that group and clip elements
 - Camera constraints applied to camera mutations and animations
 - A scheduled Chromium performance gate that records 90 render-loop samples on 10,011 elements against a checked-in p95 budget
 
@@ -30,7 +31,6 @@
 
 - I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.
 - I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.
-- Frames that group and clip elements
 
 ## Not built yet
 

@@ -18,8 +18,9 @@ const NOT_BUILT = [
 const NEXT = [
   "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
   "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
-  'Frames that group and clip elements',
 ];
+
+const BUILT_FRAMES = 'Frames that group and clip elements';
 
 test('the changelog lists the newest release first with its rendered body', async ({ page }) => {
   await page.goto('/changelog/');
@@ -47,7 +48,7 @@ test('every changelog heading uses the package display name', async ({ page }) =
   await expect(page.locator('main h2[id^="-"]')).toHaveCount(0);
 });
 
-test('the roadmap shows its three sections with frames next and the not built list', async ({
+test('the roadmap shows its three sections with frames built and the not built list', async ({
   page,
 }) => {
   await page.goto('/roadmap/');
@@ -60,7 +61,11 @@ test('the roadmap shows its three sections with frames next and the not built li
   await expect(
     page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem'),
   ).toHaveText(NOT_BUILT);
+  await expect(page.getByRole('region', { name: 'Built' }).getByRole('listitem')).toContainText(
+    BUILT_FRAMES,
+  );
   await expect(page.getByRole('region', { name: 'Next' }).getByRole('listitem')).toHaveText(NEXT);
+  await expect(page.getByRole('region', { name: 'Next' })).not.toContainText(BUILT_FRAMES);
 });
 
 for (const path of ['/changelog/', '/roadmap/']) {
