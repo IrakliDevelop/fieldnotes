@@ -19,6 +19,7 @@ import { ActionRegistry } from '../actions/action-registry';
 import type { ActionContext } from '../actions/types';
 import type { Viewport } from './viewport';
 import { createToolAction, DEFAULT_TOOL_SHORTCUTS } from '../actions/builtin-actions';
+import { FrameTool } from '../tools/frame-tool';
 
 function wheel(
   el: HTMLElement,
@@ -1332,6 +1333,88 @@ describe('InputHandler', () => {
   });
 
   describe('pointerType forwarding', () => {
+    it('creates one frame and one undo step from a pen gesture', () => {
+      const store = new ElementStore();
+      const manager = new RealToolManager();
+      const history = new RealHistoryStack();
+      const recorder = new RealHistoryRecorder(store, history);
+      const select = { ids: [] as string[] };
+      const ctx: ToolContext = {
+        camera,
+        store,
+        requestRender: vi.fn(),
+        requestOverlayRender: vi.fn(),
+        activeLayerId: 'layer',
+        isLayerLocked: () => false,
+        switchTool: vi.fn(),
+        setSelection: (ids) => {
+          select.ids = ids;
+        },
+      };
+      const frame = new FrameTool();
+      manager.register(frame);
+      manager.setTool('frame', ctx);
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: manager,
+        toolContext: ctx,
+        historyRecorder: recorder,
+        actions: stubActionRegistry(),
+      });
+
+      const down = new PointerEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        pointerId: 4,
+        clientX: 10,
+        clientY: 20,
+        pointerType: 'pen',
+        shiftKey: true,
+      });
+      Object.defineProperty(down, 'pressure', { value: 0.7 });
+      element.dispatchEvent(down);
+      pointerUp(element, {
+        button: 0,
+        pointerId: 4,
+        clientX: 110,
+        clientY: 120,
+        pointerType: 'pen',
+        shiftKey: true,
+      });
+
+      expect(store.count).toBe(1);
+      expect(history.undoCount).toBe(1);
+      expect(select.ids).toHaveLength(1);
+    });
+
+    it('forwards pen pressure, Shift, and local coordinates unchanged', () => {
+      const tm = stubToolManager();
+      const tc = stubToolContext();
+      handler.setToolManager(tm, tc);
+      const event = new PointerEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        clientX: 50,
+        clientY: 60,
+        pointerType: 'pen',
+        shiftKey: true,
+      });
+      Object.defineProperty(event, 'pressure', { value: 0.7 });
+      element.dispatchEvent(event);
+
+      expect(tm.handlePointerDown).toHaveBeenCalledWith(
+        expect.objectContaining({
+          x: 50,
+          y: 60,
+          pointerType: 'pen',
+          pressure: 0.7,
+          shiftKey: true,
+        }),
+        tc,
+      );
+      pointerUp(element, { pointerType: 'pen' });
+    });
+
     it('includes pointerType in PointerState passed to tools', () => {
       const tm = stubToolManager();
       const tc = stubToolContext();
@@ -2185,6 +2268,28 @@ describe('InputHandler', () => {
       const { switchTool } = setupWithTools();
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }));
       expect(switchTool).toHaveBeenCalledWith('pencil');
+    });
+
+    it('routes F only from the canvas, not editable or live-control targets', () => {
+      const { switchTool } = setupWithTools();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f' }));
+      expect(switchTool).toHaveBeenCalledWith('frame');
+
+      const input = document.createElement('input');
+      element.append(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }));
+      input.remove();
+
+      const live = document.createElement('div');
+      live.dataset.elementId = 'live';
+      live.dataset.fnLive = '';
+      const button = document.createElement('button');
+      live.append(button);
+      element.append(live);
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }));
+      live.remove();
+
+      expect(switchTool).toHaveBeenCalledTimes(1);
     });
 
     it('tool key is ignored mid-gesture', () => {

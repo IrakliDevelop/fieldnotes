@@ -155,6 +155,10 @@ export class HistoryRecorder {
     const snapshot = this.transaction ? this.updateSnapshots.get(element.id) : undefined;
     this.updateSnapshots.delete(element.id);
 
+    if (this.transaction) {
+      this.transaction.push(...this.flushUpdateSnapshots());
+    }
+
     this.record(new RemoveElementCommand(snapshot ?? element));
   }
 
@@ -200,6 +204,7 @@ export class HistoryRecorder {
         updates.push({ previous, current });
       }
     }
+    this.updateSnapshots.clear();
     if (updates.length === 0) return [];
     if (updates.length === 1) {
       const update = updates[0];

@@ -7,7 +7,7 @@ order: 1
 
 ## Choose the tools
 
-`tools: 'default'` registers eight tools and starts on select. Each has a name for `setTool` and a key:
+`tools: 'default'` registers nine tools and starts on select. Each has a name for `setTool` and a key:
 
 - `select` (V, `SelectTool`): selects, moves, resizes and rotates elements. A drag across empty board selects what the box touches, and Shift+click adds an element to the selection or takes it out.
 - `hand` (H, `HandTool`): pans the board.
@@ -17,8 +17,9 @@ order: 1
 - `note` (N, `NoteTool`): places sticky notes.
 - `text` (T, `TextTool`): places text.
 - `shape` (S, `ShapeTool`): draws rectangles, ellipses and lines.
+- `frame` (F, `FrameTool`): draws a frame that can group and clip its explicit children.
 
-For a different set, pass a list. `createDefaultTools()` returns new instances of the eight, and `ImageTool` places images:
+For a different set, pass a list. `createDefaultTools()` returns new instances of the nine, and `ImageTool` places images:
 
 ::code{example="tools-and-input" region="choose"}
 
@@ -36,7 +37,7 @@ Each tool takes options in its constructor, and `setOptions` changes them while 
 
 ::code{example="tools-and-input" region="options"}
 
-The highlighter is a second `PencilTool` under its own name, so `setTool('highlighter')` picks it. A tool whose name is not one of the eight above has no default key.
+The highlighter is a second `PencilTool` under its own name, so `setTool('highlighter')` picks it. A tool whose name is not one of the nine above has no default key.
 
 `EraserTool` takes `radius` in screen pixels (default 20), and `mode: 'stroke'` makes it delete whole strokes. Hold Shift while drawing a line to snap it to 45° steps.
 
@@ -77,6 +78,23 @@ Shortcuts work while the board has focus, and a click on the board gives it focu
 - Shift+1: `view.zoom-to-fit`
 - mod+=, mod+- and mod+0: `view.zoom-in`, `view.zoom-out` and `view.zoom-reset`
 - The tool keys above: `tool.select`, `tool.hand`, `tool.pencil`, `tool.eraser`, `tool.arrow`, `tool.note`, `tool.text` and `tool.shape`
+
+`tool.frame` is the F shortcut.
+
+## Frames
+
+Frames are root-only, non-nested, non-rotating parents. A frame contains only elements explicitly
+added to it, so overlapping geometry does not create membership. Resizing a frame leaves its
+children's geometry unchanged.
+
+```ts
+viewport.addToFrame(frameId, ids);
+viewport.removeFromFrame(frameId, ids);
+viewport.dissolveFrame(frameId);
+```
+
+Deleting a frame deletes its subtree. Dissolving a frame removes the frame and preserves its direct
+children as roots.
 
 Rebind keys with `shortcuts.bindings` in the options, or later with `viewport.shortcuts.rebind(action, keys)`. `null` as the keys, or `disable(action)`, turns a shortcut off. `reset()` restores the defaults, and `getBindings()` returns the current table for a settings screen.
 

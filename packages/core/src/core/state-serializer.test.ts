@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import {
   exportState,
+  CANVAS_STATE_VERSION,
   migrateElementData,
   migrateState,
   parseState,
@@ -20,9 +21,11 @@ import {
   createStroke,
   createText,
 } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import type { Layer } from '../layers/types';
 import { ElementRegistry } from '../elements/element-registry';
 import { Viewport } from '../canvas/viewport';
+import { SelectTool } from '../tools/select-tool';
 import { getDefaultElementRegistry, setDefaultElementRegistry } from '../elements/default-registry';
 import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
 
@@ -59,6 +62,9 @@ function makeCamera(x = 0, y = 0, zoom = 1) {
 }
 
 describe('exportState', () => {
+  it('keeps the persisted canvas format at version 6', () => {
+    expect(CANVAS_STATE_VERSION).toBe(6);
+  });
   it('exports version, camera, and elements', () => {
     const stroke = createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] });
     const note = createNote({ position: { x: 10, y: 20 } });
@@ -1229,6 +1235,91 @@ describe('extension dataVersion', () => {
       expect(viewport.store.getAll().map((el) => el.id)).toEqual(['m0']);
       viewport.destroy();
     });
+
+    it('rolls back each malformed and parented frame state load to the exact baseline', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const viewport = new Viewport(container);
+      const kept = createNote({ position: { x: 1, y: 2 } });
+      viewport.store.add(kept);
+      const content = document.createElement('div');
+      content.id = 'rollback-content';
+      content.textContent = 'kept content';
+      document.body.appendChild(content);
+      const htmlId = viewport.addHtmlElement(content, { x: 30, y: 40 });
+      (viewport as unknown as { renderLoop: { flush(): void } }).renderLoop.flush();
+      const extraLayer = viewport.layerManager.createLayer('Kept layer');
+      viewport.layerManager.setActiveLayer(extraLayer.id);
+      viewport.camera.moveTo(40, 50);
+      viewport.camera.setZoom(2);
+      const select = new SelectTool();
+      viewport.toolManager.register(select);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      select.setSelection([kept.id]);
+      viewport.history.clear();
+      viewport.store.update(kept.id, { text: 'kept update' });
+      const before = viewport.store.getById(kept.id);
+      const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 } });
+      const malformed = { ...frame, size: { w: 79, h: 48 } };
+      const parented = { ...frame, parentId: kept.id };
+      const storeChanges = vi.fn();
+      const layerChanges = vi.fn();
+      const cameraChanges = vi.fn();
+      const historyChanges = vi.fn();
+      viewport.store.onChange(storeChanges);
+      viewport.layerManager.on('change', layerChanges);
+      viewport.camera.onChange(cameraChanges);
+      viewport.history.onChange(historyChanges);
+      const html = viewport.store.getById(htmlId);
+      if (!before || !html) throw new Error('expected baseline elements');
+      const routedParent = content.parentElement;
+      if (!routedParent) throw new Error('expected routed content parent');
+      const baselineElements = viewport.store.getAll();
+      const keptVersion = viewport.store.getVersion(kept.id);
+      const htmlVersion = viewport.store.getVersion(htmlId);
+      const baselineLayers = viewport.layerManager.getLayers();
+      const assertBaseline = () => {
+        expect(container.isConnected).toBe(true);
+        expect(routedParent.contains(content)).toBe(true);
+        expect(content.parentElement).toBe(routedParent);
+        expect(viewport.store.getAll()).toEqual(baselineElements);
+        expect(viewport.store.getById(kept.id)).toEqual(before);
+        expect(viewport.store.getById(htmlId)).toEqual(html);
+        expect(viewport.store.getVersion(kept.id)).toBe(keptVersion);
+        expect(viewport.store.getVersion(htmlId)).toBe(htmlVersion);
+        expect(viewport.store.getById(frame.id)).toBeUndefined();
+        expect(viewport.layerManager.getLayers()).toEqual(baselineLayers);
+        expect(viewport.layerManager.getLayer('incoming-layer')).toBeUndefined();
+        expect(viewport.layerManager.activeLayerId).toBe(extraLayer.id);
+        expect(viewport.camera.position).toEqual({ x: 40, y: 50 });
+        expect(viewport.camera.zoom).toBe(2);
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.history.redoCount).toBe(0);
+        expect(viewport.getSelectedIds()).toEqual([kept.id]);
+        expect(content.isConnected).toBe(true);
+        expect(content.textContent).toBe('kept content');
+        expect(viewport.store.getById(htmlId)).toMatchObject({ domId: 'rollback-content' });
+        expect(storeChanges).not.toHaveBeenCalled();
+        expect(layerChanges).not.toHaveBeenCalled();
+        expect(cameraChanges).not.toHaveBeenCalled();
+        expect(historyChanges).not.toHaveBeenCalled();
+      };
+      const frameState = (element: CanvasElement): CanvasState => ({
+        version: 6,
+        camera: { position: { x: 0, y: 0 }, zoom: 1 },
+        elements: [element],
+        layers: [layer, { ...extraLayer, id: 'incoming-layer' }],
+      });
+
+      assertBaseline();
+      expect(() => viewport.loadState(frameState(malformed))).toThrow('Invalid extension envelope');
+      assertBaseline();
+      expect(() => viewport.loadState(frameState(parented))).toThrow(/Invalid hierarchy/);
+      assertBaseline();
+      viewport.destroy();
+      content.remove();
+      container.remove();
+    });
   });
 
   describe('migrateElementData', () => {
@@ -1266,6 +1357,16 @@ describe('extension dataVersion', () => {
       expect(migrateElementData(unknown, new ElementRegistry())).toBe(unknown);
       const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } });
       expect(migrateElementData(shape, versionedRegistry().registry)).toBe(shape);
+    });
+
+    it('rejects a current registered envelope that fails adapter validation', () => {
+      const registry = new ElementRegistry();
+      registry.register(markerDefinition);
+      const invalid = asElement(envelope({ label: 1 }, 1));
+
+      expect(() => migrateElementData(invalid, registry)).toThrow(
+        'Invalid element "m1": malformed test:marker data',
+      );
     });
 
     it('returns an element unchanged when its type has no dataVersion', () => {

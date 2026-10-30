@@ -5,6 +5,10 @@ import { reportFailure } from '../core/report-failure';
 
 const MAX_DEPTH = 32;
 
+function isFrame(element: CanvasElement): boolean {
+  return element.type === 'extension' && element.extensionType === 'core:frame';
+}
+
 function compare(a: CanvasElement, b: CanvasElement): number {
   if (a.index !== b.index) return a.index < b.index ? -1 : 1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
@@ -31,7 +35,9 @@ export function validateAddedElement(
   let current: CanvasElement | undefined = element;
   let depth = 0;
   while (current?.parentId !== undefined) {
-    if (isFullCanvas(current, registry) || seen.has(current.id)) invalidHierarchy();
+    if (isFrame(current) || isFullCanvas(current, registry) || seen.has(current.id)) {
+      invalidHierarchy();
+    }
     seen.add(current.id);
     const parent = elements.get(current.parentId);
     if (
@@ -69,7 +75,7 @@ export class ElementHierarchy {
       let depth = 0;
       let isValid = true;
       while (current?.parentId !== undefined) {
-        if (isFullCanvas(current, registry) || seen.has(current.id)) {
+        if (isFrame(current) || isFullCanvas(current, registry) || seen.has(current.id)) {
           isValid = false;
           break;
         }

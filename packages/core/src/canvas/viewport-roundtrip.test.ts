@@ -11,6 +11,7 @@ import {
   createText,
   createShape,
 } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import type {
   NoteElement,
   StrokeElement,
@@ -255,6 +256,46 @@ describe('Viewport save/load roundtrip', () => {
     v2.destroy();
   });
 
+  it('roundtrips a root frame and its child content clip', () => {
+    const v1 = new Viewport(container);
+    const layerId = v1.layerManager.activeLayerId;
+    const frame = createFrame({
+      position: { x: 10, y: 20 },
+      size: { w: 180, h: 100 },
+      title: 'Planning',
+      color: '#123456',
+      layerId,
+      index: 'a0',
+    });
+    const child = createNote({
+      position: { x: 20, y: 50 },
+      size: { w: 30, h: 20 },
+      parentId: frame.id,
+      layerId,
+      index: 'a1',
+    });
+    v1.store.add(frame);
+    v1.store.add(child);
+    const state = v1.exportState();
+    v1.destroy();
+
+    const v2 = new Viewport(container);
+    v2.loadState(state);
+
+    expect(v2.store.getById(frame.id)).toMatchObject({
+      position: { x: 10, y: 20 },
+      size: { w: 180, h: 100 },
+      dataVersion: 1,
+      data: { title: 'Planning', color: '#123456' },
+      layerId,
+      index: 'a0',
+      version: 1,
+    });
+    expect(v2.store.getById(child.id)?.parentId).toBe(frame.id);
+    expect(v2.store.getEffectiveClip(child.id)).toEqual({ x: 10, y: 44, w: 180, h: 76 });
+    v2.destroy();
+  });
+
   it('roundtrips through JSON serialization', () => {
     const v1 = new Viewport(container);
     const layerId = v1.layerManager.activeLayerId;
@@ -281,6 +322,45 @@ describe('Viewport save/load roundtrip', () => {
     expect(v2.camera.position.x).toBe(42);
     expect(v2.camera.zoom).toBe(2.0);
 
+    v2.destroy();
+  });
+
+  it('roundtrips frame envelopes through JSON with content clipping', () => {
+    const v1 = new Viewport(container);
+    const layerId = v1.layerManager.activeLayerId;
+    const frame = createFrame({
+      position: { x: 10, y: 20 },
+      size: { w: 180, h: 100 },
+      title: 'JSON frame',
+      color: '#123456',
+      layerId,
+      index: 'a0',
+    });
+    const child = createNote({
+      position: { x: 20, y: 50 },
+      size: { w: 30, h: 20 },
+      parentId: frame.id,
+      layerId,
+      index: 'a1',
+    });
+    v1.store.add(frame);
+    v1.store.add(child);
+    const json = v1.exportJSON();
+    v1.destroy();
+
+    const v2 = new Viewport(container);
+    v2.loadJSON(json);
+    expect(v2.store.getById(frame.id)).toMatchObject({
+      position: { x: 10, y: 20 },
+      size: { w: 180, h: 100 },
+      dataVersion: 1,
+      data: { title: 'JSON frame', color: '#123456' },
+      layerId,
+      index: 'a0',
+      version: 1,
+    });
+    expect(v2.store.getById(child.id)?.parentId).toBe(frame.id);
+    expect(v2.store.getEffectiveClip(child.id)).toEqual({ x: 10, y: 44, w: 180, h: 76 });
     v2.destroy();
   });
 });

@@ -13,10 +13,12 @@ import {
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { createNote, createStroke, createArrow, createShape } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import type { ToolContext } from './types';
 import { ElementRegistry } from '../elements/element-registry';
 import type { ExtensionElementEnvelope } from '../elements/types';
 import { ConstraintServiceProxy } from '../core/constraint-service';
+import { getOverlayLayout } from './select-overlay';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -110,9 +112,30 @@ describe('isInsideBounds', () => {
     expect(isInsideBounds({ x: 10, y: 10 }, element, ctx)).toBe(false);
     expect(hitTest({ x: 42, y: 24 }, ctx)?.id).toBe(element.id);
   });
+
+  it('lets a candidate beneath a frame win inside its transparent content', () => {
+    const ctx = makeCtx();
+    const note = createNote({ position: { x: 40, y: 60 }, size: { w: 40, h: 40 }, index: 'a' });
+    const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 120, h: 90 }, index: 'b' });
+    ctx.store.add(note);
+    ctx.store.add(frame);
+
+    expect(hitTest({ x: 60, y: 80 }, ctx)?.id).toBe(note.id);
+    expect(hitTest({ x: 60, y: 30 }, ctx)?.id).toBe(frame.id);
+  });
 });
 
 describe('hitTestResizeHandle', () => {
+  it('does not expose a rotate handle for a frame', () => {
+    const ctx = makeCtx();
+    const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 120, h: 90 } });
+    ctx.store.add(frame);
+    const rotateHandle = getOverlayLayout(frame, 1, ctx.elementRegistry)?.rotateHandle;
+    if (!rotateHandle) throw new Error('Missing frame overlay');
+
+    expect(hitTestRotateHandle(rotateHandle, ctx, [frame.id])).toBeNull();
+  });
+
   it('rejects resize, rotate, line, extension and marquee geometry outside a clip', () => {
     const ctx = makeCtx();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });

@@ -378,7 +378,12 @@ export function migrateElementData(
   if (!isOptional(element.dataVersion, isPositiveInteger)) {
     throw new Error(`Invalid element "${element.id}": invalid dataVersion`);
   }
-  return migrateEnvelope(element, registry.getAdapter(element.extensionType));
+  const adapter = registry.getAdapter(element.extensionType);
+  const envelope = migrateEnvelope(element, adapter);
+  if (adapter && !adapter.validateEnvelope(envelope)) {
+    throw new Error(`Invalid element "${element.id}": malformed ${element.extensionType} data`);
+  }
+  return envelope;
 }
 
 function migrateEnvelope(

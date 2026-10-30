@@ -11,12 +11,15 @@ export interface ToolContext {
   /** Repaints only the overlay (this tool's renderOverlay and registered overlays). Use requestRender when the scene changed. */
   requestOverlayRender: () => void;
   switchTool?: (name: string) => void;
+  setSelection?: (ids: string[]) => void;
   editElement?: (id: string) => void;
   fitNoteHeight?: (id: string) => void;
   setCursor?: (cursor: string) => void;
   activeLayerId?: string;
   isLayerVisible?: (layerId: string) => boolean;
   isLayerLocked?: (layerId: string) => boolean;
+  /** Returns whether a layer still exists. */
+  hasLayer?: (layerId: string) => boolean;
   smartGuides?: boolean;
   getVisibleRect?: () => Bounds;
   constraintService?: ConstraintServiceAccess;
@@ -75,5 +78,6 @@ export type ToolName =
   | 'image'
   | 'text'
   | 'shape'
+  | 'frame'
   | 'laser'
   | 'ping';

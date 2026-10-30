@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ElementRegistry, getRegistryToken } from './element-registry';
 import { pickBaseFields } from './base-fields';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
+import { FRAME_ELEMENT_TYPE, frameElementDefinition } from './frame-element';
 
 // ─── Test fixture: a minimal extension element type ──────────────────────────
 
@@ -95,6 +96,22 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('ElementRegistry', () => {
+  it('installs and protects one frame definition in root and child registries', () => {
+    const root = new ElementRegistry();
+    const child = new ElementRegistry(root);
+    const custom = new ElementRegistry(child);
+
+    for (const registry of [root, child, custom]) {
+      expect(registry.getTypes().filter((type) => type === FRAME_ELEMENT_TYPE)).toEqual([
+        FRAME_ELEMENT_TYPE,
+      ]);
+      expect(registry.getAdapter(FRAME_ELEMENT_TYPE)).toBeDefined();
+      expect(() => registry.register(frameElementDefinition)).toThrow(/already registered/i);
+      registry.unregister(FRAME_ELEMENT_TYPE);
+      expect(registry.getAdapter(FRAME_ELEMENT_TYPE)).toBeDefined();
+    }
+  });
+
   it('adapts typed clipBounds with one unwrap and leaves it absent when unspecified', () => {
     const registry = new ElementRegistry();
     const unwrap = vi.fn(markerDefinition.unwrap);
@@ -243,6 +260,42 @@ describe('ElementRegistry', () => {
   });
 
   describe('adapter operations', () => {
+    it('returns false when unwrap throws during complete validation', () => {
+      const registry = new ElementRegistry();
+      registry.register({
+        ...markerDefinition,
+        type: 'test:throws',
+        legacyTypes: [],
+        unwrap: () => {
+          throw new Error('broken');
+        },
+      });
+      const adapter = registry.getAdapter('test:throws');
+      if (!adapter) throw new Error('Missing adapter');
+      expect(adapter.validateEnvelope(makeMarkerEnvelope({ extensionType: 'test:throws' }))).toBe(
+        false,
+      );
+    });
+
+    it('returns false when complete validation throws', () => {
+      const registry = new ElementRegistry();
+      registry.register({
+        ...markerDefinition,
+        type: 'test:validator-throws',
+        legacyTypes: [],
+        validateElement: () => {
+          throw new Error('broken');
+        },
+      });
+      const adapter = registry.getAdapter('test:validator-throws');
+      if (!adapter) throw new Error('Missing adapter');
+      const envelope = makeMarkerEnvelope({ extensionType: 'test:validator-throws' });
+
+      expect(adapter.validateElement).toBeDefined();
+      expect(adapter.validateElement?.(envelope)).toBe(false);
+      expect(adapter.validateEnvelope(envelope)).toBe(false);
+    });
+
     it('validateEnvelope checks extensionType and data', () => {
       const registry = new ElementRegistry();
       registry.register(markerDefinition);
@@ -485,12 +538,12 @@ describe('ElementRegistry', () => {
       const registry = new ElementRegistry();
       registry.register(markerDefinition);
 
-      expect(registry.getTypes()).toEqual(['test:marker']);
+      expect(registry.getTypes()).toEqual(['core:frame', 'test:marker']);
     });
 
     it('returns empty array when no types registered', () => {
       const registry = new ElementRegistry();
-      expect(registry.getTypes()).toEqual([]);
+      expect(registry.getTypes()).toEqual(['core:frame']);
     });
   });
 
@@ -578,7 +631,7 @@ describe('ElementRegistry', () => {
       child.register({ ...markerDefinition, type: 'test:own', legacyTypes: [] });
       child.register({ ...markerDefinition, legacyTypes: [] });
 
-      expect(child.getTypes()).toEqual(['test:own', 'test:marker', 'test:parent']);
+      expect(child.getTypes()).toEqual(['core:frame', 'test:own', 'test:marker', 'test:parent']);
     });
 
     it('unregister on the child never removes a parent type', () => {

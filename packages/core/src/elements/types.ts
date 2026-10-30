@@ -179,6 +179,8 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   readonly legacyTypes: readonly string[];
   decodeLegacy(raw: Record<string, unknown>): T;
   validateData(data: Record<string, unknown>): boolean;
+  /** Validates the complete typed element after envelope data is unwrapped. */
+  validateElement?(el: T): boolean;
   unwrap(el: ExtensionElementEnvelope): T;
   wrap(el: T): ExtensionElementEnvelope;
   bounds(el: T): Bounds | null;
@@ -219,6 +221,8 @@ export interface ElementTypeAdapter {
    *  (the canvas pass still calls `render` if defined); `'dom'` is rejected by `register`. */
   readonly renderMode: 'canvas' | 'dom' | 'hybrid' | 'none';
   readonly fullCanvas: boolean;
+  /** Validates the complete stored extension envelope when its definition opts in. */
+  validateElement?(el: ExtensionElementEnvelope): boolean;
   validateEnvelope(el: ExtensionElementEnvelope): boolean;
   decodeLegacy(raw: Record<string, unknown>): ExtensionElementEnvelope;
   wrap(el: BaseElement): ExtensionElementEnvelope;

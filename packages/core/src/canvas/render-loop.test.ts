@@ -20,6 +20,7 @@ import { LayerManager as RealLayerManager } from '../layers/layer-manager';
 import { LayerCache as RealLayerCache } from './layer-cache';
 import { createNote, createShape } from '../elements/element-factory';
 import type { ExtensionElementEnvelope } from '../elements/types';
+import { ElementRegistry } from '../elements/element-registry';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 
 function createMockDeps() {
@@ -2126,6 +2127,72 @@ describe('RenderLoop', () => {
       }
       expect(rasterFrames).toEqual([true, true, true, true]);
       expect(drawnIds(deps.canvasEl.getContext('2d'))).toEqual([]);
+    });
+
+    it('re-rasterises a clipping extension parent and its child on every live update', () => {
+      interface ClippingData extends Record<string, unknown> {
+        clip: { x: number; y: number; w: number; h: number };
+      }
+      type ClippingElement = ExtensionElementEnvelope & { data: ClippingData };
+      const hasClippingData = (data: Record<string, unknown>): data is ClippingData => {
+        const clip = data.clip;
+        return (
+          typeof clip === 'object' &&
+          clip !== null &&
+          'x' in clip &&
+          'y' in clip &&
+          'w' in clip &&
+          'h' in clip &&
+          typeof clip.x === 'number' &&
+          typeof clip.y === 'number' &&
+          typeof clip.w === 'number' &&
+          typeof clip.h === 'number'
+        );
+      };
+      const registry = new ElementRegistry();
+      registry.register<ClippingElement>({
+        type: 'test:live-clip',
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('no legacy');
+        },
+        validateData: hasClippingData,
+        unwrap: (element) => {
+          if (!hasClippingData(element.data)) throw new Error('invalid clipping data');
+          return { ...element, data: element.data };
+        },
+        wrap: (element) => ({ ...element, data: { ...element.data } }),
+        bounds: (element) => element.data.clip,
+        clipBounds: (element) => element.data.clip,
+        renderMode: 'canvas',
+      });
+      const parent: ClippingElement = {
+        id: 'parent',
+        type: 'extension',
+        extensionType: 'test:live-clip',
+        position: { x: 0, y: 0 },
+        index: 'a0',
+        version: 1,
+        locked: false,
+        layerId,
+        data: { clip: { x: 0, y: 0, w: 100, h: 100 } },
+      };
+
+      store.setElementRegistry(registry);
+      store.add(parent);
+      store.add({ ...shape('child', 1), parentId: parent.id });
+      frame();
+
+      for (const width of [90, 80, 70]) {
+        now += 16;
+        store.update(parent.id, { data: { clip: { x: 0, y: 0, w: width, h: 100 } } });
+        vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+
+        expect(frame()).toBe(true);
+        expect(drawnIds(deps.canvasEl.getContext('2d'))).toEqual([]);
+        expect(drawnIds(cache.getContext(layerId))).toEqual(['parent', 'child']);
+        expect(drawnIds(cache.getContext(layerId, 'over'))).toEqual([]);
+      }
     });
 
     it('a second update after the warm window has passed is not lifted', () => {

@@ -7,6 +7,7 @@ import { ElementRegistry } from './element-registry';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 import { createStroke, createArrow } from './element-factory';
+import { createFrame } from './frame-element';
 import type {
   CanvasElement,
   ExtensionElementEnvelope,
@@ -187,6 +188,192 @@ describe('ElementStore', () => {
   });
 
   describe('CRUD', () => {
+    it.each([
+      ['undersized size', { size: { w: 79, h: 48 } }],
+      ['rotation', { rotation: 1 }],
+    ])('rejects a remote frame update with %s before changing warmed state', (_name, partial) => {
+      const store = new ElementStore();
+      const frame = createFrame({
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 90 },
+        index: 'a0',
+      });
+      const child = makeNote({ id: 'child', parentId: frame.id, index: 'a1' });
+      store.add(frame);
+      store.add(child);
+      const scene = store.getAll();
+      const query = store.queryPoint({ x: 1, y: 30 });
+      const clip = store.getEffectiveClip(child.id);
+      const version = store.getVersion(frame.id);
+      const add = vi.fn();
+      const update = vi.fn();
+      const change = vi.fn();
+      store.on('add', add);
+      store.on('update', update);
+      store.onChange(change);
+
+      expect(() => store.update(frame.id, partial, { origin: 'remote' })).toThrow(
+        `Invalid extension envelope "${frame.id}" of type "core:frame"`,
+      );
+      expect(store.getById(frame.id)).toBe(frame);
+      expect(store.count).toBe(2);
+      expect(store.getVersion(frame.id)).toBe(version);
+      expect(store.getAll()).toBe(scene);
+      expect(store.queryPoint({ x: 1, y: 30 })).toEqual(query);
+      expect(store.getEffectiveClip(child.id)).toEqual(clip);
+      expect(add).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+      expect(change).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, 'remote'] as const)(
+      'rejects malformed frame adds before mutating for %s origin',
+      (origin) => {
+        const store = new ElementStore();
+        const add = vi.fn();
+        const change = vi.fn();
+        store.on('add', add);
+        store.onChange(change);
+        const invalid = {
+          ...createFrame({ position: { x: 200, y: 200 }, size: { w: 80, h: 48 } }),
+          rotation: 1,
+        };
+
+        expect(() => store.add(invalid, origin === undefined ? undefined : { origin })).toThrow(
+          `Invalid extension envelope "${invalid.id}" of type "core:frame"`,
+        );
+        expect(store.count).toBe(0);
+        expect(store.getById(invalid.id)).toBeUndefined();
+        expect(store.getVersion(invalid.id)).toBe(-1);
+        expect(store.queryPoint({ x: 200, y: 200 })).toEqual([]);
+        expect(add).not.toHaveBeenCalled();
+        expect(change).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([undefined, 'remote'] as const)(
+      'rejects a malformed frame updateMany atomically for %s origin',
+      (origin) => {
+        const store = new ElementStore();
+        const note = makeNote({ id: 'valid', position: { x: 300, y: 0 } });
+        const frame = createFrame({
+          position: { x: 0, y: 0 },
+          size: { w: 120, h: 90 },
+          index: 'a1',
+        });
+        store.add(note);
+        store.add(frame);
+        const noteVersion = store.getVersion(note.id);
+        const frameVersion = store.getVersion(frame.id);
+        const update = vi.fn();
+        const change = vi.fn();
+        store.on('update', update);
+        store.onChange(change);
+
+        expect(() =>
+          store.updateMany(
+            [
+              { id: note.id, partial: { text: 'would change' } },
+              { id: frame.id, partial: { size: { w: 79, h: 48 } } },
+            ],
+            origin === undefined ? undefined : { origin },
+          ),
+        ).toThrow(`Invalid extension envelope "${frame.id}" of type "core:frame"`);
+        expect(store.getById(note.id)).toBe(note);
+        expect(store.getById(frame.id)).toBe(frame);
+        expect(store.getVersion(note.id)).toBe(noteVersion);
+        expect(store.getVersion(frame.id)).toBe(frameVersion);
+        expect(update).not.toHaveBeenCalled();
+        expect(change).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([undefined, 'remote'] as const)(
+      'rejects malformed snapshot entries before replacing warmed state for %s origin',
+      (origin) => {
+        const store = new ElementStore();
+        const kept = makeNote({ id: 'kept', position: { x: 500, y: 0 } });
+        store.add(kept);
+        const scene = store.getAll();
+        const query = store.queryPoint({ x: 501, y: 1 });
+        const version = store.getVersion(kept.id);
+        const clear = vi.fn();
+        const add = vi.fn();
+        const change = vi.fn();
+        store.on('clear', clear);
+        store.on('add', add);
+        store.onChange(change);
+        const id = 'duplicate-frame';
+        const malformed = {
+          ...createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 } }),
+          id,
+          size: { w: 79, h: 48 },
+        };
+        const valid = { ...createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 } }), id };
+
+        expect(() =>
+          store.loadSnapshot([malformed, valid], origin === undefined ? undefined : { origin }),
+        ).toThrow(`Invalid extension envelope "${id}" of type "core:frame"`);
+        expect(store.getById(kept.id)).toBe(kept);
+        expect(store.count).toBe(1);
+        expect(store.getVersion(kept.id)).toBe(version);
+        expect(store.getAll()).toBe(scene);
+        expect(store.queryPoint({ x: 501, y: 1 })).toEqual(query);
+        expect(clear).not.toHaveBeenCalled();
+        expect(add).not.toHaveBeenCalled();
+        expect(change).not.toHaveBeenCalled();
+      },
+    );
+
+    it('does not add a history command for a rejected local frame mutation', () => {
+      const store = new ElementStore();
+      const stack = new HistoryStack();
+      const recorder = new HistoryRecorder(store, stack);
+      const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 }, index: 'a0' });
+      store.add(frame);
+      stack.clear();
+      recorder.begin();
+      expect(() => store.update(frame.id, { size: { w: 79, h: 48 } })).toThrow(
+        'Invalid extension envelope',
+      );
+      recorder.commit();
+      expect(stack.undoCount).toBe(0);
+    });
+
+    it('preserves valid frames and unknown extensions through every store entry path', () => {
+      const store = new ElementStore();
+      const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 120, h: 90 }, index: 'a0' });
+      const unknown = {
+        id: 'unknown',
+        type: 'extension' as const,
+        extensionType: 'example:unknown',
+        position: { x: 300, y: 0 },
+        index: 'a1',
+        version: 1,
+        locked: false,
+        layerId: '',
+        data: { preserved: true },
+      };
+      store.add(frame);
+      store.add(unknown);
+      store.update(unknown.id, { data: { preserved: 'after update' } });
+      store.update(frame.id, { data: { title: 'Renamed', color: '#123456' } });
+      store.updateMany([{ id: frame.id, partial: { position: { x: 20, y: 0 } } }]);
+      const updatedFrame = store.getById(frame.id);
+      const updatedUnknown = store.getById(unknown.id);
+      if (!updatedFrame) throw new Error('expected frame');
+      if (!updatedUnknown) throw new Error('expected unknown extension');
+      store.loadSnapshot([updatedFrame, updatedUnknown]);
+
+      expect(store.getById(frame.id)).toMatchObject({
+        data: { title: 'Renamed', color: '#123456' },
+      });
+      expect(store.getById(unknown.id)).toMatchObject({
+        extensionType: unknown.extensionType,
+        data: { preserved: 'after update' },
+      });
+    });
+
     it('keeps invalid remote descendants raw but out of scene and queries until repaired', () => {
       const store = new ElementStore();
       const child = makeNote({ id: 'child', parentId: 'parent' });
@@ -198,6 +385,167 @@ describe('ElementStore', () => {
 
       store.add(makeNote({ id: 'parent', index: 'a0' }), { origin: 'remote' });
       expect(store.getAll().map((element) => element.id)).toEqual(['parent', 'child']);
+    });
+
+    it.each(['add', 'update', 'updateMany', 'snapshot'] as const)(
+      'keeps a remote parented frame subtree raw but restores every projection after %s repair',
+      (path) => {
+        const store = new ElementStore();
+        const ancestor = makeNote({ id: 'ancestor', position: { x: 0, y: 0 }, index: 'a0' });
+        const frame = createFrame({
+          position: { x: 300, y: 100 },
+          size: { w: 120, h: 90 },
+          index: 'a1',
+        });
+        const child = makeNote({
+          id: 'frame-child',
+          parentId: frame.id,
+          position: { x: 310, y: 130 },
+          size: { w: 20, h: 20 },
+          index: 'a2',
+        });
+        const unrelated = makeNote({ id: 'unrelated', position: { x: 600, y: 0 }, index: 'a3' });
+        store.add(ancestor, { origin: 'remote' });
+        store.add(unrelated, { origin: 'remote' });
+        const unrelatedVersion = store.getVersion(unrelated.id);
+        if (path === 'add') {
+          store.add({ ...frame, parentId: ancestor.id }, { origin: 'remote' });
+          store.add(child, { origin: 'remote' });
+        } else if (path === 'update') {
+          store.add(frame, { origin: 'remote' });
+          store.add(child, { origin: 'remote' });
+          store.update(frame.id, { parentId: ancestor.id }, { origin: 'remote' });
+        } else if (path === 'updateMany') {
+          store.add(frame, { origin: 'remote' });
+          store.add(child, { origin: 'remote' });
+          store.updateMany(
+            [
+              { id: frame.id, partial: { parentId: ancestor.id } },
+              { id: unrelated.id, partial: { text: 'changed atomically' } },
+            ],
+            { origin: 'remote' },
+          );
+        } else {
+          store.loadSnapshot([ancestor, { ...frame, parentId: ancestor.id }, child, unrelated], {
+            origin: 'remote',
+          });
+        }
+
+        expect(store.count).toBe(4);
+        expect(store.getById(frame.id)?.parentId).toBe(ancestor.id);
+        expect(store.getAll().map((element) => element.id)).toEqual([ancestor.id, unrelated.id]);
+        expect(store.getElementsByType('note').map((element) => element.id)).toEqual([
+          ancestor.id,
+          unrelated.id,
+        ]);
+        expect(store.getElementsByType('extension')).toEqual([]);
+        expect(store.getChildren(ancestor.id)).toEqual([]);
+        expect(store.getDescendants(ancestor.id)).toEqual([]);
+        expect(store.queryRect({ x: 300, y: 100, w: 120, h: 90 })).toEqual([]);
+        expect(store.queryPoint({ x: 315, y: 135 })).toEqual([]);
+        expect(store.getEffectiveClip(frame.id)).toBeUndefined();
+        expect(store.getEffectiveClip(child.id)).toBeUndefined();
+
+        store.update(frame.id, { parentId: undefined }, { origin: 'remote' });
+        expect(store.getAll().map((element) => element.id)).toEqual([
+          ancestor.id,
+          frame.id,
+          child.id,
+          unrelated.id,
+        ]);
+        expect(store.getChildren(frame.id).map((element) => element.id)).toEqual([child.id]);
+        expect(store.getDescendants(frame.id).map((element) => element.id)).toEqual([child.id]);
+        expect(store.queryPoint({ x: 315, y: 135 }).map((element) => element.id)).toEqual([
+          frame.id,
+          child.id,
+        ]);
+        expect(store.getEffectiveClip(frame.id)).toBeNull();
+        expect(store.getEffectiveClip(child.id)).toEqual({ x: 300, y: 124, w: 120, h: 66 });
+        expect(store.getElementsByType('extension').map((element) => element.id)).toEqual([
+          frame.id,
+        ]);
+        if (path === 'updateMany') {
+          expect(store.getById(unrelated.id)).toMatchObject({ text: 'changed atomically' });
+          expect(store.getVersion(unrelated.id)).toBe(unrelatedVersion + 1);
+        }
+      },
+    );
+
+    it.each([undefined, 'host', 'storage'] as const)(
+      'rejects direct parented frame writes for %s origin',
+      (origin) => {
+        const store = new ElementStore();
+        const parent = makeNote({ id: 'parent' });
+        const frame = createFrame({ position: { x: 100, y: 0 }, size: { w: 120, h: 90 } });
+        store.add(parent);
+        store.add(frame);
+        expect(() =>
+          store.update(
+            frame.id,
+            { parentId: parent.id },
+            origin === undefined ? undefined : { origin },
+          ),
+        ).toThrow(/Invalid hierarchy/);
+        expect(store.getById(frame.id)?.parentId).toBeUndefined();
+      },
+    );
+
+    it('rejects strict operations that retain an existing remote parented frame subtree', () => {
+      const store = new ElementStore();
+      const parent = makeNote({ id: 'parent', index: 'a0' });
+      const frame = createFrame({
+        position: { x: 100, y: 0 },
+        size: { w: 120, h: 90 },
+        index: 'a1',
+      });
+      const child = makeNote({ id: 'child', parentId: frame.id, index: 'a2' });
+      store.add(parent, { origin: 'remote' });
+      store.add({ ...frame, parentId: parent.id }, { origin: 'remote' });
+      store.add(child, { origin: 'remote' });
+
+      expect(() => store.update(parent.id, { text: 'does not repair' })).toThrow(
+        /Invalid hierarchy/,
+      );
+      expect(() =>
+        store.updateMany([
+          { id: frame.id, partial: { parentId: parent.id } },
+          { id: child.id, partial: { parentId: frame.id } },
+        ]),
+      ).toThrow(/Invalid hierarchy/);
+      expect(store.getById(parent.id)).toBe(parent);
+      expect(store.getById(frame.id)?.parentId).toBe(parent.id);
+      expect(store.getById(child.id)).toBe(child);
+    });
+
+    it('rejects a strict batch that parents a root frame without changing any member', () => {
+      const store = new ElementStore();
+      const parent = makeNote({ id: 'parent', index: 'a0', text: 'before' });
+      const frame = createFrame({
+        position: { x: 100, y: 0 },
+        size: { w: 120, h: 90 },
+        index: 'a1',
+      });
+      const child = makeNote({ id: 'child', parentId: frame.id, index: 'a2' });
+      store.add(parent);
+      store.add(frame);
+      store.add(child);
+      const parentVersion = store.getVersion(parent.id);
+      const frameVersion = store.getVersion(frame.id);
+      const childVersion = store.getVersion(child.id);
+
+      expect(() =>
+        store.updateMany([
+          { id: frame.id, partial: { parentId: parent.id } },
+          { id: parent.id, partial: { text: 'changed' } },
+        ]),
+      ).toThrow(/Invalid hierarchy/);
+
+      expect(store.getById(parent.id)).toBe(parent);
+      expect(store.getById(frame.id)).toBe(frame);
+      expect(store.getById(child.id)).toBe(child);
+      expect(store.getVersion(parent.id)).toBe(parentVersion);
+      expect(store.getVersion(frame.id)).toBe(frameVersion);
+      expect(store.getVersion(child.id)).toBe(childVersion);
     });
 
     it('rejects local orphaning without emitting or mutating', () => {

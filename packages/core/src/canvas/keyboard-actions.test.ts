@@ -1871,7 +1871,6 @@ describe('KeyboardActions extension cloneRemap', () => {
 
   it('validates a registered extension clone even when it has no remapper', () => {
     const registry = new ElementRegistry();
-    registry.register(linkDefinition);
     const ctx = makeCtx({ store: new ElementStore(registry), elementRegistry: registry });
     const { actions, tool } = makeActions({ ctx });
     const link: ExtensionElementEnvelope = {
@@ -1886,6 +1885,7 @@ describe('KeyboardActions extension cloneRemap', () => {
       data: { targetId: 1 },
     };
     ctx.store.add(link);
+    registry.register(linkDefinition);
     tool.setSelection([link.id]);
 
     expect(() => actions.duplicate()).toThrow('Invalid cloned extension data');

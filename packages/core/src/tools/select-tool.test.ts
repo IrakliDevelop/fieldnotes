@@ -32,6 +32,8 @@ import { HistoryRecorder } from '../history/history-recorder';
 import type { Point } from '../core/types';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
+import { createFrame } from '../elements/frame-element';
+import { getOverlayLayout } from './select-overlay';
 
 function makeSnapProxy(
   gridSize: number,
@@ -2727,6 +2729,22 @@ describe('SelectTool', () => {
 });
 
 describe('SelectTool extension handles', () => {
+  it('does not rotate a frame from the computed rotate handle location', () => {
+    const tool = new SelectTool();
+    const ctx = makeCtx();
+    const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 120, h: 90 } });
+    ctx.store.add(frame);
+    (tool as unknown as { setSelection: (ids: string[]) => void }).setSelection([frame.id]);
+    const rotateHandle = getOverlayLayout(frame, 1, ctx.elementRegistry)?.rotateHandle;
+    if (!rotateHandle) throw new Error('Missing frame overlay');
+
+    tool.onPointerDown(pt(rotateHandle.x, rotateHandle.y), ctx);
+    tool.onPointerMove(pt(rotateHandle.x + 20, rotateHandle.y + 20), ctx);
+    tool.onPointerUp(pt(rotateHandle.x + 20, rotateHandle.y + 20), ctx);
+
+    expect(ctx.store.getById(frame.id)).not.toHaveProperty('rotation');
+  });
+
   it.each(['onPointerDown', 'onPointerMove', 'onHover'] as const)(
     '%s passes the held shift key to the extension handle hit test',
     (method) => {
@@ -2907,6 +2925,63 @@ describe('SelectTool sized extension resize', () => {
       expect(renderSelection).toHaveBeenCalledTimes(1);
     },
   );
+
+  it('uses frame custom corner handles to clamp resize in one undo step', () => {
+    const frame = createFrame({ position: { x: 100, y: 100 }, size: { w: 120, h: 90 } });
+    const registry = new ElementRegistry();
+    const store = new ElementStore(registry);
+    store.add(frame);
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(store, stack);
+    const ctx = makeCtx({ store, elementRegistry: registry });
+    const tool = new SelectTool();
+    tool.onActivate(ctx);
+    tool.setSelection([frame.id]);
+
+    recorder.begin();
+    tool.onPointerDown(pt(96, 96), ctx);
+    tool.onPointerMove(pt(200, 200), ctx);
+    tool.onPointerUp(pt(200, 200), ctx);
+    recorder.commit();
+
+    const updated = store.getById(frame.id);
+    expect(updated?.position).toEqual({ x: 140, y: 142 });
+    if (!updated || !('size' in updated)) throw new Error('Resized frame is missing');
+    expect(updated.size).toEqual({ w: 80, h: 48 });
+    expect(stack.undoCount).toBe(1);
+    stack.undo(store);
+    expect(store.getById(frame.id)?.position).toEqual({ x: 100, y: 100 });
+  });
+
+  it('uses frame corner minimums when resizing a multi-selection', () => {
+    const frame = createFrame({ position: { x: 100, y: 100 }, size: { w: 120, h: 90 } });
+    const shape = createShape({ position: { x: 300, y: 100 }, size: { w: 40, h: 40 } });
+    const registry = new ElementRegistry();
+    const store = new ElementStore(registry);
+    store.add(frame);
+    store.add(shape);
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(store, stack);
+    const ctx = makeCtx({ store, elementRegistry: registry });
+    const tool = new SelectTool();
+    tool.onActivate(ctx);
+    tool.setSelection([frame.id, shape.id]);
+
+    recorder.begin();
+    tool.onPointerDown(pt(96, 96), ctx);
+    tool.onPointerMove(pt(200, 200), ctx);
+    tool.onPointerUp(pt(200, 200), ctx);
+    recorder.commit();
+
+    const updated = store.getById(frame.id);
+    if (!updated || !('size' in updated)) throw new Error('Resized frame is missing');
+    expect(updated.size).toEqual({ w: 80, h: 48 });
+    expect(store.getById(shape.id)).toMatchObject({
+      position: { x: 300, y: 100 },
+      size: { w: 40, h: 40 },
+    });
+    expect(stack.undoCount).toBe(1);
+  });
 });
 
 describe('SelectTool extension bounds from the context registry', () => {

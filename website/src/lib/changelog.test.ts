@@ -179,6 +179,24 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
+  it('keeps the pending frames release first and undated', () => {
+    const frames = release('@fieldnotes/core', '0.102.0');
+    const prior = release('@fieldnotes/core', '0.101.0');
+
+    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.102.0' });
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.102.0',
+      ),
+    ).toHaveLength(1);
+    expect(frames).toBeDefined();
+    expect(prior).toBeDefined();
+    if (!frames || !prior) return;
+    expect(frames.date).toBeUndefined();
+    expect(prior.date).toBeUndefined();
+    expect(releaseStatus(frames, {})).toBe('Not published yet');
+  });
+
   it('keeps the Vue and Svelte notes out of the React 0.14.1 body', () => {
     const react = release('@fieldnotes/react', '0.14.1');
     const vue = release('@fieldnotes/vue', '0.1.0');

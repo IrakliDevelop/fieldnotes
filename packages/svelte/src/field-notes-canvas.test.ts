@@ -10,7 +10,17 @@ import ViewportConsumer from './test-fixtures/ViewportConsumer.svelte';
 
 type OnReady = Mock<(viewport: Viewport) => void>;
 
-const DEFAULT_TOOL_NAMES = ['hand', 'select', 'pencil', 'eraser', 'arrow', 'note', 'text', 'shape'];
+const DEFAULT_TOOL_NAMES = [
+  'hand',
+  'select',
+  'pencil',
+  'eraser',
+  'arrow',
+  'note',
+  'text',
+  'shape',
+  'frame',
+];
 
 /** The viewport handed to the `index`-th `onready` call (negative counts from the end). */
 function viewportAt(onready: OnReady, index: number): Viewport {

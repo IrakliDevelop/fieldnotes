@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "agent:check": "node scripts/check-agent-docs.mjs",
-    "agent:format:check": "prettier --check AGENTS.md CLAUDE.md package.json 'docs/agents/*.md' '.agents/**/*.{md,yaml}' scripts/check-agent-docs.mjs",
+    "agent:format:check": "prettier --check AGENTS.md CLAUDE.md package.json 'docs/agents/*.md' '.agents/**/*.{md,yaml}' '.claude/agents/*.md' scripts/check-agent-docs.mjs",
     "build": "pnpm -r --workspace-concurrency=1 build",
     "test": "pnpm -r test",
     "bench": "pnpm --filter @fieldnotes/core bench",

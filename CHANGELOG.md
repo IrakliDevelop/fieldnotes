@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.102.0 — frames
+
+Release notes prepared 2026-10-29.
+
+**Added**
+
+- `FRAME_ELEMENT_TYPE`, `frameElementDefinition`, `createFrame`, and `isFrameElement`; the
+  `FrameElement`, `FrameData`, and `CreateFrameOptions` types; `FrameTool`; and the `F` default
+  shortcut. `Viewport.addToFrame`, `removeFromFrame`, and `dissolveFrame` manage frame membership.
+- Frames have explicit membership only. They are root-only, cannot nest or rotate, and resizing a
+  frame keeps its children at their current geometry. Deleting a frame removes its subtree;
+  dissolving it preserves its direct children as roots.
+- `frameId` PNG, JPEG, and SVG export crops to a frame's exact content area and includes only its
+  descendants. Empty frames produce output at that size. Frame titles, borders, padding chrome,
+  and unrelated overlap are excluded.
+
+**Compatibility**
+
+- Canvas-state and sync-protocol versions are unchanged. Renderers must use core 0.102.0 to
+  understand and draw `core:frame`.
+- Locked selected roots are ignored for alignment and distribution bounds and eligibility.
+  Alignment requires 2 unlocked roots and distribution requires 3.
+
 ### Core 0.101.0 — extension data migration outside a load
 
 **Added**

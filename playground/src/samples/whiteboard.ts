@@ -1,4 +1,11 @@
-import { createArrow, createNote, createShape, createStroke, createText } from '@fieldnotes/core';
+import {
+  createArrow,
+  createFrame,
+  createNote,
+  createShape,
+  createStroke,
+  createText,
+} from '@fieldnotes/core';
 import type { Viewport } from '@fieldnotes/core';
 import { insertWidget, WIDGETS } from '../widgets';
 
@@ -13,7 +20,7 @@ const NOTES = [
 export function buildWhiteboardSample(viewport: Viewport): void {
   const { store, layerManager } = viewport;
   viewport.transaction(() => {
-    for (const el of store.getAll()) store.remove(el.id);
+    for (const el of [...store.getAll()].reverse()) store.remove(el.id);
     const [bottom, second, ...extra] = layerManager.getLayers();
     if (!bottom) throw new Error('Viewport has no layers');
     for (const layer of extra) layerManager.removeLayer(layer.id);
@@ -41,6 +48,36 @@ export function buildWhiteboardSample(viewport: Viewport): void {
       fillColor: '#fff3e0',
       layerId: sketchId,
     });
+    const frame = createFrame({
+      position: { x: 0, y: 680 },
+      size: { w: 420, h: 220 },
+      title: 'Explicit frame membership',
+      color: '#6366f1',
+      layerId: sketchId,
+    });
+    const frameRect = createShape({
+      position: { x: 32, y: 736 },
+      size: { w: 150, h: 90 },
+      shape: 'rectangle',
+      fillColor: '#dcfce7',
+      layerId: sketchId,
+      parentId: frame.id,
+    });
+    const frameEllipse = createShape({
+      position: { x: 240, y: 688 },
+      size: { w: 140, h: 100 },
+      shape: 'ellipse',
+      fillColor: '#fef3c7',
+      layerId: sketchId,
+      parentId: frame.id,
+    });
+    const frameOverlap = createShape({
+      position: { x: 280, y: 748 },
+      size: { w: 110, h: 70 },
+      shape: 'rectangle',
+      fillColor: '#fee2e2',
+      layerId: sketchId,
+    });
     for (const el of [
       createText({
         position: { x: 0, y: 0 },
@@ -59,6 +96,10 @@ export function buildWhiteboardSample(viewport: Viewport): void {
       ),
       rect,
       ellipse,
+      frame,
+      frameRect,
+      frameEllipse,
+      frameOverlap,
       createArrow({
         from: { x: 180, y: 415 },
         to: { x: 480, y: 415 },

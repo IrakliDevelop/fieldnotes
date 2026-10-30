@@ -6,6 +6,7 @@ import {
   createStroke,
   createShape,
   createHtmlElement,
+  createFrame,
   type CanvasElement,
   type Layer,
 } from '@fieldnotes/core';
@@ -738,7 +739,59 @@ function shape(x: number): CanvasElement {
   return createShape({ index: 'a0', position: { x, y: x }, size: { w: 10, h: 10 } });
 }
 
+function invalidFrame(id: string): CanvasElement {
+  return {
+    ...createFrame({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } }),
+    id,
+    size: { w: 79, h: 48 },
+  };
+}
+
 describe('SyncClient snapshot-on-join', () => {
+  it('skips an invalid registered frame and installs a later valid snapshot element', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const clientTransport = bus.endpoint();
+    const peer = bus.endpoint();
+    new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport: clientTransport,
+      clientId: 'B',
+    }).start();
+    const valid = shape(7);
+
+    expect(() =>
+      peer.send(
+        envelope('X', { kind: 'snapshot', to: 'B', elements: [invalidFrame('bad'), valid] }),
+      ),
+    ).not.toThrow();
+
+    expect(store.getById('bad')).toBeUndefined();
+    expect(store.getById(valid.id)).toEqual(valid);
+  });
+
+  it('keeps an existing shape when an invalid frame upsert changes its type', () => {
+    const bus = makeBus();
+    const store = new ElementStore();
+    const clientTransport = bus.endpoint();
+    const peer = bus.endpoint();
+    const existing = { ...shape(7), id: 'same-id' };
+    store.add(existing);
+    new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport: clientTransport,
+      clientId: 'B',
+    }).start();
+
+    expect(() =>
+      peer.send(envelope('X', { kind: 'upsert', element: invalidFrame(existing.id) })),
+    ).not.toThrow();
+
+    expect(store.getById(existing.id)).toEqual(existing);
+  });
+
   it('pulls a peer snapshot on join, tagged origin remote, without re-broadcasting', () => {
     const bus = makeBus();
     const storeA = new ElementStore();

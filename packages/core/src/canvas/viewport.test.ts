@@ -14,6 +14,7 @@ import {
   createHtmlElement,
   createImage,
 } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { renderImage } from '../elements/renderers/image-renderer';
@@ -2346,7 +2347,7 @@ describe('Viewport', () => {
       expect(viewport.history.undoCount).toBe(before);
     });
 
-    it('a locked element anchors the bbox but does not move', () => {
+    it('no-ops alignment when a locked root leaves fewer than two eligible roots', () => {
       const a = createNote({ position: { x: 0, y: 0 }, text: 'a' });
       a.size = { w: 10, h: 10 };
       a.locked = true;
@@ -2354,10 +2355,14 @@ describe('Viewport', () => {
       b.size = { w: 10, h: 10 };
       viewport.store.add(a);
       viewport.store.add(b);
+      const before = viewport.history.undoCount;
+      const storedA = viewport.store.getById(a.id);
+      const storedB = viewport.store.getById(b.id);
       selectAll([a.id, b.id]);
       viewport.alignSelection('left');
-      expect((viewport.store.getById(a.id) as { position: { x: number } }).position.x).toBe(0);
-      expect((viewport.store.getById(b.id) as { position: { x: number } }).position.x).toBe(0);
+      expect(viewport.store.getById(a.id)).toEqual(storedA);
+      expect(viewport.store.getById(b.id)).toEqual(storedB);
+      expect(viewport.history.undoCount).toBe(before);
     });
   });
 
@@ -2702,13 +2707,12 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('viewport.actions.list() contains the 28 built-ins followed by tool.* for every registered tool, and shortcuts.getBindings() has canonical keys only', () => {
+    it('viewport.actions.list() contains the 31 built-ins followed by tool.* for every registered tool, and shortcuts.getBindings() has canonical keys only', () => {
       const viewport = new Viewport(container);
       setupSelect(viewport);
       const list = viewport.actions.list();
-      // 28 built-ins + tool.select (registered by setupSelect)
       const builtins = list.filter((a) => !a.id.startsWith('tool.'));
-      expect(builtins).toHaveLength(28);
+      expect(builtins).toHaveLength(31);
       const tools = list.filter((a) => a.id.startsWith('tool.'));
       expect(tools.some((t) => t.id === 'tool.select')).toBe(true);
       // getBindings has only canonical keys (every key contains '.')
@@ -2795,7 +2799,7 @@ describe('Viewport', () => {
       });
     }
 
-    it('with a selection the menu shows the 12 base items in base order with separators after Delete, Send to Back, Rotate 90° CCW', () => {
+    it('with a selection the menu includes frame selection after the z-order items', () => {
       const viewport = new Viewport(container);
       const select = setupSelect(viewport);
       const a = createNote({
@@ -2819,6 +2823,7 @@ describe('Viewport', () => {
         'Bring Forward',
         'Send Backward',
         'Send to Back',
+        'Frame selection',
         '---',
         'Rotate 90° CW',
         'Rotate 90° CCW',
@@ -3462,6 +3467,77 @@ describe('Viewport html painters', () => {
       await vp.exportSVG();
       expect(painter).toHaveBeenCalled();
     });
+
+    it('inherits registry, painter, and export hooks for a frame crop', async () => {
+      const vp = makeViewport();
+      const rendered: string[] = [];
+      const painted = vi.fn();
+      const imageHook = vi.fn();
+      const svgHook = vi.fn();
+      vp.elementRegistry.register({
+        type: 'test:viewport-export',
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('no legacy');
+        },
+        validateData: () => true,
+        unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+        wrap: ({ type: _type, ...base }) => ({
+          ...base,
+          type: 'extension',
+          extensionType: 'test:viewport-export',
+          data: {},
+        }),
+        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 5, h: 5 }),
+        render: (_ctx, element) => rendered.push(element.id),
+        emitSvg: (element) => `<g data-viewport-export="${element.id}" />`,
+      });
+      vp.registerHtmlPainter('viewport-export-html', painted);
+      vp.renderHooks.imageExport.register({ afterElements: imageHook });
+      vp.renderHooks.svgExport.register({ afterElements: svgHook });
+      const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 80, h: 48 } });
+      frame.id = 'frame-export';
+      const child = createShape({
+        parentId: frame.id,
+        position: { x: 20, y: 50 },
+        size: { w: 10, h: 10 },
+        fillColor: '#00ff00',
+      });
+      const extension: ExtensionElementEnvelope = {
+        id: 'viewport-export-extension',
+        type: 'extension',
+        extensionType: 'test:viewport-export',
+        position: { x: 30, y: 50 },
+        index: 'a1',
+        version: 1,
+        locked: false,
+        layerId: '',
+        parentId: frame.id,
+        data: {},
+      };
+      const html = createHtmlElement({
+        parentId: frame.id,
+        position: { x: 40, y: 50 },
+        size: { w: 5, h: 5 },
+        htmlType: 'viewport-export-html',
+      });
+      const overlap = createShape({ position: { x: 30, y: 50 }, size: { w: 5, h: 5 } });
+      vp.store.add(frame);
+      vp.store.add(child);
+      vp.store.add(extension);
+      vp.store.add(html);
+      vp.store.add(overlap);
+
+      await expect(vp.exportImage({ frameId: frame.id, scale: 1 })).resolves.toBeInstanceOf(Blob);
+      await expect(vp.exportSVG({ frameId: frame.id })).resolves.toContain(
+        'data-viewport-export="viewport-export-extension"',
+      );
+      expect(rendered).toEqual(['viewport-export-extension']);
+      expect(painted).toHaveBeenCalledTimes(2);
+      expect(imageHook).toHaveBeenCalledTimes(1);
+      expect(svgHook).toHaveBeenCalledTimes(1);
+      vp.destroy();
+    });
   });
 });
 
@@ -3625,8 +3701,65 @@ describe('Viewport tools option and onStateChange', () => {
       'note',
       'text',
       'shape',
+      'frame',
     ]);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
+    viewport.destroy();
+  });
+
+  it('selects a completed default frame gesture and undoes it once', () => {
+    const viewport = new Viewport(container, { tools: 'default' });
+    const wrapper = wrapperOf(container);
+    viewport.runAction('tool.frame');
+    for (const [type, clientX, clientY] of [
+      ['pointerdown', 10, 20],
+      ['pointerup', 110, 120],
+    ] as const) {
+      wrapper.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          button: 0,
+          pointerId: 1,
+          pointerType: 'mouse',
+          clientX,
+          clientY,
+        }),
+      );
+    }
+
+    expect(viewport.store.count).toBe(1);
+    expect(viewport.getSelectedIds()).toHaveLength(1);
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.undo()).toBe(true);
+    expect(viewport.store.count).toBe(0);
+    viewport.destroy();
+  });
+
+  it('leaves selection and history unchanged when a default frame gesture is cancelled', () => {
+    const viewport = new Viewport(container, { tools: 'default' });
+    const wrapper = wrapperOf(container);
+    viewport.runAction('tool.frame');
+    for (const [type, clientX, clientY] of [
+      ['pointerdown', 10, 20],
+      ['pointermove', 110, 120],
+      ['pointercancel', 110, 120],
+      ['pointerup', 110, 120],
+    ] as const) {
+      wrapper.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          button: 0,
+          pointerId: 1,
+          pointerType: 'mouse',
+          clientX,
+          clientY,
+        }),
+      );
+    }
+
+    expect(viewport.store.count).toBe(0);
+    expect(viewport.getSelectedIds()).toEqual([]);
+    expect(viewport.history.undoCount).toBe(0);
     viewport.destroy();
   });
 
@@ -4048,6 +4181,37 @@ describe('Viewport live html elements', () => {
     expect(viewport.history.undoCount).toBe(1);
   });
 
+  it('rejects parenting a frame before recording history but allows frame children', () => {
+    const viewport = vp;
+    const frame = createFrame({
+      position: { x: 0, y: 0 },
+      size: { w: 120, h: 90 },
+      layerId: viewport.layerManager.activeLayerId,
+    });
+    const parent = createNote({
+      position: { x: 0, y: 0 },
+      size: { w: 20, h: 20 },
+      layerId: frame.layerId,
+    });
+    const child = createNote({
+      position: { x: 20, y: 30 },
+      size: { w: 20, h: 20 },
+      layerId: frame.layerId,
+    });
+    viewport.store.add(frame);
+    viewport.store.add(parent);
+    viewport.store.add(child);
+    viewport.history.clear();
+
+    expect(() => viewport.setParent(frame.id, parent.id)).toThrow(/Invalid hierarchy/);
+    expect(viewport.store.getById(frame.id)?.parentId).toBeUndefined();
+    expect(viewport.history.undoCount).toBe(0);
+    viewport.setParent(child.id, frame.id);
+    expect(viewport.store.getById(child.id)?.parentId).toBe(frame.id);
+    viewport.setParent(child.id, null);
+    expect(viewport.store.getById(child.id)?.parentId).toBeUndefined();
+  });
+
   it('keeps literal selection and renders only successful parenting commands', () => {
     const viewport = vp;
     const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
@@ -4082,6 +4246,437 @@ describe('Viewport live html elements', () => {
     expect(updates).not.toHaveBeenCalled();
     expect(render).not.toHaveBeenCalled();
     expect(viewport.history.undoCount).toBe(2);
+  });
+
+  describe('frame membership commands', () => {
+    function select(viewport: Viewport): SelectTool {
+      const tool = new SelectTool();
+      viewport.toolManager.register(tool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      return tool;
+    }
+
+    it('rejects a missing literal frame selection without changing history, selection, or render', () => {
+      const viewport = vp;
+      const root = createShape({ position: { x: 10, y: 20 }, size: { w: 30, h: 40 } });
+      viewport.store.add(root);
+      const tool = select(viewport);
+      tool.setSelection([root.id]);
+      viewport.history.clear();
+      const before = structuredClone(viewport.store.snapshot());
+      const render = vi.spyOn(viewport, 'requestRender');
+      render.mockClear();
+
+      expect(() => viewport.frameSelection([root.id, 'missing'])).toThrow(
+        'Cannot change frame membership: element "missing" is missing',
+      );
+      expect(viewport.store.snapshot()).toEqual(before);
+      expect(viewport.getSelectedIds()).toEqual([root.id]);
+      expect(viewport.history.undoCount).toBe(0);
+      expect(viewport.history.redoCount).toBe(0);
+      expect(render).not.toHaveBeenCalled();
+    });
+
+    function expectLateRehearsalRejection(
+      extensionType: string,
+      validateElement: (element: ExtensionElementEnvelope) => boolean,
+    ): void {
+      const viewport = vp;
+      const layerId = viewport.layerManager.activeLayerId;
+      viewport.elementRegistry.register<ExtensionElementEnvelope>({
+        type: extensionType,
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('no legacy');
+        },
+        validateData: () => true,
+        validateElement,
+        unwrap: (element) => element,
+        wrap: (element) => element,
+        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 20, h: 20 }),
+      });
+      const extension: ExtensionElementEnvelope = {
+        id: `extension-${extensionType}`,
+        type: 'extension',
+        extensionType,
+        position: { x: 0, y: 0 },
+        index: 'a0',
+        version: 1,
+        locked: false,
+        layerId,
+        data: {},
+      };
+      const first = createShape({ position: { x: 40, y: 0 }, size: { w: 10, h: 10 }, layerId });
+      const second = createShape({ position: { x: 60, y: 0 }, size: { w: 10, h: 10 }, layerId });
+      const arrow = createArrow({
+        position: { x: 80, y: 0 },
+        from: { x: 80, y: 0 },
+        to: { x: 100, y: 20 },
+        bend: 12,
+        layerId,
+      });
+      delete arrow.cachedControlPoint;
+      viewport.store.add(extension);
+      viewport.store.add(first);
+      viewport.store.add(second);
+      viewport.store.add(arrow);
+      const tool = select(viewport);
+      viewport.history.clear();
+      viewport.transaction(() => viewport.store.update(first.id, { position: { x: 41, y: 0 } }));
+      viewport.transaction(() => viewport.store.update(second.id, { position: { x: 61, y: 0 } }));
+      expect(viewport.undo()).toBe(true);
+      tool.setSelection([extension.id]);
+
+      const before = {
+        snapshot: structuredClone(viewport.store.snapshot()),
+        count: viewport.store.count,
+        order: viewport.store.getAll().map((element) => element.id),
+        indices: viewport.store.getAll().map(({ id, index }) => ({ id, index })),
+        layers: viewport.layerManager.snapshot(),
+        selection: viewport.getSelectedIds(),
+        undoCount: viewport.history.undoCount,
+        redoCount: viewport.history.redoCount,
+      };
+      const add = vi.fn();
+      const update = vi.fn();
+      const remove = vi.fn();
+      const change = vi.fn();
+      viewport.store.on('add', add);
+      viewport.store.on('update', update);
+      viewport.store.on('remove', remove);
+      viewport.store.onChange(change);
+      const render = vi.spyOn(viewport, 'requestRender');
+
+      expect(() => viewport.frameSelection([extension.id])).toThrow(
+        `Invalid extension envelope "${extension.id}" of type "${extensionType}"`,
+      );
+      expect({
+        snapshot: viewport.store.snapshot(),
+        count: viewport.store.count,
+        order: viewport.store.getAll().map((element) => element.id),
+        indices: viewport.store.getAll().map(({ id, index }) => ({ id, index })),
+        layers: viewport.layerManager.snapshot(),
+        selection: viewport.getSelectedIds(),
+        undoCount: viewport.history.undoCount,
+        redoCount: viewport.history.redoCount,
+      }).toEqual(before);
+      expect(
+        viewport.store
+          .getAll()
+          .some(
+            (element) => element.type === 'extension' && element.extensionType === 'core:frame',
+          ),
+      ).toBe(false);
+      expect(Object.hasOwn(viewport.store.getById(arrow.id) ?? {}, 'cachedControlPoint')).toBe(
+        false,
+      );
+      expect(add).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+      expect(remove).not.toHaveBeenCalled();
+      expect(change).not.toHaveBeenCalled();
+      expect(render).not.toHaveBeenCalled();
+    }
+
+    it.each([
+      [
+        'a frame command rehearses a late extension-envelope rejection before mutating live state',
+        'test:reject-parent',
+        (element: ExtensionElementEnvelope) => element.parentId === undefined,
+      ],
+      [
+        'a frame command rehearses an incremented extension-envelope version before mutating live state',
+        'test:reject-parent-version-2',
+        (element: ExtensionElementEnvelope) =>
+          element.parentId === undefined || element.version === 1,
+      ],
+    ] as const)('%s', (_name, extensionType, validateElement) => {
+      expectLateRehearsalRejection(extensionType, validateElement);
+    });
+
+    it('frames, adds, removes, and dissolves members as undoable commands', () => {
+      const viewport = vp;
+      const layerId = viewport.layerManager.activeLayerId;
+      const first = createShape({
+        position: { x: 10, y: 20 },
+        size: { w: 30, h: 40 },
+        layerId,
+        index: 'a0',
+      });
+      const second = createShape({
+        position: { x: 80, y: 20 },
+        size: { w: 20, h: 20 },
+        layerId,
+        index: 'a1',
+      });
+      const incoming = createShape({
+        position: { x: 140, y: 20 },
+        size: { w: 20, h: 20 },
+        layerId,
+        index: 'a2',
+      });
+      viewport.store.add(first);
+      viewport.store.add(second);
+      viewport.store.add(incoming);
+      const tool = select(viewport);
+      tool.setSelection([first.id, second.id]);
+      viewport.history.clear();
+
+      const frameId = viewport.frameSelection([first.id, second.id], { padding: 10 });
+      expect(viewport.store.getById(frameId)).toMatchObject({
+        position: { x: 0, y: -14 },
+        size: { w: 110, h: 84 },
+      });
+      expect(viewport.store.getById(first.id)?.parentId).toBe(frameId);
+      expect(viewport.store.getById(second.id)?.parentId).toBe(frameId);
+      expect(viewport.getSelectedIds()).toEqual([frameId]);
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(frameId)).toBeUndefined();
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getById(first.id)?.parentId).toBe(frameId);
+
+      tool.setSelection([incoming.id]);
+      viewport.addToFrame(frameId, [incoming.id]);
+      expect(viewport.store.getById(incoming.id)?.parentId).toBe(frameId);
+      viewport.removeFromFrame(frameId, [incoming.id]);
+      expect(viewport.store.getById(incoming.id)?.parentId).toBeUndefined();
+      viewport.dissolveFrame(frameId);
+      expect(viewport.store.getById(frameId)).toBeUndefined();
+      expect(viewport.store.getById(first.id)?.parentId).toBeUndefined();
+      expect(viewport.store.getById(second.id)?.parentId).toBeUndefined();
+    });
+
+    it('dissolves an empty frame between duplicate root keys and replays it safely', () => {
+      const viewport = vp;
+      const layerId = viewport.layerManager.activeLayerId;
+      const before = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 20, h: 20 },
+        layerId,
+        index: 'a0',
+      });
+      const frame = {
+        ...createFrame({ position: { x: 30, y: 0 }, size: { w: 80, h: 60 }, layerId, index: 'a0' }),
+        id: 'empty-frame',
+      };
+      const after = createShape({
+        position: { x: 120, y: 0 },
+        size: { w: 20, h: 20 },
+        layerId,
+        index: 'a0',
+      });
+      viewport.store.add(before);
+      viewport.store.add(frame);
+      viewport.store.add(after);
+      viewport.history.clear();
+
+      viewport.dissolveFrame(frame.id);
+      expect(viewport.store.getById(frame.id)).toBeUndefined();
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(frame.id)?.parentId).toBeUndefined();
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getById(frame.id)).toBeUndefined();
+    });
+
+    it.each(['frame', 'add', 'remove', 'dissolve'] as const)(
+      '%s joins an outer transaction and replays membership on undo and redo',
+      (command) => {
+        const viewport = vp;
+        const layerId = viewport.layerManager.activeLayerId;
+        const root = {
+          ...createShape({
+            position: { x: 0, y: 0 },
+            size: { w: 20, h: 20 },
+            layerId,
+            index: 'a0',
+          }),
+          id: 'root',
+        };
+        const frame = {
+          ...createFrame({
+            position: { x: 30, y: 0 },
+            size: { w: 100, h: 80 },
+            layerId,
+            index: 'a1',
+          }),
+          id: 'frame',
+        };
+        const member = {
+          ...createShape({
+            position: { x: 40, y: 30 },
+            size: { w: 20, h: 20 },
+            layerId,
+            index: 'a0',
+          }),
+          id: 'member',
+          parentId: frame.id,
+        };
+        const grandchild = {
+          ...createShape({
+            position: { x: 45, y: 35 },
+            size: { w: 5, h: 5 },
+            layerId,
+            index: 'a0',
+          }),
+          id: 'grandchild',
+          parentId: command === 'add' ? root.id : member.id,
+        };
+        const unrelated = {
+          ...createShape({
+            position: { x: 150, y: 0 },
+            size: { w: 20, h: 20 },
+            layerId,
+            index: 'a2',
+          }),
+          id: 'unrelated',
+        };
+        viewport.store.add(root);
+        viewport.store.add(frame);
+        viewport.store.add(member);
+        viewport.store.add(grandchild);
+        viewport.store.add(unrelated);
+        const tool = select(viewport);
+        viewport.history.clear();
+        if (command === 'frame') tool.setSelection([root.id]);
+        if (command === 'add') tool.setSelection([root.id, grandchild.id]);
+        if (command === 'remove') tool.setSelection([member.id, grandchild.id]);
+        if (command === 'dissolve')
+          tool.setSelection([frame.id, member.id, grandchild.id, unrelated.id]);
+        let frameSelectionId: string | undefined;
+        viewport.transaction(() => {
+          viewport.store.update(unrelated.id, { position: { x: 200, y: 0 } });
+          if (command === 'frame') frameSelectionId = viewport.frameSelection([root.id]);
+          if (command === 'add') viewport.addToFrame(frame.id, [root.id]);
+          if (command === 'remove') viewport.removeFromFrame(frame.id, [member.id, grandchild.id]);
+          if (command === 'dissolve') {
+            viewport.dissolveFrame(frame.id);
+            expect(viewport.getSelectedIds()).toEqual([
+              frame.id,
+              member.id,
+              grandchild.id,
+              unrelated.id,
+            ]);
+          }
+        });
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.store.getById(unrelated.id)?.position).toEqual({ x: 200, y: 0 });
+        if (command === 'frame') {
+          if (!frameSelectionId) throw new Error('frame command did not return an id');
+          const created = viewport.store.getById(frameSelectionId);
+          expect(created).toMatchObject({
+            position: { x: -24, y: -48 },
+            size: { w: 80, h: 92 },
+            index: 'a0',
+          });
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: frameSelectionId,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([frameSelectionId]);
+        }
+        if (command === 'add') {
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: frame.id,
+            index: 'a1',
+          });
+          expect(viewport.getSelectedIds()).toEqual([root.id, grandchild.id]);
+        }
+        if (command === 'remove') {
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a1V',
+          });
+          expect(viewport.store.getById(grandchild.id)).toMatchObject({
+            parentId: member.id,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id]);
+        }
+        if (command === 'dissolve') {
+          expect(viewport.store.getById(frame.id)).toBeUndefined();
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a1',
+          });
+          expect(viewport.store.getById(grandchild.id)).toMatchObject({
+            parentId: member.id,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id, unrelated.id]);
+        }
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(unrelated.id)?.position).toEqual({ x: 150, y: 0 });
+        if (command === 'frame') {
+          if (!frameSelectionId) throw new Error('frame command did not return an id');
+          expect(viewport.store.getById(frameSelectionId)).toBeUndefined();
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([]);
+        }
+        if (command === 'add') {
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([root.id, grandchild.id]);
+        }
+        if (command === 'remove') {
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: frame.id,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id]);
+        }
+        if (command === 'dissolve') {
+          expect(viewport.store.getById(frame.id)?.parentId).toBeUndefined();
+          expect(viewport.store.getById(frame.id)?.index).toBe('a1');
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: frame.id,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id, unrelated.id]);
+        }
+        expect(viewport.redo()).toBe(true);
+        expect(viewport.store.getById(unrelated.id)?.position).toEqual({ x: 200, y: 0 });
+        if (command === 'frame') {
+          if (!frameSelectionId) throw new Error('frame command did not return an id');
+          expect(viewport.store.getById(frameSelectionId)).toMatchObject({
+            position: { x: -24, y: -48 },
+            size: { w: 80, h: 92 },
+            index: 'a0',
+          });
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: frameSelectionId,
+            index: 'a0',
+          });
+          expect(viewport.getSelectedIds()).toEqual([]);
+        }
+        if (command === 'add') {
+          expect(viewport.store.getById(root.id)).toMatchObject({
+            parentId: frame.id,
+            index: 'a1',
+          });
+          expect(viewport.getSelectedIds()).toEqual([root.id, grandchild.id]);
+        }
+        if (command === 'remove') {
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a1V',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id]);
+        }
+        if (command === 'dissolve') {
+          expect(viewport.store.getById(frame.id)).toBeUndefined();
+          expect(viewport.store.getById(member.id)).toMatchObject({
+            parentId: undefined,
+            index: 'a1',
+          });
+          expect(viewport.getSelectedIds()).toEqual([member.id, grandchild.id, unrelated.id]);
+        }
+      },
+    );
   });
 
   it('rejects cross-layer, full-canvas, and depth-33 parenting without side effects', () => {

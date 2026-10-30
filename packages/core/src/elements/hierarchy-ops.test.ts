@@ -137,6 +137,19 @@ describe('hierarchy operations', () => {
     expect(getHierarchyMove(['locked', 'missing'], store).elements).toEqual([]);
   });
 
+  it('suppresses a selected child when its locked selected ancestor is ineligible', () => {
+    const store = new ElementStore();
+    addTree(store);
+    store.update('root', { locked: true });
+
+    for (const ids of [
+      ['root', 'child'],
+      ['child', 'root'],
+    ]) {
+      expect(getHierarchyMove(ids, store).elements).toEqual([]);
+    }
+  });
+
   it('translates notes, strokes, and arrows atomically', () => {
     const store = new ElementStore();
     const note = {

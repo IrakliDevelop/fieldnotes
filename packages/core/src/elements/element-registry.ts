@@ -5,6 +5,7 @@ import type {
   ElementTypeKey,
 } from './types';
 import { pickBaseFields } from './base-fields';
+import { FRAME_ELEMENT_TYPE, frameElementDefinition } from './frame-element';
 
 interface RegistryState {
   ownRevision: number;
@@ -27,6 +28,7 @@ export class ElementRegistry {
   /** Lookups fall back to `parent`; registration and removal touch only this registry. */
   constructor(private readonly parent?: ElementRegistry) {
     registryStates.set(this, { ownRevision: 0, parent });
+    this.register(frameElementDefinition);
   }
 
   register<T extends BaseElement>(def: ElementTypeDefinition<T>): ElementTypeKey<T> {
@@ -38,7 +40,7 @@ export class ElementRegistry {
     if (this.definitions.has(def.type)) {
       throw new Error(`ElementType "${def.type}" is already registered`);
     }
-    if (this.parent?.has(def.type)) {
+    if (def.type !== FRAME_ELEMENT_TYPE && this.parent?.has(def.type)) {
       console.warn(
         `[fieldnotes] ElementType "${def.type}" shadows a type registered on the parent registry`,
       );
@@ -61,13 +63,36 @@ export class ElementRegistry {
       const wrapped = def.wrap(typed);
       return { ...pickBaseFields(typed), ...wrapped, data: { ...original.data, ...wrapped.data } };
     };
+    const validateElement = def.validateElement
+      ? (el: Parameters<ElementTypeAdapter['validateEnvelope']>[0]) => {
+          try {
+            return def.validateElement?.(def.unwrap(el)) ?? true;
+          } catch {
+            return false;
+          }
+        }
+      : undefined;
 
     const adapter: ElementTypeAdapter = {
       type: def.type,
       legacyTypes: def.legacyTypes,
       renderMode: def.renderMode ?? 'canvas',
       fullCanvas: def.fullCanvas ?? false,
-      validateEnvelope: (el) => el.extensionType === def.type && def.validateData(el.data),
+      validateElement,
+      validateEnvelope: (el) => {
+        try {
+          if (
+            el.type !== 'extension' ||
+            el.extensionType !== def.type ||
+            !def.validateData(el.data)
+          ) {
+            return false;
+          }
+          return validateElement ? validateElement(el) : (def.unwrap(el), true);
+        } catch {
+          return false;
+        }
+      },
       decodeLegacy: (raw) => {
         const wrapped = def.wrap(def.decodeLegacy(raw));
         // Decoded legacy data is current; stamp it so no load path migrates it again.
@@ -170,6 +195,7 @@ export class ElementRegistry {
   }
 
   unregister(type: string): void {
+    if (type === FRAME_ELEMENT_TYPE) return;
     const def = this.definitions.get(type);
     if (!def) return;
     this.definitions.delete(type);

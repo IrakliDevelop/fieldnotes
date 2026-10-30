@@ -26,7 +26,17 @@ import type { CanvasState, ImportableCanvasState, Tool } from '@fieldnotes/core'
 
 type OnReady = Mock<(viewport: Viewport) => void>;
 
-const DEFAULT_TOOL_NAMES = ['hand', 'select', 'pencil', 'eraser', 'arrow', 'note', 'text', 'shape'];
+const DEFAULT_TOOL_NAMES = [
+  'hand',
+  'select',
+  'pencil',
+  'eraser',
+  'arrow',
+  'note',
+  'text',
+  'shape',
+  'frame',
+];
 
 /** The viewport handed to the `index`-th `onReady` call (negative counts from the end). */
 function viewportAt(onReady: OnReady, index: number): Viewport {

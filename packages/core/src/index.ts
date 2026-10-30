@@ -1,4 +1,4 @@
-export const VERSION = '0.101.0';
+export const VERSION = '0.102.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -218,6 +218,13 @@ export type { ElementUpdateEvent } from './elements/element-store';
 export type { ElementChangeMeta } from './elements/element-store';
 export type { FontSizePreset } from './elements/note-toolbar';
 export {
+  FRAME_ELEMENT_TYPE,
+  frameElementDefinition,
+  createFrame,
+  isFrameElement,
+} from './elements/frame-element';
+export type { FrameElement, FrameData, CreateFrameOptions } from './elements/frame-element';
+export {
   toggleBold,
   toggleItalic,
   toggleUnderline,
@@ -333,6 +340,7 @@ export { ImageTool } from './tools/image-tool';
 export type { ImageToolOptions } from './tools/image-tool';
 export { ShapeTool } from './tools/shape-tool';
 export type { ShapeToolOptions } from './tools/shape-tool';
+export { FrameTool } from './tools/frame-tool';
 export { LaserTool } from './tools/laser-tool';
 export type { LaserToolOptions, LaserTrailEmission } from './tools/laser-tool';
 export { PingTool } from './tools/ping-tool';

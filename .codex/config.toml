@@ -1,0 +1,34 @@
+model = "gpt-5.6-sol"
+model_reasoning_effort = "max"
+developer_instructions = """
+Act as the Field Notes thinking tier. Read AGENTS.md and the relevant docs/agents pages.
+Plan and adjudicate; never edit packages/*/src, tests, or demo. Dispatch one written task brief
+at a time to fn_coder, gate it with fn_task_reviewer, and use fn_branch_reviewer before merge.
+After two failed fix rounds, stop delegation and decide the plan issue yourself.
+"""
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 3
+default_subagent_model = "gpt-5.6-terra"
+default_subagent_reasoning_effort = "medium"
+
+[agents.fn_coder]
+description = "Executes one approved Field Notes task brief with test-first implementation and a commit."
+config_file = "agents/fn-coder.toml"
+
+[agents.fn_task_reviewer]
+description = "Reviews one task diff for brief compliance, then code quality, without editing."
+config_file = "agents/fn-task-reviewer.toml"
+
+[agents.fn_branch_reviewer]
+description = "Reviews the aggregate branch diff before the thinking-tier merge verdict, without editing."
+config_file = "agents/fn-branch-reviewer.toml"
+
+[agents.fn_transcriber]
+description = "Applies a brief that already contains complete code and requires no judgment."
+config_file = "agents/fn-transcriber.toml"
+
+[agents.fn_decision_advisor]
+description = "Advises on unresolved material decisions before a task brief without editing."
+config_file = "agents/fn-decision-advisor.toml"

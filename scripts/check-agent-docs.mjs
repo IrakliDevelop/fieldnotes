@@ -124,6 +124,61 @@ if (version !== coreManifest.version) {
   );
 }
 
+const adviserPath = '.claude/agents/fn-decision-advisor.md';
+let adviser = '';
+try {
+  adviser = await readFile(resolve(root, adviserPath), 'utf8');
+} catch {
+  errors.push(`Missing decision adviser definition: ${adviserPath}`);
+}
+if (adviser) {
+  const frontmatter = adviser.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? '';
+  if (!/^name: fn-decision-advisor$/m.test(frontmatter)) {
+    errors.push('Claude decision adviser name must be fn-decision-advisor');
+  }
+  if (!/^model: claude-fable-5-1$/m.test(frontmatter)) {
+    errors.push('Claude decision adviser model must be claude-fable-5-1');
+  }
+  if (!/^tools: \[Read, Grep, Glob\]$/m.test(frontmatter)) {
+    errors.push('Claude decision adviser tools must be [Read, Grep, Glob]');
+  }
+}
+
+const codexAdviserPath = '.codex/agents/fn-decision-advisor.toml';
+let codexAdviser = '';
+try {
+  codexAdviser = await readFile(resolve(root, codexAdviserPath), 'utf8');
+} catch {
+  errors.push(`Missing decision adviser definition: ${codexAdviserPath}`);
+}
+if (codexAdviser) {
+  if (!/^name = "fn_decision_advisor"$/m.test(codexAdviser)) {
+    errors.push('Codex decision adviser name must be fn_decision_advisor');
+  }
+  if (!/^model = "gpt-6-astra"$/m.test(codexAdviser)) {
+    errors.push('Codex decision adviser model must be gpt-6-astra');
+  }
+  if (!/^model_reasoning_effort = "ultra"$/m.test(codexAdviser)) {
+    errors.push('Codex decision adviser reasoning must be ultra');
+  }
+  if (!/^sandbox_mode = "read-only"$/m.test(codexAdviser)) {
+    errors.push('Codex decision adviser sandbox must be read-only');
+  }
+}
+
+let codexConfig = '';
+try {
+  codexConfig = await readFile(resolve(root, '.codex/config.toml'), 'utf8');
+} catch {
+  errors.push('Missing Codex configuration: .codex/config.toml');
+}
+if (!/^\[agents\.fn_decision_advisor\]$/m.test(codexConfig)) {
+  errors.push('Codex configuration must register fn_decision_advisor');
+}
+if (!/^config_file = "agents\/fn-decision-advisor\.toml"$/m.test(codexConfig)) {
+  errors.push('Codex configuration must reference agents/fn-decision-advisor.toml');
+}
+
 if (errors.length) {
   console.error(errors.join('\n'));
   process.exitCode = 1;

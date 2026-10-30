@@ -75,6 +75,13 @@ import type { ServiceKey } from '../core/service-key';
 import { reportFailure } from '../core/report-failure';
 import { ContextLossGuard } from './context-loss-guard';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
+import { createId } from '../elements/create-id';
+import {
+  planAddToFrame,
+  planDissolveFrame,
+  planFrameSelection,
+  planRemoveFromFrame,
+} from '../elements/frame-commands';
 export type {
   PluginConfigureContext,
   PluginStartContext,
@@ -352,6 +359,7 @@ export class Viewport {
       requestRender: () => this.requestRender(),
       requestOverlayRender: () => this.requestOverlayRender(),
       switchTool: (name: string) => this.toolManager.setTool(name, this.toolContext),
+      setSelection: (ids: string[]) => this.getSelectTool()?.setSelection(ids),
       editElement: (id: string) => this.interactions.startEditingElement(id),
       fitNoteHeight: (id: string) => this.interactions.fitNoteHeight(id),
       setCursor: (cursor: string) => {
@@ -360,6 +368,7 @@ export class Viewport {
       activeLayerId: this.layerManager.activeLayerId,
       isLayerVisible: (id: string) => this.layerManager.isLayerVisible(id),
       isLayerLocked: (id: string) => this.layerManager.isLayerLocked(id),
+      hasLayer: (id: string) => this.layerManager.getLayer(id) !== undefined,
       smartGuides: false,
       getVisibleRect: () =>
         this.camera.getVisibleRect(this.canvasEl.clientWidth, this.canvasEl.clientHeight),
@@ -894,6 +903,7 @@ export class Viewport {
       structuredClone(state) as ImportableCanvasState,
       this.elementRegistry,
     );
+    new ElementStore(this.elementRegistry).loadSnapshot(incoming.elements);
     const preparedPlugins = this.pluginStateManager.prepareState(
       (incoming.extensions ?? {}) as Record<string, PersistedPluginState>,
     );
@@ -1057,6 +1067,64 @@ export class Viewport {
       this.store.update(childId, { parentId: parentId ?? undefined });
       this.requestRender();
     });
+  }
+
+  /** Creates a frame around selected root subtrees and returns its id. */
+  frameSelection(
+    ids: readonly string[],
+    options?: { readonly title?: string; readonly color?: string; readonly padding?: number },
+  ): string {
+    const id = createId('frame');
+    const plan = planFrameSelection(
+      ids,
+      options ?? {},
+      id,
+      this.store,
+      this.elementRegistry,
+      this.layerManager,
+    );
+    this.transaction(() => {
+      if (!plan.add) throw new Error('Frame command plan has no frame');
+      this.store.add(plan.add);
+      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
+      this.getSelectTool()?.setSelection([id]);
+    });
+    this.requestRender();
+    return id;
+  }
+
+  /** Adds selected root subtrees as children of an existing frame. */
+  addToFrame(frameId: string, ids: readonly string[]): void {
+    const plan = planAddToFrame(frameId, ids, this.store, this.elementRegistry, this.layerManager);
+    this.transaction(() => {
+      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
+    });
+    this.requestRender();
+  }
+
+  /** Removes selected direct children from an existing frame. */
+  removeFromFrame(frameId: string, ids: readonly string[]): void {
+    const plan = planRemoveFromFrame(
+      frameId,
+      ids,
+      this.store,
+      this.elementRegistry,
+      this.layerManager,
+    );
+    this.transaction(() => {
+      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
+    });
+    this.requestRender();
+  }
+
+  /** Removes a frame while preserving its direct children as roots. */
+  dissolveFrame(frameId: string): void {
+    const plan = planDissolveFrame(frameId, this.store, this.elementRegistry, this.layerManager);
+    this.transaction(() => {
+      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
+      if (plan.removeId) this.store.remove(plan.removeId);
+    });
+    this.requestRender();
   }
 
   undo(): boolean {

@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/canvas-page';
+import { CanvasPage, test, expect } from './fixtures/canvas-page';
 import { singleFingerDraw } from './helpers/touch';
 import type { Page } from '@playwright/test';
 
@@ -97,9 +97,12 @@ test.describe('viewport overlay registration', () => {
 
 test.describe('laser trail emission', () => {
   test('mouse drawing emits coalesced world-space batches and never creates elements', async ({
-    canvasPage,
+    page,
   }) => {
-    await subscribeToLaserEmissions(canvasPage.page);
+    await page.clock.install({ time: 0 });
+    const canvasPage = new CanvasPage(page);
+    await canvasPage.goto();
+    await subscribeToLaserEmissions(page);
     await canvasPage.selectTool('laser');
 
     const box = await canvasPage.wrapper().boundingBox();
@@ -117,18 +120,19 @@ test.describe('laser trail emission', () => {
       { x: cx - 100 - box.x, y: cy - box.y },
     );
 
-    await canvasPage.page.mouse.move(cx - 100, cy);
-    await canvasPage.page.mouse.down();
-    await canvasPage.page.mouse.move(cx + 100, cy + 50, { steps: 12 });
-    await canvasPage.page.mouse.up();
-    await canvasPage.page.waitForTimeout(300); // let the raf tick flush
+    await page.clock.pauseAt(60_000);
+    await page.mouse.move(cx - 100, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + 100, cy + 50, { steps: 12 });
+    await page.mouse.up();
 
-    const emissions = await readEmissions(canvasPage.page);
+    expect(await readEmissions(page)).toEqual([]);
+    await page.clock.runFor(16);
+
+    const emissions = await readEmissions(page);
     const totalPoints = emissions.reduce((sum, e) => sum + e.points.length, 0);
-    expect(emissions.length).toBeGreaterThanOrEqual(1);
+    expect(emissions).toHaveLength(1);
     expect(totalPoints).toBeGreaterThanOrEqual(5);
-    // Coalescing: many pointer events, far fewer per-frame batches.
-    expect(emissions.length).toBeLessThan(totalPoints);
 
     const first = emissions[0];
     expect(first?.color).toBeTruthy();

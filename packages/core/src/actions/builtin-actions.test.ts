@@ -4,6 +4,11 @@ import type { KeyboardActions } from '../canvas/keyboard-actions';
 import type { ActionContext, ActionDefinition, ActionInvocation } from './types';
 import type { Viewport } from '../canvas/viewport';
 import type { ElementStore } from '../elements/element-store';
+import { ElementRegistry } from '../elements/element-registry';
+import { createShape } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
+import { ElementStore as Store } from '../elements/element-store';
+import { LayerManager } from '../layers/layer-manager';
 import {
   createBuiltinActions,
   createToolAction,
@@ -103,6 +108,9 @@ const EXPECTED_IDS = [
   'arrange.send-backward',
   'arrange.bring-to-front',
   'arrange.send-to-back',
+  'selection.frame',
+  'selection.remove-from-frame',
+  'selection.dissolve-frame',
   'view.zoom-to-fit',
   'view.zoom-in',
   'view.zoom-out',
@@ -135,6 +143,9 @@ const EXPECTED_SHORTCUTS: Record<string, readonly string[] | undefined> = {
   'arrange.send-backward': ['['],
   'arrange.bring-to-front': ['mod+]'],
   'arrange.send-to-back': ['mod+['],
+  'selection.frame': undefined,
+  'selection.remove-from-frame': undefined,
+  'selection.dissolve-frame': undefined,
   'view.zoom-to-fit': ['shift+1'],
   'view.zoom-in': ['mod+='],
   'view.zoom-out': ['mod+-'],
@@ -152,7 +163,7 @@ const EXPECTED_SHORTCUTS: Record<string, readonly string[] | undefined> = {
 };
 
 describe('createBuiltinActions', () => {
-  it('emits the 28 non-tool ids in DEFAULT_BINDINGS order with edit.paste inserted after edit.copy', () => {
+  it('emits the 31 non-tool ids in DEFAULT_BINDINGS order with edit.paste inserted after edit.copy', () => {
     const deps = makeDeps();
     const actions = createBuiltinActions(deps);
     const ids = actions.map((a) => a.id);
@@ -283,6 +294,9 @@ describe('createBuiltinActions', () => {
       'arrange.bring-forward': { group: 'arrange', order: 20 },
       'arrange.send-backward': { group: 'arrange', order: 30 },
       'arrange.send-to-back': { group: 'arrange', order: 40 },
+      'selection.frame': { group: 'arrange', order: 50 },
+      'selection.remove-from-frame': { group: 'arrange', order: 60 },
+      'selection.dissolve-frame': { group: 'arrange', order: 70 },
       'arrange.rotate-cw': { group: 'transform', order: 10 },
       'arrange.rotate-ccw': { group: 'transform', order: 20 },
       'arrange.toggle-lock': { group: 'lock', order: 10 },
@@ -297,9 +311,8 @@ describe('createBuiltinActions', () => {
       }
     }
 
-    // Verify exactly 12 menu actions
     const menuActions = actions.filter((a) => a.menu !== undefined);
-    expect(menuActions).toHaveLength(12);
+    expect(menuActions).toHaveLength(15);
   });
 
   it('enabled: selection actions need selectedIds, edit.paste needs canPaste, undo/redo/view always', () => {
@@ -408,6 +421,126 @@ describe('createBuiltinActions', () => {
     const ctx3 = makeCtx({ selectedIds: [] });
     expect((action.label as (ctx: ActionContext) => string)(ctx3)).toBe('Lock');
   });
+
+  it('defines frame actions with the specified labels, no shortcuts, and arrange order', () => {
+    const actions = createBuiltinActions(makeDeps());
+    expect(
+      ['selection.frame', 'selection.remove-from-frame', 'selection.dissolve-frame'].map((id) => {
+        const action = findAction(actions, id);
+        return { label: action.label, shortcut: action.shortcut, menu: action.menu };
+      }),
+    ).toEqual([
+      { label: 'Frame selection', shortcut: undefined, menu: { group: 'arrange', order: 50 } },
+      { label: 'Remove from frame', shortcut: undefined, menu: { group: 'arrange', order: 60 } },
+      { label: 'Dissolve frame', shortcut: undefined, menu: { group: 'arrange', order: 70 } },
+    ]);
+  });
+
+  it('reruns frame action eligibility and invokes only the matching eligible command', () => {
+    const registry = new ElementRegistry();
+    const store = new Store(registry);
+    const layers = new LayerManager(store);
+    const layerId = layers.activeLayerId;
+    const root = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'root',
+    };
+    const member = {
+      ...createShape({ position: { x: 30, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'member',
+      parentId: 'frame',
+    };
+    const frame = {
+      ...createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 80 }, layerId, index: 'a1' }),
+      id: 'frame',
+    };
+    store.add(root);
+    store.add(frame);
+    store.add(member);
+    const viewport = {
+      elementRegistry: registry,
+      layerManager: layers,
+      frameSelection: vi.fn(),
+      removeFromFrame: vi.fn(),
+      dissolveFrame: vi.fn(),
+    } as unknown as Viewport;
+    const actions = createBuiltinActions(makeDeps());
+    const frameAction = findAction(actions, 'selection.frame');
+    const removeAction = findAction(actions, 'selection.remove-from-frame');
+    const dissolveAction = findAction(actions, 'selection.dissolve-frame');
+    const ctx = (selectedIds: readonly string[]): ActionContext => ({
+      viewport,
+      store,
+      selectedIds,
+    });
+
+    expect(frameAction.enabled?.(ctx(['root']))).toBe(true);
+    expect(frameAction.perform(ctx(['root']), defaultInvocation)).toBeUndefined();
+    expect(viewport.frameSelection).toHaveBeenCalledWith(['root']);
+    expect(removeAction.enabled?.(ctx(['member']))).toBe(true);
+    expect(removeAction.perform(ctx(['member']), defaultInvocation)).toBeUndefined();
+    expect(viewport.removeFromFrame).toHaveBeenCalledWith('frame', ['member']);
+    expect(dissolveAction.enabled?.(ctx(['frame']))).toBe(true);
+    expect(dissolveAction.perform(ctx(['frame']), defaultInvocation)).toBeUndefined();
+    expect(viewport.dissolveFrame).toHaveBeenCalledWith('frame');
+
+    for (const selectedIds of [[], ['missing'], ['member'], ['root', 'member']]) {
+      expect(frameAction.enabled?.(ctx(selectedIds))).toBe(false);
+    }
+    expect(removeAction.enabled?.(ctx(['root']))).toBe(false);
+    expect(dissolveAction.enabled?.(ctx(['root']))).toBe(false);
+    expect(frameAction.perform(ctx(['missing']), defaultInvocation)).toBe(false);
+    expect(viewport.frameSelection).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns false without calling stale frame commands', () => {
+    const registry = new ElementRegistry();
+    const store = new Store(registry);
+    const layers = new LayerManager(store);
+    const layerId = layers.activeLayerId;
+    const root = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'root',
+    };
+    const frame = {
+      ...createFrame({ position: { x: 30, y: 0 }, size: { w: 100, h: 80 }, layerId, index: 'a1' }),
+      id: 'frame',
+    };
+    const member = {
+      ...createShape({ position: { x: 40, y: 30 }, size: { w: 20, h: 20 }, layerId, index: 'a0' }),
+      id: 'member',
+      parentId: frame.id,
+    };
+    store.add(root);
+    store.add(frame);
+    store.add(member);
+    const viewport = {
+      elementRegistry: registry,
+      layerManager: layers,
+      frameSelection: vi.fn(),
+      removeFromFrame: vi.fn(),
+      dissolveFrame: vi.fn(),
+    } as unknown as Viewport;
+    const actions = createBuiltinActions(makeDeps());
+    const ctx = (selectedIds: readonly string[]): ActionContext => ({
+      viewport,
+      store,
+      selectedIds,
+    });
+    const cases = [
+      ['selection.frame', ['root'], root.id, 'frameSelection'],
+      ['selection.remove-from-frame', ['member'], member.id, 'removeFromFrame'],
+      ['selection.dissolve-frame', ['frame'], frame.id, 'dissolveFrame'],
+    ] as const;
+    for (const [actionId, selectedIds, id, command] of cases) {
+      const action = findAction(actions, actionId);
+      expect(action.enabled?.(ctx(selectedIds))).toBe(true);
+      store.update(id, { locked: true });
+      expect(action.perform(ctx(selectedIds), defaultInvocation)).toBe(false);
+      expect(viewport[command]).not.toHaveBeenCalled();
+      store.update(id, { locked: false });
+    }
+  });
 });
 
 describe('createToolAction', () => {
@@ -465,7 +598,7 @@ describe('createToolAction', () => {
     expect(switchTool).toHaveBeenCalledWith('pencil');
   });
 
-  it('DEFAULT_TOOL_SHORTCUTS has exactly the eight known tools', () => {
+  it('DEFAULT_TOOL_SHORTCUTS has exactly the nine known tools', () => {
     expect(DEFAULT_TOOL_SHORTCUTS).toEqual({
       select: ['v'],
       hand: ['h'],
@@ -475,6 +608,7 @@ describe('createToolAction', () => {
       note: ['n'],
       text: ['t'],
       shape: ['s'],
+      frame: ['f'],
     });
   });
 });

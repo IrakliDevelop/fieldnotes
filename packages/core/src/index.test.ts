@@ -7,11 +7,23 @@ import type {
   ActionInvocation,
   ActionMenuPlacement,
   ActionSource,
+  CreateFrameOptions,
+  FrameData,
+  FrameElement,
 } from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.101.0');
+    expect(FN.VERSION).toBe('0.102.0');
+  });
+
+  it('exports the frame element surface', () => {
+    const data: FrameData = { title: 'Frame', color: '#64748b' };
+    const options: CreateFrameOptions = { position: { x: 0, y: 0 }, size: { w: 80, h: 48 } };
+    const frame: FrameElement = FN.createFrame(options);
+    expect(FN.FRAME_ELEMENT_TYPE).toBe('core:frame');
+    expect(FN.isFrameElement(frame)).toBe(true);
+    expect(FN.frameElementDefinition.validateData(data)).toBe(true);
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -142,6 +154,7 @@ describe('core public surface', () => {
       'TextTool',
       'ImageTool',
       'ShapeTool',
+      'FrameTool',
       'LaserTool',
       'PingTool',
       'PingInput',
@@ -278,9 +291,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.101.0', async () => {
+  it('reports VERSION 0.102.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.101.0');
+    expect(VERSION).toBe('0.102.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

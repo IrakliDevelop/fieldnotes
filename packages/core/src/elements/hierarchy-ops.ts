@@ -37,20 +37,15 @@ export function getHierarchyClosure(ids: readonly string[], store: ElementStore)
 
 /** Expands unlocked direct roots through their valid descendants in scene order. */
 export function getHierarchyMove(ids: readonly string[], store: ElementStore): HierarchyMove {
-  const directIds = new Set<string>();
-  for (const id of ids) {
-    const element = store.getById(id);
-    if (
-      !element ||
-      element.locked ||
-      (element.type === 'arrow' && (element.fromBinding || element.toBinding)) ||
-      directIds.has(id)
+  const closure = getHierarchyClosure(ids, store);
+  const eligibleIds = closure.roots
+    .filter(
+      (element) =>
+        !element.locked &&
+        !(element.type === 'arrow' && (element.fromBinding || element.toBinding)),
     )
-      continue;
-    directIds.add(id);
-  }
-
-  return getHierarchyClosure([...directIds], store);
+    .map((element) => element.id);
+  return getHierarchyClosure(eligibleIds, store);
 }
 
 /** Moves valid hierarchy subtrees to a layer in one atomic store update. */

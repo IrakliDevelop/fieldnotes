@@ -23,11 +23,11 @@ import {
   assertExportSize,
   assertRenderCapabilities,
   loadImages,
-  computeBounds,
   getElementRect,
   nonNegativeOption,
   positiveOption,
   validateExportResourceOptions,
+  resolveExportBounds,
 } from './export-image';
 import type { ExportResourceOptions } from './export-image';
 import { renderHtmlElements, validateHtmlExportOptions } from './html-export';
@@ -38,8 +38,10 @@ import { paintHtmlElement } from './html-paint';
 import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import type { ElementRegistry } from '../elements/element-registry';
 import type { RenderHooks } from './render-hooks';
+import { resolveFrameExport } from './frame-export';
 
 export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
+  frameId?: string;
   padding?: number;
   background?: string;
   filter?: (el: CanvasElement) => boolean;
@@ -280,14 +282,18 @@ export async function exportSvg(
   validateHtmlExportOptions(options);
   const filter = options.filter;
   const registry = options.elementRegistry ?? getDefaultElementRegistry();
+  const frameExport = resolveFrameExport(store, options.frameId);
+  const rootNumber = frameExport ? (value: number): string => `${value}` : n;
 
   const allElements = store.getAll();
-  let visibleElements = layerManager
-    ? allElements.filter((el) => layerManager.isLayerVisible(el.layerId))
+  let visibleElements = frameExport
+    ? allElements.filter((el) => frameExport.descendantIds.has(el.id))
     : allElements;
+  if (layerManager)
+    visibleElements = visibleElements.filter((el) => layerManager.isLayerVisible(el.layerId));
   if (filter) visibleElements = visibleElements.filter(filter);
 
-  const bounds = computeBounds(visibleElements, padding, registry);
+  const bounds = resolveExportBounds(frameExport?.region, visibleElements, padding, registry);
   if (!bounds) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" viewBox="0 0 0 0"></svg>`;
   }
@@ -359,7 +365,7 @@ export async function exportSvg(
   for (const [id, uri] of canvasHtmlDataUris) htmlDataUris.set(id, uri);
 
   const backgroundSvg = options.background
-    ? `<rect x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" fill="${esc(options.background)}" />`
+    ? `<rect x="${rootNumber(bounds.x)}" y="${rootNumber(bounds.y)}" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" fill="${esc(options.background)}" />`
     : '';
 
   const fullCanvasSvg: string[] = [];
@@ -485,8 +491,8 @@ export async function exportSvg(
   body += hookSvg.join('');
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${n(bounds.w)}" height="${n(bounds.h)}" ` +
-    `viewBox="${n(bounds.x)} ${n(bounds.y)} ${n(bounds.w)} ${n(bounds.h)}">${body}</svg>`
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" ` +
+    `viewBox="${rootNumber(bounds.x)} ${rootNumber(bounds.y)} ${rootNumber(bounds.w)} ${rootNumber(bounds.h)}">${body}</svg>`
   );
 }
 

@@ -193,6 +193,7 @@ describe('FieldNotesCanvas', () => {
       'note',
       'text',
       'shape',
+      'frame',
     ]);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
   });
@@ -220,6 +221,7 @@ describe('FieldNotesCanvas', () => {
       'note',
       'text',
       'shape',
+      'frame',
     ]);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
   });
@@ -266,6 +268,7 @@ describe('FieldNotesCanvas', () => {
       'note',
       'text',
       'shape',
+      'frame',
     ]);
   });
 
