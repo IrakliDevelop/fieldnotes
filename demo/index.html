@@ -7,7 +7,8 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { width: 100vw; height: 100vh; overflow: hidden; font-family: system-ui, sans-serif; }
-    #canvas { width: 100%; height: 100%; }
+    #canvas { position: relative; width: 100%; height: 100%; }
+    #canvas:fullscreen { background: #fff; }
     #toolbar {
       position: fixed;
       top: 16px;
@@ -32,7 +33,7 @@
         transform: none;
       }
     }
-    #toolbar button {
+    #toolbar button, #presentation-bar button {
       padding: 8px 14px;
       border: 1px solid #ddd;
       border-radius: 6px;
@@ -42,7 +43,7 @@
       font-family: inherit;
       transition: all 0.15s;
     }
-    #toolbar button:hover { background: #f0f0f0; }
+    #toolbar button:hover, #presentation-bar button:hover { background: #f0f0f0; }
     #toolbar button.active {
       background: #1a1a1a;
       color: white;
@@ -58,6 +59,16 @@
       opacity: 0.5;
       margin-left: 4px;
     }
+    #presentation-bar {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+      z-index: 3;
+    }
+    #presentation-bar[hidden] { display: none; }
     #info {
       position: fixed;
       bottom: 16px;
@@ -323,7 +334,15 @@
   </style>
 </head>
 <body>
-  <div id="canvas"></div>
+  <div id="canvas">
+    <nav id="presentation-bar" hidden aria-label="Presentation">
+      <button data-presentation="previous">Previous</button>
+      <span data-presentation="counter"></span>
+      <button data-presentation="next">Next</button>
+      <button data-presentation="laser">Laser</button>
+      <button data-presentation="exit">Exit</button>
+    </nav>
+  </div>
   <div id="empty-hint">Draw with <b>P</b> · Pan with <b>Space</b> · Add a note with <b>N</b> · Label an arrow by <b>double-click</b></div>
   <div id="toast-container"></div>
   <div id="bench-hud" hidden></div>
@@ -341,7 +360,7 @@
     <button data-tool="measure" aria-label="Measure tool (M)" aria-pressed="false">Measure<span class="shortcut">M</span></button>
     <button data-tool="path" aria-label="Path tool" aria-pressed="false">Path</button>
     <button data-tool="template" aria-label="Template tool (G)" aria-pressed="false">Template<span class="shortcut">G</span></button>
-    <button data-tool="laser" aria-label="Laser pointer tool" aria-pressed="false">Laser</button>
+    <button data-tool="laser" aria-label="Laser pointer tool (L)" aria-pressed="false">Laser<span class="shortcut">L</span></button>
     <button data-tool="ping" aria-label="Ping tool" aria-pressed="false">Ping</button>
     <button id="image-btn">Image<span class="shortcut">I</span></button>
     <button id="embed-btn">Embed</button>
@@ -357,6 +376,7 @@
     <button id="undo" disabled>Undo<span class="shortcut">⌘Z</span></button>
     <button id="redo" disabled>Redo<span class="shortcut">⌘⇧Z</span></button>
     <button id="fit-btn" aria-label="Zoom to fit" title="Zoom to fit (Shift+1)">⛶</button>
+    <button id="present-btn" title="Present frames fullscreen">Present</button>
     <div style="width: 1px; background: #ddd; margin: 2px 4px;"></div>
     <button id="movement-track" aria-pressed="false" title="Count the selected token's movement">Track movement</button>
     <button id="movement-reset" title="Zero the selected token's movement">Reset movement</button>
