@@ -72,6 +72,7 @@ export {
   createHistorySource,
   createLayersSource,
   createActiveToolSource,
+  createPresentationSource,
   createToolOptionsSource,
 } from './canvas/viewport-sources';
 export type {
@@ -155,6 +156,12 @@ export {
   applyCameraView,
 } from './canvas/camera-view';
 export type { CameraView } from './canvas/camera-view';
+export type {
+  PresentationApi,
+  PresentationSlide,
+  PresentationStartOptions,
+  PresentationState,
+} from './canvas/presentation';
 export { CameraAnimator } from './canvas/camera-animator';
 export type {
   CameraAnimatorOptions,

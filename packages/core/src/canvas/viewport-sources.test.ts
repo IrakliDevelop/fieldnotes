@@ -6,6 +6,7 @@ import { Viewport } from './viewport';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { createNote, createShape } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import {
   createActiveToolSource,
   createCameraSource,
@@ -18,6 +19,7 @@ import {
   createSelectionStyleDetailsSource,
   createSelectionStyleSource,
   createToolOptionsSource,
+  createPresentationSource,
 } from './viewport-sources';
 import type { CanvasElement, ElementType } from '../elements/types';
 import type { Tool } from '../tools/types';
@@ -346,6 +348,32 @@ describe('createActiveToolSource', () => {
     const bare = new Viewport(document.createElement('div'), { tools: [] });
     expect(createActiveToolSource(bare).getSnapshot()).toBe('');
     bare.destroy();
+  });
+});
+
+describe('createPresentationSource', () => {
+  it('keeps its snapshot until the presentation changes', () => {
+    Object.defineProperty(container, 'clientWidth', { configurable: true, value: 800 });
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 600 });
+    vp.store.add(createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
+    const source = createPresentationSource(vp);
+    const inactive = source.getSnapshot();
+    expect(inactive).toEqual({ active: false, index: -1, count: 0, fullscreen: false });
+    expect(source.getSnapshot()).toBe(inactive);
+
+    const c = counter();
+    const off = source.subscribe(c.onChange);
+    expect(vp.presentation.start({ fullscreen: false, animate: false })).toBe(true);
+    expect(c.calls).toBe(1);
+    const active = source.getSnapshot();
+    expect(active).toEqual({ active: true, index: 0, count: 1, fullscreen: false });
+    expect(active).not.toBe(inactive);
+    expect(vp.presentation.next()).toBe(false);
+    expect(c.calls).toBe(1);
+    expect(source.getSnapshot()).toBe(active);
+    off();
+    vp.presentation.exit();
+    expect(c.calls).toBe(1);
   });
 });
 

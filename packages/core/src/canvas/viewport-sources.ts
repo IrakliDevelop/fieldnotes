@@ -1,4 +1,5 @@
 import type { Viewport } from './viewport';
+import type { PresentationState } from './presentation';
 import type { SelectionStyleDetails } from './selection-ops';
 import type { CanvasElement, ElementType } from '../elements/types';
 import type { ElementStyle } from '../elements/element-style';
@@ -306,6 +307,14 @@ export function createActiveToolSource(vp: Viewport): ViewportSource<string> {
   return {
     subscribe: (onChange) => vp.toolManager.onChange(onChange),
     getSnapshot: () => vp.toolManager.activeTool?.name ?? '',
+  };
+}
+
+/** Presentation state; changes whenever the presentation changes. */
+export function createPresentationSource(vp: Viewport): ViewportSource<PresentationState> {
+  return {
+    subscribe: (onChange) => vp.presentation.onChange(onChange),
+    getSnapshot: () => vp.presentation.getState(),
   };
 }
 

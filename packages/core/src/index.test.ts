@@ -10,6 +10,10 @@ import type {
   CreateFrameOptions,
   FrameData,
   FrameElement,
+  PresentationApi,
+  PresentationStartOptions,
+  PresentationState,
+  PresentationSlide,
 } from './index';
 
 describe('core public surface', () => {
@@ -36,6 +40,15 @@ describe('core public surface', () => {
     expect(typeof FN.toFocusPresence).toBe('function');
     expect(FN.FOCUS_PRESENCE_KIND).toBe('focus');
     expect(typeof FN.RemoteFocusReceiver).toBe('function');
+  });
+
+  it('exports the presentation surface', () => {
+    expect(typeof FN.createPresentationSource).toBe('function');
+    const api: PresentationApi | undefined = undefined;
+    const state: PresentationState | undefined = undefined;
+    const slide: PresentationSlide | undefined = undefined;
+    const options: PresentationStartOptions | undefined = undefined;
+    expect([api, state, slide, options]).toEqual([undefined, undefined, undefined, undefined]);
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -124,6 +137,7 @@ describe('core public surface', () => {
       'STYLE_KEYS',
       'ElementHierarchy',
       'validateHierarchy',
+      'framePresentationSlides',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
