@@ -2782,6 +2782,22 @@ describe('InputHandler', () => {
       expect(panSpy.mock.calls.length).toBe(afterOneFrame);
     });
 
+    it('stopPanInertia cancels a coast', () => {
+      handler.destroy();
+      handler = new InputHandler(element, camera, { actions: stubActionRegistry() });
+      const panSpy = vi.spyOn(camera, 'pan');
+
+      flickMousePan();
+      expect(handler.isCameraCoasting()).toBe(true);
+      const beforeStop = panSpy.mock.calls.length;
+
+      handler.stopPanInertia();
+      flushFrames(1);
+
+      expect(panSpy.mock.calls.length).toBe(beforeStop);
+      expect(handler.isCameraCoasting()).toBe(false);
+    });
+
     it('reports the camera as coasting until the pointer that stopped it lifts', () => {
       handler.destroy();
       handler = new InputHandler(element, camera, { actions: stubActionRegistry() });

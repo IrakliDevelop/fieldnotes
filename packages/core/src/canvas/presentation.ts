@@ -6,6 +6,7 @@ import type { Bounds } from '../core/types';
 import type { ElementStore } from '../elements/element-store';
 import { frameContentBounds, isFrameElement } from '../elements/frame-element';
 import { isLiveControlTarget } from './live-control';
+import type { ActionDefinition } from '../actions/types';
 
 /** One slide: the world rectangle to frame, contain-fit on any screen. */
 export interface PresentationSlide {
@@ -50,6 +51,41 @@ export interface PresentationApi {
   /** `false` while inactive or when `index` is not an integer in `[0, count)`. */
   goTo(index: number): boolean;
   onChange(listener: () => void): () => void;
+}
+
+/** Action definitions for a presentation mode. */
+export function createPresentationActions(mode: PresentationApi): ActionDefinition[] {
+  return [
+    {
+      id: 'presentation.start',
+      label: 'Present',
+      keywords: ['presentation', 'slideshow', 'fullscreen'],
+      icon: 'present',
+      enabled: () => !mode.getState().active,
+      perform: () => mode.start(),
+    },
+    {
+      id: 'presentation.exit',
+      label: 'Exit presentation',
+      icon: 'present-exit',
+      enabled: () => mode.getState().active,
+      perform: () => mode.exit(),
+    },
+    {
+      id: 'presentation.next',
+      label: 'Next slide',
+      icon: 'present-next',
+      enabled: () => mode.getState().active,
+      perform: () => mode.next(),
+    },
+    {
+      id: 'presentation.previous',
+      label: 'Previous slide',
+      icon: 'present-previous',
+      enabled: () => mode.getState().active,
+      perform: () => mode.previous(),
+    },
+  ];
 }
 
 export interface PresentationModeDeps {
@@ -101,7 +137,10 @@ export class PresentationMode implements PresentationApi {
     for (const slide of slides) assertValidView(slide.view);
 
     const index =
-      Number.isInteger(options.index) && options.index >= 0 && options.index < slides.length
+      typeof options.index === 'number' &&
+      Number.isInteger(options.index) &&
+      options.index >= 0 &&
+      options.index < slides.length
         ? options.index
         : 0;
     const position = this.deps.camera.position;

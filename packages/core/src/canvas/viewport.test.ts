@@ -31,6 +31,9 @@ import type { ElementActivationEvent } from './element-activation';
 import { LEGACY_ACTION_IDS } from '../actions/legacy-action-ids';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
+import { createViewportHarness } from '../test-helpers/viewport-harness';
+import { pointerDown, pointerUp } from '../test-helpers/pointer-helpers';
+import { LaserTool } from '../tools/laser-tool';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -2707,12 +2710,20 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('viewport.actions.list() contains the 31 built-ins followed by tool.* for every registered tool, and shortcuts.getBindings() has canonical keys only', () => {
+    it('viewport.actions.list() contains the 31 built-ins followed by presentation.* and tool.* actions, and shortcuts.getBindings() has canonical keys only', () => {
       const viewport = new Viewport(container);
       setupSelect(viewport);
       const list = viewport.actions.list();
-      const builtins = list.filter((a) => !a.id.startsWith('tool.'));
+      const builtins = list.filter(
+        (a) => !a.id.startsWith('tool.') && !a.id.startsWith('presentation.'),
+      );
       expect(builtins).toHaveLength(31);
+      expect(list.filter((a) => a.id.startsWith('presentation.')).map((a) => a.id)).toEqual([
+        'presentation.start',
+        'presentation.exit',
+        'presentation.next',
+        'presentation.previous',
+      ]);
       const tools = list.filter((a) => a.id.startsWith('tool.'));
       expect(tools.some((t) => t.id === 'tool.select')).toBe(true);
       // getBindings has only canonical keys (every key contains '.')
@@ -3072,6 +3083,157 @@ describe('Viewport', () => {
       (vp as unknown as { syncCanvasSize(): void }).syncCanvasSize();
       expect(listener).toHaveBeenCalledTimes(1);
       vp.destroy();
+    });
+  });
+
+  describe('presentation', () => {
+    function presentationHarness() {
+      const h = createViewportHarness();
+      const canvas = h.container.querySelector('canvas');
+      if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+      Object.defineProperties(canvas, {
+        clientWidth: { value: 800, configurable: true },
+        clientHeight: { value: 600, configurable: true },
+      });
+      Object.defineProperties(h.container, {
+        clientWidth: { value: 800, configurable: true },
+        clientHeight: { value: 600, configurable: true },
+      });
+      return h;
+    }
+
+    function addSlides(viewport: Viewport): void {
+      viewport.store.add(
+        createFrame({
+          position: { x: 0, y: 0 },
+          size: { w: 400, h: 324 },
+          layerId: viewport.layerManager.activeLayerId,
+          index: 'a0',
+        }),
+      );
+      viewport.store.add(
+        createFrame({
+          position: { x: 1000, y: 0 },
+          size: { w: 400, h: 324 },
+          layerId: viewport.layerManager.activeLayerId,
+          index: 'a1',
+        }),
+      );
+    }
+
+    it('presentation.start builds slides from frames and runs through the registry', () => {
+      const h = presentationHarness();
+      try {
+        addSlides(h.viewport);
+
+        expect(h.viewport.runAction('presentation.start')).toBe(true);
+        expect(h.viewport.presentation.getState()).toEqual({
+          active: true,
+          index: 0,
+          count: 2,
+          fullscreen: false,
+        });
+        expect(h.viewport.camera.zoom).toBe(2);
+        expect(h.viewport.runAction('presentation.next')).toBe(true);
+        expect(h.viewport.presentation.getState().index).toBe(1);
+        expect(h.viewport.runAction('presentation.start')).toBe(false);
+        expect(h.viewport.toolManager.activeTool?.name).toBe('hand');
+
+        h.viewport.presentation.exit();
+        expect(h.viewport.toolManager.activeTool?.name).toBe('select');
+      } finally {
+        h.cleanup();
+      }
+    });
+
+    it('presentation keys never nudge or record history', () => {
+      const h = presentationHarness();
+      try {
+        addSlides(h.viewport);
+        const select = h.viewport.toolManager.getTool<SelectTool>('select');
+        if (!select) throw new Error('select tool not found');
+        const shape = createShape({
+          position: { x: 100, y: 100 },
+          size: { w: 100, h: 100 },
+          layerId: h.viewport.layerManager.activeLayerId,
+        });
+        h.viewport.store.add(shape);
+        select.setSelection([shape.id]);
+        const undoCount = h.viewport.history.undoCount;
+
+        h.viewport.presentation.start({ fullscreen: false, animate: false });
+        expect(h.viewport.getSelectedIds()).toEqual([]);
+        select.setSelection([shape.id]);
+        const position = h.viewport.store.getById(shape.id)?.position;
+        h.wrapper.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
+        );
+
+        expect(h.viewport.presentation.getState().index).toBe(1);
+        expect(h.viewport.store.getById(shape.id)?.position).toEqual(position);
+        expect(h.viewport.history.undoCount).toBe(undoCount);
+        h.wrapper.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        );
+        expect(h.viewport.toolManager.activeTool?.name).toBe('select');
+        expect(h.viewport.history.undoCount).toBe(undoCount);
+      } finally {
+        h.cleanup();
+      }
+    });
+
+    it('start does not switch tools during a tool gesture', () => {
+      const h = presentationHarness();
+      try {
+        addSlides(h.viewport);
+        pointerDown(h.wrapper, 100, 100);
+
+        expect(h.viewport.presentation.start({ fullscreen: false })).toBe(true);
+        expect(h.viewport.toolManager.activeTool?.name).toBe('select');
+
+        pointerUp(h.wrapper, 100, 100);
+        h.viewport.presentation.exit();
+        expect(h.viewport.toolManager.activeTool?.name).toBe('select');
+      } finally {
+        h.cleanup();
+      }
+    });
+
+    it('L activates a registered laser tool', () => {
+      const h = presentationHarness();
+      try {
+        h.viewport.toolManager.register(new LaserTool());
+        h.wrapper.focus();
+        h.wrapper.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true }));
+
+        expect(h.viewport.toolManager.activeTool?.name).toBe('laser');
+      } finally {
+        h.cleanup();
+      }
+    });
+
+    it('destroy exits an active presentation without restoring', () => {
+      const h = presentationHarness();
+      try {
+        addSlides(h.viewport);
+        h.viewport.presentation.start({ fullscreen: false, animate: false });
+        const camera = { ...h.viewport.camera.position, zoom: h.viewport.camera.zoom };
+
+        h.viewport.destroy();
+        expect(h.viewport.presentation.getState()).toEqual({
+          active: false,
+          index: -1,
+          count: 0,
+          fullscreen: false,
+        });
+        expect({ ...h.viewport.camera.position, zoom: h.viewport.camera.zoom }).toEqual(camera);
+        h.wrapper.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
+        );
+        expect(h.viewport.camera.position).toEqual({ x: camera.x, y: camera.y });
+      } finally {
+        h.container.remove();
+      }
     });
   });
 

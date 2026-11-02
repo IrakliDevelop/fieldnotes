@@ -5,7 +5,11 @@ import type { PresentationModeDeps } from './presentation';
 import { createNote, createShape } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
 import { createFrame } from '../elements/frame-element';
-import { PresentationMode, framePresentationSlides } from './presentation';
+import {
+  createPresentationActions,
+  PresentationMode,
+  framePresentationSlides,
+} from './presentation';
 
 const stubRestores: (() => void)[] = [];
 const modes: PresentationMode[] = [];
@@ -193,6 +197,43 @@ describe('framePresentationSlides', () => {
 });
 
 describe('PresentationMode', () => {
+  it('createPresentationActions gates start on inactive and the rest on active', () => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const actions = createPresentationActions(mode);
+    const action = (id: string) => {
+      const definition = actions.find((candidate) => candidate.id === id);
+      if (!definition) throw new Error(`action not found: ${id}`);
+      return definition;
+    };
+    const context = {} as never;
+
+    expect(actions.map((definition) => [definition.id, definition.label])).toEqual([
+      ['presentation.start', 'Present'],
+      ['presentation.exit', 'Exit presentation'],
+      ['presentation.next', 'Next slide'],
+      ['presentation.previous', 'Previous slide'],
+    ]);
+    for (const definition of actions) {
+      expect(definition.shortcut).toBeUndefined();
+      expect(definition.menu).toBeUndefined();
+    }
+    expect(action('presentation.start').enabled?.(context)).toBe(true);
+    expect(action('presentation.exit').enabled?.(context)).toBe(false);
+    expect(action('presentation.next').enabled?.(context)).toBe(false);
+    expect(action('presentation.previous').enabled?.(context)).toBe(false);
+
+    expect(mode.start({ fullscreen: false })).toBe(true);
+
+    expect(action('presentation.start').enabled?.(context)).toBe(false);
+    expect(action('presentation.exit').enabled?.(context)).toBe(true);
+    expect(action('presentation.next').enabled?.(context)).toBe(true);
+    expect(action('presentation.previous').enabled?.(context)).toBe(true);
+    expect(action('presentation.next').perform(context, { source: 'api', shiftKey: false })).toBe(
+      true,
+    );
+  });
+
   it('start returns false with no slides and leaves the camera alone', () => {
     const h = makeDeps({ defaultSlides: () => [] });
     const mode = makeMode(h.deps);
