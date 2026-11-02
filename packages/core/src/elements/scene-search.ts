@@ -70,11 +70,14 @@ export class SceneSearch {
         const nextSourceOffset = sourceOffset + ch.length;
         const whitespace = /\s/u.test(ch);
         const folded = whitespace ? (inWhitespace ? '' : ' ') : foldText(ch);
-        inWhitespace = whitespace;
+        if (folded) inWhitespace = whitespace;
         const nextFoldedOffset = foldedOffset + folded.length;
 
         if (at >= foldedOffset && at < nextFoldedOffset) start = sourceOffset;
-        if (targetEnd > foldedOffset && targetEnd <= nextFoldedOffset) end = nextSourceOffset;
+        if (targetEnd > foldedOffset && targetEnd <= nextFoldedOffset) {
+          end = nextSourceOffset;
+          break;
+        }
 
         foldedOffset = nextFoldedOffset;
         sourceOffset = nextSourceOffset;

@@ -296,6 +296,30 @@ describe('command palette', () => {
     expect(container.querySelector('mark')?.textContent).toBe('Bud');
   });
 
+  it('renders the matching line from a multiline board hit', () => {
+    const { harness, container, palette } = makeDeps();
+    addHit(harness, 'note', 'Title<br>budget plan', 'multiline-match');
+
+    palette.open('budget');
+
+    expect(container.querySelector('mark')?.textContent).toBe('budget');
+  });
+
+  it('keeps an emoji whole when excerpting a later match on a long line', () => {
+    const { harness, container, palette } = makeDeps();
+    const text = `${'a'.repeat(40)}😀${'b'.repeat(39)}budget trailing`;
+    addHit(harness, 'note', text, 'unicode-excerpt');
+
+    palette.open('budget');
+
+    const excerpt = rows(container)[0]?.textContent ?? '';
+    expect(container.querySelector('mark')?.textContent).toBe('budget');
+    expect(excerpt.startsWith('…😀')).toBe(true);
+    expect(excerpt).not.toMatch(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u,
+    );
+  });
+
   it('ArrowDown and ArrowUp move the active row without wrapping and keep the caret keys', () => {
     const { harness, container, palette } = makeDeps();
     addAction(harness, 'test.q1', 'Q1');

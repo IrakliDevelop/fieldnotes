@@ -154,6 +154,15 @@ describe('SceneSearch', () => {
     ]);
   });
 
+  it('keeps a combining mark with an empty fold transparent to whitespace state', () => {
+    const note = createNote({ position: { x: 0, y: 0 }, text: 'a ́ bxyz' });
+    const search = new SceneSearch(getDefaultElementRegistry());
+
+    expect(search.search([note], 'xyz')).toEqual([
+      { id: note.id, type: 'note', text: 'a ́ bxyz', start: 5, end: 8 },
+    ]);
+  });
+
   it('orders by match position then scene order and applies limit and filter', () => {
     const a = createNote({ position: { x: 0, y: 0 }, text: 'the cat' });
     const b = createNote({ position: { x: 0, y: 0 }, text: 'cat' });

@@ -317,28 +317,42 @@ export class CommandPalette implements PaletteApi {
   }
 
   private appendHit(option: HTMLElement, hit: SceneSearchHit): void {
-    let offset = 0;
-    let line = '';
-    for (const part of hit.text.split(/(\r?\n)/u)) {
-      if (part === '\n' || part === '\r\n') {
-        offset += part.length;
-        continue;
-      }
-      if (part.trim()) {
-        line = part;
+    let lineStart = 0;
+    let lineEnd = hit.text.length;
+    for (const boundary of hit.text.matchAll(/\r?\n/gu)) {
+      if (hit.start <= boundary.index) {
+        lineEnd = boundary.index;
         break;
       }
-      offset += part.length;
+      lineStart = boundary.index + boundary[0].length;
     }
-    const source = line.slice(0, 80);
-    const truncated = line.length > source.length;
-    const start = Math.min(Math.max(hit.start - offset, 0), source.length);
-    const end = Math.min(Math.max(hit.end - offset, start), source.length);
-    option.append(document.createTextNode(source.slice(0, start)));
+    const characters = Array.from(hit.text.slice(lineStart, lineEnd));
+    const matchStart = Math.min(Math.max(hit.start - lineStart, 0), lineEnd - lineStart);
+    const matchEnd = Math.min(Math.max(hit.end - lineStart, matchStart), lineEnd - lineStart);
+    let start = 0;
+    let startOffset = 0;
+    for (const character of characters) {
+      if (startOffset >= matchStart) break;
+      startOffset += character.length;
+      start += 1;
+    }
+    let end = start;
+    let endOffset = startOffset;
+    for (const character of characters.slice(start)) {
+      if (endOffset >= matchEnd) break;
+      endOffset += character.length;
+      end += 1;
+    }
+    const windowStart = Math.max(start - 40, 0);
+    const windowEnd = Math.min(windowStart + 80, characters.length);
+    const visibleStart = Math.max(start, windowStart);
+    const visibleEnd = Math.min(end, windowEnd);
+    if (windowStart > 0) option.append(document.createTextNode('…'));
+    option.append(document.createTextNode(characters.slice(windowStart, visibleStart).join('')));
     const mark = document.createElement('mark');
-    mark.textContent = source.slice(start, end);
-    option.append(mark, document.createTextNode(source.slice(end)));
-    if (truncated) option.append(document.createTextNode('…'));
+    mark.textContent = characters.slice(visibleStart, visibleEnd).join('');
+    option.append(mark, document.createTextNode(characters.slice(visibleEnd, windowEnd).join('')));
+    if (windowEnd < characters.length) option.append(document.createTextNode('…'));
     const badge = document.createElement('span');
     badge.className = 'fieldnotes-palette-badge';
     badge.textContent = this.deps.strings.types[hit.type] ?? hit.type;
