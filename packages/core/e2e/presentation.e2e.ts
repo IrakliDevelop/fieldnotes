@@ -22,6 +22,14 @@ interface PresentationState {
   count: number;
 }
 
+interface PresentationFixtureWindow {
+  __fieldnotes_viewport: {
+    presentation: { getState: () => PresentationState };
+    getSelectedIds: () => string[];
+    domLayer: { parentElement: Element | null };
+  };
+}
+
 interface CanvasState {
   presentation: PresentationState;
   slides: { view: View }[];
@@ -116,13 +124,12 @@ function visibleRectContains(rect: View, view: View): boolean {
   );
 }
 
-type PresentationPredicate = Partial<PresentationState>;
-
-async function waitForPresentation(page: Page, predicate: PresentationPredicate): Promise<void> {
+async function waitForPresentation(
+  page: Page,
+  predicate: Partial<PresentationState>,
+): Promise<void> {
   await page.waitForFunction((expected) => {
-    const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
-      presentation: { getState: () => PresentationState };
-    };
+    const viewport = (window as unknown as PresentationFixtureWindow).__fieldnotes_viewport;
     const state = viewport.presentation.getState();
     return Object.entries(expected).every(
       ([key, value]) => state[key as keyof PresentationState] === value,
@@ -164,11 +171,7 @@ test.describe('presentation mode', () => {
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForFunction(
       (id) =>
-        (
-          window as unknown as {
-            __fieldnotes_viewport: { getSelectedIds: () => string[] };
-          }
-        ).__fieldnotes_viewport
+        (window as unknown as PresentationFixtureWindow).__fieldnotes_viewport
           .getSelectedIds()
           .includes(id),
       seeded.firstShapeId,
@@ -187,11 +190,8 @@ test.describe('presentation mode', () => {
       .poll(() =>
         page.evaluate(
           () =>
-            (
-              window as unknown as {
-                __fieldnotes_viewport: { domLayer: { parentElement: Element | null } };
-              }
-            ).__fieldnotes_viewport.domLayer.parentElement === document.activeElement,
+            (window as unknown as PresentationFixtureWindow).__fieldnotes_viewport.domLayer
+              .parentElement === document.activeElement,
         ),
       )
       .toBe(true);
