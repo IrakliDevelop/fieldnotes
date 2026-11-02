@@ -1,6 +1,7 @@
 import type { ContextMenuItem } from '../canvas/context-menu';
 import type { ActionContext, ActionDefinition, ActionMenuPlacement, ActionsApi } from './types';
 import { BUILTIN_MENU_GROUPS } from './builtin-actions';
+import { resolveActionLabel } from './action-label';
 
 /** An action whose `menu` field is guaranteed present. */
 interface MenuAction {
@@ -69,18 +70,7 @@ export function buildContextMenuItems(actions: ActionsApi, ctx: ActionContext): 
     }
 
     for (const entry of groupEntries) {
-      let label: string;
-      if (typeof entry.def.label === 'function') {
-        try {
-          label = entry.def.label(ctx);
-        } catch (error) {
-          console.error(`[fieldnotes] action label() failed for "${entry.def.id}"`, error);
-          label = entry.def.id;
-        }
-      } else {
-        label = entry.def.label;
-      }
-      items.push({ label, action: entry.def.id });
+      items.push({ label: resolveActionLabel(entry.def, ctx), action: entry.def.id });
     }
   }
 

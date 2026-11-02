@@ -1,4 +1,5 @@
 import type { ActionContext, ActionDefinition, ActionsApi } from '../actions/types';
+import { resolveActionLabel } from '../actions/action-label';
 import type { ElementStore } from '../elements/element-store';
 import type { ElementRegistry } from '../elements/element-registry';
 import { getElementVisualBounds } from '../elements/element-bounds';
@@ -124,8 +125,6 @@ export class CommandPalette implements PaletteApi {
     this.input = input;
     this.list = list;
     this.status = status;
-    this.subscribe();
-    this.render();
     this.disposeShell = openDialogShell({
       container: this.deps.container,
       root,
@@ -134,6 +133,8 @@ export class CommandPalette implements PaletteApi {
       onDismiss: () => this.close(),
       onKeyDown: (event) => this.onKeyDown(event),
     });
+    this.subscribe();
+    this.render();
   }
 
   close(): void {
@@ -195,8 +196,7 @@ export class CommandPalette implements PaletteApi {
     const context = this.deps.getActionContext();
     const actions = searchActions(this.deps.actions.list(), query, {
       isEnabled: (id) => this.deps.actions.isEnabled(id),
-      label: (definition) =>
-        typeof definition.label === 'string' ? definition.label : definition.label(context),
+      label: (definition) => resolveActionLabel(definition, context),
       bindings: this.deps.getBindings(),
     });
     if (!query.trim()) return actions;

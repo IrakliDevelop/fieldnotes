@@ -46,6 +46,32 @@ afterEach(() => {
 });
 
 describe('shortcuts help', () => {
+  it('shows the action id when an action label throws', () => {
+    const { harness, container, help } = setup();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const error = new Error('label bug');
+    const remove = harness.viewport.actions.register({
+      id: 'test.bad-label',
+      label: () => {
+        throw error;
+      },
+      shortcut: ['mod+b'],
+      perform: () => undefined,
+    });
+    cleanup.push(remove);
+
+    help.open();
+
+    expect(help.isOpen()).toBe(true);
+    expect(container.textContent).toContain('test.bad-label');
+    expect(errorSpy).toHaveBeenCalledOnce();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[fieldnotes] action label() failed for "test.bad-label"',
+      error,
+    );
+    errorSpy.mockRestore();
+  });
+
   it('open renders sections and keys and focuses the dialog', () => {
     const { help, container, closeOthers } = setup();
     help.open();

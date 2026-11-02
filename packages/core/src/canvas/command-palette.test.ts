@@ -170,6 +170,34 @@ afterEach(() => {
 });
 
 describe('command palette', () => {
+  it('keeps the palette open when an action label throws', () => {
+    const { harness, container, palette } = makeDeps();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const error = new Error('label bug');
+    const remove = harness.viewport.actions.register({
+      id: 'test.bad-label',
+      label: () => {
+        throw error;
+      },
+      perform: () => undefined,
+    });
+    cleanup.push(remove);
+
+    palette.open();
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(palette.isOpen()).toBe(true);
+    expect(
+      rows(container).find((row) => row.dataset.key === 'test.bad-label')?.textContent,
+    ).toContain('test.bad-label');
+    expect(errorSpy).toHaveBeenCalledOnce();
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[fieldnotes] action label() failed for "test.bad-label"',
+      error,
+    );
+    errorSpy.mockRestore();
+  });
+
   it('open mounts the palette, focuses the input and lists enabled actions', () => {
     const { harness, container, palette, calls } = makeDeps();
     addAction(harness, 'test.ping', 'Ping test');
