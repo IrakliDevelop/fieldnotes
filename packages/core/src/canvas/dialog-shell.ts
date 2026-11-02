@@ -19,6 +19,7 @@ export function openDialogShell(options: DialogShellOptions): () => void {
   const { container, root, initialFocus, textInput, onKeyDown, onDismiss } = options;
   const doc = container.ownerDocument;
   const eventRoot = container.getRootNode();
+  const hasSeparateDocumentRoot = eventRoot !== doc;
   root.tabIndex = -1;
   root.classList.add('fieldnotes-dialog');
   Object.assign(root.style, {
@@ -82,25 +83,34 @@ export function openDialogShell(options: DialogShellOptions): () => void {
     event.stopPropagation();
     onDismiss();
   };
-  const onDocumentPointerDown: EventListener = (event) => {
+  const seenPointerEvents = new WeakSet<Event>();
+  const onRootPointerDown: EventListener = (event) => {
     if (!(event instanceof PointerEvent)) return;
+    seenPointerEvents.add(event);
+    if (!pathIncludes(event, root)) onDismiss();
+  };
+  const onDocumentPointerDown: EventListener = (event) => {
+    if (!(event instanceof PointerEvent) || seenPointerEvents.has(event)) return;
     if (!pathIncludes(event, root)) onDismiss();
   };
   root.addEventListener('keydown', onRootKeyDown);
   root.addEventListener('mousedown', onRootPointer);
   root.addEventListener('pointerdown', onRootPointer);
   eventRoot.addEventListener('keydown', onDocumentKeyDown, true);
-  const timer = setTimeout(
-    () => eventRoot.addEventListener('pointerdown', onDocumentPointerDown),
-    0,
-  );
+  if (hasSeparateDocumentRoot) doc.addEventListener('keydown', onDocumentKeyDown, true);
+  const timer = setTimeout(() => {
+    eventRoot.addEventListener('pointerdown', onRootPointerDown);
+    if (hasSeparateDocumentRoot) doc.addEventListener('pointerdown', onDocumentPointerDown);
+  }, 0);
   return () => {
     root.removeEventListener('keydown', onRootKeyDown);
     root.removeEventListener('mousedown', onRootPointer);
     root.removeEventListener('pointerdown', onRootPointer);
     eventRoot.removeEventListener('keydown', onDocumentKeyDown, true);
+    if (hasSeparateDocumentRoot) doc.removeEventListener('keydown', onDocumentKeyDown, true);
     clearTimeout(timer);
-    eventRoot.removeEventListener('pointerdown', onDocumentPointerDown);
+    eventRoot.removeEventListener('pointerdown', onRootPointerDown);
+    if (hasSeparateDocumentRoot) doc.removeEventListener('pointerdown', onDocumentPointerDown);
     root.remove();
   };
 }

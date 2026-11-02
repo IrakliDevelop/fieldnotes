@@ -136,6 +136,65 @@ describe('dialog shell', () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
+  for (const mode of ['open', 'closed'] as const) {
+    it(`${mode} shadow roots dismiss from a page press without mistaking internal presses for outside`, () => {
+      vi.useFakeTimers();
+      const host = document.createElement('div');
+      const shadow = host.attachShadow({ mode });
+      const container = document.createElement('div');
+      const sibling = document.createElement('button');
+      const root = document.createElement('div');
+      const input = document.createElement('input');
+      root.append(input);
+      shadow.append(container, sibling);
+      document.body.append(host);
+      const { onDismiss } = open(container, root, input);
+      vi.runAllTimers();
+
+      root.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+      expect(onDismiss).not.toHaveBeenCalled();
+
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      expect(onDismiss).toHaveBeenCalledOnce();
+      onDismiss.mockClear();
+
+      sibling.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+      expect(onDismiss).toHaveBeenCalledOnce();
+      onDismiss.mockClear();
+
+      host.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+      expect(onDismiss).toHaveBeenCalledOnce();
+    });
+
+    it(`${mode} shadow roots consume page Escape before document and window listeners`, () => {
+      const host = document.createElement('div');
+      const shadow = host.attachShadow({ mode });
+      const container = document.createElement('div');
+      const root = document.createElement('div');
+      const input = document.createElement('input');
+      root.append(input);
+      shadow.append(container);
+      document.body.append(host);
+      const { onDismiss } = open(container, root, input);
+      const documentListener = vi.fn();
+      const windowListener = vi.fn();
+      listen(document, 'keydown', documentListener);
+      listen(window, 'keydown', windowListener);
+
+      const escape = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      document.body.dispatchEvent(escape);
+
+      expect(escape.defaultPrevented).toBe(true);
+      expect(onDismiss).toHaveBeenCalledOnce();
+      expect(documentListener).not.toHaveBeenCalled();
+      expect(windowListener).not.toHaveBeenCalled();
+    });
+  }
+
   it('keys inside the root never reach window listeners and Escape dismisses', () => {
     const { container, root, input } = setup();
     const documentListener = vi.fn();

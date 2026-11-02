@@ -454,6 +454,10 @@ describe('command palette', () => {
     row.click();
     expect(perform).toHaveBeenCalledOnce();
     expect(viewport.palette.isOpen()).toBe(false);
+    viewport.palette.open('ping');
+    vi.advanceTimersByTime(0);
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(viewport.palette.isOpen()).toBe(false);
   });
 
   it('an element row commits and closes without running an action', () => {
