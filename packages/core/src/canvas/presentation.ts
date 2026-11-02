@@ -330,9 +330,8 @@ export class PresentationMode implements PresentationApi {
   }
 
   private exitFullscreen(): void {
-    if (this.ownsFullscreen && document.fullscreenElement === this.deps.container) {
-      void document.exitFullscreen().catch(() => undefined);
-    }
+    if (!this.ownsFullscreen || document.fullscreenElement !== this.deps.container) return;
+    void document.exitFullscreen().catch(() => undefined);
   }
 
   private emit(): void {

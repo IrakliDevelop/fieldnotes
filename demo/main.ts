@@ -288,9 +288,9 @@ document.getElementById('toolbar')?.addEventListener('click', (e) => {
   if (toolName) setActiveTool(toolName);
 });
 
-document.getElementById('present-btn')?.addEventListener('click', () => {
-  viewport.runAction('presentation.start');
-});
+document
+  .getElementById('present-btn')
+  ?.addEventListener('click', () => viewport.runAction('presentation.start'));
 
 const presentationBar = document.getElementById('presentation-bar');
 const presentationCounter = presentationBar?.querySelector('[data-presentation="counter"]');
