@@ -509,7 +509,7 @@ describe('PresentationMode keys', () => {
     mode.start({ fullscreen: false, animate: false });
     const editable = document.createElement('div');
     editable.setAttribute('contenteditable', 'true');
-    const targets = [
+    const targets: HTMLElement[] = [
       h.wrapper,
       document.createElement('input'),
       Object.assign(document.createElement('input'), { type: 'range' }),
