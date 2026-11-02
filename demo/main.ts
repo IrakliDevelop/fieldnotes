@@ -303,6 +303,7 @@ presentationBar?.addEventListener('click', (e) => {
   else if (action === 'previous' || action === 'next' || action === 'exit') {
     viewport.runAction(`presentation.${action}`);
   }
+  viewport.domLayer.parentElement?.focus({ preventScroll: true });
 });
 
 const presentationSource = createPresentationSource(viewport);
