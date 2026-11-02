@@ -111,7 +111,6 @@ const INACTIVE: PresentationState = { active: false, index: -1, count: 0, fullsc
 interface PendingFullscreen {
   owner: object | null;
   cleanupStarted: boolean;
-  retryNestedCleanup: boolean;
 }
 
 export class PresentationMode implements PresentationApi {
@@ -373,8 +372,6 @@ export class PresentationMode implements PresentationApi {
     const pendingOwned = pending?.owner === session && session !== null;
     if (pendingOwned && pending !== null) {
       pending.owner = null;
-      pending.retryNestedCleanup =
-        this.ownsFullscreen && document.fullscreenElement !== this.deps.container;
     }
     const fullscreen = this.isContainerFullscreen();
     if (!fullscreen || (!this.ownsFullscreen && !pendingOwned)) return;
@@ -385,7 +382,6 @@ export class PresentationMode implements PresentationApi {
     const cleanup = {
       owner: null,
       cleanupStarted: false,
-      retryNestedCleanup: this.ownsFullscreen && document.fullscreenElement !== this.deps.container,
     };
     this.pendingFullscreen = cleanup;
     this.cleanupFullscreenRequest(cleanup);
@@ -410,7 +406,7 @@ export class PresentationMode implements PresentationApi {
     ) {
       return;
     }
-    const request = { owner: session, cleanupStarted: false, retryNestedCleanup: false };
+    const request = { owner: session, cleanupStarted: false };
     this.pendingFullscreen = request;
     void this.deps.container.requestFullscreen().then(
       () => this.settleFullscreenRequest(request),
@@ -452,11 +448,7 @@ export class PresentationMode implements PresentationApi {
     void document.exitFullscreen().then(
       () => {
         if (this.pendingFullscreen !== request) return;
-        if (
-          this.isContainerFullscreen() &&
-          request.retryNestedCleanup &&
-          document.fullscreenElement !== fullscreenElement
-        ) {
+        if (fullscreenElement !== this.deps.container && this.isContainerFullscreen()) {
           request.cleanupStarted = false;
           this.cleanupFullscreenRequest(request);
           return;
