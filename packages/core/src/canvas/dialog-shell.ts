@@ -66,7 +66,8 @@ export function openDialogShell(options: DialogShellOptions): () => void {
   const onRootPointer = (event: MouseEvent | PointerEvent) => {
     if (event.target !== textInput) event.preventDefault();
   };
-  const onDocumentKeyDown = (event: KeyboardEvent) => {
+  const onDocumentKeyDown: EventListener = (event) => {
+    if (!(event instanceof KeyboardEvent)) return;
     if (
       event.key !== 'Escape' ||
       event
@@ -81,7 +82,8 @@ export function openDialogShell(options: DialogShellOptions): () => void {
     event.stopPropagation();
     onDismiss();
   };
-  const onDocumentPointerDown = (event: PointerEvent) => {
+  const onDocumentPointerDown: EventListener = (event) => {
+    if (!(event instanceof PointerEvent)) return;
     if (!pathIncludes(event, root)) onDismiss();
   };
   root.addEventListener('keydown', onRootKeyDown);
