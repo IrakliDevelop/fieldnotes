@@ -56,11 +56,61 @@ describe('core public surface', () => {
   });
 
   it('exports the palette surface', () => {
-    const palette: PaletteApi | undefined = undefined;
-    const help: ShortcutsHelpApi | undefined = undefined;
-    const options: PaletteOptions | undefined = undefined;
-    const strings: PaletteStrings | undefined = undefined;
-    expect([palette, help, options, strings]).toEqual([undefined, undefined, undefined, undefined]);
+    let paletteOpen = false;
+    const palette: PaletteApi = {
+      open(query) {
+        paletteOpen = query !== 'closed';
+      },
+      close() {
+        paletteOpen = false;
+      },
+      isOpen() {
+        return paletteOpen;
+      },
+    };
+    let helpOpen = false;
+    const help: ShortcutsHelpApi = {
+      open() {
+        helpOpen = true;
+      },
+      close() {
+        helpOpen = false;
+      },
+      isOpen() {
+        return helpOpen;
+      },
+    };
+    const strings: PaletteStrings = {
+      placeholder: 'Search',
+      noResults: 'None',
+      actions: 'Actions',
+      board: 'Board',
+      helpTitle: 'Help',
+      close: 'Close',
+      groups: { palette: 'Palette' },
+      types: { note: 'Note' },
+    };
+    const options: PaletteOptions = {
+      strings: { placeholder: 'Find', groups: { palette: 'Commands' }, types: { note: 'Memo' } },
+    };
+    palette.open('open');
+    expect(palette.isOpen()).toBe(true);
+    palette.close();
+    expect(palette.isOpen()).toBe(false);
+    help.open();
+    expect(help.isOpen()).toBe(true);
+    help.close();
+    expect(help.isOpen()).toBe(false);
+    expect([strings.placeholder, strings.groups.palette, strings.types.note]).toEqual([
+      'Search',
+      'Palette',
+      'Note',
+    ]);
+    expect([
+      options.strings?.placeholder,
+      options.strings?.groups?.palette,
+      options.strings?.types?.note,
+    ]).toEqual(['Find', 'Commands', 'Memo']);
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
