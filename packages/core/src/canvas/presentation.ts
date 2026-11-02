@@ -279,7 +279,12 @@ export class PresentationMode implements PresentationApi {
 
   private shouldHandleKey(target: EventTarget | null): boolean {
     const element = target instanceof HTMLElement ? target : null;
-    if (element?.isContentEditable || element?.closest('[contenteditable]') !== null) return false;
+    if (
+      element?.isContentEditable ||
+      (element !== null && element.closest('[contenteditable]') !== null)
+    ) {
+      return false;
+    }
     const tag = element?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
     return !isLiveControlTarget(target, this.deps.wrapper);

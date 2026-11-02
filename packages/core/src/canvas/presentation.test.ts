@@ -472,6 +472,28 @@ describe('PresentationMode keys', () => {
     expect(mode.getState().index).toBe(0);
   });
 
+  it('keys from an SVG target are consumed', () => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const bubbled = vi.fn();
+    window.addEventListener('keydown', bubbled);
+    h.wrapper.append(svg);
+    mode.start({ fullscreen: false, animate: false });
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true,
+      cancelable: true,
+    });
+
+    svg.dispatchEvent(event);
+
+    expect(mode.getState().index).toBe(1);
+    expect(event.defaultPrevented).toBe(true);
+    expect(bubbled).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', bubbled);
+  });
+
   it('keys are ignored while inactive and after exit', () => {
     const h = makeDeps();
     const mode = makeMode(h.deps);
@@ -517,10 +539,15 @@ describe('PresentationMode fullscreen', () => {
     stubValue(h.container, 'requestFullscreen', requestFullscreen);
     stubValue(document, 'exitFullscreen', exitFullscreen);
     const mode = makeMode(h.deps);
+    let changes = 0;
+    mode.onChange(() => changes++);
 
     mode.start();
     setFullscreenElement(h.container);
     document.dispatchEvent(new Event('fullscreenchange'));
+
+    expect(mode.getState()).toEqual({ active: true, index: 0, count: 2, fullscreen: true });
+    expect(changes).toBe(2);
     mode.exit();
 
     expect(requestFullscreen).toHaveBeenCalledOnce();
@@ -599,6 +626,10 @@ describe('PresentationMode fullscreen', () => {
     const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     stubValue(h.container, 'requestFullscreen', requestFullscreen);
     stubValue(document, 'exitFullscreen', exitFullscreen);
+    const addWindowListener = vi.spyOn(window, 'addEventListener');
+    const addDocumentListener = vi.spyOn(document, 'addEventListener');
+    const removeWindowListener = vi.spyOn(window, 'removeEventListener');
+    const removeDocumentListener = vi.spyOn(document, 'removeEventListener');
     const mode = makeMode(h.deps);
     mode.start({ animate: false });
     mode.next();
@@ -610,16 +641,26 @@ describe('PresentationMode fullscreen', () => {
     const toolCalls = h.calls.tools.length;
 
     mode.destroy();
-    h.wrapper.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
-    );
-    setFullscreenElement(null);
+    const event = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true,
+      cancelable: true,
+    });
+    h.wrapper.dispatchEvent(event);
+    setFullscreenElement(h.container);
     document.dispatchEvent(new Event('fullscreenchange'));
 
     expect(changes).toBe(0);
+    expect(event.defaultPrevented).toBe(false);
     expect(mode.getState()).toEqual({ active: false, index: -1, count: 0, fullscreen: false });
     expect(h.camera.position).toEqual(camera);
     expect(h.calls.tools).toHaveLength(toolCalls);
     expect(exitFullscreen).toHaveBeenCalledOnce();
+    const keyListener = addWindowListener.mock.calls.find((call) => call[0] === 'keydown')?.[1];
+    const fullscreenListener = addDocumentListener.mock.calls.find(
+      (call) => call[0] === 'fullscreenchange',
+    )?.[1];
+    expect(removeWindowListener).toHaveBeenCalledWith('keydown', keyListener, true);
+    expect(removeDocumentListener).toHaveBeenCalledWith('fullscreenchange', fullscreenListener);
   });
 });
