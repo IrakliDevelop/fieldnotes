@@ -233,10 +233,7 @@ viewport.presentation.onChange(() => {
 presentation.subscribe(() => renderPresentation(presentation.getSnapshot()));
 ```
 
-`start()` uses visible-layer frames in scene order when no slides are supplied. Arrow keys,
-PageUp/PageDown, Space and Shift+Space, Home, End, and Escape are a fixed navigation table and
-cannot be rebound. The host container should have an opaque background because the fullscreen
-backdrop is black.
+`start()` steps through every frame on a visible layer, in scene order, unless you pass `slides`. Right/Down arrow, PageDown and Space go forward; Left/Up arrow, PageUp and Shift+Space go back; Home and End jump to the first and last slide; Escape exits. These keys can't be rebound. `createPresentationSource(viewport)` exposes the same state as a `subscribe`/`getSnapshot` source for framework stores. Give the host container an opaque background, because the fullscreen backdrop is black.
 
 ## Element Store
 
@@ -371,7 +368,7 @@ Defaults (remappable): `Delete`/`Backspace` delete · `Escape` deselect · `mod+
 `mod+Y`/`mod+Shift+Z` redo · `mod+A` select all · `mod+C/V/D` copy/paste/duplicate ·
 `[`/`]` z-order (with `mod` = to back/front) · `Shift+1` zoom-to-fit · `mod+=` zoom in ·
 `mod+-` zoom out · `mod+0` reset zoom to 100% · arrows nudge · tool keys `V` select,
-`H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape, `F` frame, `L` laser.
+`H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape, `F` frame, and `L` laser when a `LaserTool` is registered.
 
 `mod` = Ctrl or Cmd. Shortcuts fire only while the canvas has focus (click it once);
 pass `shortcuts: { scope: 'window' }` for page-wide handling.
@@ -762,7 +759,7 @@ Right-click (desktop) or touch long-press (tablet) opens a context menu over the
 
 Lock with **`viewport.toggleLockSelection()`** or **Ctrl/Cmd+Shift+L**; a lock badge appears on the selection. Locked elements stay selectable but can't be moved, resized, or rotated. **Ctrl/Cmd+X** cuts the selection. The shortcuts are rebindable as `arrange.toggle-lock` and `edit.cut`.
 
-You can drive any menu action programmatically with **`viewport.runAction(name)`** (e.g. `'edit.cut'`, `'edit.paste'`, `'arrange.toggle-lock'`), or through the actions API: `viewport.actions.run('edit.cut', { source: 'api' })`. **`viewport.canPaste()`** reports whether the clipboard has content.
+You can drive any menu action programmatically with **`viewport.runAction(name)`** (e.g. `'edit.cut'`, `'edit.paste'`, `'arrange.toggle-lock'`). It returns whether the action ran. You can also use the actions API: `viewport.actions.run('edit.cut', { source: 'api' })`. **`viewport.canPaste()`** reports whether the clipboard has content.
 
 ## Built-in Interactions
 

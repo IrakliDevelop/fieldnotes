@@ -77,11 +77,10 @@ Shortcuts work while the board has focus, and a click on the board gives it focu
 - Arrow keys: `arrange.nudge-left`, `arrange.nudge-right`, `arrange.nudge-up` and `arrange.nudge-down`, 1 unit at a time or 10 with Shift
 - Shift+1: `view.zoom-to-fit`
 - mod+=, mod+- and mod+0: `view.zoom-in`, `view.zoom-out` and `view.zoom-reset`
+- L: `tool.laser`, when a `LaserTool` is registered (the default tools don't include one)
 - The tool keys above: `tool.select`, `tool.hand`, `tool.pencil`, `tool.eraser`, `tool.arrow`, `tool.note`, `tool.text` and `tool.shape`
 
 `tool.frame` is the F shortcut.
-
-`L`: `tool.laser`, when a `LaserTool` is registered.
 
 ## Frames
 
@@ -106,17 +105,13 @@ On a board that sits in a page, disable `select.cycle` and `select.cycle-reverse
 
 ## Presentation
 
-Call `viewport.presentation.start()` to present the visible-layer frames in scene order. Pass slides
-to `start()` to use explicit camera views instead.
+`viewport.presentation.start()` steps through every frame on a visible layer, in scene order. To show other areas, pass `start({ slides })` with a camera `view` for each slide.
 
-Presentation navigation has a fixed key table: Arrow keys, PageUp/PageDown, Space and Shift+Space,
-Home, End, and Escape. These keys cannot be rebound. `L` activates a registered `LaserTool`.
+`next()`, `previous()` and `goTo(index)` move between slides and return `false` when they can't; `exit()` ends the presentation. `onChange` reports every step, and `getState()` returns `index` and `count` for a slide counter.
 
-The viewport requests fullscreen on its host container and stays windowed if the request is denied
-or unavailable. Give the host container an opaque background because the fullscreen backdrop is
-black. A disengaged embedded board ignores touch while presenting; call
-`setEmbeddedEngaged(true)` before starting when touch input is needed. Presentation steps do not
-touch the undo stack.
+While presenting, Right arrow, Down arrow, PageDown and Space go to the next slide; Left arrow, Up arrow, PageUp and Shift+Space go back; Home and End jump to the first and last slide; Escape ends the presentation. These keys can't be rebound. L picks the laser pointer when a `LaserTool` is registered.
+
+The viewport requests fullscreen on its host container and stays windowed if the browser denies it. Leaving fullscreen ends the presentation. Give the host container an opaque background, because the fullscreen backdrop is black. A board created with [`embedded`](/docs/html-elements/#boards-in-a-scrolling-page) ignores touch while presenting unless it is engaged, so call `setEmbeddedEngaged(true)` before `start()` when presenters use touch. Moving between slides adds no undo step.
 
 ## Write your own tool
 

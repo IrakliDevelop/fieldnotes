@@ -66,9 +66,8 @@ describe('parseRoadmap', () => {
       'A scheduled Chromium performance gate that records 90 render-loop samples on 10,011 elements against a checked-in p95 budget',
     );
     expect(roadmap.built).toContain('Frames that group and clip elements');
-    expect(roadmap.built).toContain(
-      'Presentation mode that steps through frames fullscreen with the laser pointer',
-    );
+    expect(roadmap.built).toContain('Presentation mode that steps through frames fullscreen');
+    expect(roadmap.built).toContain('Laser pointer on the L key');
     expect(roadmap.next).not.toContain(
       'Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export',
     );

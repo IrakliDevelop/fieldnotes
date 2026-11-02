@@ -19,15 +19,16 @@ Release notes prepared 2026-11-02.
   actions. While presenting, the fixed navigation keys are Arrow keys, PageUp/PageDown, Space and
   Shift+Space, Home, End, and Escape.
 - Presentation requests fullscreen on the host container and continues windowed when fullscreen is
-  unavailable or denied. `L` is the default `tool.laser` shortcut.
+  unavailable or denied.
+- `L` is the default `tool.laser` shortcut.
+- `viewport.runAction(name)` returns whether the action ran.
 
 **Compatibility**
 
 - Persisted state and the sync protocol are unchanged. Presentation is local and is never persisted
   or synced.
 - Leaving fullscreen ends the presentation. The navigation key table is fixed and cannot be rebound.
-- A host that bound `l` now shares it with `tool.laser`. A disengaged embedded board ignores touch
-  while presenting.
+- A host that bound `l` to another action now conflicts with `tool.laser`, and the action registered first wins. Rebind or disable `tool.laser` to keep the old key. A disengaged embedded board ignores touch while presenting.
 
 ### Core 0.102.0 — frames
 
