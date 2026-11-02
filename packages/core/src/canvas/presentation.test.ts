@@ -752,6 +752,7 @@ describe('PresentationMode fullscreen', () => {
     mode.start({ fullscreen: false });
     setFullscreenElement(child);
     document.dispatchEvent(new Event('fullscreenchange'));
+    expect(mode.getState()).toMatchObject({ active: true, fullscreen: false });
     setFullscreenElement(null);
     document.dispatchEvent(new Event('fullscreenchange'));
 
