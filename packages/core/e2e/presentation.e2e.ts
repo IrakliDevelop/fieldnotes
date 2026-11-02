@@ -1,6 +1,6 @@
 import { test, expect, CanvasPage } from './fixtures/canvas-page';
 import { singleFingerDraw, pinchGesture } from './helpers/touch';
-import { redPixelCount } from './helpers/red-pixel-count';
+import { colorPixelCount, LASER_RED } from './helpers/red-pixel-count';
 import type { Page } from '@playwright/test';
 
 interface CameraState {
@@ -208,12 +208,12 @@ test.describe('presentation mode', () => {
     await wrapper.focus();
     await page.keyboard.press('l');
     expect((await state(page)).activeTool).toBe('laser');
-    const redBefore = await redPixelCount(page);
+    const redBefore = await colorPixelCount(page, LASER_RED);
     await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2, { steps: 10 });
     await page.mouse.up();
-    expect(await redPixelCount(page)).toBeGreaterThan(redBefore);
+    expect(await colorPixelCount(page, LASER_RED)).toBeGreaterThan(redBefore);
 
     await page.keyboard.press('Escape');
     await waitForPresentation(page, { active: false });
@@ -239,13 +239,13 @@ test.describe('presentation mode', () => {
     expect((await state(page)).activeTool).toBe('laser');
     const box = await canvasPage.wrapper().boundingBox();
     if (!box) throw new Error('Wrapper not found');
-    const redBefore = await redPixelCount(page);
+    const redBefore = await colorPixelCount(page, LASER_RED);
     await singleFingerDraw(page, [
       { x: box.x + box.width * 0.3, y: box.y + box.height / 2 },
       { x: box.x + box.width * 0.5, y: box.y + box.height / 2 },
       { x: box.x + box.width * 0.7, y: box.y + box.height / 2 },
     ]);
-    expect(await redPixelCount(page)).toBeGreaterThan(redBefore);
+    expect(await colorPixelCount(page, LASER_RED)).toBeGreaterThan(redBefore);
 
     const zoom = (await state(page)).camera.zoom;
     await pinchGesture(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, 100, 200);

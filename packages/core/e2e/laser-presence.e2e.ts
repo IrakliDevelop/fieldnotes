@@ -1,6 +1,6 @@
 import { CanvasPage, test, expect } from './fixtures/canvas-page';
 import { singleFingerDraw } from './helpers/touch';
-import { redPixelCount } from './helpers/red-pixel-count';
+import { colorPixelCount, LASER_RED } from './helpers/red-pixel-count';
 import type { Page } from '@playwright/test';
 
 /**
@@ -43,7 +43,7 @@ test.describe('viewport overlay registration', () => {
   }) => {
     await canvasPage.selectTool('pencil'); // active tool has no overlay of its own
 
-    expect(await redPixelCount(canvasPage.page)).toBe(0);
+    expect(await colorPixelCount(canvasPage.page, LASER_RED)).toBe(0);
 
     await canvasPage.page.evaluate(() => {
       const w = window as unknown as Record<string, unknown>;
@@ -64,7 +64,7 @@ test.describe('viewport overlay registration', () => {
     });
     await canvasPage.page.waitForTimeout(200);
 
-    expect(await redPixelCount(canvasPage.page)).toBeGreaterThan(1000);
+    expect(await colorPixelCount(canvasPage.page, LASER_RED)).toBeGreaterThan(1000);
     // Ephemerality: the overlay drew pixels, not elements.
     expect(await canvasPage.getElementCount()).toBe(0);
 
@@ -74,7 +74,7 @@ test.describe('viewport overlay registration', () => {
     });
     await canvasPage.page.waitForTimeout(200);
 
-    expect(await redPixelCount(canvasPage.page)).toBe(0);
+    expect(await colorPixelCount(canvasPage.page, LASER_RED)).toBe(0);
   });
 });
 
@@ -203,7 +203,7 @@ test.describe('remote laser overlay', () => {
 
     expect(await applyRemoteTrail(canvasPage.page, 'conn-1')).toBe(true);
     await canvasPage.page.waitForTimeout(200);
-    expect(await redPixelCount(canvasPage.page)).toBeGreaterThan(500);
+    expect(await colorPixelCount(canvasPage.page, LASER_RED)).toBeGreaterThan(500);
     expect(await canvasPage.getElementCount()).toBe(0); // presence only, nothing persisted
 
     await canvasPage.page.evaluate(() => {
@@ -213,16 +213,16 @@ test.describe('remote laser overlay', () => {
       overlay.remove('conn-1'); // presence-leave
     });
     await canvasPage.page.waitForTimeout(200);
-    expect(await redPixelCount(canvasPage.page)).toBe(0);
+    expect(await colorPixelCount(canvasPage.page, LASER_RED)).toBe(0);
   });
 
   test('trails fade out on their own after fadeMs', async ({ canvasPage }) => {
     expect(await applyRemoteTrail(canvasPage.page, 'conn-2', { fadeMs: 400 })).toBe(true);
     await canvasPage.page.waitForTimeout(150);
-    expect(await redPixelCount(canvasPage.page)).toBeGreaterThan(0);
+    expect(await colorPixelCount(canvasPage.page, LASER_RED)).toBeGreaterThan(0);
 
     await canvasPage.page.waitForTimeout(900);
-    expect(await redPixelCount(canvasPage.page)).toBe(0);
+    expect(await colorPixelCount(canvasPage.page, LASER_RED)).toBe(0);
 
     const activeSenders = await canvasPage.page.evaluate(() => {
       const overlay = (window as unknown as Record<string, unknown>).__fieldnotes_remote_laser as {
