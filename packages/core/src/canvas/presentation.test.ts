@@ -663,14 +663,21 @@ describe('PresentationMode keys', () => {
 
   it.each([
     () => Object.assign(document.createElement('a'), { href: '#' }),
-    () => Object.assign(document.createElement('div'), { role: 'tab' }),
+    () => {
+      const target = Object.assign(document.createElement('div'), { role: 'tab' });
+      target.tabIndex = 0;
+      return target;
+    },
   ])('does not navigate from a focused interactive wrapper target', (createTarget) => {
     const h = makeDeps();
     const mode = makeMode(h.deps);
     const target = createTarget();
+    h.container.append(h.wrapper);
     h.wrapper.append(target);
     mode.start({ fullscreen: false, animate: false });
     target.focus();
+
+    expect(document.activeElement).toBe(target);
 
     target.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
 
@@ -685,13 +692,15 @@ describe('PresentationMode keys', () => {
     vi.stubGlobal('reportError', reportError);
     const mode = makeMode(h.deps);
     const listener = vi.fn();
+    const error = new Error('listener failure');
     mode.onChange(() => {
-      throw new Error('listener failure');
+      throw error;
     });
     mode.onChange(listener);
 
     expect(() => mode.start()).not.toThrow();
     expect(reportError).toHaveBeenCalledOnce();
+    expect(reportError).toHaveBeenCalledWith(error);
     expect(listener).toHaveBeenCalledOnce();
     expect(requestFullscreen).toHaveBeenCalledOnce();
   });
