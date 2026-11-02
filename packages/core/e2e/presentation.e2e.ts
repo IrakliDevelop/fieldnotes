@@ -181,6 +181,21 @@ test.describe('presentation mode', () => {
     expect(result.firstShapePosition).toEqual({ x: 0, y: 0 });
     expect(result.undoCount).toBe(seeded.undoCount);
 
+    await page.locator('[data-presentation="previous"]').click();
+    await waitForPresentation(page, { index: 0 });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                __fieldnotes_viewport: { domLayer: { parentElement: Element | null } };
+              }
+            ).__fieldnotes_viewport.domLayer.parentElement === document.activeElement,
+        ),
+      )
+      .toBe(true);
+
     await page.keyboard.press('Home');
     await waitForPresentation(page, { index: 0 });
     await page.keyboard.press('End');
