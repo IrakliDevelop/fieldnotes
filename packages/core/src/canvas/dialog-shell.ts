@@ -32,13 +32,12 @@ export function openDialogShell(options: DialogShellOptions): () => void {
   container.append(root);
   initialFocus.focus({ preventScroll: true });
 
-  const dismiss = () => onDismiss();
   const onRootKeyDown = (event: KeyboardEvent) => {
     event.stopPropagation();
     if (event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Escape') {
       event.preventDefault();
-      dismiss();
+      onDismiss();
       return;
     }
     if (event.key === 'Tab') {
@@ -79,10 +78,10 @@ export function openDialogShell(options: DialogShellOptions): () => void {
     if (target !== doc.body && target !== null && !pathIncludes(event, container)) return;
     event.preventDefault();
     event.stopPropagation();
-    dismiss();
+    onDismiss();
   };
   const onDocumentPointerDown = (event: PointerEvent) => {
-    if (!pathIncludes(event, root)) dismiss();
+    if (!pathIncludes(event, root)) onDismiss();
   };
   root.addEventListener('keydown', onRootKeyDown);
   root.addEventListener('mousedown', onRootPointer);
