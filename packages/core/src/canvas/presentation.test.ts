@@ -17,6 +17,7 @@ function makeDeps(overrides: Partial<PresentationModeDeps> = {}) {
   document.body.append(container, wrapper);
   const calls = {
     tools: [] as string[],
+    order: [] as ('stop' | 'camera')[],
     clearSelection: 0,
     stopCameraMotion: 0,
     disposeResize: 0,
@@ -47,6 +48,7 @@ function makeDeps(overrides: Partial<PresentationModeDeps> = {}) {
     },
     stopCameraMotion: () => {
       calls.stopCameraMotion++;
+      calls.order.push('stop');
     },
     frames: {
       requestFrame: (callback) => {
@@ -58,6 +60,7 @@ function makeDeps(overrides: Partial<PresentationModeDeps> = {}) {
     now: () => clock,
     ...overrides,
   };
+  camera.onChange(() => calls.order.push('camera'));
   return {
     deps,
     camera,
@@ -173,6 +176,7 @@ describe('PresentationMode', () => {
     expect(h.calls.clearSelection).toBe(1);
     expect(h.calls.tools).toEqual(['hand']);
     expect(h.calls.stopCameraMotion).toBe(1);
+    expect(h.calls.order).toEqual(['stop', 'camera']);
     expect(mode.getState()).toEqual({ active: true, index: 0, count: 2, fullscreen: false });
   });
 
@@ -189,18 +193,22 @@ describe('PresentationMode', () => {
     const h = makeDeps();
     const mode = new PresentationMode(h.deps);
     mode.start({ fullscreen: false });
+    h.calls.order.length = 0;
 
     expect(mode.next()).toBe(true);
     h.runFrames(450);
     expect(h.camera.position.x).toBe(-2000);
     expect(mode.getState().index).toBe(1);
     expect(h.calls.stopCameraMotion).toBe(2);
+    expect(h.calls.order).toEqual(['stop', 'camera']);
     expect(mode.next()).toBe(false);
     expect(h.calls.stopCameraMotion).toBe(2);
+    h.calls.order.length = 0;
     expect(mode.previous()).toBe(true);
     h.runFrames(450);
     expect(mode.getState().index).toBe(0);
     expect(h.camera.position.x).toBe(0);
+    expect(h.calls.order).toEqual(['stop', 'camera']);
     expect(mode.previous()).toBe(false);
   });
 
@@ -282,11 +290,13 @@ describe('PresentationMode', () => {
     const mode = new PresentationMode(h.deps);
     mode.start({ fullscreen: false });
     h.camera.pan(50, 50);
+    h.calls.order.length = 0;
 
     h.calls.resize();
 
     expect(h.camera.position).toEqual({ x: 0, y: 0 });
     expect(h.calls.stopCameraMotion).toBe(2);
+    expect(h.calls.order).toEqual(['stop', 'camera']);
   });
 
   it('exit restores camera and tool and unsubscribes resize', () => {
@@ -307,13 +317,21 @@ describe('PresentationMode', () => {
   });
 
   it('exit stays clean when setTool returns false', () => {
-    const h = makeDeps({ setTool: () => false });
+    const tools: string[] = [];
+    const h = makeDeps({
+      setTool: (name) => {
+        tools.push(name);
+        return false;
+      },
+    });
     const mode = new PresentationMode(h.deps);
     mode.start({ fullscreen: false });
+    expect(tools).toEqual(['hand']);
 
     expect(() => mode.exit()).not.toThrow();
     expect(h.camera.position).toEqual({ x: 0, y: 0 });
     expect(mode.getState().active).toBe(false);
+    expect(tools).toEqual(['hand']);
   });
 
   it('getState keeps its reference until a change', () => {
