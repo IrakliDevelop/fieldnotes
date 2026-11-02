@@ -1,12 +1,17 @@
 import type { ActionContext, ActionDefinition, ActionsApi } from '../actions/types';
 import type { ElementStore } from '../elements/element-store';
 import type { ElementRegistry } from '../elements/element-registry';
+import { getElementVisualBounds } from '../elements/element-bounds';
 import { SceneSearch } from '../elements/scene-search';
 import type { SceneSearchHit } from '../elements/scene-search';
+import type { Bounds } from '../core/types';
 import type { Camera } from './camera';
+import { CameraAnimator } from './camera-animator';
+import type { FrameScheduler } from './camera-animator';
 import { focusBoard, openDialogShell } from './dialog-shell';
+import { LingerOverlay } from './linger-overlay';
 import type { LingerOverlayHost } from './linger-overlay';
-import { formatBinding, searchActions } from './palette-model';
+import { formatBinding, revealView, searchActions } from './palette-model';
 import type { PaletteActionRow, PaletteStrings } from './palette-model';
 import type { ShortcutsHelpApi } from './shortcuts-help';
 
@@ -15,11 +20,6 @@ export interface PaletteApi {
   open(query?: string): void;
   close(): void;
   isOpen(): boolean;
-}
-
-export interface FrameScheduler {
-  request(callback: FrameRequestCallback): number;
-  cancel(id: number): void;
 }
 
 export interface CommandPaletteDeps {
@@ -62,6 +62,10 @@ export class CommandPalette implements PaletteApi {
   private disposeShell: (() => void) | null = null;
   private unsubscribers: (() => void)[] = [];
   private scheduled = false;
+  private animator: CameraAnimator | null = null;
+  private highlight: LingerOverlay<Bounds> | null = null;
+  private highlightedElementId: string | null = null;
+  private reduceMotion = false;
 
   constructor(private readonly deps: CommandPaletteDeps) {
     this.help = deps.help;
@@ -74,6 +78,8 @@ export class CommandPalette implements PaletteApi {
       this.render();
       return;
     }
+    this.reduceMotion =
+      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.deps.closeContextMenu();
     this.help.close();
     const root = document.createElement('div');
@@ -148,8 +154,7 @@ export class CommandPalette implements PaletteApi {
   }
 
   destroy(): void {
-    if (!this.root) return;
-    this.unsubscribe();
+    if (this.root) this.unsubscribe();
     this.disposeShell?.();
     this.disposeShell = null;
     this.root = null;
@@ -158,6 +163,11 @@ export class CommandPalette implements PaletteApi {
     this.status = null;
     this.rows = [];
     this.activeKey = null;
+    this.animator?.dispose();
+    this.animator = null;
+    this.highlight?.dispose();
+    this.highlight = null;
+    this.highlightedElementId = null;
   }
 
   private subscribe(): void {
@@ -200,6 +210,13 @@ export class CommandPalette implements PaletteApi {
     if (!input || !list || !status) return;
     const prior = this.activeKey;
     this.rows = this.rowsFor(input.value);
+    if (
+      this.highlightedElementId !== null &&
+      !this.rows.some((row) => row.kind === 'element' && row.hit.id === this.highlightedElementId)
+    ) {
+      this.highlight?.remove('find');
+      this.highlightedElementId = null;
+    }
     const first = this.rows[0];
     if (this.rows.some((row) => this.key(row) === prior)) this.activeKey = prior;
     else if (first) this.activeKey = this.key(first);
@@ -347,15 +364,65 @@ export class CommandPalette implements PaletteApi {
   }
 
   private onActiveRow(row: PaletteRow): void {
-    void row;
+    if (row.kind === 'element') {
+      this.reveal(row.hit);
+      return;
+    }
+    this.highlight?.remove('find');
+    this.highlightedElementId = null;
   }
 
   private onElementChosen(hit: SceneSearchHit): void {
-    void hit;
+    this.reveal(hit);
   }
 
   private onClose(): void {
-    return;
+    this.highlight?.linger('find');
+    this.highlightedElementId = null;
+  }
+
+  private reveal(hit: SceneSearchHit): void {
+    const element = this.deps.store.getById(hit.id);
+    if (!element) {
+      this.highlight?.remove('find');
+      this.highlightedElementId = null;
+      return;
+    }
+    const bounds = getElementVisualBounds(element, this.deps.registry);
+    if (!bounds) {
+      this.highlight?.remove('find');
+      this.highlightedElementId = null;
+      return;
+    }
+    this.deps.stopCameraMotion();
+    const size = this.deps.getCanvasSize();
+    const view = revealView(bounds, this.deps.camera.getVisibleRect(size.w, size.h));
+    if (this.animator === null) {
+      this.animator = new CameraAnimator(this.deps.wrapper, this.deps.camera, {
+        getCanvasSize: this.deps.getCanvasSize,
+        interactive: true,
+        frames: this.deps.frames,
+        now: this.deps.now,
+      });
+    }
+    if (this.reduceMotion) this.animator.jumpTo(view);
+    else this.animator.animateTo(view);
+    if (this.highlight === null) {
+      this.highlight = new LingerOverlay(
+        this.deps.overlayHost,
+        { holdMs: 1500, fadeMs: 400 },
+        (ctx, entry, alpha) => {
+          const pad = 4 / this.deps.camera.zoom;
+          ctx.globalAlpha = alpha;
+          ctx.strokeStyle = this.deps.selectionColor;
+          ctx.lineWidth = 2 / this.deps.camera.zoom;
+          ctx.strokeRect(entry.x - pad, entry.y - pad, entry.w + pad * 2, entry.h + pad * 2);
+        },
+        this.deps.now,
+      );
+    }
+    this.highlight.set('find', bounds);
+    this.highlightedElementId = hit.id;
   }
 }
 

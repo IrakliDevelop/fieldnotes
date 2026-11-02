@@ -5,10 +5,54 @@ import { createFrame } from '../elements/frame-element';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { Camera } from './camera';
 import { CommandPalette, createPaletteActions } from './command-palette';
+import { makeHost } from './__test-utils__/overlay-host';
 import { DEFAULT_PALETTE_STRINGS } from './palette-model';
 import type { CommandPaletteDeps } from './command-palette';
+import { recordingCanvas } from '../test-helpers/recording-canvas';
+import type { BaseElement, ElementTypeDefinition } from '../elements/types';
 
 const cleanup: (() => void)[] = [];
+
+interface GhostElement extends BaseElement {
+  type: 'ghost';
+}
+
+const ghostDefinition: ElementTypeDefinition<GhostElement> = {
+  type: 'test:ghost',
+  legacyTypes: [],
+  decodeLegacy: () => ({
+    id: 'ghost',
+    type: 'ghost',
+    position: { x: 0, y: 0 },
+    index: 'a0',
+    version: 1,
+    locked: false,
+    layerId: 'default',
+  }),
+  validateData: () => true,
+  unwrap: (element) => ({
+    id: element.id,
+    type: 'ghost',
+    position: element.position,
+    index: element.index,
+    version: element.version,
+    locked: element.locked,
+    layerId: element.layerId,
+  }),
+  wrap: (element) => ({
+    id: element.id,
+    type: 'extension',
+    extensionType: 'test:ghost',
+    position: element.position,
+    index: element.index,
+    version: element.version,
+    locked: element.locked,
+    layerId: element.layerId,
+    data: {},
+  }),
+  bounds: () => null,
+  searchText: () => 'Ghost ping',
+};
 
 function makeDeps(overrides: Partial<CommandPaletteDeps> = {}) {
   const harness = createViewportHarness();
@@ -122,6 +166,7 @@ afterEach(() => {
   document.head
     .querySelectorAll('style[data-fieldnotes-palette]')
     .forEach((style) => style.remove());
+  vi.unstubAllGlobals();
 });
 
 describe('command palette', () => {
@@ -525,5 +570,195 @@ describe('command palette', () => {
     expect(shortcuts.perform(context, { source: 'keyboard', shiftKey: false })).toBeUndefined();
     expect(palette.open).toHaveBeenCalledOnce();
     expect(help.open).toHaveBeenCalledOnce();
+  });
+});
+
+describe('CommandPalette reveal', () => {
+  it('ArrowDown onto an element row animates the camera and highlights it', () => {
+    let clock = 0;
+    let pending: (() => void)[] = [];
+    const overlay = makeHost();
+    const fixture = makeDeps({
+      overlayHost: overlay.host,
+      frames: {
+        requestFrame: (callback) => {
+          pending.push(callback);
+          return pending.length;
+        },
+        cancelFrame: () => undefined,
+      },
+      now: () => clock,
+    });
+    addAction(fixture.harness, 'test.ping', 'Ping test');
+    fixture.harness.viewport.store.add({
+      ...createNote({ position: { x: 100, y: 100 }, size: { w: 50, h: 20 }, text: 'Budget ping' }),
+      id: 'budget',
+    });
+    fixture.palette.open('ping');
+    key(input(fixture.container), 'ArrowDown');
+    clock = 450;
+    const frames = pending;
+    pending = [];
+    for (const frame of frames) frame();
+    const canvas = recordingCanvas();
+    overlay.getRenderer()?.(canvas.ctx);
+    expect(rows(fixture.container).map((row) => row.textContent)).toEqual([
+      'Ping test',
+      'Budget pingNote',
+    ]);
+    expect(fixture.deps.camera.position).toEqual({ x: 275, y: 190 });
+    expect(fixture.deps.camera.zoom).toBe(1);
+    expect(fixture.calls.stop).toHaveBeenCalledOnce();
+    expect(canvas.strokes).toEqual([{ style: '#2196F3', alpha: 1 }]);
+  });
+
+  it('reduced motion jumps synchronously', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const fixture = makeDeps();
+    addAction(fixture.harness, 'test.ping', 'Ping test');
+    fixture.harness.viewport.store.add({
+      ...createNote({ position: { x: 100, y: 100 }, size: { w: 50, h: 20 }, text: 'Budget ping' }),
+      id: 'budget',
+    });
+    fixture.palette.open('ping');
+    key(input(fixture.container), 'ArrowDown');
+    expect(fixture.deps.camera.position).toEqual({ x: 275, y: 190 });
+    expect(fixture.calls.stop).toHaveBeenCalledOnce();
+  });
+
+  it('ArrowUp back onto an action row removes the highlight and does not move the camera again', () => {
+    const overlay = makeHost();
+    const fixture = makeDeps({ overlayHost: overlay.host });
+    addAction(fixture.harness, 'test.ping', 'Ping test');
+    addHit(fixture.harness, 'note', 'Budget ping', 'budget');
+    fixture.palette.open('ping');
+    key(input(fixture.container), 'ArrowDown');
+    key(input(fixture.container), 'ArrowUp');
+    const canvas = recordingCanvas();
+    overlay.getRenderer()?.(canvas.ctx);
+    expect(active(fixture.container).textContent).toBe('Ping test');
+    expect(canvas.strokes).toEqual([]);
+    expect(fixture.calls.stop).toHaveBeenCalledOnce();
+  });
+
+  it('typing never moves the camera', () => {
+    const overlay = makeHost();
+    const fixture = makeDeps({ overlayHost: overlay.host });
+    addHit(fixture.harness, 'note', 'Budget ping', 'budget');
+    fixture.palette.open();
+    type(fixture.container, 'budget');
+    const canvas = recordingCanvas();
+    overlay.getRenderer()?.(canvas.ctx);
+    expect(active(fixture.container).dataset.key).toBe('budget');
+    expect(fixture.deps.camera.position).toEqual({ x: 0, y: 0 });
+    expect(fixture.calls.stop).not.toHaveBeenCalled();
+    expect(canvas.strokes).toEqual([]);
+  });
+
+  it('Enter on an element reveals, lingers the highlight, and closes', () => {
+    let clock = 0;
+    let overlayFrame: (() => void) | undefined;
+    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
+      overlayFrame = callback;
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    const overlay = makeHost();
+    const fixture = makeDeps({ overlayHost: overlay.host, now: () => clock });
+    addHit(fixture.harness, 'note', 'Budget ping', 'budget');
+    fixture.palette.open('budget');
+    key(input(fixture.container), 'Enter');
+    const canvas = recordingCanvas();
+    overlay.getRenderer()?.(canvas.ctx);
+    expect(fixture.palette.isOpen()).toBe(false);
+    expect(canvas.strokes).toEqual([{ style: '#2196F3', alpha: 1 }]);
+    clock = 1901;
+    overlayFrame?.();
+    const faded = recordingCanvas();
+    overlay.getRenderer()?.(faded.ctx);
+    expect(faded.strokes).toEqual([]);
+  });
+
+  it('a vanished element drops the highlight on re-render', async () => {
+    const overlay = makeHost();
+    const fixture = makeDeps({ overlayHost: overlay.host });
+    addAction(fixture.harness, 'test.ping', 'Ping test');
+    addHit(fixture.harness, 'note', 'Budget ping', 'budget');
+    fixture.palette.open('ping');
+    key(input(fixture.container), 'ArrowDown');
+    fixture.harness.viewport.store.remove('budget');
+    await Promise.resolve();
+    const canvas = recordingCanvas();
+    overlay.getRenderer()?.(canvas.ctx);
+    expect(rows(fixture.container).map((row) => row.dataset.key)).toEqual(['test.ping']);
+    expect(canvas.strokes).toEqual([]);
+  });
+
+  it('an element without bounds is skipped', () => {
+    const overlay = makeHost();
+    const fixture = makeDeps({ overlayHost: overlay.host });
+    fixture.harness.viewport.elementRegistry.register(ghostDefinition);
+    addAction(fixture.harness, 'test.ping', 'Ping test');
+    const ghost: GhostElement = {
+      id: 'ghost',
+      type: 'ghost',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: 'default',
+    };
+    fixture.harness.viewport.store.add(ghostDefinition.wrap(ghost));
+    fixture.palette.open('ping');
+    key(input(fixture.container), 'ArrowDown');
+    const canvas = recordingCanvas();
+    overlay.getRenderer()?.(canvas.ctx);
+    expect(rows(fixture.container).map((row) => row.textContent)).toEqual([
+      'Ping test',
+      'Ghost pingtest:ghost',
+    ]);
+    expect(fixture.deps.camera.position).toEqual({ x: 0, y: 0 });
+    expect(fixture.calls.stop).not.toHaveBeenCalled();
+    expect(canvas.strokes).toEqual([]);
+  });
+
+  it('reveal zooms out for an element larger than the view', () => {
+    let clock = 0;
+    const pending: (() => void)[] = [];
+    const fixture = makeDeps({
+      frames: {
+        requestFrame: (callback) => (pending.push(callback), pending.length),
+        cancelFrame: () => undefined,
+      },
+      now: () => clock,
+    });
+    addHit(fixture.harness, 'note', 'Wide ping', 'wide');
+    fixture.harness.viewport.store.update('wide', { size: { w: 2000, h: 100 } });
+    fixture.palette.open('wide');
+    key(input(fixture.container), 'ArrowDown');
+    clock = 450;
+    for (const frame of pending) frame();
+    expect(active(fixture.container).dataset.key).toBe('wide');
+    expect(fixture.deps.camera.zoom).toBe(1 / 3);
+  });
+
+  it('destroy disposes the animator and overlay', () => {
+    const pending: (() => void)[] = [];
+    const overlay = makeHost();
+    const fixture = makeDeps({
+      overlayHost: overlay.host,
+      frames: {
+        requestFrame: (callback) => (pending.push(callback), pending.length),
+        cancelFrame: () => undefined,
+      },
+    });
+    addAction(fixture.harness, 'test.ping', 'Ping test');
+    addHit(fixture.harness, 'note', 'Budget ping', 'budget');
+    fixture.palette.open('ping');
+    key(input(fixture.container), 'ArrowDown');
+    fixture.palette.destroy();
+    for (const frame of pending) frame();
+    expect(overlay.unregister).toHaveBeenCalledOnce();
+    expect(fixture.deps.camera.position).toEqual({ x: 0, y: 0 });
   });
 });
