@@ -7,6 +7,40 @@ import { ElementStore } from '../elements/element-store';
 import { createFrame } from '../elements/frame-element';
 import { PresentationMode, framePresentationSlides } from './presentation';
 
+const stubRestores: (() => void)[] = [];
+const modes: PresentationMode[] = [];
+
+function makeMode(deps: PresentationModeDeps): PresentationMode {
+  const mode = new PresentationMode(deps);
+  modes.push(mode);
+  return mode;
+}
+
+function stubValue(target: object, key: PropertyKey, value: unknown): void {
+  const descriptor = Object.getOwnPropertyDescriptor(target, key);
+  Object.defineProperty(target, key, { configurable: true, value, writable: true });
+  stubRestores.push(() => {
+    if (descriptor) Object.defineProperty(target, key, descriptor);
+    else Reflect.deleteProperty(target, key);
+  });
+}
+
+function stubFullscreenElement() {
+  let element: Element | null = null;
+  const descriptor = Object.getOwnPropertyDescriptor(document, 'fullscreenElement');
+  Object.defineProperty(document, 'fullscreenElement', {
+    configurable: true,
+    get: () => element,
+  });
+  stubRestores.push(() => {
+    if (descriptor) Object.defineProperty(document, 'fullscreenElement', descriptor);
+    else Reflect.deleteProperty(document, 'fullscreenElement');
+  });
+  return (value: Element | null) => {
+    element = value;
+  };
+}
+
 function makeDeps(overrides: Partial<PresentationModeDeps> = {}) {
   let pending: (() => void)[] = [];
   let clock = 0;
@@ -77,6 +111,8 @@ function makeDeps(overrides: Partial<PresentationModeDeps> = {}) {
 }
 
 afterEach(() => {
+  for (const mode of modes.splice(0)) mode.destroy();
+  for (const restore of stubRestores.splice(0)) restore();
   document.body.replaceChildren();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -159,7 +195,7 @@ describe('framePresentationSlides', () => {
 describe('PresentationMode', () => {
   it('start returns false with no slides and leaves the camera alone', () => {
     const h = makeDeps({ defaultSlides: () => [] });
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
 
     expect(mode.start()).toBe(false);
     expect(h.camera.position).toEqual({ x: 0, y: 0 });
@@ -168,7 +204,7 @@ describe('PresentationMode', () => {
 
   it('start jumps to the first slide, clears the selection and switches to hand', () => {
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
 
     expect(mode.start({ fullscreen: false })).toBe(true);
     expect(h.camera.zoom).toBe(2);
@@ -182,7 +218,7 @@ describe('PresentationMode', () => {
 
   it.each(['laser', 'hand'])('start keeps the %s tool', (tool) => {
     const h = makeDeps({ activeToolName: () => tool });
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
 
     mode.start({ fullscreen: false });
 
@@ -191,7 +227,7 @@ describe('PresentationMode', () => {
 
   it('next and previous stop at the ends and animate', () => {
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     mode.start({ fullscreen: false });
     h.calls.order.length = 0;
 
@@ -214,14 +250,14 @@ describe('PresentationMode', () => {
 
   it('animate false and reduced motion jump synchronously', () => {
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     mode.start({ fullscreen: false, animate: false });
     mode.next();
     expect(h.camera.position.x).toBe(-2000);
 
     vi.stubGlobal('matchMedia', () => ({ matches: true }));
     const reduced = makeDeps();
-    const reducedMode = new PresentationMode(reduced.deps);
+    const reducedMode = makeMode(reduced.deps);
     reducedMode.start({ fullscreen: false });
     reducedMode.next();
     expect(reduced.camera.position.x).toBe(-2000);
@@ -229,7 +265,7 @@ describe('PresentationMode', () => {
 
   it('goTo rejects out-of-range and non-integer indices', () => {
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     mode.start({ fullscreen: false });
 
     expect(mode.goTo(2)).toBe(false);
@@ -240,7 +276,7 @@ describe('PresentationMode', () => {
 
   it('goTo of the current index re-applies the view without a state change', () => {
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     let changes = 0;
     mode.onChange(() => changes++);
     mode.start({ fullscreen: false, animate: false });
@@ -255,7 +291,7 @@ describe('PresentationMode', () => {
 
   it.each([7, 0.5])('start with index %s opens slide 0', (index) => {
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
 
     mode.start({ fullscreen: false, index });
 
@@ -268,7 +304,7 @@ describe('PresentationMode', () => {
       { view: { x: 1000, y: 0, w: 400, h: 300 } },
     ];
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     mode.start({ fullscreen: false, slides });
     slides.pop();
 
@@ -277,7 +313,7 @@ describe('PresentationMode', () => {
 
   it('start throws on an invalid view before changing anything', () => {
     const h = makeDeps({ defaultSlides: () => [{ view: { x: 0, y: 0, w: 0, h: 300 } }] });
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
 
     expect(() => mode.start({ fullscreen: false })).toThrow();
     expect(mode.getState().active).toBe(false);
@@ -287,7 +323,7 @@ describe('PresentationMode', () => {
 
   it('resize refits the current slide with a jump', () => {
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     mode.start({ fullscreen: false });
     h.camera.pan(50, 50);
     h.calls.order.length = 0;
@@ -303,7 +339,7 @@ describe('PresentationMode', () => {
     const h = makeDeps();
     h.camera.moveTo(10, 20);
     h.camera.setZoom(1.5);
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     mode.start({ fullscreen: false });
 
     mode.exit();
@@ -324,7 +360,7 @@ describe('PresentationMode', () => {
         return false;
       },
     });
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     mode.start({ fullscreen: false });
     expect(tools).toEqual(['hand']);
 
@@ -336,7 +372,7 @@ describe('PresentationMode', () => {
 
   it('getState keeps its reference until a change', () => {
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     mode.start({ fullscreen: false });
     const state = mode.getState();
 
@@ -351,7 +387,7 @@ describe('PresentationMode', () => {
 
   it('onChange fires on start, each successful step and exit', () => {
     const h = makeDeps();
-    const mode = new PresentationMode(h.deps);
+    const mode = makeMode(h.deps);
     let changes = 0;
     mode.onChange(() => changes++);
 
@@ -361,5 +397,229 @@ describe('PresentationMode', () => {
     expect(changes).toBe(2);
     mode.exit();
     expect(changes).toBe(3);
+  });
+});
+
+describe('PresentationMode keys', () => {
+  it.each([
+    ['ArrowRight', false, 0, 1],
+    ['ArrowDown', false, 0, 1],
+    ['PageDown', false, 0, 1],
+    [' ', false, 0, 1],
+    ['End', false, 0, 1],
+    ['ArrowLeft', false, 1, 0],
+    ['ArrowUp', false, 1, 0],
+    ['PageUp', false, 1, 0],
+    [' ', true, 1, 0],
+    ['Home', false, 1, 0],
+  ])('table keys call their methods', (key, shiftKey, startIndex, expectedIndex) => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const bubbled = vi.fn();
+    window.addEventListener('keydown', bubbled);
+    mode.start({ fullscreen: false, animate: false, index: startIndex });
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, shiftKey });
+
+    h.wrapper.dispatchEvent(event);
+
+    expect(mode.getState().index).toBe(expectedIndex);
+    expect(event.defaultPrevented).toBe(true);
+    expect(bubbled).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', bubbled);
+  });
+
+  it('modifier keys and form targets pass through', () => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    mode.start({ fullscreen: false, animate: false });
+    const editable = document.createElement('div');
+    editable.setAttribute('contenteditable', 'true');
+    const targets = [
+      h.wrapper,
+      document.createElement('input'),
+      Object.assign(document.createElement('input'), { type: 'range' }),
+      document.createElement('select'),
+      document.createElement('textarea'),
+      editable,
+    ];
+    const live = document.createElement('div');
+    live.dataset.elementId = 'x';
+    live.dataset.fnLive = '';
+    const button = document.createElement('button');
+    live.append(button);
+    targets.push(button);
+    h.wrapper.append(...targets.slice(1, -1), live);
+
+    for (const options of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+      const event = new KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        bubbles: true,
+        cancelable: true,
+        ...options,
+      });
+      h.wrapper.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    for (const target of targets.slice(1)) {
+      const event = new KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        bubbles: true,
+        cancelable: true,
+      });
+      target.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(mode.getState().index).toBe(0);
+  });
+
+  it('keys are ignored while inactive and after exit', () => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const inactive = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true,
+      cancelable: true,
+    });
+    h.wrapper.dispatchEvent(inactive);
+    mode.start({ fullscreen: false });
+    mode.exit();
+    const exited = new KeyboardEvent('keydown', {
+      key: 'ArrowRight',
+      bubbles: true,
+      cancelable: true,
+    });
+    h.wrapper.dispatchEvent(exited);
+
+    expect(inactive.defaultPrevented).toBe(false);
+    expect(exited.defaultPrevented).toBe(false);
+    expect(mode.getState()).toEqual({ active: false, index: -1, count: 0, fullscreen: false });
+  });
+
+  it('Escape makes state inactive', () => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    mode.start({ fullscreen: false });
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+
+    h.wrapper.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(mode.getState().active).toBe(false);
+  });
+});
+
+describe('PresentationMode fullscreen', () => {
+  it('requestFullscreen is called on start and exitFullscreen on exit when the mode owns fullscreen', () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const requestFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(h.container, 'requestFullscreen', requestFullscreen);
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    const mode = makeMode(h.deps);
+
+    mode.start();
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    mode.exit();
+
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+    expect(mode.getState().fullscreen).toBe(false);
+    expect(exitFullscreen).toHaveBeenCalledOnce();
+  });
+
+  it('start with fullscreen false does not request', () => {
+    const h = makeDeps();
+    const requestFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(h.container, 'requestFullscreen', requestFullscreen);
+    const mode = makeMode(h.deps);
+
+    mode.start({ fullscreen: false });
+
+    expect(requestFullscreen).not.toHaveBeenCalled();
+  });
+
+  it('a host-made fullscreen container is reported but not exited', () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    setFullscreenElement(h.container);
+    const mode = makeMode(h.deps);
+
+    mode.start({ fullscreen: false });
+    expect(mode.getState().fullscreen).toBe(true);
+    mode.exit();
+
+    expect(mode.getState().fullscreen).toBe(false);
+    expect(exitFullscreen).not.toHaveBeenCalled();
+  });
+
+  it('a missing requestFullscreen and a rejected request both stay active and windowed', async () => {
+    const missing = makeDeps();
+    const missingMode = makeMode(missing.deps);
+    missingMode.start();
+    expect(missingMode.getState()).toMatchObject({ active: true, fullscreen: false });
+
+    const rejected = makeDeps();
+    stubValue(
+      rejected.container,
+      'requestFullscreen',
+      vi.fn<() => Promise<void>>().mockRejectedValue(new Error('denied')),
+    );
+    const rejectedMode = makeMode(rejected.deps);
+    rejectedMode.start();
+    await Promise.resolve();
+
+    expect(rejectedMode.getState()).toMatchObject({ active: true, fullscreen: false });
+  });
+
+  it('leaving owned fullscreen exits the presentation', () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const requestFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(h.container, 'requestFullscreen', requestFullscreen);
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    const mode = makeMode(h.deps);
+    mode.start();
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    setFullscreenElement(null);
+    document.dispatchEvent(new Event('fullscreenchange'));
+
+    expect(mode.getState().active).toBe(false);
+    expect(exitFullscreen).not.toHaveBeenCalled();
+  });
+
+  it('destroy removes listeners without restoring or emitting', () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const requestFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(h.container, 'requestFullscreen', requestFullscreen);
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    const mode = makeMode(h.deps);
+    mode.start({ animate: false });
+    mode.next();
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    let changes = 0;
+    mode.onChange(() => changes++);
+    const camera = h.camera.position;
+    const toolCalls = h.calls.tools.length;
+
+    mode.destroy();
+    h.wrapper.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }),
+    );
+    setFullscreenElement(null);
+    document.dispatchEvent(new Event('fullscreenchange'));
+
+    expect(changes).toBe(0);
+    expect(mode.getState()).toEqual({ active: false, index: -1, count: 0, fullscreen: false });
+    expect(h.camera.position).toEqual(camera);
+    expect(h.calls.tools).toHaveLength(toolCalls);
+    expect(exitFullscreen).toHaveBeenCalledOnce();
   });
 });

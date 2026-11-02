@@ -5,6 +5,7 @@ import { CameraAnimator, type FrameScheduler } from './camera-animator';
 import type { Bounds } from '../core/types';
 import type { ElementStore } from '../elements/element-store';
 import { frameContentBounds, isFrameElement } from '../elements/frame-element';
+import { isLiveControlTarget } from './live-control';
 
 /** One slide: the world rectangle to frame, contain-fit on any screen. */
 export interface PresentationSlide {
@@ -79,6 +80,7 @@ export class PresentationMode implements PresentationApi {
   private previousCamera: { x: number; y: number; zoom: number } | null = null;
   private previousTool: string | null = null;
   private animate = true;
+  private ownsFullscreen = false;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly deps: PresentationModeDeps) {}
@@ -114,15 +116,30 @@ export class PresentationMode implements PresentationApi {
       now: this.deps.now,
     });
     this.disposeResize = this.deps.onResize(() => this.refit());
+    window.addEventListener('keydown', this.onKeyDown, true);
+    document.addEventListener('fullscreenchange', this.onFullscreenChange);
     this.deps.clearSelection();
     const activeTool = this.deps.activeToolName();
     if (activeTool !== 'laser' && activeTool !== 'hand' && this.deps.setTool('hand')) {
       this.previousTool = activeTool;
     }
     this.deps.wrapper.focus({ preventScroll: true });
-    this.state = { active: true, index, count: slides.length, fullscreen: false };
+    this.state = {
+      active: true,
+      index,
+      count: slides.length,
+      fullscreen: document.fullscreenElement === this.deps.container,
+    };
     this.applySlide(index, false);
     this.emit();
+    if (
+      options.fullscreen !== false &&
+      document.fullscreenElement !== this.deps.container &&
+      typeof this.deps.container.requestFullscreen === 'function'
+    ) {
+      this.ownsFullscreen = true;
+      void this.deps.container.requestFullscreen().catch(() => undefined);
+    }
     return true;
   }
 
@@ -130,6 +147,7 @@ export class PresentationMode implements PresentationApi {
     if (!this.state.active) return;
 
     this.stop();
+    this.exitFullscreen();
     const previousCamera = this.previousCamera;
     if (previousCamera !== null) {
       this.deps.camera.setZoom(previousCamera.zoom);
@@ -175,6 +193,7 @@ export class PresentationMode implements PresentationApi {
 
   destroy(): void {
     this.stop();
+    this.exitFullscreen();
     this.reset();
     this.listeners.clear();
   }
@@ -200,6 +219,8 @@ export class PresentationMode implements PresentationApi {
   }
 
   private stop(): void {
+    window.removeEventListener('keydown', this.onKeyDown, true);
+    document.removeEventListener('fullscreenchange', this.onFullscreenChange);
     this.disposeResize?.();
     this.disposeResize = null;
     this.animator?.dispose();
@@ -210,7 +231,64 @@ export class PresentationMode implements PresentationApi {
     this.previousCamera = null;
     this.previousTool = null;
     this.slides = [];
+    this.ownsFullscreen = false;
     this.state = INACTIVE;
+  }
+
+  private onKeyDown = (event: KeyboardEvent): void => {
+    if (event.ctrlKey || event.metaKey || event.altKey || !this.shouldHandleKey(event.target))
+      return;
+
+    let method: (() => void) | null = null;
+    if (
+      event.key === 'ArrowRight' ||
+      event.key === 'ArrowDown' ||
+      event.key === 'PageDown' ||
+      (event.key === ' ' && !event.shiftKey)
+    ) {
+      method = () => this.next();
+    } else if (
+      event.key === 'ArrowLeft' ||
+      event.key === 'ArrowUp' ||
+      event.key === 'PageUp' ||
+      (event.key === ' ' && event.shiftKey)
+    ) {
+      method = () => this.previous();
+    } else if (event.key === 'Home') {
+      method = () => this.goTo(0);
+    } else if (event.key === 'End') {
+      method = () => this.goTo(this.state.count - 1);
+    } else if (event.key === 'Escape') {
+      method = () => this.exit();
+    }
+    if (method === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    method();
+  };
+
+  private onFullscreenChange = (): void => {
+    const fullscreen = document.fullscreenElement === this.deps.container;
+    if (fullscreen && !this.state.fullscreen) {
+      this.state = { ...this.state, fullscreen: true };
+      this.emit();
+    } else if (!fullscreen && this.state.fullscreen) {
+      this.exit();
+    }
+  };
+
+  private shouldHandleKey(target: EventTarget | null): boolean {
+    const element = target instanceof HTMLElement ? target : null;
+    if (element?.isContentEditable || element?.closest('[contenteditable]') !== null) return false;
+    const tag = element?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
+    return !isLiveControlTarget(target, this.deps.wrapper);
+  }
+
+  private exitFullscreen(): void {
+    if (this.ownsFullscreen && document.fullscreenElement === this.deps.container) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
   }
 
   private emit(): void {
