@@ -1,0 +1,352 @@
+import type { ActionContext, ActionDefinition, ActionsApi } from '../actions/types';
+import type { ElementStore } from '../elements/element-store';
+import type { ElementRegistry } from '../elements/element-registry';
+import { SceneSearch } from '../elements/scene-search';
+import type { SceneSearchHit } from '../elements/scene-search';
+import type { Camera } from './camera';
+import { focusBoard, openDialogShell } from './dialog-shell';
+import type { LingerOverlayHost } from './linger-overlay';
+import { formatBinding, searchActions } from './palette-model';
+import type { PaletteActionRow, PaletteStrings } from './palette-model';
+import type { ShortcutsHelpApi } from './shortcuts-help';
+
+export interface PaletteApi {
+  /** Opens the palette with `query` in the input (empty by default); re-opening replaces it. */
+  open(query?: string): void;
+  close(): void;
+  isOpen(): boolean;
+}
+
+export interface FrameScheduler {
+  request(callback: FrameRequestCallback): number;
+  cancel(id: number): void;
+}
+
+export interface CommandPaletteDeps {
+  container: HTMLElement;
+  wrapper: HTMLElement;
+  actions: ActionsApi;
+  getActionContext(): ActionContext;
+  getBindings(): Record<string, string[]>;
+  store: ElementStore;
+  registry: ElementRegistry;
+  isLayerVisible(layerId: string): boolean;
+  camera: Camera;
+  getCanvasSize(): { w: number; h: number };
+  overlayHost: LingerOverlayHost;
+  stopCameraMotion(): void;
+  closeContextMenu(): void;
+  help: ShortcutsHelpApi;
+  matchShortcut(event: KeyboardEvent): string | null;
+  selectionColor: string;
+  isMac(): boolean;
+  strings: PaletteStrings;
+  frames?: FrameScheduler;
+  now?: () => number;
+}
+
+type PaletteRow = PaletteActionRow | { kind: 'element'; hit: SceneSearchHit };
+
+let paletteId = 0;
+
+export class CommandPalette implements PaletteApi {
+  readonly help: ShortcutsHelpApi;
+  private readonly search: SceneSearch;
+  private readonly id = ++paletteId;
+  private root: HTMLDivElement | null = null;
+  private input: HTMLInputElement | null = null;
+  private list: HTMLDivElement | null = null;
+  private status: HTMLDivElement | null = null;
+  private rows: PaletteRow[] = [];
+  private activeKey: string | null = null;
+  private disposeShell: (() => void) | null = null;
+  private unsubscribers: (() => void)[] = [];
+  private scheduled = false;
+
+  constructor(private readonly deps: CommandPaletteDeps) {
+    this.help = deps.help;
+    this.search = new SceneSearch(deps.registry);
+  }
+
+  open(query = ''): void {
+    if (this.input) {
+      this.input.value = query;
+      this.render();
+      return;
+    }
+    this.deps.closeContextMenu();
+    this.help.close();
+    const root = document.createElement('div');
+    root.className = 'fieldnotes-palette';
+    root.setAttribute('role', 'dialog');
+    root.setAttribute('aria-modal', 'true');
+    const input = document.createElement('input');
+    input.className = 'fieldnotes-palette-input';
+    input.type = 'text';
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-expanded', 'true');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.placeholder = this.deps.strings.placeholder;
+    const list = document.createElement('div');
+    const listId = `fieldnotes-palette-list-${this.id}`;
+    list.className = 'fieldnotes-palette-list';
+    list.id = listId;
+    list.setAttribute('role', 'listbox');
+    Object.assign(list.style, { maxHeight: '60vh', overflow: 'auto' });
+    input.setAttribute('aria-controls', listId);
+    const status = document.createElement('div');
+    status.className = 'fieldnotes-palette-status';
+    status.setAttribute('aria-live', 'polite');
+    Object.assign(status.style, {
+      position: 'absolute',
+      width: '1px',
+      height: '1px',
+      padding: '0',
+      margin: '-1px',
+      overflow: 'hidden',
+      clip: 'rect(0, 0, 0, 0)',
+      whiteSpace: 'nowrap',
+      border: '0',
+    });
+    input.value = query;
+    input.addEventListener('input', () => this.render());
+    root.append(input, list, status);
+    this.root = root;
+    this.input = input;
+    this.list = list;
+    this.status = status;
+    this.subscribe();
+    this.render();
+    this.disposeShell = openDialogShell({
+      container: this.deps.container,
+      root,
+      initialFocus: input,
+      textInput: input,
+      onDismiss: () => this.close(),
+      onKeyDown: (event) => this.onKeyDown(event),
+    });
+  }
+
+  close(): void {
+    const root = this.root;
+    if (!root) return;
+    this.unsubscribe();
+    this.disposeShell?.();
+    this.disposeShell = null;
+    this.root = null;
+    this.input = null;
+    this.list = null;
+    this.status = null;
+    this.rows = [];
+    this.activeKey = null;
+    focusBoard(this.deps.wrapper, root);
+  }
+
+  isOpen(): boolean {
+    return this.root !== null;
+  }
+
+  destroy(): void {
+    if (!this.root) return;
+    this.unsubscribe();
+    this.disposeShell?.();
+    this.disposeShell = null;
+    this.root = null;
+    this.input = null;
+    this.list = null;
+    this.status = null;
+    this.rows = [];
+    this.activeKey = null;
+  }
+
+  private subscribe(): void {
+    const schedule = () => {
+      if (this.scheduled) return;
+      this.scheduled = true;
+      queueMicrotask(() => {
+        this.scheduled = false;
+        if (this.root) this.render();
+      });
+    };
+    this.unsubscribers = [this.deps.store.onChange(schedule), this.deps.actions.onChange(schedule)];
+  }
+
+  private unsubscribe(): void {
+    for (const unsubscribe of this.unsubscribers) unsubscribe();
+    this.unsubscribers = [];
+    this.scheduled = false;
+  }
+
+  private rowsFor(query: string): PaletteRow[] {
+    const context = this.deps.getActionContext();
+    const actions = searchActions(this.deps.actions.list(), query, {
+      isEnabled: (id) => this.deps.actions.isEnabled(id),
+      label: (definition) =>
+        typeof definition.label === 'string' ? definition.label : definition.label(context),
+      bindings: this.deps.getBindings(),
+    });
+    if (!query.trim()) return actions;
+    const hits = this.search.search(this.deps.store.getAll(), query, {
+      filter: (element) => this.deps.isLayerVisible(element.layerId),
+    });
+    return [...actions, ...hits.map((hit) => ({ kind: 'element' as const, hit }))];
+  }
+
+  private render(): void {
+    const input = this.input;
+    const list = this.list;
+    const status = this.status;
+    if (!input || !list || !status) return;
+    const prior = this.activeKey;
+    this.rows = this.rowsFor(input.value);
+    this.activeKey = this.rows.some((row) => this.key(row) === prior)
+      ? prior
+      : this.rows[0]
+        ? this.key(this.rows[0])
+        : null;
+    list.replaceChildren();
+    const actions = this.rows.filter((row): row is PaletteActionRow => row.kind === 'action');
+    const elements = this.rows.filter(
+      (row): row is { kind: 'element'; hit: SceneSearchHit } => row.kind === 'element',
+    );
+    if (actions.length) list.append(this.group(this.deps.strings.actions, actions));
+    if (elements.length) list.append(this.group(this.deps.strings.board, elements));
+    if (!this.rows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'fieldnotes-palette-empty';
+      empty.textContent = this.deps.strings.noResults;
+      list.append(empty);
+    }
+    status.textContent = this.rows.length ? String(this.rows.length) : this.deps.strings.noResults;
+  }
+
+  private group(title: string, rows: readonly PaletteRow[]): HTMLElement {
+    const group = document.createElement('div');
+    group.className = 'fieldnotes-palette-group';
+    group.setAttribute('role', 'group');
+    const heading = document.createElement('div');
+    heading.className = 'fieldnotes-palette-group-title';
+    heading.id = `fieldnotes-palette-title-${this.id}-${title === this.deps.strings.actions ? 'actions' : 'board'}`;
+    heading.setAttribute('role', 'presentation');
+    heading.textContent = title;
+    group.setAttribute('aria-labelledby', heading.id);
+    group.append(heading);
+    for (const row of rows) group.append(this.option(row));
+    return group;
+  }
+
+  private option(row: PaletteRow): HTMLElement {
+    const option = document.createElement('div');
+    const key = this.key(row);
+    const selected = key === this.activeKey;
+    option.className = 'fieldnotes-palette-option';
+    if (selected) option.classList.add('fieldnotes-palette-option--active');
+    option.id = `fieldnotes-palette-option-${this.id}-${key}`;
+    option.dataset.key = key;
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-selected', String(selected));
+    option.addEventListener('click', () => this.commit(row));
+    if (row.kind === 'action') {
+      const label = document.createElement('span');
+      label.textContent = row.label;
+      const keys = document.createElement('span');
+      keys.className = 'fieldnotes-palette-keys';
+      for (const binding of row.keys) {
+        const kbd = document.createElement('kbd');
+        kbd.className = 'fieldnotes-key';
+        kbd.textContent = formatBinding(binding, this.deps.isMac());
+        keys.append(kbd);
+      }
+      option.append(label, keys);
+    } else {
+      this.appendHit(option, row.hit);
+    }
+    if (selected) {
+      this.input?.setAttribute('aria-activedescendant', option.id);
+      option.scrollIntoView?.({ block: 'nearest' });
+    }
+    return option;
+  }
+
+  private appendHit(option: HTMLElement, hit: SceneSearchHit): void {
+    const line = hit.text.split(/\r?\n/u).find((part) => part.trim()) ?? '';
+    const shown = line.length > 80 ? `${line.slice(0, 80)}…` : line;
+    const start = Math.min(hit.start, shown.length);
+    const end = Math.min(Math.max(hit.end, start), shown.length);
+    option.append(document.createTextNode(shown.slice(0, start)));
+    const mark = document.createElement('mark');
+    mark.textContent = shown.slice(start, end);
+    option.append(mark, document.createTextNode(shown.slice(end)));
+    const badge = document.createElement('span');
+    badge.className = 'fieldnotes-palette-badge';
+    badge.textContent = this.deps.strings.types[hit.type] ?? hit.type;
+    option.append(badge);
+  }
+
+  private onKeyDown(event: KeyboardEvent): void {
+    if (
+      (event.ctrlKey || event.metaKey || event.altKey) &&
+      this.deps.matchShortcut(event) === 'palette.open'
+    ) {
+      event.preventDefault();
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const index = this.rows.findIndex((row) => this.key(row) === this.activeKey);
+      const next =
+        event.key === 'ArrowDown'
+          ? Math.min(index + 1, this.rows.length - 1)
+          : Math.max(index - 1, 0);
+      const row = this.rows[next];
+      if (row) {
+        this.activeKey = this.key(row);
+        this.render();
+      }
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const row = this.rows.find((candidate) => this.key(candidate) === this.activeKey);
+      if (row) this.commit(row);
+    }
+  }
+
+  private commit(row: PaletteRow): void {
+    if (row.kind === 'action') {
+      this.close();
+      this.deps.actions.run(row.id, { source: 'menu' });
+      return;
+    }
+    this.close();
+  }
+
+  private key(row: PaletteRow): string {
+    return row.kind === 'action' ? row.id : row.hit.id;
+  }
+}
+
+export function createPaletteActions(
+  palette: PaletteApi,
+  help: ShortcutsHelpApi,
+): ActionDefinition[] {
+  return [
+    {
+      id: 'palette.open',
+      label: 'Command palette',
+      keywords: ['search', 'find', 'commands', 'go to'],
+      shortcut: ['mod+k'],
+      enabled: () => !palette.isOpen(),
+      perform: () => palette.open(),
+    },
+    {
+      id: 'palette.help',
+      label: 'Keyboard shortcuts',
+      keywords: ['help', 'keys', 'bindings', 'shortcuts'],
+      shortcut: ['?'],
+      allowShift: true,
+      enabled: () => !help.isOpen(),
+      perform: () => help.open(),
+    },
+  ];
+}
