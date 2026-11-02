@@ -32,7 +32,7 @@ export interface PresentationState {
   readonly index: number;
   /** `0` while inactive. */
   readonly count: number;
-  /** Whether the host container is `document.fullscreenElement`. */
+  /** Whether the container or an element inside it is `document.fullscreenElement`. */
   readonly fullscreen: boolean;
 }
 
@@ -175,7 +175,7 @@ export class PresentationMode implements PresentationApi {
       active: true,
       index,
       count: slides.length,
-      fullscreen: document.fullscreenElement === this.deps.container,
+      fullscreen: this.isContainerFullscreen(),
     };
     this.applySlide(index, false);
     this.emit();
@@ -310,7 +310,7 @@ export class PresentationMode implements PresentationApi {
   };
 
   private onFullscreenChange = (): void => {
-    const fullscreen = document.fullscreenElement === this.deps.container;
+    const fullscreen = this.isContainerFullscreen();
     const pending = this.pendingFullscreen;
     if (pending !== null && this.isStaleFullscreenRequest()) {
       if (fullscreen) {
@@ -341,12 +341,24 @@ export class PresentationMode implements PresentationApi {
     const element = target instanceof HTMLElement ? target : null;
     if (
       element?.isContentEditable ||
-      (element !== null && element.closest('[contenteditable]') !== null)
+      (element !== null &&
+        element.closest('[contenteditable]:not([contenteditable="false"])') !== null)
     ) {
       return false;
     }
     const tag = element?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
+    if (element?.matches('button, a[href], [role]')) return false;
+    if (!this.state.fullscreen) {
+      const activeElement = document.activeElement;
+      if (
+        activeElement !== null &&
+        activeElement !== document.body &&
+        !this.deps.container.contains(activeElement)
+      ) {
+        return false;
+      }
+    }
     return !isLiveControlTarget(target, this.deps.wrapper);
   }
 
@@ -355,24 +367,25 @@ export class PresentationMode implements PresentationApi {
     const pending = this.pendingFullscreen;
     const pendingOwned = pending?.owner === session && session !== null;
     if (pendingOwned && pending !== null) pending.owner = null;
-    const fullscreen = document.fullscreenElement === this.deps.container;
+    const fullscreen = this.isContainerFullscreen();
     if (!fullscreen || (!this.ownsFullscreen && !pendingOwned)) return;
     if (pendingOwned && pending !== null) {
       this.cleanupFullscreenRequest(pending);
       return;
     }
-    void document.exitFullscreen().catch(() => undefined);
+    const cleanup = { owner: null, cleanupStarted: true };
+    this.pendingFullscreen = cleanup;
+    void document.exitFullscreen().then(
+      () => this.finishFullscreenCleanup(cleanup),
+      () => this.finishFullscreenCleanup(cleanup),
+    );
   }
 
   private requestFullscreen(enabled: boolean): void {
     const session = this.session;
     const pending = this.pendingFullscreen;
     if (!enabled) {
-      if (
-        pending !== null &&
-        this.isStaleFullscreenRequest() &&
-        document.fullscreenElement === this.deps.container
-      ) {
+      if (pending !== null && this.isStaleFullscreenRequest() && this.isContainerFullscreen()) {
         this.cleanupFullscreenRequest(pending);
       }
       return;
@@ -382,7 +395,7 @@ export class PresentationMode implements PresentationApi {
       return;
     }
     if (
-      document.fullscreenElement === this.deps.container ||
+      this.isContainerFullscreen() ||
       typeof this.deps.container.requestFullscreen !== 'function'
     ) {
       return;
@@ -401,7 +414,7 @@ export class PresentationMode implements PresentationApi {
 
   private settleFullscreenRequest(request: PendingFullscreen): void {
     if (this.pendingFullscreen !== request) return;
-    const fullscreen = document.fullscreenElement === this.deps.container;
+    const fullscreen = this.isContainerFullscreen();
     if (request.owner === this.session && this.session !== null && fullscreen) {
       this.ownsFullscreen = true;
       this.pendingFullscreen = null;

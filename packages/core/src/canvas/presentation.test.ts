@@ -829,6 +829,61 @@ describe('PresentationMode fullscreen', () => {
     expect(exitFullscreen).not.toHaveBeenCalled();
   });
 
+  it('keeps a synchronous windowed restart active after its owned fullscreen exits', async () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const exit = deferred();
+    stubValue(
+      h.container,
+      'requestFullscreen',
+      vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    );
+    stubValue(
+      document,
+      'exitFullscreen',
+      vi.fn<() => Promise<void>>().mockReturnValue(exit.promise),
+    );
+    const mode = makeMode(h.deps);
+
+    mode.start();
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    await Promise.resolve();
+    mode.exit();
+    mode.start({ fullscreen: false });
+    setFullscreenElement(null);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    exit.resolve();
+    await Promise.resolve();
+
+    expect(mode.getState()).toMatchObject({ active: true, fullscreen: false });
+  });
+
+  it('keeps presenting while a descendant is fullscreen and exits it on exit', () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const child = document.createElement('video');
+    h.container.append(child);
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(
+      h.container,
+      'requestFullscreen',
+      vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    );
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    const mode = makeMode(h.deps);
+
+    mode.start();
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    setFullscreenElement(child);
+    document.dispatchEvent(new Event('fullscreenchange'));
+
+    expect(mode.getState()).toMatchObject({ active: true, fullscreen: true });
+    mode.exit();
+    expect(exitFullscreen).toHaveBeenCalledOnce();
+  });
+
   it('destroy removes listeners without restoring or emitting', () => {
     const h = makeDeps();
     const setFullscreenElement = stubFullscreenElement();
