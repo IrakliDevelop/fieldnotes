@@ -928,12 +928,44 @@ describe('PresentationMode fullscreen', () => {
     expect(mode.getState()).toMatchObject({ active: true, fullscreen: false });
   });
 
-  it('keeps presenting while a descendant is fullscreen and exits it on exit', () => {
+  it('keeps a synchronous default restart windowed while stale cleanup finishes', async () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const exit = deferred();
+    const requestFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(h.container, 'requestFullscreen', requestFullscreen);
+    stubValue(
+      document,
+      'exitFullscreen',
+      vi.fn<() => Promise<void>>().mockReturnValue(exit.promise),
+    );
+    const mode = makeMode(h.deps);
+
+    mode.start();
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    await Promise.resolve();
+    mode.exit();
+    mode.start();
+    setFullscreenElement(null);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    exit.resolve();
+    await Promise.resolve();
+
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+    expect(mode.getState()).toMatchObject({ active: true, fullscreen: false });
+  });
+
+  it('exits nested fullscreen until the container is windowed', async () => {
     const h = makeDeps();
     const setFullscreenElement = stubFullscreenElement();
     const child = document.createElement('video');
     h.container.append(child);
-    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockImplementation(() => {
+      setFullscreenElement(exitFullscreen.mock.calls.length === 1 ? h.container : null);
+      document.dispatchEvent(new Event('fullscreenchange'));
+      return Promise.resolve();
+    });
     stubValue(
       h.container,
       'requestFullscreen',
@@ -950,7 +982,10 @@ describe('PresentationMode fullscreen', () => {
 
     expect(mode.getState()).toMatchObject({ active: true, fullscreen: true });
     mode.exit();
-    expect(exitFullscreen).toHaveBeenCalledOnce();
+    await Promise.resolve();
+
+    expect(exitFullscreen).toHaveBeenCalledTimes(2);
+    expect(document.fullscreenElement).toBeNull();
   });
 
   it('destroy removes listeners without restoring or emitting', () => {

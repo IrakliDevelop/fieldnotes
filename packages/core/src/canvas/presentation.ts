@@ -110,6 +110,7 @@ const INACTIVE: PresentationState = { active: false, index: -1, count: 0, fullsc
 interface PendingFullscreen {
   owner: object | null;
   cleanupStarted: boolean;
+  retryNestedCleanup: boolean;
 }
 
 export class PresentationMode implements PresentationApi {
@@ -361,19 +362,24 @@ export class PresentationMode implements PresentationApi {
     const session = this.session;
     const pending = this.pendingFullscreen;
     const pendingOwned = pending?.owner === session && session !== null;
-    if (pendingOwned && pending !== null) pending.owner = null;
+    if (pendingOwned && pending !== null) {
+      pending.owner = null;
+      pending.retryNestedCleanup =
+        this.ownsFullscreen && document.fullscreenElement !== this.deps.container;
+    }
     const fullscreen = this.isContainerFullscreen();
     if (!fullscreen || (!this.ownsFullscreen && !pendingOwned)) return;
     if (pendingOwned && pending !== null) {
       this.cleanupFullscreenRequest(pending);
       return;
     }
-    const cleanup = { owner: null, cleanupStarted: true };
+    const cleanup = {
+      owner: null,
+      cleanupStarted: false,
+      retryNestedCleanup: this.ownsFullscreen && document.fullscreenElement !== this.deps.container,
+    };
     this.pendingFullscreen = cleanup;
-    void document.exitFullscreen().then(
-      () => this.finishFullscreenCleanup(cleanup),
-      () => this.finishFullscreenCleanup(cleanup),
-    );
+    this.cleanupFullscreenRequest(cleanup);
   }
 
   private requestFullscreen(enabled: boolean): void {
@@ -395,7 +401,7 @@ export class PresentationMode implements PresentationApi {
     ) {
       return;
     }
-    const request = { owner: session, cleanupStarted: false };
+    const request = { owner: session, cleanupStarted: false, retryNestedCleanup: false };
     this.pendingFullscreen = request;
     void this.deps.container.requestFullscreen().then(
       () => this.settleFullscreenRequest(request),
@@ -428,14 +434,30 @@ export class PresentationMode implements PresentationApi {
 
   private cleanupFullscreenRequest(request: PendingFullscreen): void {
     if (request.cleanupStarted) return;
-    request.cleanupStarted = true;
     if (!this.isContainerFullscreen()) {
       this.finishFullscreenCleanup(request);
       return;
     }
+    request.cleanupStarted = true;
+    const fullscreenElement = document.fullscreenElement;
     void document.exitFullscreen().then(
-      () => this.finishFullscreenCleanup(request),
-      () => this.finishFullscreenCleanup(request),
+      () => {
+        if (this.pendingFullscreen !== request) return;
+        if (
+          this.isContainerFullscreen() &&
+          request.retryNestedCleanup &&
+          document.fullscreenElement !== fullscreenElement
+        ) {
+          request.cleanupStarted = false;
+          this.cleanupFullscreenRequest(request);
+          return;
+        }
+        this.finishFullscreenCleanup(request);
+      },
+      () => {
+        request.cleanupStarted = false;
+        if (this.pendingFullscreen === request) this.pendingFullscreen = null;
+      },
     );
   }
 
