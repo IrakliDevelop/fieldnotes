@@ -22,7 +22,7 @@ interface PresentationState {
   count: number;
 }
 
-interface PresentationFixtureWindow {
+interface PresentationFixtureWindow extends Window {
   __fieldnotes_viewport: {
     presentation: { getState: () => PresentationState };
     getSelectedIds: () => string[];
@@ -129,7 +129,7 @@ async function waitForPresentation(
   predicate: Partial<PresentationState>,
 ): Promise<void> {
   await page.waitForFunction((expected) => {
-    const viewport = (window as unknown as PresentationFixtureWindow).__fieldnotes_viewport;
+    const viewport = (window as PresentationFixtureWindow).__fieldnotes_viewport;
     const state = viewport.presentation.getState();
     return Object.entries(expected).every(
       ([key, value]) => state[key as keyof PresentationState] === value,
@@ -171,7 +171,7 @@ test.describe('presentation mode', () => {
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForFunction(
       (id) =>
-        (window as unknown as PresentationFixtureWindow).__fieldnotes_viewport
+        (window as PresentationFixtureWindow).__fieldnotes_viewport
           .getSelectedIds()
           .includes(id),
       seeded.firstShapeId,
@@ -190,7 +190,7 @@ test.describe('presentation mode', () => {
       .poll(() =>
         page.evaluate(
           () =>
-            (window as unknown as PresentationFixtureWindow).__fieldnotes_viewport.domLayer
+            (window as PresentationFixtureWindow).__fieldnotes_viewport.domLayer
               .parentElement === document.activeElement,
         ),
       )
