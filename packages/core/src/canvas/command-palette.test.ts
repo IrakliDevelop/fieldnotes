@@ -431,6 +431,54 @@ describe('command palette', () => {
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
+  it('scrolls the newly active row when ArrowDown changes selection', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    cleanup.push(() => {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', descriptor);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    });
+    const { harness, container, palette } = makeDeps();
+    addAction(harness, 'test.q1', 'Q1');
+    addAction(harness, 'test.q2', 'Q2');
+    addAction(harness, 'test.q3', 'Q3');
+
+    palette.open('q');
+    scrollIntoView.mockClear();
+    key(input(container), 'ArrowDown');
+
+    expect(active(container).textContent).toBe('Q2');
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+
+  it('scrolls the initial active row again after closing and reopening', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    cleanup.push(() => {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', descriptor);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    });
+    const { harness, palette } = makeDeps();
+    addAction(harness, 'test.q1', 'Q1');
+
+    palette.open('q');
+    scrollIntoView.mockClear();
+    palette.close();
+    palette.open('q');
+
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+
   it('keeps a palette row open through a pointerdown in a closed shadow root before its click commits', () => {
     vi.useFakeTimers();
     const host = document.createElement('div');

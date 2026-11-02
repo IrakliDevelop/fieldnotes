@@ -61,6 +61,7 @@ export class CommandPalette implements PaletteApi {
   private rows: PaletteRow[] = [];
   private activeKey: string | null = null;
   private rowSignature: string | null = null;
+  private renderedActiveKey: string | null = null;
   private disposeShell: (() => void) | null = null;
   private unsubscribers: (() => void)[] = [];
   private scheduled = false;
@@ -224,18 +225,19 @@ export class CommandPalette implements PaletteApi {
       ),
     ]);
     if (signature === this.rowSignature) return;
+    const scrollActive = this.activeKey !== this.renderedActiveKey;
     this.rowSignature = signature;
-    const activeKeyChanged = this.activeKey !== prior;
+    this.renderedActiveKey = this.activeKey;
     list.replaceChildren();
     const actions = this.rows.filter((row): row is PaletteActionRow => row.kind === 'action');
     const elements = this.rows.filter(
       (row): row is { kind: 'element'; hit: SceneSearchHit } => row.kind === 'element',
     );
     if (actions.length) {
-      list.append(this.group('actions', this.deps.strings.actions, actions, activeKeyChanged));
+      list.append(this.group('actions', this.deps.strings.actions, actions, scrollActive));
     }
     if (elements.length) {
-      list.append(this.group('board', this.deps.strings.board, elements, activeKeyChanged));
+      list.append(this.group('board', this.deps.strings.board, elements, scrollActive));
     }
     if (!this.rows.length) {
       const empty = document.createElement('div');
@@ -412,6 +414,7 @@ export class CommandPalette implements PaletteApi {
     this.rows = [];
     this.activeKey = null;
     this.rowSignature = null;
+    this.renderedActiveKey = null;
   }
 
   private reveal(hit: SceneSearchHit): void {
