@@ -552,29 +552,35 @@ describe('command palette', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('open with a query prefills and re-open replaces it', () => {
+  it('open with a query prefills and re-open replaces it and refocuses the input', () => {
     const { harness, container, palette } = makeDeps();
     addHit(harness, 'note', 'Budget note', 'budget');
     addHit(harness, 'note', 'Roadmap note', 'roadmap');
     palette.open('bud');
     expect(input(container).value).toBe('bud');
     expect(rows(container)[0]?.textContent).toContain('Budget');
+    const outside = document.createElement('input');
+    document.body.append(outside);
+    cleanup.push(() => outside.remove());
+    outside.focus();
     palette.open('road');
     expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(input(container).value).toBe('road');
+    expect(document.activeElement).toBe(input(container));
     expect(rows(container)[0]?.textContent).toContain('Roadmap');
   });
 
-  it('close focuses the wrapper; with a non-focusable wrapper it blurs the input', () => {
-    const focusable = makeDeps();
-    focusable.palette.open();
-    focusable.palette.close();
-    expect(document.activeElement).toBe(focusable.wrapper);
-    const blurred = makeDeps();
-    blurred.wrapper.removeAttribute('tabindex');
-    blurred.palette.open();
-    blurred.palette.close();
-    expect(document.activeElement).toBe(document.body);
+  it('close preserves focus moved to an outside input', () => {
+    const { palette } = makeDeps();
+    const outside = document.createElement('input');
+    document.body.append(outside);
+    cleanup.push(() => outside.remove());
+    palette.open();
+    outside.focus();
+
+    palette.close();
+
+    expect(document.activeElement).toBe(outside);
   });
 
   it('destroy removes the root and the subscriptions', async () => {

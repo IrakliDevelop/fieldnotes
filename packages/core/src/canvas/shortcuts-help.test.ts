@@ -126,6 +126,19 @@ describe('shortcuts help', () => {
     expect(document.activeElement).toBe(wrapper);
   });
 
+  it('close preserves focus moved to an outside input', () => {
+    const { help } = setup();
+    const outside = document.createElement('input');
+    document.body.append(outside);
+    cleanup.push(() => outside.remove());
+    help.open();
+    outside.focus();
+
+    help.close();
+
+    expect(document.activeElement).toBe(outside);
+  });
+
   it('Tab and Shift+Tab keep focus on Close', () => {
     const { help, container } = setup();
     help.open();

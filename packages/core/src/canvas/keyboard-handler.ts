@@ -104,6 +104,7 @@ export class KeyboardHandler {
 
     const id = this.shortcutMap.match(e);
     if (id !== null) {
+      if (id === 'palette.help' && e.repeat) return;
       const def = this.deps.actions.get(id);
       if (!def) return;
       const enabled = this.deps.actions.isEnabled(id);

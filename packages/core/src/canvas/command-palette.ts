@@ -80,6 +80,7 @@ export class CommandPalette implements PaletteApi {
     if (this.input) {
       this.input.value = query;
       this.render();
+      this.input.focus({ preventScroll: true });
       return;
     }
     this.deps.closeContextMenu();

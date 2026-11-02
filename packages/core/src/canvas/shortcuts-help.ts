@@ -88,7 +88,7 @@ export class ShortcutsHelp implements ShortcutsHelpApi {
           event.preventDefault();
           return;
         }
-        if (event.key === '?') this.close();
+        if (event.key === '?' && !event.repeat) this.close();
       },
     });
   }

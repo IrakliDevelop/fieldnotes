@@ -103,9 +103,15 @@ export function openDialogShell(options: DialogShellOptions): () => void {
   };
 }
 
-/** Focuses the board after a dialog closes; blurs the dialog when the wrapper is not focusable. */
+/** Focuses the board after a dialog closes unless focus moved outside the dialog. */
 export function focusBoard(wrapper: HTMLElement, root: HTMLElement): void {
-  wrapper.focus({ preventScroll: true });
   const active = root.ownerDocument.activeElement;
-  if ((active === root || root.contains(active)) && active instanceof HTMLElement) active.blur();
+  if (
+    active === null ||
+    active === root.ownerDocument.body ||
+    active === root ||
+    root.contains(active)
+  ) {
+    wrapper.focus({ preventScroll: true });
+  }
 }

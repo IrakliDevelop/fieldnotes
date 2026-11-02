@@ -3318,6 +3318,24 @@ describe('Viewport', () => {
       expect(viewport.shortcutsHelp.isOpen()).toBe(true);
     });
 
+    it('repeated ? neither opens nor closes help', () => {
+      const viewport = createPaletteViewport();
+      const wrapper = wrapperOf(container);
+      wrapper.focus();
+
+      keydown(wrapper, { key: '?', shiftKey: true, repeat: true });
+      expect(viewport.shortcutsHelp.isOpen()).toBe(false);
+
+      keydown(wrapper, { key: '?', shiftKey: true });
+      expect(viewport.shortcutsHelp.isOpen()).toBe(true);
+      const help = container.querySelector<HTMLElement>('.fieldnotes-help');
+      if (!help) throw new Error('help dialog not found');
+      for (let count = 0; count < 3; count += 1) {
+        keydown(help, { key: '?', shiftKey: true, repeat: true });
+      }
+      expect(viewport.shortcutsHelp.isOpen()).toBe(true);
+    });
+
     it('mod+k typed in an editable target or a host input opens nothing', () => {
       const viewport = createPaletteViewport();
       const editable = document.createElement('div');

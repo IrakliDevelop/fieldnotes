@@ -311,15 +311,33 @@ describe('dialog shell', () => {
     expect(root.isConnected).toBe(false);
   });
 
-  it('focusBoard focuses the wrapper, or blurs the active element when the wrapper is not focusable', () => {
+  it('disposing before the deferred listener runs cannot dismiss a new dialog from inside', () => {
+    vi.useFakeTimers();
+    const { container, root, input } = setup();
+    const first = open(container, root, input);
+    first.dispose();
+    vi.runAllTimers();
+
+    const nextRoot = document.createElement('div');
+    const nextInput = document.createElement('input');
+    nextRoot.append(nextInput);
+    const second = open(container, nextRoot, nextInput);
+    vi.runAllTimers();
+    nextRoot.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+
+    expect(second.onDismiss).not.toHaveBeenCalled();
+  });
+
+  it('focusBoard refocuses from the dialog and preserves an outside control', () => {
     const { container, wrapper, root, input } = setup();
     container.append(root);
     input.focus();
     focusBoard(wrapper, root);
     expect(document.activeElement).toBe(wrapper);
-    wrapper.removeAttribute('tabindex');
-    input.focus();
+    const outside = document.createElement('input');
+    document.body.append(outside);
+    outside.focus();
     focusBoard(wrapper, root);
-    expect(document.activeElement).toBe(document.body);
+    expect(document.activeElement).toBe(outside);
   });
 });
