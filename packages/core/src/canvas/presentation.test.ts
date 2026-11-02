@@ -637,7 +637,8 @@ describe('PresentationMode keys', () => {
   it('does not navigate from an outside focused element while windowed', () => {
     const h = makeDeps();
     const mode = makeMode(h.deps);
-    const outside = document.createElement('button');
+    const outside = document.createElement('div');
+    outside.tabIndex = 0;
     document.body.append(outside);
     mode.start({ fullscreen: false, animate: false });
     outside.focus();
@@ -660,8 +661,28 @@ describe('PresentationMode keys', () => {
     expect(mode.getState().index).toBe(0);
   });
 
-  it('continues notifying listeners when one throws', () => {
+  it.each([
+    () => Object.assign(document.createElement('a'), { href: '#' }),
+    () => Object.assign(document.createElement('div'), { role: 'tab' }),
+  ])('does not navigate from a focused interactive wrapper target', (createTarget) => {
     const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const target = createTarget();
+    h.wrapper.append(target);
+    mode.start({ fullscreen: false, animate: false });
+    target.focus();
+
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+    expect(mode.getState().index).toBe(0);
+  });
+
+  it('reports a listener failure without blocking other listeners or fullscreen', () => {
+    const h = makeDeps();
+    const requestFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const reportError = vi.fn();
+    stubValue(h.container, 'requestFullscreen', requestFullscreen);
+    vi.stubGlobal('reportError', reportError);
     const mode = makeMode(h.deps);
     const listener = vi.fn();
     mode.onChange(() => {
@@ -669,8 +690,10 @@ describe('PresentationMode keys', () => {
     });
     mode.onChange(listener);
 
-    expect(() => mode.start({ fullscreen: false })).not.toThrow();
+    expect(() => mode.start()).not.toThrow();
+    expect(reportError).toHaveBeenCalledOnce();
     expect(listener).toHaveBeenCalledOnce();
+    expect(requestFullscreen).toHaveBeenCalledOnce();
   });
 });
 

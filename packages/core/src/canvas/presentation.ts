@@ -6,6 +6,7 @@ import type { ElementStore } from '../elements/element-store';
 import { frameContentBounds, isFrameElement } from '../elements/frame-element';
 import { isLiveControlTarget } from './live-control';
 import type { ActionDefinition } from '../actions/types';
+import { reportFailure } from '../core/report-failure';
 
 /** One slide: the world rectangle to frame, contain-fit on any screen. */
 export interface PresentationSlide {
@@ -480,8 +481,8 @@ export class PresentationMode implements PresentationApi {
     for (const listener of [...this.listeners]) {
       try {
         listener();
-      } catch {
-        // Listener faults must not break other presentation listeners.
+      } catch (error) {
+        reportFailure(error, 'presentation listener failed');
       }
     }
   }
