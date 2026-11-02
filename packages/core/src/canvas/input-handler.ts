@@ -180,6 +180,11 @@ export class InputHandler {
     return this.keyboard.shortcuts;
   }
 
+  /** Matches an event against the current shortcut bindings. */
+  matchShortcut(event: KeyboardEvent): string | null {
+    return this.keyboard.matchShortcut(event);
+  }
+
   /**
    * True while the camera glides under pan inertia, and while the pointer
    * gesture that just stopped such a glide is still down. Passive observers use

@@ -2710,12 +2710,15 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('viewport.actions.list() contains the 31 built-ins followed by presentation.* and tool.* actions, and shortcuts.getBindings() has canonical keys only', () => {
+    it('viewport.actions.list() contains the 31 built-ins followed by presentation, palette and tool actions, and shortcuts.getBindings() has canonical keys only', () => {
       const viewport = new Viewport(container);
       setupSelect(viewport);
       const list = viewport.actions.list();
       const builtins = list.filter(
-        (a) => !a.id.startsWith('tool.') && !a.id.startsWith('presentation.'),
+        (a) =>
+          !a.id.startsWith('tool.') &&
+          !a.id.startsWith('presentation.') &&
+          !a.id.startsWith('palette.'),
       );
       expect(builtins).toHaveLength(31);
       expect(list.filter((a) => a.id.startsWith('presentation.')).map((a) => a.id)).toEqual([
@@ -2723,6 +2726,10 @@ describe('Viewport', () => {
         'presentation.exit',
         'presentation.next',
         'presentation.previous',
+      ]);
+      expect(list.filter((a) => a.id.startsWith('palette.')).map((a) => a.id)).toEqual([
+        'palette.open',
+        'palette.help',
       ]);
       const tools = list.filter((a) => a.id.startsWith('tool.'));
       expect(tools.some((t) => t.id === 'tool.select')).toBe(true);
@@ -3234,6 +3241,82 @@ describe('Viewport', () => {
       } finally {
         h.container.remove();
       }
+    });
+  });
+
+  describe('palette', () => {
+    it('mod+k on the focused wrapper opens the palette and ? opens help', () => {
+      const viewport = new Viewport(container);
+      const wrapper = wrapperOf(container);
+      wrapper.focus();
+      const open = new KeyboardEvent('keydown', {
+        key: 'k',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      wrapper.dispatchEvent(open);
+      expect(open.defaultPrevented).toBe(true);
+      expect(viewport.palette.isOpen()).toBe(true);
+      expect(container.querySelectorAll('.fieldnotes-palette')).toHaveLength(1);
+      viewport.palette.close();
+      const help = new KeyboardEvent('keydown', {
+        key: '?',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      wrapper.dispatchEvent(help);
+      expect(help.defaultPrevented).toBe(true);
+      expect(viewport.shortcutsHelp.isOpen()).toBe(true);
+      viewport.destroy();
+    });
+
+    it('palette: false registers no actions and returns inert apis', () => {
+      const viewport = new Viewport(container, { palette: false });
+      expect(viewport.actions.list().some((action) => action.id.startsWith('palette.'))).toBe(
+        false,
+      );
+      viewport.palette.open();
+      viewport.shortcutsHelp.open();
+      expect(viewport.palette.isOpen()).toBe(false);
+      expect(viewport.shortcutsHelp.isOpen()).toBe(false);
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+      viewport.destroy();
+    });
+
+    it('destroy removes the dialogs', () => {
+      const viewport = new Viewport(container);
+      viewport.palette.open();
+      expect(container.querySelector('.fieldnotes-palette')).not.toBeNull();
+      viewport.destroy();
+      expect(container.querySelector('.fieldnotes-palette')).toBeNull();
+    });
+
+    it('Escape on the board with the palette open closes the palette and keeps the presentation', () => {
+      const viewport = new Viewport(container);
+      const canvas = container.querySelector('canvas');
+      if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+      Object.defineProperties(canvas, {
+        clientWidth: { value: 800, configurable: true },
+        clientHeight: { value: 600, configurable: true },
+      });
+      viewport.store.add(
+        createFrame({
+          position: { x: 0, y: 0 },
+          size: { w: 400, h: 324 },
+          layerId: viewport.layerManager.activeLayerId,
+          index: 'a0',
+        }),
+      );
+      expect(viewport.presentation.start({ fullscreen: false, animate: false })).toBe(true);
+      viewport.palette.open();
+      const wrapper = wrapperOf(container);
+      wrapper.focus();
+      wrapper.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(viewport.palette.isOpen()).toBe(false);
+      expect(viewport.presentation.getState().active).toBe(true);
+      viewport.destroy();
     });
   });
 

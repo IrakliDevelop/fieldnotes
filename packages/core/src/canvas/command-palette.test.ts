@@ -509,13 +509,8 @@ describe('command palette', () => {
   it('an enabled palette.open action is still excluded by id', () => {
     const { harness, container, palette } = makeDeps();
     addAction(harness, 'test.control', 'Visible control');
-    const remove = harness.viewport.actions.register({
-      id: 'palette.open',
-      label: 'Command palette',
-      enabled: () => true,
-      perform: () => undefined,
-    });
-    cleanup.push(remove);
+    expect(harness.viewport.actions.isEnabled('palette.open')).toBe(true);
+    expect(harness.viewport.palette.isOpen()).toBe(false);
     palette.open();
     expect(rows(container).some((row) => row.dataset.key === 'test.control')).toBe(true);
     expect(rows(container).some((row) => row.dataset.key === 'palette.open')).toBe(false);

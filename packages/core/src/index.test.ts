@@ -14,6 +14,10 @@ import type {
   PresentationStartOptions,
   PresentationState,
   PresentationSlide,
+  PaletteApi,
+  PaletteOptions,
+  PaletteStrings,
+  ShortcutsHelpApi,
 } from './index';
 
 describe('core public surface', () => {
@@ -49,6 +53,14 @@ describe('core public surface', () => {
     const slide: PresentationSlide | undefined = undefined;
     const options: PresentationStartOptions | undefined = undefined;
     expect([api, state, slide, options]).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it('exports the palette surface', () => {
+    const palette: PaletteApi | undefined = undefined;
+    const help: ShortcutsHelpApi | undefined = undefined;
+    const options: PaletteOptions | undefined = undefined;
+    const strings: PaletteStrings | undefined = undefined;
+    expect([palette, help, options, strings]).toEqual([undefined, undefined, undefined, undefined]);
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -141,6 +153,23 @@ describe('core public surface', () => {
       'PresentationMode',
       'createPresentationActions',
       'frameContentBounds',
+      'CommandPalette',
+      'ShortcutsHelp',
+      'openDialogShell',
+      'focusBoard',
+      'searchActions',
+      'buildHelpSections',
+      'formatBinding',
+      'revealView',
+      'resolvePaletteStrings',
+      'foldText',
+      'createPaletteActions',
+      'ensurePaletteStyles',
+      'DEFAULT_PALETTE_STRINGS',
+      'FIXED_HELP_ROWS',
+      'SceneSearch',
+      'SceneSearchHit',
+      'SceneSearchOptions',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);

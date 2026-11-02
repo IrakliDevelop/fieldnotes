@@ -146,7 +146,7 @@ export function searchActions(
 export function formatBinding(binding: string, mac: boolean): string {
   const modifiers = new Set(binding.split('+'));
   const labels: string[] = [];
-  const modifierLabels = mac
+  const modifierLabels: readonly (readonly [string, string])[] = mac
     ? [
         ['ctrl', '⌃'],
         ['alt', '⌥'],

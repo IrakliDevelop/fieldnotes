@@ -61,6 +61,11 @@ export class KeyboardHandler {
     return this.shortcutMap;
   }
 
+  /** Matches an event against the current shortcut bindings. */
+  matchShortcut(event: KeyboardEvent): string | null {
+    return this.shortcutMap.match(event);
+  }
+
   private viewportCenter(): { x: number; y: number } {
     const rect = this.deps.element.getBoundingClientRect();
     return { x: rect.width / 2, y: rect.height / 2 };
