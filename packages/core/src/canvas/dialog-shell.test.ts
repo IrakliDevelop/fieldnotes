@@ -100,20 +100,40 @@ describe('dialog shell', () => {
     const host = document.createElement('div');
     const shadow = host.attachShadow({ mode: 'open' });
     const container = document.createElement('div');
+    const outside = document.createElement('button');
     const root = document.createElement('div');
     const input = document.createElement('input');
     root.append(input);
-    shadow.append(container);
+    shadow.append(container, outside);
     document.body.append(host);
     const { onDismiss, dispose } = open(container, root, input);
     vi.runAllTimers();
     root.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
     expect(onDismiss).not.toHaveBeenCalled();
-    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
     expect(onDismiss).toHaveBeenCalledOnce();
     expect(shadow.querySelectorAll('style[data-fieldnotes-palette]')).toHaveLength(1);
     expect(document.head.querySelector('style[data-fieldnotes-palette]')).toBeNull();
     dispose();
+  });
+
+  it('a closed shadow root keeps inside presses open and dismisses from an outside sibling', () => {
+    vi.useFakeTimers();
+    const host = document.createElement('div');
+    const shadow = host.attachShadow({ mode: 'closed' });
+    const container = document.createElement('div');
+    const outside = document.createElement('button');
+    const root = document.createElement('div');
+    const input = document.createElement('input');
+    root.append(input);
+    shadow.append(container, outside);
+    document.body.append(host);
+    const { onDismiss } = open(container, root, input);
+    vi.runAllTimers();
+    root.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+    expect(onDismiss).not.toHaveBeenCalled();
+    outside.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+    expect(onDismiss).toHaveBeenCalledOnce();
   });
 
   it('keys inside the root never reach window listeners and Escape dismisses', () => {

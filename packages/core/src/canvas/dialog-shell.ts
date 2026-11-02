@@ -18,6 +18,7 @@ function pathIncludes(event: Event, node: Node): boolean {
 export function openDialogShell(options: DialogShellOptions): () => void {
   const { container, root, initialFocus, textInput, onKeyDown, onDismiss } = options;
   const doc = container.ownerDocument;
+  const eventRoot = container.getRootNode();
   root.tabIndex = -1;
   root.classList.add('fieldnotes-dialog');
   Object.assign(root.style, {
@@ -86,15 +87,18 @@ export function openDialogShell(options: DialogShellOptions): () => void {
   root.addEventListener('keydown', onRootKeyDown);
   root.addEventListener('mousedown', onRootPointer);
   root.addEventListener('pointerdown', onRootPointer);
-  doc.addEventListener('keydown', onDocumentKeyDown, true);
-  const timer = setTimeout(() => doc.addEventListener('pointerdown', onDocumentPointerDown), 0);
+  eventRoot.addEventListener('keydown', onDocumentKeyDown, true);
+  const timer = setTimeout(
+    () => eventRoot.addEventListener('pointerdown', onDocumentPointerDown),
+    0,
+  );
   return () => {
     root.removeEventListener('keydown', onRootKeyDown);
     root.removeEventListener('mousedown', onRootPointer);
     root.removeEventListener('pointerdown', onRootPointer);
-    doc.removeEventListener('keydown', onDocumentKeyDown, true);
+    eventRoot.removeEventListener('keydown', onDocumentKeyDown, true);
     clearTimeout(timer);
-    doc.removeEventListener('pointerdown', onDocumentPointerDown);
+    eventRoot.removeEventListener('pointerdown', onDocumentPointerDown);
     root.remove();
   };
 }

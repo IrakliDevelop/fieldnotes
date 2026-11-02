@@ -7,6 +7,7 @@ import { Camera } from './camera';
 import { CommandPalette, createPaletteActions } from './command-palette';
 import { makeHost } from './__test-utils__/overlay-host';
 import { DEFAULT_PALETTE_STRINGS } from './palette-model';
+import { Viewport } from './viewport';
 import type { CommandPaletteDeps } from './command-palette';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
 import type { BaseElement, ElementTypeDefinition } from '../elements/types';
@@ -358,6 +359,31 @@ describe('command palette', () => {
     rows(container)[0]?.click();
     expect(ping).toHaveBeenCalledOnce();
     expect(palette.isOpen()).toBe(false);
+  });
+
+  it('keeps a palette row open through a pointerdown in a closed shadow root before its click commits', () => {
+    vi.useFakeTimers();
+    const host = document.createElement('div');
+    const shadow = host.attachShadow({ mode: 'closed' });
+    const container = document.createElement('div');
+    shadow.append(container);
+    document.body.append(host);
+    const viewport = new Viewport(container);
+    cleanup.push(() => viewport.destroy());
+    const perform = vi.fn();
+    const remove = viewport.actions.register({ id: 'test.ping', label: 'Ping test', perform });
+    cleanup.push(remove);
+    viewport.palette.open('ping');
+    vi.advanceTimersByTime(0);
+    const row = container.querySelector<HTMLElement>('[role="option"]');
+    if (!row) throw new Error('missing palette row');
+    row.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, composed: true }),
+    );
+    expect(viewport.palette.isOpen()).toBe(true);
+    row.click();
+    expect(perform).toHaveBeenCalledOnce();
+    expect(viewport.palette.isOpen()).toBe(false);
   });
 
   it('an element row commits and closes without running an action', () => {
