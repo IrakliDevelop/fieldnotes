@@ -435,6 +435,8 @@ export class Viewport {
       setTool: (name) => this.actionRegistry.run('tool.' + name, { source: 'api' }),
       clearSelection: () => this.getSelectTool()?.setSelection([]),
       stopCameraMotion: () => this.inputHandler.stopPanInertia(),
+      hasOpenOverlay: () =>
+        (this.contextMenu?.isOpen() ?? false) || this.interactMode.isInteracting(),
     });
     const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
       (action) => this.actionRegistry.register(action),
@@ -1471,6 +1473,7 @@ export class Viewport {
     return this.getSelectTool()?.selectedIds ?? EMPTY_IDS;
   }
 
+  /** Returns whether the action ran. */
   runAction(action: string): boolean {
     return this.actionRegistry.run(action, { source: 'api' });
   }

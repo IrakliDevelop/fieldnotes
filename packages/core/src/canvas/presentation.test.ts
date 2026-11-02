@@ -96,6 +96,7 @@ function makeDeps(overrides: Partial<PresentationModeDeps> = {}) {
       calls.stopCameraMotion++;
       calls.order.push('stop');
     },
+    hasOpenOverlay: () => false,
     frames: {
       requestFrame: (callback) => {
         pending.push(callback);
@@ -602,6 +603,74 @@ describe('PresentationMode keys', () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(mode.getState().active).toBe(false);
+  });
+
+  it('leaves Escape to an open overlay before exiting on the next press', () => {
+    let open = true;
+    const h = makeDeps({ hasOpenOverlay: () => open });
+    const mode = makeMode(h.deps);
+    mode.start({ fullscreen: false });
+
+    h.wrapper.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(mode.getState().active).toBe(true);
+
+    open = false;
+    h.wrapper.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(mode.getState().active).toBe(false);
+  });
+
+  it('navigates from inside a contenteditable false ancestor', () => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const ancestor = document.createElement('div');
+    ancestor.setAttribute('contenteditable', 'false');
+    const target = document.createElement('span');
+    ancestor.append(target);
+    h.wrapper.append(ancestor);
+    mode.start({ fullscreen: false, animate: false });
+
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+    expect(mode.getState().index).toBe(1);
+  });
+
+  it('does not navigate from an outside focused element while windowed', () => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    mode.start({ fullscreen: false, animate: false });
+    outside.focus();
+
+    outside.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+    expect(mode.getState().index).toBe(0);
+  });
+
+  it('does not navigate with Space on a focused button in the wrapper', () => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const button = document.createElement('button');
+    h.wrapper.append(button);
+    mode.start({ fullscreen: false, animate: false });
+    button.focus();
+
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+
+    expect(mode.getState().index).toBe(0);
+  });
+
+  it('continues notifying listeners when one throws', () => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const listener = vi.fn();
+    mode.onChange(() => {
+      throw new Error('listener failure');
+    });
+    mode.onChange(listener);
+
+    expect(() => mode.start({ fullscreen: false })).not.toThrow();
+    expect(listener).toHaveBeenCalledOnce();
   });
 });
 

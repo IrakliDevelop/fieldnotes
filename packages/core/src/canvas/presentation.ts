@@ -2,7 +2,6 @@ import type { CameraView } from './camera-view';
 import { assertValidView } from './camera-view';
 import type { Camera } from './camera';
 import { CameraAnimator, type FrameScheduler } from './camera-animator';
-import type { Bounds } from '../core/types';
 import type { ElementStore } from '../elements/element-store';
 import { frameContentBounds, isFrameElement } from '../elements/frame-element';
 import { isLiveControlTarget } from './live-control';
@@ -53,7 +52,6 @@ export interface PresentationApi {
   onChange(listener: () => void): () => void;
 }
 
-/** Action definitions for a presentation mode. */
 export function createPresentationActions(mode: PresentationApi): ActionDefinition[] {
   return [
     {
@@ -101,6 +99,7 @@ export interface PresentationModeDeps {
   clearSelection(): void;
   /** Cancels pan inertia so a coast cannot write the camera after a slide. */
   stopCameraMotion(): void;
+  hasOpenOverlay(): boolean;
   /** Animator timing seams, as `CameraAnimatorOptions`; production omits them. */
   frames?: FrameScheduler;
   now?: () => number;
@@ -216,12 +215,8 @@ export class PresentationMode implements PresentationApi {
     ) {
       return false;
     }
-    if (index === this.state.index) {
-      this.applySlide(index, this.animate);
-      return true;
-    }
-
     this.applySlide(index, this.animate);
+    if (index === this.state.index) return true;
     this.state = { ...this.state, index };
     this.emit();
     return true;
@@ -300,7 +295,7 @@ export class PresentationMode implements PresentationApi {
       method = () => this.goTo(0);
     } else if (event.key === 'End') {
       method = () => this.goTo(this.state.count - 1);
-    } else if (event.key === 'Escape') {
+    } else if (event.key === 'Escape' && !this.deps.hasOpenOverlay()) {
       method = () => this.exit();
     }
     if (method === null) return;
@@ -434,7 +429,7 @@ export class PresentationMode implements PresentationApi {
   private cleanupFullscreenRequest(request: PendingFullscreen): void {
     if (request.cleanupStarted) return;
     request.cleanupStarted = true;
-    if (document.fullscreenElement !== this.deps.container) {
+    if (!this.isContainerFullscreen()) {
       this.finishFullscreenCleanup(request);
       return;
     }
@@ -445,21 +440,28 @@ export class PresentationMode implements PresentationApi {
   }
 
   private finishFullscreenCleanup(request: PendingFullscreen): void {
-    if (this.pendingFullscreen !== request || document.fullscreenElement === this.deps.container) {
+    if (this.pendingFullscreen !== request || this.isContainerFullscreen()) {
       return;
     }
     this.pendingFullscreen = null;
-    this.normalizeFullscreen();
-  }
-
-  private normalizeFullscreen(): void {
     if (!this.state.fullscreen) return;
     this.state = { ...this.state, fullscreen: false };
     this.emit();
   }
 
+  private isContainerFullscreen(): boolean {
+    const fullscreenElement = document.fullscreenElement;
+    return fullscreenElement !== null && this.deps.container.contains(fullscreenElement);
+  }
+
   private emit(): void {
-    for (const listener of [...this.listeners]) listener();
+    for (const listener of [...this.listeners]) {
+      try {
+        listener();
+      } catch {
+        // Listener faults must not break other presentation listeners.
+      }
+    }
   }
 }
 
@@ -469,7 +471,6 @@ export function framePresentationSlides(
 ): PresentationSlide[] {
   return store.getAll().flatMap((el) => {
     if (!isFrameElement(el) || !isLayerVisible(el.layerId)) return [];
-    const view: Bounds = frameContentBounds(el);
-    return [{ view, frameId: el.id }];
+    return [{ view: frameContentBounds(el), frameId: el.id }];
   });
 }
