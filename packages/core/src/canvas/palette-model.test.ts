@@ -195,11 +195,12 @@ describe('palette model', () => {
     ]);
   });
 
-  it('resolvePaletteStrings merges groups and types per key', () => {
+  it('resolvePaletteStrings merges top-level strings and groups and types per key', () => {
     const strings = resolvePaletteStrings({
       groups: { zoo: 'Zoo' },
       types: { 'zoo:cat': 'Cat' },
       placeholder: 'Suche',
+      results: 'Treffer',
     });
 
     expect(DEFAULT_PALETTE_STRINGS).toEqual({
@@ -209,6 +210,7 @@ describe('palette model', () => {
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
       close: 'Close the palette',
+      results: 'results',
       groups: {
         edit: 'Edit',
         select: 'Select',
@@ -227,6 +229,7 @@ describe('palette model', () => {
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
       close: 'Close the palette',
+      results: 'Treffer',
       groups: {
         edit: 'Edit',
         select: 'Select',
@@ -252,6 +255,7 @@ describe('palette model', () => {
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
       close: 'Close the palette',
+      results: 'results',
       groups: {
         edit: 'Edit',
         select: 'Select',

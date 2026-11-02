@@ -261,7 +261,9 @@ export class CommandPalette implements PaletteApi {
       empty.textContent = this.deps.strings.noResults;
       list.append(empty);
     }
-    status.textContent = this.rows.length ? String(this.rows.length) : this.deps.strings.noResults;
+    status.textContent = this.rows.length
+      ? `${this.rows.length} ${this.deps.strings.results}`
+      : this.deps.strings.noResults;
   }
 
   private group(

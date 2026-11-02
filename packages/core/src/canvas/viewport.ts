@@ -142,7 +142,7 @@ export interface ViewportOptions {
   /** Enable the built-in context menu. Default `true`. */
   contextMenu?: boolean;
   /** Command palette and shortcuts help. `false` removes both and their actions. Default enabled. */
-  readonly palette?: PaletteOptions | false;
+  palette?: PaletteOptions | false;
   /** Coast (inertial glide) after a pan flick. Default `true`. */
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */

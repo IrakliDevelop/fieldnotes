@@ -7,11 +7,14 @@ import type { CameraView } from './camera-view';
 export interface PaletteStrings {
   readonly placeholder: string;
   readonly noResults: string;
+  readonly results: string;
   readonly actions: string;
   readonly board: string;
   readonly helpTitle: string;
   readonly close: string;
+  /** Help section headings by action namespace; unknown namespaces show capitalised. */
   readonly groups: Readonly<Record<string, string>>;
+  /** Result badge by element type (`extensionType` for extension elements); unknown shows the type. */
   readonly types: Readonly<Record<string, string>>;
 }
 
@@ -24,6 +27,7 @@ export interface PaletteOptions {
 export const DEFAULT_PALETTE_STRINGS: PaletteStrings = {
   placeholder: 'Search actions and the board',
   noResults: 'No matches. Try a shorter search.',
+  results: 'results',
   actions: 'Actions',
   board: 'On the board',
   helpTitle: 'Keyboard shortcuts',

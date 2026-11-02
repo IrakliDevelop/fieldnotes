@@ -230,18 +230,19 @@ describe('command palette', () => {
       'polite',
     );
     expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe(
-      String(rows(container).length),
+      `${rows(container).length} results`,
     );
     expect(calls.context).toHaveBeenCalledOnce();
     expect(calls.help).toHaveBeenCalledOnce();
   });
 
-  it('strings override the placeholder and group headings', () => {
+  it('strings override the placeholder, group headings, and result count label', () => {
     const strings = {
       ...DEFAULT_PALETTE_STRINGS,
       placeholder: 'Suche',
       actions: 'Befehle',
       board: 'Treffer',
+      results: 'Treffer',
     };
     const { harness, container, palette } = makeDeps({ strings });
     addAction(harness, 'test.budget', 'Budget command');
@@ -251,6 +252,7 @@ describe('command palette', () => {
     expect(container.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Suche');
     expect(container.textContent).toContain('Befehle');
     expect(container.textContent).toContain('Treffer');
+    expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe('2 Treffer');
   });
 
   it('typing filters actions and adds board hits under the second group', () => {

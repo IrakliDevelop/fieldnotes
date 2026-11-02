@@ -83,6 +83,7 @@ describe('core public surface', () => {
     const strings: PaletteStrings = {
       placeholder: 'Search',
       noResults: 'None',
+      results: 'results',
       actions: 'Actions',
       board: 'Board',
       helpTitle: 'Help',
