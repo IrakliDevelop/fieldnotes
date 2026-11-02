@@ -307,7 +307,9 @@ export class PresentationMode implements PresentationApi {
   };
 
   private onFullscreenChange = (): void => {
-    const fullscreen = this.isContainerFullscreen();
+    const fullscreen = this.state.fullscreen
+      ? this.isContainerFullscreen()
+      : document.fullscreenElement === this.deps.container;
     const pending = this.pendingFullscreen;
     if (pending !== null && this.isStaleFullscreenRequest()) {
       if (fullscreen) {

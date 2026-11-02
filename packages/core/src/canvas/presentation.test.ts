@@ -742,6 +742,22 @@ describe('PresentationMode fullscreen', () => {
     expect(requestFullscreen).not.toHaveBeenCalled();
   });
 
+  it('stays windowed when a descendant enters and leaves fullscreen', () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const child = document.createElement('video');
+    h.container.append(child);
+    const mode = makeMode(h.deps);
+
+    mode.start({ fullscreen: false });
+    setFullscreenElement(child);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    setFullscreenElement(null);
+    document.dispatchEvent(new Event('fullscreenchange'));
+
+    expect(mode.getState()).toMatchObject({ active: true, fullscreen: false });
+  });
+
   it('a host-made fullscreen container is reported but not exited', () => {
     const h = makeDeps();
     const setFullscreenElement = stubFullscreenElement();
