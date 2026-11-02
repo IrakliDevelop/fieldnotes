@@ -45,6 +45,14 @@ function stubFullscreenElement() {
   };
 }
 
+function deferred() {
+  let resolve: () => void = () => undefined;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function makeDeps(overrides: Partial<PresentationModeDeps> = {}) {
   let pending: (() => void)[] = [];
   let clock = 0;
@@ -393,6 +401,32 @@ describe('PresentationMode', () => {
     expect(mode.getSlides()).toEqual([]);
   });
 
+  it('exit cancels camera motion before restoring the camera', () => {
+    const h = makeDeps();
+    h.camera.moveTo(10, 20);
+    h.camera.setZoom(1.5);
+    let coasting = false;
+    h.deps.stopCameraMotion = () => {
+      coasting = false;
+    };
+    const mode = makeMode(h.deps);
+    mode.start({ fullscreen: false, animate: false });
+    h.camera.moveTo(50, 60);
+    h.camera.setZoom(3);
+    coasting = true;
+    h.deps.frames?.requestFrame(() => {
+      if (!coasting) return;
+      h.camera.moveTo(70, 80);
+      h.camera.setZoom(4);
+    });
+
+    mode.exit();
+    h.runFrames(16);
+
+    expect(h.camera.position).toEqual({ x: 10, y: 20 });
+    expect(h.camera.zoom).toBe(1.5);
+  });
+
   it('exit stays clean when setTool returns false', () => {
     const tools: string[] = [];
     const h = makeDeps({
@@ -640,6 +674,78 @@ describe('PresentationMode fullscreen', () => {
     await Promise.resolve();
 
     expect(rejectedMode.getState()).toMatchObject({ active: true, fullscreen: false });
+  });
+
+  it('a rejected request does not claim later host fullscreen', async () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(
+      h.container,
+      'requestFullscreen',
+      vi.fn<() => Promise<void>>().mockRejectedValue(new Error('denied')),
+    );
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    const mode = makeMode(h.deps);
+
+    mode.start();
+    await Promise.resolve();
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    mode.exit();
+
+    expect(exitFullscreen).not.toHaveBeenCalled();
+  });
+
+  it.each(['exit', 'destroy'] as const)(
+    '%s cleans up a fullscreen request that resolves late',
+    async (teardown) => {
+      const h = makeDeps();
+      const setFullscreenElement = stubFullscreenElement();
+      const request = deferred();
+      const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+      stubValue(
+        h.container,
+        'requestFullscreen',
+        vi.fn<() => Promise<void>>().mockReturnValue(request.promise),
+      );
+      stubValue(document, 'exitFullscreen', exitFullscreen);
+      const mode = makeMode(h.deps);
+
+      mode.start();
+      mode[teardown]();
+      setFullscreenElement(h.container);
+      request.resolve();
+      await Promise.resolve();
+
+      expect(mode.getState().active).toBe(false);
+      expect(exitFullscreen).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('a restarted presentation adopts its pending fullscreen request', async () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const request = deferred();
+    const requestFullscreen = vi.fn<() => Promise<void>>().mockReturnValue(request.promise);
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(h.container, 'requestFullscreen', requestFullscreen);
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    const mode = makeMode(h.deps);
+
+    mode.start();
+    mode.exit();
+    mode.start();
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    request.resolve();
+    await Promise.resolve();
+
+    expect(requestFullscreen).toHaveBeenCalledOnce();
+    expect(mode.getState()).toMatchObject({ active: true, fullscreen: true });
+    expect(exitFullscreen).not.toHaveBeenCalled();
+    mode.exit();
+    expect(exitFullscreen).toHaveBeenCalledOnce();
   });
 
   it('leaving owned fullscreen exits the presentation', () => {

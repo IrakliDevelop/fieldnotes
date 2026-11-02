@@ -108,6 +108,11 @@ export interface PresentationModeDeps {
 
 const INACTIVE: PresentationState = { active: false, index: -1, count: 0, fullscreen: false };
 
+interface PendingFullscreen {
+  owner: object | null;
+  cleanupStarted: boolean;
+}
+
 export class PresentationMode implements PresentationApi {
   private state = INACTIVE;
   private slides: PresentationSlide[] = [];
@@ -117,6 +122,8 @@ export class PresentationMode implements PresentationApi {
   private previousTool: string | null = null;
   private animate = true;
   private ownsFullscreen = false;
+  private session: object | null = null;
+  private pendingFullscreen: PendingFullscreen | null = null;
   private readonly listeners = new Set<() => void>();
 
   constructor(private readonly deps: PresentationModeDeps) {}
@@ -146,6 +153,7 @@ export class PresentationMode implements PresentationApi {
     const position = this.deps.camera.position;
     this.previousCamera = { x: position.x, y: position.y, zoom: this.deps.camera.zoom };
     this.previousTool = null;
+    this.session = {};
     this.slides = slides;
     this.animate = options.animate !== false && !this.prefersReducedMotion();
     this.animator = new CameraAnimator(this.deps.wrapper, this.deps.camera, {
@@ -171,14 +179,7 @@ export class PresentationMode implements PresentationApi {
     };
     this.applySlide(index, false);
     this.emit();
-    if (
-      options.fullscreen !== false &&
-      document.fullscreenElement !== this.deps.container &&
-      typeof this.deps.container.requestFullscreen === 'function'
-    ) {
-      this.ownsFullscreen = true;
-      void this.deps.container.requestFullscreen().catch(() => undefined);
-    }
+    this.requestFullscreen(options.fullscreen !== false);
     return true;
   }
 
@@ -187,6 +188,7 @@ export class PresentationMode implements PresentationApi {
 
     this.stop();
     this.exitFullscreen();
+    this.deps.stopCameraMotion();
     const previousCamera = this.previousCamera;
     if (previousCamera !== null) {
       this.deps.camera.setZoom(previousCamera.zoom);
@@ -271,6 +273,7 @@ export class PresentationMode implements PresentationApi {
     this.previousTool = null;
     this.slides = [];
     this.ownsFullscreen = false;
+    this.session = null;
     this.state = INACTIVE;
   }
 
@@ -309,6 +312,9 @@ export class PresentationMode implements PresentationApi {
   private onFullscreenChange = (): void => {
     const fullscreen = document.fullscreenElement === this.deps.container;
     if (fullscreen && !this.state.fullscreen) {
+      if (this.pendingFullscreen?.owner === this.session && this.session !== null) {
+        this.ownsFullscreen = true;
+      }
       this.state = { ...this.state, fullscreen: true };
       this.emit();
     } else if (!fullscreen && this.state.fullscreen) {
@@ -330,7 +336,50 @@ export class PresentationMode implements PresentationApi {
   }
 
   private exitFullscreen(): void {
-    if (!this.ownsFullscreen || document.fullscreenElement !== this.deps.container) return;
+    const session = this.session;
+    const pending = this.pendingFullscreen;
+    const pendingOwned = pending?.owner === session && session !== null;
+    if (pendingOwned && pending !== null) pending.owner = null;
+    const fullscreen = document.fullscreenElement === this.deps.container;
+    if (!fullscreen || (!this.ownsFullscreen && !pendingOwned)) return;
+    if (pending !== null) pending.cleanupStarted = true;
+    void document.exitFullscreen().catch(() => undefined);
+  }
+
+  private requestFullscreen(enabled: boolean): void {
+    if (!enabled) return;
+    const session = this.session;
+    const pending = this.pendingFullscreen;
+    if (pending !== null && !pending.cleanupStarted) {
+      pending.owner = session;
+      return;
+    }
+    if (
+      document.fullscreenElement === this.deps.container ||
+      typeof this.deps.container.requestFullscreen !== 'function'
+    ) {
+      return;
+    }
+    const request = { owner: session, cleanupStarted: false };
+    this.pendingFullscreen = request;
+    void this.deps.container.requestFullscreen().then(
+      () => this.settleFullscreenRequest(request),
+      () => {
+        if (this.pendingFullscreen === request) this.pendingFullscreen = null;
+      },
+    );
+  }
+
+  private settleFullscreenRequest(request: PendingFullscreen): void {
+    if (this.pendingFullscreen !== request) return;
+    this.pendingFullscreen = null;
+    const fullscreen = document.fullscreenElement === this.deps.container;
+    if (request.owner === this.session && this.session !== null && fullscreen) {
+      this.ownsFullscreen = true;
+      return;
+    }
+    if (!fullscreen || request.cleanupStarted) return;
+    request.cleanupStarted = true;
     void document.exitFullscreen().catch(() => undefined);
   }
 
