@@ -6,6 +6,8 @@ import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { DEFAULT_PALETTE_STRINGS } from './palette-model';
 import { ShortcutsHelp } from './shortcuts-help';
 
+const cleanup: (() => void)[] = [];
+
 function setup() {
   const harness = createViewportHarness();
   const container = document.createElement('div');
@@ -29,14 +31,23 @@ function setup() {
     strings: DEFAULT_PALETTE_STRINGS,
     closeOthers,
   });
+  cleanup.push(() => help.destroy());
+  cleanup.push(() => harness.cleanup());
   return { harness, container, wrapper, closeOthers, help };
 }
 
-afterEach(() => document.body.replaceChildren());
+afterEach(() => {
+  while (cleanup.length) cleanup.pop()?.();
+  vi.useRealTimers();
+  document.body.replaceChildren();
+  document.head
+    .querySelectorAll('style[data-fieldnotes-palette]')
+    .forEach((style) => style.remove());
+});
 
 describe('shortcuts help', () => {
   it('open renders sections and keys and focuses the dialog', () => {
-    const { help, container, closeOthers, harness } = setup();
+    const { help, container, closeOthers } = setup();
     help.open();
     const root = container.querySelector<HTMLElement>('.fieldnotes-help');
     expect(root).not.toBeNull();
@@ -58,8 +69,6 @@ describe('shortcuts help', () => {
     expect(root?.textContent).toContain('Ctrl+Shift+Z');
     expect(document.activeElement).toBe(root);
     expect(closeOthers).toHaveBeenCalledOnce();
-    help.destroy();
-    harness.cleanup();
   });
 
   it('a rebind shows on the next open', () => {
@@ -73,12 +82,10 @@ describe('shortcuts help', () => {
     harness.viewport.shortcuts.disable('edit.undo');
     help.open();
     expect(container.textContent).not.toContain('Undo');
-    help.destroy();
-    harness.cleanup();
   });
 
   it('Escape, ? and the Close button close and focus the wrapper', () => {
-    const { help, container, wrapper, harness } = setup();
+    const { help, container, wrapper } = setup();
     for (const key of ['Escape', '?']) {
       help.open();
       container
@@ -91,12 +98,10 @@ describe('shortcuts help', () => {
     container.querySelector<HTMLButtonElement>('.fieldnotes-help-close')?.click();
     expect(help.isOpen()).toBe(false);
     expect(document.activeElement).toBe(wrapper);
-    help.destroy();
-    harness.cleanup();
   });
 
   it('Tab and Shift+Tab keep focus on Close', () => {
-    const { help, container, harness } = setup();
+    const { help, container } = setup();
     help.open();
     const root = container.querySelector<HTMLElement>('.fieldnotes-help');
     const close = container.querySelector<HTMLButtonElement>('.fieldnotes-help-close');
@@ -113,12 +118,10 @@ describe('shortcuts help', () => {
     close?.dispatchEvent(shift);
     expect(document.activeElement).toBe(close);
     expect(shift.defaultPrevented).toBe(true);
-    help.destroy();
-    harness.cleanup();
   });
 
   it('a modified palette.open key inside the help is prevented and the help stays open', () => {
-    const { help, container, harness } = setup();
+    const { help, container } = setup();
     help.open();
     const root = container.querySelector<HTMLElement>('.fieldnotes-help');
     const event = new KeyboardEvent('keydown', {
@@ -130,26 +133,25 @@ describe('shortcuts help', () => {
     root?.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
     expect(help.isOpen()).toBe(true);
-    help.destroy();
-    harness.cleanup();
   });
 
   it('open while open is a no-op and close while closed is a no-op', () => {
-    const { help, closeOthers, harness } = setup();
+    const { help, closeOthers } = setup();
     help.close();
     help.open();
     help.open();
     expect(closeOthers).toHaveBeenCalledOnce();
-    help.destroy();
-    harness.cleanup();
   });
   it('destroy closes without focusing', () => {
-    const { help, container, wrapper, harness } = setup();
+    const { help, container } = setup();
     help.open();
+    const root = container.querySelector<HTMLElement>('.fieldnotes-help');
+    expect(root).not.toBeNull();
+    expect(help.isOpen()).toBe(true);
+    expect(document.activeElement).toBe(root);
     help.destroy();
-    expect(container.children).toHaveLength(0);
+    expect(root?.isConnected).toBe(false);
     expect(help.isOpen()).toBe(false);
-    expect(document.activeElement).not.toBe(wrapper);
-    harness.cleanup();
+    expect(document.activeElement).toBe(document.body);
   });
 });

@@ -14,12 +14,6 @@ function pathIncludes(event: Event, node: Node): boolean {
   return event.composedPath().includes(node);
 }
 
-function isInsideDialog(event: Event): boolean {
-  return event
-    .composedPath()
-    .some((node) => node instanceof Element && node.classList.contains('fieldnotes-dialog'));
-}
-
 /** Mounts `root`, traps focus, isolates its keys, dismisses on Escape or an outside pointerdown. Returns dispose. */
 export function openDialogShell(options: DialogShellOptions): () => void {
   const { container, root, initialFocus, textInput, onKeyDown, onDismiss } = options;
@@ -73,7 +67,14 @@ export function openDialogShell(options: DialogShellOptions): () => void {
     if (event.target !== textInput) event.preventDefault();
   };
   const onDocumentKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== 'Escape' || isInsideDialog(event)) return;
+    if (
+      event.key !== 'Escape' ||
+      event
+        .composedPath()
+        .some((node) => node instanceof Element && node.classList.contains('fieldnotes-dialog'))
+    ) {
+      return;
+    }
     const target = event.target;
     if (target !== doc.body && target !== null && !pathIncludes(event, container)) return;
     event.preventDefault();

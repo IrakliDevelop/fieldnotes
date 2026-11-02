@@ -4,6 +4,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { focusBoard, openDialogShell } from './dialog-shell';
 
+const cleanup: (() => void)[] = [];
+
+function own(dispose: () => void): () => void {
+  let disposed = false;
+  const owned = () => {
+    if (disposed) return;
+    disposed = true;
+    dispose();
+  };
+  cleanup.push(owned);
+  return owned;
+}
+
+function listen(
+  target: Window | Document,
+  type: string,
+  listener: EventListener,
+  options?: boolean | AddEventListenerOptions,
+): void {
+  target.addEventListener(type, listener, options);
+  own(() => target.removeEventListener(type, listener, options));
+}
+
 function setup() {
   const container = document.createElement('div');
   const wrapper = document.createElement('div');
@@ -23,11 +46,12 @@ function open(
 ) {
   return {
     onDismiss,
-    dispose: openDialogShell({ container, root, initialFocus, onDismiss, onKeyDown: vi.fn() }),
+    dispose: own(openDialogShell({ container, root, initialFocus, onDismiss, onKeyDown: vi.fn() })),
   };
 }
 
 afterEach(() => {
+  while (cleanup.length) cleanup.pop()?.();
   vi.useRealTimers();
   document.body.replaceChildren();
   document.head
@@ -36,6 +60,23 @@ afterEach(() => {
 });
 
 describe('dialog shell', () => {
+  it('uses the public palette variables with their approved fallbacks', () => {
+    const { container, root, input } = setup();
+    open(container, root, input);
+    const styles = document.head.querySelector('style[data-fieldnotes-palette]')?.textContent;
+    expect(styles).toContain('background: var(--fieldnotes-palette-bg, #fff)');
+    expect(styles).toContain('color: var(--fieldnotes-palette-fg, #1a1a1a)');
+    expect(styles).toContain('color: var(--fieldnotes-palette-muted, #6b7280)');
+    expect(styles).toContain('border: 1px solid var(--fieldnotes-palette-border, #d1d5db)');
+    expect(styles).toContain('background: var(--fieldnotes-palette-active, #e8f0fe)');
+    expect(styles).toContain(
+      'box-shadow: var(--fieldnotes-palette-shadow, 0 8px 24px rgba(0, 0, 0, 0.18))',
+    );
+    expect(styles).toContain('font: var(--fieldnotes-palette-font, 14px system-ui, sans-serif)');
+    expect(styles).toContain('.fieldnotes-palette-option--active');
+    expect(styles).not.toMatch(/--fieldnotes-palette-[\\w-]+:/);
+  });
+
   it('mounts the root in the container, appends the stylesheet once and focuses the initial element', () => {
     const { container, root, input } = setup();
     const first = open(container, root, input);
@@ -77,33 +118,36 @@ describe('dialog shell', () => {
 
   it('keys inside the root never reach window listeners and Escape dismisses', () => {
     const { container, root, input } = setup();
-    const { onDismiss, dispose } = open(container, root, input);
+    const documentListener = vi.fn();
     const windowListener = vi.fn();
-    window.addEventListener('keydown', windowListener);
+    listen(document, 'keydown', documentListener);
+    listen(window, 'keydown', windowListener);
+    const { onDismiss } = open(container, root, input);
     const ordinary = new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true });
     input.dispatchEvent(ordinary);
     const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
     input.dispatchEvent(escape);
+    expect(documentListener).not.toHaveBeenCalled();
     expect(windowListener).not.toHaveBeenCalled();
     expect(ordinary.defaultPrevented).toBe(false);
     expect(escape.defaultPrevented).toBe(true);
     expect(onDismiss).toHaveBeenCalledOnce();
-    window.removeEventListener('keydown', windowListener);
-    dispose();
   });
 
   it('a composing key is neither handled nor propagated', () => {
     const { container, root, input } = setup();
     const onKeyDown = vi.fn();
-    const dispose = openDialogShell({
-      container,
-      root,
-      initialFocus: input,
-      onDismiss: vi.fn(),
-      onKeyDown,
-    });
+    own(
+      openDialogShell({
+        container,
+        root,
+        initialFocus: input,
+        onDismiss: vi.fn(),
+        onKeyDown,
+      }),
+    );
     const listener = vi.fn();
-    window.addEventListener('keydown', listener);
+    listen(window, 'keydown', listener);
     const event = new KeyboardEvent('keydown', {
       key: 'Enter',
       isComposing: true,
@@ -122,25 +166,33 @@ describe('dialog shell', () => {
     expect(event.defaultPrevented).toBe(false);
     expect(process.defaultPrevented).toBe(false);
     expect(listener).not.toHaveBeenCalled();
-    window.removeEventListener('keydown', listener);
-    dispose();
   });
 
   it('an Escape outside the root dismisses only from the page or the container', () => {
     const { container, root, input } = setup();
-    const { onDismiss, dispose } = open(container, root, input);
+    const documentListener = vi.fn();
+    listen(document, 'keydown', documentListener);
+    const { onDismiss } = open(container, root, input);
     const outside = document.createElement('input');
     const inContainer = document.createElement('div');
     container.append(inContainer);
     document.body.append(outside);
     const host = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
     outside.dispatchEvent(host);
+    expect(host.defaultPrevented).toBe(false);
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(documentListener).toHaveBeenCalledOnce();
+    documentListener.mockClear();
     const page = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
     document.body.dispatchEvent(page);
-    expect(host.defaultPrevented).toBe(false);
     expect(page.defaultPrevented).toBe(true);
     expect(onDismiss).toHaveBeenCalledOnce();
-    dispose();
+    expect(documentListener).not.toHaveBeenCalled();
+    const inside = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    inContainer.dispatchEvent(inside);
+    expect(inside.defaultPrevented).toBe(true);
+    expect(onDismiss).toHaveBeenCalledTimes(2);
+    expect(documentListener).not.toHaveBeenCalled();
   });
 
   it('Tab cycles inside the root', () => {
@@ -148,7 +200,7 @@ describe('dialog shell', () => {
     const first = document.createElement('button');
     const second = document.createElement('button');
     root.replaceChildren(first, second);
-    const { dispose } = open(container, root, root);
+    open(container, root, root);
     second.focus();
     const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
     second.dispatchEvent(tab);
@@ -163,21 +215,22 @@ describe('dialog shell', () => {
     first.dispatchEvent(shiftTab);
     expect(document.activeElement).toBe(second);
     expect(shiftTab.defaultPrevented).toBe(true);
-    dispose();
   });
 
   it('a mousedown or pointerdown inside the root keeps focus unless it targets the text input', () => {
     const { container, root, input } = setup();
     const child = document.createElement('button');
     root.append(child);
-    const dispose = openDialogShell({
-      container,
-      root,
-      initialFocus: input,
-      textInput: input,
-      onDismiss: vi.fn(),
-      onKeyDown: vi.fn(),
-    });
+    own(
+      openDialogShell({
+        container,
+        root,
+        initialFocus: input,
+        textInput: input,
+        onDismiss: vi.fn(),
+        onKeyDown: vi.fn(),
+      }),
+    );
     const mouse = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
     child.dispatchEvent(mouse);
     const pointer = new PointerEvent('pointerdown', { bubbles: true, cancelable: true });
@@ -187,13 +240,12 @@ describe('dialog shell', () => {
     expect(mouse.defaultPrevented).toBe(true);
     expect(pointer.defaultPrevented).toBe(true);
     expect(inputMouse.defaultPrevented).toBe(false);
-    dispose();
   });
 
   it('a pointerdown outside closes after the deferral and one inside does not', () => {
     vi.useFakeTimers();
     const { container, root, input } = setup();
-    const { onDismiss, dispose } = open(container, root, input);
+    const { onDismiss } = open(container, root, input);
     document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     expect(onDismiss).not.toHaveBeenCalled();
     vi.runAllTimers();
@@ -201,16 +253,25 @@ describe('dialog shell', () => {
     expect(onDismiss).not.toHaveBeenCalled();
     document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
     expect(onDismiss).toHaveBeenCalledOnce();
-    dispose();
   });
 
-  it('dispose removes the root, listeners and the pending timer', () => {
+  it('dispose removes attached pointer and capture-key listeners', () => {
     vi.useFakeTimers();
     const { container, root, input } = setup();
     const { onDismiss, dispose } = open(container, root, input);
-    dispose();
     vi.runAllTimers();
+    dispose();
     document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(onDismiss).not.toHaveBeenCalled();
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(onDismiss).not.toHaveBeenCalled();
+    const inContainer = document.createElement('div');
+    container.append(inContainer);
+    inContainer.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
     expect(onDismiss).not.toHaveBeenCalled();
     expect(root.isConnected).toBe(false);
   });

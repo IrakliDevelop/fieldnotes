@@ -1,22 +1,16 @@
 const PALETTE_STYLES = `.fieldnotes-dialog {
-  --fieldnotes-palette-bg: var(--fieldnotes-surface, #fff);
-  --fieldnotes-palette-fg: var(--fieldnotes-text, #1f2937);
-  --fieldnotes-palette-muted: var(--fieldnotes-muted, #6b7280);
-  --fieldnotes-palette-border: var(--fieldnotes-border, #d1d5db);
-  --fieldnotes-palette-active: var(--fieldnotes-active, #e5e7eb);
-  --fieldnotes-palette-shadow: var(--fieldnotes-shadow, 0 12px 32px rgb(0 0 0 / 18%));
-  --fieldnotes-palette-font: var(--fieldnotes-font, system-ui, sans-serif);
-  background: var(--fieldnotes-palette-bg);
-  border: 1px solid var(--fieldnotes-palette-border);
-  box-shadow: var(--fieldnotes-palette-shadow);
-  color: var(--fieldnotes-palette-fg);
-  font-family: var(--fieldnotes-palette-font);
+  background: var(--fieldnotes-palette-bg, #fff);
+  border: 1px solid var(--fieldnotes-palette-border, #d1d5db);
+  box-shadow: var(--fieldnotes-palette-shadow, 0 8px 24px rgba(0, 0, 0, 0.18));
+  color: var(--fieldnotes-palette-fg, #1a1a1a);
+  font: var(--fieldnotes-palette-font, 14px system-ui, sans-serif);
   padding: 16px;
 }
 .fieldnotes-dialog button, .fieldnotes-dialog input { font: inherit; }
-.fieldnotes-dialog button:focus, .fieldnotes-dialog input:focus { background: var(--fieldnotes-palette-active); }
-.fieldnotes-dialog kbd { border: 1px solid var(--fieldnotes-palette-border); border-radius: 3px; padding: 2px 5px; }
-.fieldnotes-dialog mark { background: transparent; color: inherit; font-weight: 600; }
+.fieldnotes-dialog button:focus, .fieldnotes-dialog input:focus, .fieldnotes-palette-option--active { background: var(--fieldnotes-palette-active, #e8f0fe); }
+.fieldnotes-palette-badge, .fieldnotes-palette-keys { color: var(--fieldnotes-palette-muted, #6b7280); }
+.fieldnotes-key { border: 1px solid var(--fieldnotes-palette-border, #d1d5db); border-radius: 3px; padding: 2px 5px; }
+.fieldnotes-palette-option mark { background: transparent; color: inherit; font-weight: 600; }
 .fieldnotes-help-section { margin-top: 16px; }
 .fieldnotes-help-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; }
 .fieldnotes-help-title { margin: 0; }

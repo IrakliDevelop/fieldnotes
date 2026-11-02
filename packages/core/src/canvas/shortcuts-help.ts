@@ -1,4 +1,4 @@
-import type { ActionContext, ActionsApi, ActionDefinition } from '../actions/types';
+import type { ActionContext, ActionsApi } from '../actions/types';
 import { focusBoard, openDialogShell } from './dialog-shell';
 import { buildHelpSections, formatBinding } from './palette-model';
 import type { PaletteStrings } from './palette-model';
@@ -19,10 +19,6 @@ export interface ShortcutsHelpDeps {
   isMac(): boolean;
   strings: PaletteStrings;
   closeOthers(): void;
-}
-
-function label(definition: ActionDefinition, context: ActionContext): string {
-  return typeof definition.label === 'string' ? definition.label : definition.label(context);
 }
 
 export class ShortcutsHelp implements ShortcutsHelpApi {
@@ -53,7 +49,8 @@ export class ShortcutsHelp implements ShortcutsHelpApi {
     for (const section of buildHelpSections(
       this.deps.actions.list(),
       this.deps.getBindings(),
-      (definition) => label(definition, context),
+      (definition) =>
+        typeof definition.label === 'string' ? definition.label : definition.label(context),
       this.deps.strings,
     )) {
       const sectionNode = document.createElement('section');
