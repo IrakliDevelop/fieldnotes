@@ -74,7 +74,7 @@ describe('dialog shell', () => {
     );
     expect(styles).toContain('font: var(--fieldnotes-palette-font, 14px system-ui, sans-serif)');
     expect(styles).toContain('.fieldnotes-palette-option--active');
-    expect(styles).not.toMatch(/--fieldnotes-palette-[\\w-]+:/);
+    expect(styles).not.toMatch(/--fieldnotes-palette-[\w-]+:/);
   });
 
   it('mounts the root in the container, appends the stylesheet once and focuses the initial element', () => {
@@ -215,6 +215,21 @@ describe('dialog shell', () => {
     first.dispatchEvent(shiftTab);
     expect(document.activeElement).toBe(second);
     expect(shiftTab.defaultPrevented).toBe(true);
+    root.replaceChildren(first);
+    first.focus();
+    const singleTab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    first.dispatchEvent(singleTab);
+    expect(document.activeElement).toBe(first);
+    expect(singleTab.defaultPrevented).toBe(true);
+    const singleShiftTab = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    first.dispatchEvent(singleShiftTab);
+    expect(document.activeElement).toBe(first);
+    expect(singleShiftTab.defaultPrevented).toBe(true);
   });
 
   it('a mousedown or pointerdown inside the root keeps focus unless it targets the text input', () => {

@@ -48,7 +48,7 @@ export function openDialogShell(options: DialogShellOptions): () => void {
         ),
       ];
       if (focusable.length) {
-        const index = focusable.indexOf(doc.activeElement as HTMLElement);
+        const index = focusable.findIndex((element) => element === doc.activeElement);
         const next = event.shiftKey
           ? index <= 0
             ? focusable.length - 1

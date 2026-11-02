@@ -10,6 +10,7 @@ const cleanup: (() => void)[] = [];
 
 function setup() {
   const harness = createViewportHarness();
+  cleanup.push(() => harness.cleanup());
   const container = document.createElement('div');
   const wrapper = document.createElement('div');
   wrapper.tabIndex = 0;
@@ -32,7 +33,6 @@ function setup() {
     closeOthers,
   });
   cleanup.push(() => help.destroy());
-  cleanup.push(() => harness.cleanup());
   return { harness, container, wrapper, closeOthers, help };
 }
 
@@ -109,6 +109,14 @@ describe('shortcuts help', () => {
     root?.dispatchEvent(tab);
     expect(document.activeElement).toBe(close);
     expect(tab.defaultPrevented).toBe(true);
+    const repeatedTab = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    close?.dispatchEvent(repeatedTab);
+    expect(document.activeElement).toBe(close);
+    expect(repeatedTab.defaultPrevented).toBe(true);
     const shift = new KeyboardEvent('keydown', {
       key: 'Tab',
       shiftKey: true,
@@ -132,6 +140,10 @@ describe('shortcuts help', () => {
     });
     root?.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
+    expect(help.isOpen()).toBe(true);
+    const plain = new KeyboardEvent('keydown', { key: 'k', bubbles: true, cancelable: true });
+    root?.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(false);
     expect(help.isOpen()).toBe(true);
   });
 
