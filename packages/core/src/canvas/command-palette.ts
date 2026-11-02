@@ -86,9 +86,12 @@ export class CommandPalette implements PaletteApi {
     root.className = 'fieldnotes-palette';
     root.setAttribute('role', 'dialog');
     root.setAttribute('aria-modal', 'true');
+    root.setAttribute('aria-label', this.deps.strings.placeholder);
     const input = document.createElement('input');
     input.className = 'fieldnotes-palette-input';
     input.type = 'text';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
     input.setAttribute('role', 'combobox');
     input.setAttribute('aria-expanded', 'true');
     input.setAttribute('aria-autocomplete', 'list');

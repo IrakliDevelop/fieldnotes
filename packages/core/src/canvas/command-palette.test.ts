@@ -178,9 +178,13 @@ describe('command palette', () => {
     const list = container.querySelector<HTMLElement>('[role="listbox"]');
     const group = container.querySelector<HTMLElement>('[role="group"]');
     const title = container.querySelector<HTMLElement>('.fieldnotes-palette-group-title');
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.getAttribute('aria-label')).toBe('Search actions and the board');
     expect(field.getAttribute('aria-expanded')).toBe('true');
     expect(field.getAttribute('aria-autocomplete')).toBe('list');
+    expect(field.getAttribute('autocomplete')).toBe('off');
+    expect(field.spellcheck).toBe(false);
     expect(field.getAttribute('aria-controls')).toBe(list?.id);
     expect(field.placeholder).toBe('Search actions and the board');
     expect(document.activeElement).toBe(field);
@@ -215,6 +219,7 @@ describe('command palette', () => {
     addHit(harness, 'note', 'Budget note', 'budget');
     palette.open('bud');
     expect(input(container).placeholder).toBe('Suche');
+    expect(container.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Suche');
     expect(container.textContent).toContain('Befehle');
     expect(container.textContent).toContain('Treffer');
   });
