@@ -107,15 +107,15 @@ On a board that sits in a page, disable `select.cycle` and `select.cycle-reverse
 
 ## Command palette and find on the board
 
-Ctrl/⌘+K opens the command palette. With an empty query, it lists enabled actions and their current keys. Typing searches notes, text, arrow labels, and frame titles. Matches ignore case and accents. Elements on hidden layers are skipped.
+Ctrl/⌘+K opens the command palette. With an empty query, it lists enabled actions and their current keys. Typing filters the actions by name and searches notes, text, arrow labels and frame titles, showing up to 20 board results. Matches ignore case and accents. Elements on hidden layers are skipped.
 
-Down and Up move through results. Enter runs an action or moves the camera through its constraints to a board result and closes the palette. Escape closes it. A board result is outlined for 1.5 seconds and the outline then fades. It does not select the element or add an undo step. Opening the palette, searching, and revealing do not write the element store or persisted board state, and send no sync operation over the wire.
+Down and Up move through results, and the camera moves to each board result as it becomes active. Enter or a click runs the action or goes to the board result, then closes the palette. Escape or a click outside closes it and leaves the camera where it is. Camera moves keep to the zoom limits and any `viewport.camera.addConstraint` constraints. The active board result is outlined; after the palette closes the outline holds for 1.5 seconds, then fades. Revealing does not select the element or add an undo step. Opening the palette, searching and revealing write nothing to the element store or the saved board, and send nothing over sync.
 
-Open a query from a host control with `viewport.palette.open('budget')`. Add Ctrl/⌘+F with `shortcuts.rebind('palette.open', ['mod+k', 'mod+f'])`; Ctrl/⌘+F has no default binding. Pass `palette: false` to remove the palette and help. Pass `palette: { strings }` to localize it. Its `groups` and `types` strings merge by key.
+`viewport.palette.open('budget')` opens the palette with budget already typed, for a search button in your own UI. Add Ctrl/⌘+F with `shortcuts.rebind('palette.open', ['mod+k', 'mod+f'])`; Ctrl/⌘+F has no default binding. Pass `palette: false` to remove the palette and help. Pass `palette: { strings }` to translate the placeholder, the empty state, the help title, the section headings (`groups`, keyed by action namespace such as `edit`) and the result badges (`types`, keyed by element type). Keys you leave out keep their English default. Action labels come from each action's `label`, and the fixed help rows stay in English.
 
-A plugin element type can provide `searchText`. Search finds a child clipped by its frame and reveals it inside the frame like any other element. The palette lives inside the host container and uses fixed positioning. A host container with CSS `transform` or `filter` re-anchors it. Use `--fieldnotes-palette-*` custom properties for colours. The highlight overlay registers on first use.
+An element type from a [plugin](/docs/writing-a-plugin/#define-an-element-type) is searchable when its definition has `searchText(element)`, which returns the text to match or `null`. Search finds a child clipped by its frame and reveals it inside the frame like any other element. The palette and shortcuts help mount inside the host container with `position: fixed`. If the host container has a CSS `transform` or `filter`, they are placed against the container instead of the browser window. Style both dialogs with `--fieldnotes-palette-bg`, `-fg`, `-border`, `-active`, `-muted`, `-shadow` and `-font`.
 
-During a windowed presentation, Escape first closes the palette and the next Escape ends the presentation. In fullscreen, browser Escape leaves fullscreen and ends the presentation whatever is open.
+During a windowed presentation, Escape first closes the palette or shortcuts help, and the next Escape ends the presentation.
 
 ## Shortcuts help
 

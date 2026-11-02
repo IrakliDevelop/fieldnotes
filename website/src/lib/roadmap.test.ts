@@ -72,7 +72,9 @@ describe('parseRoadmap', () => {
     expect(roadmap.built).toContain(
       'Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match',
     );
-    expect(roadmap.built).toContain('Shortcuts help on ? generated from the current bindings');
+    expect(roadmap.built).toContain(
+      'Shortcuts help on the ? key, generated from the current bindings',
+    );
     expect(roadmap.next).not.toContain(
       'Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export',
     );

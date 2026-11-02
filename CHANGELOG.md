@@ -18,9 +18,10 @@ Release notes prepared 2026-11-02.
 - `palette.open` (`mod+k`) and `palette.help` (`?`) actions. An empty palette query lists
   enabled actions with their current bindings. A query also finds notes, text, arrow labels, and
   frame titles without regard to case or accents.
-- Choosing a board result moves the camera through its constraints and draws a highlight that
-  fades. The shortcuts help dialog is generated from the action registry and current bindings.
-- `ViewportOptions.palette` (`false` or `strings`). `ElementTypeDefinition` and
+- Moving to or choosing a board result moves the camera through its constraints and draws a
+  highlight that fades. The shortcuts help dialog is generated from the action registry and current
+  bindings.
+- `ViewportOptions.palette` (`false`, or `{ strings }`). `ElementTypeDefinition` and
   `ElementTypeAdapter` accept optional `searchText`; frames provide their title.
 
 **Compatibility**
@@ -28,9 +29,11 @@ Release notes prepared 2026-11-02.
 - Persisted state and the sync protocol are unchanged. The palette writes neither the store, the
   history, nor the wire.
 - A host binding for `mod+k` or `?` conflicts with `palette.open` or `palette.help`. The
-  action registered first wins. Rebind or disable the action, or pass `palette: false`.
-- The dialogs mount in the host container and use `position: fixed`. A transformed container
-  re-anchors them. Their colours come from `--fieldnotes-palette-*` custom properties.
+  palette actions register in the `Viewport` constructor, so they win over host and plugin bindings
+  for the same keys. Rebind or disable the action, or pass `palette: false`.
+- The dialogs mount in the host container and use `position: fixed`. A container with a CSS
+  `transform` or `filter` positions them instead of the window. `--fieldnotes-palette-*` custom
+  properties set their colours, font and shadow.
 
 ### Core 0.103.0 — presentation mode
 

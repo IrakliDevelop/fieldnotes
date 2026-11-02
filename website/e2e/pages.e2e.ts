@@ -13,7 +13,7 @@ const NOT_BUILT = ['Elbow arrows that route around shapes', 'Text inside shapes'
 const BUILT = [
   'Command palette on Ctrl or ⌘+K to search and run actions',
   'Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match',
-  'Shortcuts help on ? generated from the current bindings',
+  'Shortcuts help on the ? key, generated from the current bindings',
 ];
 
 const NEXT = [

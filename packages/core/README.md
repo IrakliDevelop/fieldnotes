@@ -444,9 +444,7 @@ configure(ctx) {
 ## Command palette, find and shortcuts help
 
 `mod+K` opens the command palette. An empty query lists enabled actions with their current keys.
-Typing finds notes, text, arrow labels, and frame titles without regard to case or accents. Down
-and Up move through results. Enter runs an action or reveals a board result and closes the palette.
-Escape closes it. `?` opens shortcuts help, which lists current bindings.
+Typing filters actions and finds notes, text, arrow labels and frame titles, without regard to case or accents. Down and Up move through results and move the camera to the active board result. Enter runs an action or reveals a board result and closes the palette. Escape closes it. `?` opens shortcuts help, which lists current bindings.
 
 ```ts
 viewport.palette.open('budget');
@@ -455,8 +453,7 @@ new Viewport(el, { palette: { strings: { placeholder: 'Suche' } } });
 ```
 
 Pass `palette: false` to remove the palette and help. Use `--fieldnotes-palette-*` custom
-properties to style the dialogs. They mount in the host container with fixed positioning. A host
-container with a CSS transform re-anchors them.
+properties to style the dialogs. They mount in the host container with `position: fixed`; if that container has a CSS `transform` or `filter`, they are placed against it instead of the window.
 
 ## Changing Tool Options at Runtime
 

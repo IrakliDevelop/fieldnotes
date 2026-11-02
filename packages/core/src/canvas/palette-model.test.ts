@@ -160,7 +160,7 @@ describe('palette model', () => {
     expect(sections[2]?.rows).toEqual([
       { label: 'Move through results', keys: ['arrowup', 'arrowdown'] },
       { label: 'Run the action or go to the element', keys: ['enter'] },
-      { label: 'Close', keys: ['escape'] },
+      { label: 'Close the palette', keys: ['escape'] },
     ]);
     expect(sections[4]?.rows).toEqual([{ label: 'Frob', keys: ['mod+shift+f'] }]);
   });
@@ -178,7 +178,7 @@ describe('palette model', () => {
         label: 'Run the action or go to the element',
         keys: ['enter'],
       },
-      { group: 'palette', label: 'Close', keys: ['escape'] },
+      { group: 'palette', label: 'Close the palette', keys: ['escape'] },
       {
         group: 'presentation',
         label: 'Next slide',
@@ -204,11 +204,11 @@ describe('palette model', () => {
 
     expect(DEFAULT_PALETTE_STRINGS).toEqual({
       placeholder: 'Search actions and the board',
-      noResults: 'No matches',
+      noResults: 'No matches. Try a shorter search.',
       actions: 'Actions',
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
-      close: 'Close',
+      close: 'Close the palette',
       groups: {
         edit: 'Edit',
         select: 'Select',
@@ -222,11 +222,11 @@ describe('palette model', () => {
     });
     expect(strings).toEqual({
       placeholder: 'Suche',
-      noResults: 'No matches',
+      noResults: 'No matches. Try a shorter search.',
       actions: 'Actions',
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
-      close: 'Close',
+      close: 'Close the palette',
       groups: {
         edit: 'Edit',
         select: 'Select',
@@ -247,11 +247,11 @@ describe('palette model', () => {
     });
     expect(resolvePaletteStrings(undefined)).toEqual({
       placeholder: 'Search actions and the board',
-      noResults: 'No matches',
+      noResults: 'No matches. Try a shorter search.',
       actions: 'Actions',
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
-      close: 'Close',
+      close: 'Close the palette',
       groups: {
         edit: 'Edit',
         select: 'Select',

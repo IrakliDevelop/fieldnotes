@@ -23,11 +23,11 @@ export interface PaletteOptions {
 /** Default strings used by the command palette and shortcuts help. */
 export const DEFAULT_PALETTE_STRINGS: PaletteStrings = {
   placeholder: 'Search actions and the board',
-  noResults: 'No matches',
+  noResults: 'No matches. Try a shorter search.',
   actions: 'Actions',
   board: 'On the board',
   helpTitle: 'Keyboard shortcuts',
-  close: 'Close',
+  close: 'Close the palette',
   groups: {
     edit: 'Edit',
     select: 'Select',
@@ -56,7 +56,7 @@ export const FIXED_HELP_ROWS: readonly HelpFixedRow[] = [
   { group: 'edit', label: 'Paste', keys: ['mod+v'] },
   { group: 'palette', label: 'Move through results', keys: ['arrowup', 'arrowdown'] },
   { group: 'palette', label: 'Run the action or go to the element', keys: ['enter'] },
-  { group: 'palette', label: 'Close', keys: ['escape'] },
+  { group: 'palette', label: 'Close the palette', keys: ['escape'] },
   {
     group: 'presentation',
     label: 'Next slide',

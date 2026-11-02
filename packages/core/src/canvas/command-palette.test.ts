@@ -271,8 +271,12 @@ describe('command palette', () => {
     expect(rows(container)[0]?.textContent).toContain('Present');
     expect(container.textContent).not.toContain('On the board');
     type(container, 'zzz');
-    expect(container.querySelector('.fieldnotes-palette-empty')?.textContent).toBe('No matches');
-    expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe('No matches');
+    expect(container.querySelector('.fieldnotes-palette-empty')?.textContent).toBe(
+      'No matches. Try a shorter search.',
+    );
+    expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe(
+      'No matches. Try a shorter search.',
+    );
     expect(input(container).hasAttribute('aria-activedescendant')).toBe(false);
   });
 
