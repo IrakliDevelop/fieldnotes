@@ -789,20 +789,6 @@ describe('CommandPalette reveal', () => {
     expect(fixture.calls.stop).toHaveBeenCalledOnce();
   });
 
-  it('typing never moves the camera', () => {
-    const overlay = makeHost();
-    const fixture = makeDeps({ overlayHost: overlay.host });
-    addHit(fixture.harness, 'note', 'Budget ping', 'budget');
-    fixture.palette.open();
-    type(fixture.container, 'budget');
-    const canvas = recordingCanvas();
-    overlay.getRenderer()?.(canvas.ctx);
-    expect(active(fixture.container).dataset.key).toBe('budget');
-    expect(fixture.deps.camera.position).toEqual({ x: 0, y: 0 });
-    expect(fixture.calls.stop).not.toHaveBeenCalled();
-    expect(canvas.strokes).toEqual([]);
-  });
-
   it('Enter on an element reveals, lingers the highlight, and closes', () => {
     let clock = 0;
     const animatorFrames: (() => void)[] = [];

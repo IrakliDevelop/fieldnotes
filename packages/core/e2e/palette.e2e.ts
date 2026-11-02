@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { CanvasPage, expect, test } from './fixtures/canvas-page';
-import { colorPixelCount, SELECTION_BLUE } from './helpers/red-pixel-count';
+import { colorPixelCount, SELECTION_BLUE } from './helpers/color-pixel-count';
 
 interface View {
   x: number;
@@ -40,6 +40,12 @@ interface PaletteFixtureViewport {
   camera: { position: { x: number; y: number }; zoom: number };
   toolManager: { activeTool: { name: string } | null };
   domLayer: { parentElement: Element | null };
+}
+
+declare global {
+  interface Window {
+    __fieldnotes_viewport: PaletteFixtureViewport;
+  }
 }
 
 interface NoteFixture {
@@ -82,8 +88,7 @@ async function openCanvas(page: Page) {
 
 async function seed(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const viewport = (window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport })
-      .__fieldnotes_viewport;
+    const viewport = window.__fieldnotes_viewport;
     const note = (id: string, x: number, y: number, text: string): NoteFixture => ({
       id,
       type: 'note',
@@ -112,8 +117,7 @@ async function seed(page: Page): Promise<number> {
 
 async function state(page: Page): Promise<CanvasState> {
   return page.evaluate(() => {
-    const viewport = (window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport })
-      .__fieldnotes_viewport;
+    const viewport = window.__fieldnotes_viewport;
     return {
       paletteOpen: viewport.palette.isOpen(),
       helpOpen: viewport.shortcutsHelp.isOpen(),
@@ -157,11 +161,7 @@ test.describe('command palette', () => {
     expect(result.boardFocused).toBe(true);
     expect(result.activeTool).toBe('select');
     await page.keyboard.press('ControlOrMeta+k');
-    await page.waitForFunction(() =>
-      (
-        window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-      ).__fieldnotes_viewport.palette.isOpen(),
-    );
+    await page.waitForFunction(() => window.__fieldnotes_viewport.palette.isOpen());
     await expect(page.locator('.fieldnotes-palette-input')).toBeFocused();
 
     await page.keyboard.type('cafe');
@@ -172,12 +172,7 @@ test.describe('command palette', () => {
     await expect(option.locator('mark')).toHaveText('café');
 
     await page.keyboard.press('Enter');
-    await page.waitForFunction(
-      () =>
-        !(
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.palette.isOpen(),
-    );
+    await page.waitForFunction(() => !window.__fieldnotes_viewport.palette.isOpen());
 
     const selectionBlueCount = () => colorPixelCount(page, SELECTION_BLUE);
     await expect.poll(selectionBlueCount).toBeGreaterThan(0);
@@ -194,84 +189,39 @@ test.describe('command palette', () => {
     expect(result.boardFocused).toBe(true);
 
     await page.keyboard.press('ControlOrMeta+k');
-    await page.waitForFunction(() =>
-      (
-        window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-      ).__fieldnotes_viewport.palette.isOpen(),
-    );
+    await page.waitForFunction(() => window.__fieldnotes_viewport.palette.isOpen());
     await page.keyboard.type('present');
     await page.keyboard.press('Enter');
-    await page.waitForFunction(
-      () =>
-        (
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.presentation.getState().active,
-    );
+    await page.waitForFunction(() => window.__fieldnotes_viewport.presentation.getState().active);
     await page.evaluate(() => {
-      (
-        window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-      ).__fieldnotes_viewport.presentation.exit();
+      window.__fieldnotes_viewport.presentation.exit();
     });
-    await page.waitForFunction(
-      () =>
-        !(
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.presentation.getState().active,
-    );
+    await page.waitForFunction(() => !window.__fieldnotes_viewport.presentation.getState().active);
 
     await page.evaluate(() => {
-      (
-        window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-      ).__fieldnotes_viewport.presentation.start({ fullscreen: false });
+      window.__fieldnotes_viewport.presentation.start({ fullscreen: false });
     });
-    await page.waitForFunction(
-      () =>
-        (
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.presentation.getState().active,
-    );
+    await page.waitForFunction(() => window.__fieldnotes_viewport.presentation.getState().active);
     await wrapper.focus();
     await page.keyboard.press('ControlOrMeta+k');
-    await page.waitForFunction(() =>
-      (
-        window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-      ).__fieldnotes_viewport.palette.isOpen(),
-    );
+    await page.waitForFunction(() => window.__fieldnotes_viewport.palette.isOpen());
     await page.keyboard.press('Escape');
     await page.waitForFunction(
       () =>
-        !(
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.palette.isOpen() &&
-        (
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.presentation.getState().active,
+        !window.__fieldnotes_viewport.palette.isOpen() &&
+        window.__fieldnotes_viewport.presentation.getState().active,
     );
     await page.keyboard.press('Escape');
-    await page.waitForFunction(
-      () =>
-        !(
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.presentation.getState().active,
-    );
+    await page.waitForFunction(() => !window.__fieldnotes_viewport.presentation.getState().active);
 
     await wrapper.focus();
     await page.keyboard.press('?');
-    await page.waitForFunction(() =>
-      (
-        window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-      ).__fieldnotes_viewport.shortcutsHelp.isOpen(),
-    );
+    await page.waitForFunction(() => window.__fieldnotes_viewport.shortcutsHelp.isOpen());
     const undoRow = page.locator('.fieldnotes-help-row', { hasText: 'Undo' });
     await expect(undoRow).toContainText('Undo');
     await expect(undoRow.locator('kbd')).toHaveText(/^(Ctrl\+|⌘)Z$/);
     await page.keyboard.press('Escape');
-    await page.waitForFunction(
-      () =>
-        !(
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.shortcutsHelp.isOpen(),
-    );
+    await page.waitForFunction(() => !window.__fieldnotes_viewport.shortcutsHelp.isOpen());
     await expect.poll(async () => (await state(page)).boardFocused).toBe(true);
 
     result = await state(page);
@@ -287,20 +237,11 @@ test.describe('command palette', () => {
     expect((await state(page)).activeTool).toBe('select');
 
     await page.locator('#palette-btn').tap();
-    await page.waitForFunction(() =>
-      (
-        window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-      ).__fieldnotes_viewport.palette.isOpen(),
-    );
+    await page.waitForFunction(() => window.__fieldnotes_viewport.palette.isOpen());
     await page.keyboard.type('shop');
     expect((await state(page)).activeTool).toBe('select');
     await page.locator('.fieldnotes-palette-option').first().tap();
-    await page.waitForFunction(
-      () =>
-        !(
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.palette.isOpen(),
-    );
+    await page.waitForFunction(() => !window.__fieldnotes_viewport.palette.isOpen());
 
     await expect
       .poll(async () =>
@@ -318,18 +259,9 @@ test.describe('command palette', () => {
     await expect.poll(selectionBlueCount, { timeout: 4000 }).toBe(0);
 
     await page.locator('#help-btn').tap();
-    await page.waitForFunction(() =>
-      (
-        window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-      ).__fieldnotes_viewport.shortcutsHelp.isOpen(),
-    );
+    await page.waitForFunction(() => window.__fieldnotes_viewport.shortcutsHelp.isOpen());
     await page.locator('.fieldnotes-help-close').tap();
-    await page.waitForFunction(
-      () =>
-        !(
-          window as unknown as { __fieldnotes_viewport: PaletteFixtureViewport }
-        ).__fieldnotes_viewport.shortcutsHelp.isOpen(),
-    );
+    await page.waitForFunction(() => !window.__fieldnotes_viewport.shortcutsHelp.isOpen());
 
     expect(errors).toEqual([]);
   });

@@ -142,17 +142,9 @@ export class CommandPalette implements PaletteApi {
   close(): void {
     const root = this.root;
     if (!root) return;
-    this.onClose();
-    this.unsubscribe();
-    this.disposeShell?.();
-    this.disposeShell = null;
-    this.root = null;
-    this.input = null;
-    this.list = null;
-    this.status = null;
-    this.rows = [];
-    this.activeKey = null;
-    this.rowSignature = null;
+    this.highlight?.linger('find');
+    this.highlightedElementId = null;
+    this.teardown();
     focusBoard(this.deps.wrapper, root);
   }
 
@@ -161,16 +153,7 @@ export class CommandPalette implements PaletteApi {
   }
 
   destroy(): void {
-    if (this.root) this.unsubscribe();
-    this.disposeShell?.();
-    this.disposeShell = null;
-    this.root = null;
-    this.input = null;
-    this.list = null;
-    this.status = null;
-    this.rows = [];
-    this.activeKey = null;
-    this.rowSignature = null;
+    this.teardown();
     this.animator?.dispose();
     this.animator = null;
     this.highlight?.dispose();
@@ -221,8 +204,7 @@ export class CommandPalette implements PaletteApi {
       this.highlightedElementId !== null &&
       !this.rows.some((row) => row.kind === 'element' && row.hit.id === this.highlightedElementId)
     ) {
-      this.highlight?.remove('find');
-      this.highlightedElementId = null;
+      this.clearHighlight();
     }
     const first = this.rows[0];
     if (this.rows.some((row) => this.key(row) === prior)) this.activeKey = prior;
@@ -398,7 +380,7 @@ export class CommandPalette implements PaletteApi {
       this.deps.actions.run(row.id, { source: 'menu' });
       return;
     }
-    this.onElementChosen(row.hit);
+    this.reveal(row.hit);
     this.close();
   }
 
@@ -411,30 +393,36 @@ export class CommandPalette implements PaletteApi {
       this.reveal(row.hit);
       return;
     }
+    this.clearHighlight();
+  }
+
+  private clearHighlight(): void {
     this.highlight?.remove('find');
     this.highlightedElementId = null;
   }
 
-  private onElementChosen(hit: SceneSearchHit): void {
-    this.reveal(hit);
-  }
-
-  private onClose(): void {
-    this.highlight?.linger('find');
-    this.highlightedElementId = null;
+  private teardown(): void {
+    this.unsubscribe();
+    this.disposeShell?.();
+    this.disposeShell = null;
+    this.root = null;
+    this.input = null;
+    this.list = null;
+    this.status = null;
+    this.rows = [];
+    this.activeKey = null;
+    this.rowSignature = null;
   }
 
   private reveal(hit: SceneSearchHit): void {
     const element = this.deps.store.getById(hit.id);
     if (!element) {
-      this.highlight?.remove('find');
-      this.highlightedElementId = null;
+      this.clearHighlight();
       return;
     }
     const bounds = getElementVisualBounds(element, this.deps.registry);
     if (!bounds) {
-      this.highlight?.remove('find');
-      this.highlightedElementId = null;
+      this.clearHighlight();
       return;
     }
     this.deps.stopCameraMotion();

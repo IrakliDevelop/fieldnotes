@@ -1,6 +1,6 @@
 import { test, expect, CanvasPage } from './fixtures/canvas-page';
 import { singleFingerDraw, pinchGesture } from './helpers/touch';
-import { colorPixelCount, LASER_RED } from './helpers/red-pixel-count';
+import { colorPixelCount, LASER_RED } from './helpers/color-pixel-count';
 import type { Page } from '@playwright/test';
 
 interface CameraState {
@@ -171,9 +171,7 @@ test.describe('presentation mode', () => {
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForFunction(
       (id) =>
-        (window as PresentationFixtureWindow).__fieldnotes_viewport
-          .getSelectedIds()
-          .includes(id),
+        (window as PresentationFixtureWindow).__fieldnotes_viewport.getSelectedIds().includes(id),
       seeded.firstShapeId,
     );
     await wrapper.focus();
@@ -190,8 +188,8 @@ test.describe('presentation mode', () => {
       .poll(() =>
         page.evaluate(
           () =>
-            (window as PresentationFixtureWindow).__fieldnotes_viewport.domLayer
-              .parentElement === document.activeElement,
+            (window as PresentationFixtureWindow).__fieldnotes_viewport.domLayer.parentElement ===
+            document.activeElement,
         ),
       )
       .toBe(true);

@@ -56,65 +56,11 @@ describe('core public surface', () => {
   });
 
   it('exports the palette surface', () => {
-    let paletteOpen = false;
-    const palette: PaletteApi = {
-      open(query) {
-        paletteOpen = query !== 'closed';
-      },
-      close() {
-        paletteOpen = false;
-      },
-      isOpen() {
-        return paletteOpen;
-      },
-    };
-    let helpOpen = false;
-    const help: ShortcutsHelpApi = {
-      open() {
-        helpOpen = true;
-      },
-      close() {
-        helpOpen = false;
-      },
-      isOpen() {
-        return helpOpen;
-      },
-    };
-    const strings: PaletteStrings = {
-      placeholder: 'Search',
-      noResults: 'None',
-      results: 'results',
-      actions: 'Actions',
-      board: 'Board',
-      helpTitle: 'Help',
-      close: 'Close',
-      groups: { palette: 'Palette' },
-      types: { note: 'Note' },
-    };
-    const options: PaletteOptions = {
-      strings: { placeholder: 'Find', groups: { palette: 'Commands' }, types: { note: 'Memo' } },
-    };
-    palette.open();
-    expect(palette.isOpen()).toBe(true);
-    palette.close();
-    expect(palette.isOpen()).toBe(false);
-    palette.open('open');
-    expect(palette.isOpen()).toBe(true);
-    palette.close();
-    help.open();
-    expect(help.isOpen()).toBe(true);
-    help.close();
-    expect(help.isOpen()).toBe(false);
-    expect([strings.placeholder, strings.groups.palette, strings.types.note]).toEqual([
-      'Search',
-      'Palette',
-      'Note',
-    ]);
-    expect([
-      options.strings?.placeholder,
-      options.strings?.groups?.palette,
-      options.strings?.types?.note,
-    ]).toEqual(['Find', 'Commands', 'Memo']);
+    const palette: PaletteApi | undefined = undefined;
+    const help: ShortcutsHelpApi | undefined = undefined;
+    const strings: PaletteStrings | undefined = undefined;
+    const options: PaletteOptions | undefined = undefined;
+    expect([palette, help, strings, options]).toEqual([undefined, undefined, undefined, undefined]);
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -222,8 +168,6 @@ describe('core public surface', () => {
       'DEFAULT_PALETTE_STRINGS',
       'FIXED_HELP_ROWS',
       'SceneSearch',
-      'SceneSearchHit',
-      'SceneSearchOptions',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);

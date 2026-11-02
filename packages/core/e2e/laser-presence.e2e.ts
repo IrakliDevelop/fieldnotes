@@ -1,6 +1,6 @@
 import { CanvasPage, test, expect } from './fixtures/canvas-page';
 import { singleFingerDraw } from './helpers/touch';
-import { colorPixelCount, LASER_RED } from './helpers/red-pixel-count';
+import { colorPixelCount, LASER_RED } from './helpers/color-pixel-count';
 import type { Page } from '@playwright/test';
 
 /**
