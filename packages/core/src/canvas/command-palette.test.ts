@@ -361,6 +361,46 @@ describe('command palette', () => {
     expect(palette.isOpen()).toBe(false);
   });
 
+  it('keeps an unchanged action row through a store update until its click commits', async () => {
+    const { harness, container, palette } = makeDeps();
+    const ping = addAction(harness, 'test.ping', 'Ping test');
+    palette.open('ping');
+    const row = rows(container)[0];
+    if (!row) throw new Error('missing action row');
+    row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+
+    addHit(harness, 'note', 'Unrelated note', 'unrelated');
+    await Promise.resolve();
+
+    expect(row.isConnected).toBe(true);
+    expect(rows(container)).toContain(row);
+    row.click();
+    expect(ping).toHaveBeenCalledOnce();
+    expect(palette.isOpen()).toBe(false);
+  });
+
+  it('does not scroll when a store update leaves rows and the active key unchanged', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    cleanup.push(() => {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', descriptor);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    });
+    const { harness, palette } = makeDeps();
+    addAction(harness, 'test.ping', 'Ping test');
+    palette.open('ping');
+    scrollIntoView.mockClear();
+
+    addHit(harness, 'note', 'Unrelated note', 'unrelated');
+    await Promise.resolve();
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it('keeps a palette row open through a pointerdown in a closed shadow root before its click commits', () => {
     vi.useFakeTimers();
     const host = document.createElement('div');
