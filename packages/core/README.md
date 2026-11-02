@@ -444,8 +444,9 @@ configure(ctx) {
 ## Command palette, find and shortcuts help
 
 `mod+K` opens the command palette. An empty query lists enabled actions with their current keys.
-Typing finds notes, text, arrow labels, and frame titles without regard to case or accents. Enter
-runs an action or reveals a board result. `?` opens shortcuts help, which lists current bindings.
+Typing finds notes, text, arrow labels, and frame titles without regard to case or accents. Down
+and Up move through results. Enter runs an action or reveals a board result and closes the palette.
+Escape closes it. `?` opens shortcuts help, which lists current bindings.
 
 ```ts
 viewport.palette.open('budget');

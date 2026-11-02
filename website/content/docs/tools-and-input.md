@@ -109,7 +109,7 @@ On a board that sits in a page, disable `select.cycle` and `select.cycle-reverse
 
 Ctrl/⌘+K opens the command palette. With an empty query, it lists enabled actions and their current keys. Typing searches notes, text, arrow labels, and frame titles. Matches ignore case and accents. Elements on hidden layers are skipped.
 
-Down and Up move through results. Enter runs an action or moves the camera to a board result and closes the palette. Escape closes it. A board result is outlined for 1.5 seconds and the outline then fades. It does not select the element or add an undo step.
+Down and Up move through results. Enter runs an action or moves the camera through its constraints to a board result and closes the palette. Escape closes it. A board result is outlined for 1.5 seconds and the outline then fades. It does not select the element or add an undo step.
 
 Open a query from a host control with `viewport.palette.open('budget')`. Add Ctrl/⌘+F with `shortcuts.rebind('palette.open', ['mod+k', 'mod+f'])`; Ctrl/⌘+F has no default binding. Pass `palette: false` to remove the palette and help. Pass `palette: { strings }` to localize it. Its `groups` and `types` strings merge by key.
 
