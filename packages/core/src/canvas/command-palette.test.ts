@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createNote } from '../elements/element-factory';
+import { createNote, createText } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { Camera } from './camera';
 import { CommandPalette, createPaletteActions } from './command-palette';
@@ -49,15 +50,69 @@ function makeDeps(overrides: Partial<CommandPaletteDeps> = {}) {
   return { harness, container, wrapper, palette, calls, deps };
 }
 
+function addAction(
+  harness: ReturnType<typeof createViewportHarness>,
+  id: string,
+  label: string,
+  perform = vi.fn(),
+) {
+  const remove = harness.viewport.actions.register({ id, label, perform });
+  cleanup.push(remove);
+  return perform;
+}
+
 function rows(container: HTMLElement) {
   return [...container.querySelectorAll<HTMLElement>('[role="option"]')];
 }
+
+function active(container: HTMLElement) {
+  const row = container.querySelector<HTMLElement>('.fieldnotes-palette-option--active');
+  if (!row) throw new Error('missing active row');
+  return row;
+}
+
+function input(container: HTMLElement) {
+  const field = container.querySelector<HTMLInputElement>('[role="combobox"]');
+  if (!field) throw new Error('missing input');
+  return field;
+}
+
 function type(container: HTMLElement, value: string) {
-  const input = container.querySelector<HTMLInputElement>('input');
-  if (!input) throw new Error('missing input');
-  input.value = value;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  return input;
+  const field = input(container);
+  field.value = value;
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  return field;
+}
+
+function key(target: HTMLElement, value: string, options: KeyboardEventInit = {}) {
+  const event = new KeyboardEvent('keydown', {
+    key: value,
+    bubbles: true,
+    cancelable: true,
+    ...options,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
+function addHit(
+  harness: ReturnType<typeof createViewportHarness>,
+  kind: 'note' | 'text' | 'frame',
+  text: string,
+  id: string,
+) {
+  if (kind === 'note') {
+    harness.viewport.store.add({ ...createNote({ position: { x: 0, y: 0 }, text }), id });
+    return;
+  }
+  if (kind === 'text') {
+    harness.viewport.store.add({ ...createText({ position: { x: 0, y: 0 }, text }), id });
+    return;
+  }
+  harness.viewport.store.add({
+    ...createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 80 }, title: text }),
+    id,
+  });
 }
 
 afterEach(() => {
@@ -72,21 +127,29 @@ afterEach(() => {
 describe('command palette', () => {
   it('open mounts the palette, focuses the input and lists enabled actions', () => {
     const { harness, container, palette, calls } = makeDeps();
-    const remove = harness.viewport.actions.register({
-      id: 'test.ping',
-      label: 'Ping test',
-      perform: () => undefined,
-    });
-    cleanup.push(remove);
+    addAction(harness, 'test.ping', 'Ping test');
     palette.open();
-    const input = container.querySelector<HTMLInputElement>('[role="combobox"]');
-    expect(input?.getAttribute('aria-expanded')).toBe('true');
-    expect(input?.placeholder).toBe('Search actions and the board');
-    expect(document.activeElement).toBe(input);
-    expect(rows(container).some((row) => row.textContent?.includes('Ping test'))).toBe(true);
+    const field = input(container);
+    const list = container.querySelector<HTMLElement>('[role="listbox"]');
+    const group = container.querySelector<HTMLElement>('[role="group"]');
+    const title = container.querySelector<HTMLElement>('.fieldnotes-palette-group-title');
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(field.getAttribute('aria-expanded')).toBe('true');
+    expect(field.getAttribute('aria-autocomplete')).toBe('list');
+    expect(field.getAttribute('aria-controls')).toBe(list?.id);
+    expect(field.placeholder).toBe('Search actions and the board');
+    expect(document.activeElement).toBe(field);
+    expect(rows(container).map((row) => row.textContent)).toEqual(
+      expect.arrayContaining(['UndoCtrl+Z', 'Present', 'Ping test']),
+    );
     expect(rows(container).some((row) => row.dataset.key === 'palette.open')).toBe(false);
-    expect(input?.getAttribute('aria-activedescendant')).toBe(
-      container.querySelector('.fieldnotes-palette-option--active')?.id,
+    expect(rows(container).some((row) => row.textContent?.includes('Delete'))).toBe(false);
+    expect(group?.getAttribute('aria-labelledby')).toBe(title?.id);
+    expect(title?.getAttribute('role')).toBe('presentation');
+    expect(active(container).getAttribute('aria-selected')).toBe('true');
+    expect(field.getAttribute('aria-activedescendant')).toBe(active(container).id);
+    expect(container.querySelector('.fieldnotes-palette-status')?.getAttribute('aria-live')).toBe(
+      'polite',
     );
     expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe(
       String(rows(container).length),
@@ -94,74 +157,355 @@ describe('command palette', () => {
     expect(calls.context).toHaveBeenCalledOnce();
     expect(calls.help).toHaveBeenCalledOnce();
   });
-  it('typing filters actions and adds board hits without parsing hostile text', () => {
+
+  it('strings override the placeholder and group headings', () => {
+    const strings = {
+      ...DEFAULT_PALETTE_STRINGS,
+      placeholder: 'Suche',
+      actions: 'Befehle',
+      board: 'Treffer',
+    };
+    const { harness, container, palette } = makeDeps({ strings });
+    addAction(harness, 'test.budget', 'Budget command');
+    addHit(harness, 'note', 'Budget note', 'budget');
+    palette.open('bud');
+    expect(input(container).placeholder).toBe('Suche');
+    expect(container.textContent).toContain('Befehle');
+    expect(container.textContent).toContain('Treffer');
+  });
+
+  it('typing filters actions and adds board hits under the second group', () => {
     const { harness, container, palette } = makeDeps();
-    harness.viewport.store.add(createNote({ position: { x: 0, y: 0 }, text: 'Budget 2026' }));
-    harness.viewport.store.add(createNote({ position: { x: 0, y: 0 }, text: '&lt;img src=x&gt;' }));
+    addHit(harness, 'note', 'Budget note', 'budget');
+    addHit(harness, 'text', 'Shopping text', 'shopping');
+    addHit(harness, 'frame', 'Roadmap frame', 'roadmap');
     palette.open();
     type(container, 'bud');
+    expect(container.querySelectorAll('[role="group"]')).toHaveLength(1);
     expect(container.textContent).toContain('On the board');
+    expect(rows(container)).toHaveLength(1);
+    expect(rows(container)[0]?.textContent).toContain('Budget note');
     expect(container.querySelector('mark')?.textContent).toBe('Bud');
-    type(container, 'img');
-    expect(container.textContent).toContain('<img src=x>');
+    expect(container.querySelector('.fieldnotes-palette-badge')?.textContent).toBe('Note');
+    type(container, 'present');
+    expect(rows(container)).toHaveLength(1);
+    expect(rows(container)[0]?.textContent).toContain('Present');
+    expect(container.textContent).not.toContain('On the board');
+    type(container, 'zzz');
+    expect(container.querySelector('.fieldnotes-palette-empty')?.textContent).toBe('No matches');
+    expect(input(container).hasAttribute('aria-activedescendant')).toBe(false);
+  });
+
+  it('a hit built from hostile text renders as text', () => {
+    const { harness, container, palette } = makeDeps();
+    addHit(harness, 'note', '&lt;img src=x onerror=alert(1)&gt;', 'hostile');
+    palette.open('img');
+    expect(rows(container)[0]?.textContent).toContain('<img src=x onerror=alert(1)>');
     expect(container.querySelector('img')).toBeNull();
   });
-  it('moves, commits after close, and isolates keys', () => {
+
+  it('a multiline hit marks source offsets relative to the displayed line', () => {
+    const { harness, container, palette } = makeDeps();
+    addHit(harness, 'note', '\n  \nBudget note', 'multiline');
+    palette.open('bud');
+    expect(rows(container)[0]?.textContent).toContain('Budget note');
+    expect(container.querySelector('mark')?.textContent).toBe('Bud');
+  });
+
+  it('ArrowDown and ArrowUp move the active row without wrapping and keep the caret keys', () => {
+    const { harness, container, palette } = makeDeps();
+    addAction(harness, 'test.q1', 'Q1');
+    addAction(harness, 'test.q2', 'Q2');
+    addAction(harness, 'test.q3', 'Q3');
+    palette.open('q');
+    const field = input(container);
+    expect(rows(container).map((row) => row.textContent)).toEqual(['Q1', 'Q2', 'Q3']);
+    expect(key(field, 'ArrowDown').defaultPrevented).toBe(true);
+    expect(active(container).textContent).toBe('Q2');
+    key(field, 'ArrowDown');
+    key(field, 'ArrowDown');
+    expect(active(container).textContent).toBe('Q3');
+    key(field, 'ArrowUp');
+    key(field, 'ArrowUp');
+    key(field, 'ArrowUp');
+    expect(active(container).textContent).toBe('Q1');
+    expect(key(field, 'Home').defaultPrevented).toBe(false);
+  });
+
+  it('a mousedown on a group title is prevented and a modified palette.open key inside the input is swallowed', () => {
+    const { harness, container, palette } = makeDeps();
+    addAction(harness, 'test.ping', 'Ping test');
+    palette.open();
+    const field = input(container);
+    const title = container.querySelector<HTMLElement>('.fieldnotes-palette-group-title');
+    if (!title) throw new Error('missing title');
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    title.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(field);
+    expect(key(field, 'k', { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(rows(container).some((row) => row.textContent?.includes('Ping test'))).toBe(true);
+    palette.destroy();
+    const plain = makeDeps({
+      matchShortcut: (event) => (event.key === 'k' ? 'palette.open' : null),
+    });
+    plain.palette.open();
+    expect(key(input(plain.container), 'k').defaultPrevented).toBe(false);
+  });
+
+  it('Enter runs the active action after closing and focuses the wrapper', () => {
     const { harness, container, wrapper, palette } = makeDeps();
     const ping = vi.fn(() => expect(palette.isOpen()).toBe(false));
-    const remove = harness.viewport.actions.register({
-      id: 'test.ping',
-      label: 'Ping test',
-      perform: ping,
-    });
-    cleanup.push(remove);
+    addAction(harness, 'test.ping', 'Ping test', ping);
     palette.open('ping');
-    const input = type(container, 'ping');
-    const modified = new KeyboardEvent('keydown', {
-      key: 'k',
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-    input.dispatchEvent(modified);
-    expect(modified.defaultPrevented).toBe(true);
-    input.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-    );
-    expect(ping).toHaveBeenCalledOnce();
+    key(input(container), 'Enter');
+    expect(ping).toHaveBeenCalledWith(expect.anything(), { source: 'menu', shiftKey: false });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(wrapper);
   });
-  it('live re-renders, destroys subscriptions, and never moves the camera', async () => {
+
+  it('a click on a row runs it and a pointerdown on the list keeps the input focused', () => {
+    const { harness, container, palette } = makeDeps();
+    const ping = addAction(harness, 'test.ping', 'Ping test');
+    palette.open('ping');
+    const field = input(container);
+    const list = container.querySelector<HTMLElement>('[role="listbox"]');
+    if (!list) throw new Error('missing list');
+    const down = new PointerEvent('pointerdown', { bubbles: true, cancelable: true });
+    list.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(field);
+    rows(container)[0]?.click();
+    expect(ping).toHaveBeenCalledOnce();
+    expect(palette.isOpen()).toBe(false);
+  });
+
+  it('an element row commits and closes without running an action', () => {
     const { harness, container, palette, deps } = makeDeps();
+    const ping = addAction(harness, 'test.budget', 'Budget action');
+    addHit(harness, 'note', 'Budget note', 'budget');
+    const position = deps.camera.position;
+    const zoom = deps.camera.zoom;
+    palette.open('budget');
+    const element = rows(container).find((row) => row.dataset.key === 'budget');
+    if (!element) throw new Error('missing board row');
+    element.click();
+    expect(palette.isOpen()).toBe(false);
+    expect(ping).not.toHaveBeenCalled();
+    expect(deps.camera.position).toEqual(position);
+    expect(deps.camera.zoom).toBe(zoom);
+  });
+
+  it('a store change while open re-renders and keeps the active key', async () => {
+    const { harness, container, palette } = makeDeps();
+    addHit(harness, 'note', 'Zebra a', 'a');
+    addHit(harness, 'note', 'Zebra b', 'b');
+    addHit(harness, 'note', 'Zebra c', 'c');
     palette.open('zebra');
-    harness.viewport.store.add(createNote({ position: { x: 0, y: 0 }, text: 'Zebra' }));
+    key(input(container), 'ArrowDown');
+    expect(active(container).dataset.key).toBe('b');
+    addHit(harness, 'note', 'Zebra d', 'd');
     await Promise.resolve();
-    expect(rows(container)).toHaveLength(1);
+    expect(rows(container)).toHaveLength(4);
+    expect(active(container).dataset.key).toBe('b');
+    harness.viewport.store.remove('b');
+    await Promise.resolve();
+    expect(rows(container)).toHaveLength(3);
+    expect(active(container).dataset.key).toBe('a');
+  });
+
+  it('an action registry change while open re-renders', async () => {
+    const { harness, container, palette } = makeDeps();
+    palette.open();
+    const remove = harness.viewport.actions.register({
+      id: 'test.zoom',
+      label: 'Zoom test',
+      perform: () => undefined,
+    });
+    cleanup.push(remove);
+    await Promise.resolve();
+    expect(rows(container).some((row) => row.textContent === 'Zoom test')).toBe(true);
+    remove();
+    await Promise.resolve();
+    expect(rows(container).some((row) => row.textContent === 'Zoom test')).toBe(false);
+  });
+
+  it('typing never moves the camera', () => {
+    const { harness, container, palette, deps } = makeDeps();
+    addHit(harness, 'note', 'Budget note', 'budget');
+    deps.camera.moveTo(17, 23);
+    deps.camera.setZoom(1.7);
+    palette.open();
+    type(container, 'bud');
+    expect(deps.camera.position).toEqual({ x: 17, y: 23 });
+    expect(deps.camera.zoom).toBe(1.7);
     expect(deps.stopCameraMotion).not.toHaveBeenCalled();
+  });
+
+  it('Escape closes, is prevented, and keys inside never reach document or window listeners', () => {
+    const seen = { document: vi.fn(), window: vi.fn() };
+    document.addEventListener('keydown', seen.document);
+    window.addEventListener('keydown', seen.window);
+    cleanup.push(() => document.removeEventListener('keydown', seen.document));
+    cleanup.push(() => window.removeEventListener('keydown', seen.window));
+    const { container, palette } = makeDeps();
+    palette.open();
+    const field = input(container);
+    key(field, 'a');
+    const escape = key(field, 'Escape');
+    expect(escape.defaultPrevented).toBe(true);
+    expect(palette.isOpen()).toBe(false);
+    expect(seen.document).not.toHaveBeenCalled();
+    expect(seen.window).not.toHaveBeenCalled();
+  });
+
+  it('an outside pointerdown closes after the deferral', () => {
+    vi.useFakeTimers();
+    const { container, palette } = makeDeps();
+    const host = document.createElement('button');
+    document.body.append(host);
+    cleanup.push(() => host.remove());
+    host.addEventListener('pointerdown', () => palette.open());
+    host.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(palette.isOpen()).toBe(true);
+    vi.advanceTimersByTime(0);
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(palette.isOpen()).toBe(false);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('open with a query prefills and re-open replaces it', () => {
+    const { harness, container, palette } = makeDeps();
+    addHit(harness, 'note', 'Budget note', 'budget');
+    addHit(harness, 'note', 'Roadmap note', 'roadmap');
+    palette.open('bud');
+    expect(input(container).value).toBe('bud');
+    expect(rows(container)[0]?.textContent).toContain('Budget');
+    palette.open('road');
+    expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(input(container).value).toBe('road');
+    expect(rows(container)[0]?.textContent).toContain('Roadmap');
+  });
+
+  it('close focuses the wrapper; with a non-focusable wrapper it blurs the input', () => {
+    const focusable = makeDeps();
+    focusable.palette.open();
+    focusable.palette.close();
+    expect(document.activeElement).toBe(focusable.wrapper);
+    const blurred = makeDeps();
+    blurred.wrapper.removeAttribute('tabindex');
+    blurred.palette.open();
+    blurred.palette.close();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('destroy removes the root and the subscriptions', async () => {
+    const { harness, container, wrapper, palette } = makeDeps();
+    palette.open();
+    expect(document.activeElement).toBe(input(container));
     palette.destroy();
-    harness.viewport.store.add(createNote({ position: { x: 0, y: 0 }, text: 'Zebra two' }));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).not.toBe(wrapper);
+    addHit(harness, 'note', 'After destroy', 'after');
+    const remove = harness.viewport.actions.register({
+      id: 'test.after',
+      label: 'After',
+      perform: () => undefined,
+    });
+    cleanup.push(remove);
     await Promise.resolve();
     expect(container.children).toHaveLength(0);
   });
-  it('closes on deferred outside pointerdown and appends one stylesheet', () => {
-    vi.useFakeTimers();
+
+  it('the stylesheet is appended once for two palettes', () => {
     const first = makeDeps();
     const second = makeDeps();
     first.palette.open();
     second.palette.open();
-    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    expect(first.palette.isOpen()).toBe(true);
-    vi.advanceTimersByTime(0);
-    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    expect(first.palette.isOpen()).toBe(false);
     expect(document.head.querySelectorAll('style[data-fieldnotes-palette]')).toHaveLength(1);
   });
-  it('creates the approved palette actions', () => {
-    const palette = { open: vi.fn(), close: vi.fn(), isOpen: () => false };
-    const help = { open: vi.fn(), close: vi.fn(), isOpen: () => false };
-    expect(createPaletteActions(palette, help).map((action) => action.id)).toEqual([
+
+  it('translated headings and colliding action/element ids remain unique', () => {
+    const strings = { ...DEFAULT_PALETTE_STRINGS, actions: 'Same', board: 'Same' };
+    const { harness, container, palette } = makeDeps({ strings });
+    addAction(harness, 'shared', 'Budget command');
+    addHit(harness, 'note', 'Budget note', 'shared');
+    palette.open('budget');
+    const headings = [
+      ...container.querySelectorAll<HTMLElement>('.fieldnotes-palette-group-title'),
+    ];
+    const options = rows(container);
+    expect(new Set(headings.map((heading) => heading.id)).size).toBe(2);
+    expect(new Set(options.map((option) => option.id)).size).toBe(2);
+    expect(options.map((option) => option.dataset.key)).toEqual(['shared', 'shared']);
+    const before = input(container).getAttribute('aria-activedescendant');
+    key(input(container), 'ArrowDown');
+    expect(input(container).getAttribute('aria-activedescendant')).not.toBe(before);
+  });
+
+  it('an enabled palette.open action is still excluded by id', () => {
+    const { harness, container, palette } = makeDeps();
+    const remove = harness.viewport.actions.register({
+      id: 'palette.open',
+      label: 'Command palette',
+      enabled: () => true,
+      perform: () => undefined,
+    });
+    cleanup.push(remove);
+    palette.open();
+    expect(rows(container).some((row) => row.dataset.key === 'palette.open')).toBe(false);
+  });
+
+  it('createPaletteActions returns the exact definitions and behavior', () => {
+    const fixture = makeDeps();
+    const palette = { open: vi.fn(), close: vi.fn(), isOpen: vi.fn(() => false) };
+    const help = { open: vi.fn(), close: vi.fn(), isOpen: vi.fn(() => false) };
+    const definitions = createPaletteActions(palette, help);
+    expect(definitions.map((definition) => definition.id)).toEqual([
       'palette.open',
       'palette.help',
     ]);
+    const open = definitions[0];
+    const shortcuts = definitions[1];
+    if (!open || !shortcuts) throw new Error('missing palette definitions');
+    expect({
+      label: open.label,
+      keywords: open.keywords,
+      shortcut: open.shortcut,
+      allowShift: open.allowShift,
+      menu: open.menu,
+    }).toEqual({
+      label: 'Command palette',
+      keywords: ['search', 'find', 'commands', 'go to'],
+      shortcut: ['mod+k'],
+      allowShift: undefined,
+      menu: undefined,
+    });
+    expect({
+      label: shortcuts.label,
+      keywords: shortcuts.keywords,
+      shortcut: shortcuts.shortcut,
+      allowShift: shortcuts.allowShift,
+      menu: shortcuts.menu,
+    }).toEqual({
+      label: 'Keyboard shortcuts',
+      keywords: ['help', 'keys', 'bindings', 'shortcuts'],
+      shortcut: ['?'],
+      allowShift: true,
+      menu: undefined,
+    });
+    const context = fixture.deps.getActionContext();
+    expect(open.enabled?.(context)).toBe(true);
+    palette.isOpen.mockReturnValue(true);
+    expect(open.enabled?.(context)).toBe(false);
+    expect(shortcuts.enabled?.(context)).toBe(true);
+    help.isOpen.mockReturnValue(true);
+    expect(shortcuts.enabled?.(context)).toBe(false);
+    expect(open.perform(context, { source: 'keyboard', shiftKey: false })).toBeUndefined();
+    expect(shortcuts.perform(context, { source: 'keyboard', shiftKey: false })).toBeUndefined();
+    expect(palette.open).toHaveBeenCalledOnce();
+    expect(help.open).toHaveBeenCalledOnce();
   });
 });

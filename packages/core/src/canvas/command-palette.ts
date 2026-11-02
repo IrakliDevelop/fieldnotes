@@ -130,6 +130,7 @@ export class CommandPalette implements PaletteApi {
   close(): void {
     const root = this.root;
     if (!root) return;
+    this.onClose();
     this.unsubscribe();
     this.disposeShell?.();
     this.disposeShell = null;
@@ -199,18 +200,20 @@ export class CommandPalette implements PaletteApi {
     if (!input || !list || !status) return;
     const prior = this.activeKey;
     this.rows = this.rowsFor(input.value);
+    const first = this.rows[0];
     this.activeKey = this.rows.some((row) => this.key(row) === prior)
       ? prior
-      : this.rows[0]
-        ? this.key(this.rows[0])
+      : first
+        ? this.key(first)
         : null;
+    if (!this.activeKey) input.removeAttribute('aria-activedescendant');
     list.replaceChildren();
     const actions = this.rows.filter((row): row is PaletteActionRow => row.kind === 'action');
     const elements = this.rows.filter(
       (row): row is { kind: 'element'; hit: SceneSearchHit } => row.kind === 'element',
     );
-    if (actions.length) list.append(this.group(this.deps.strings.actions, actions));
-    if (elements.length) list.append(this.group(this.deps.strings.board, elements));
+    if (actions.length) list.append(this.group('actions', this.deps.strings.actions, actions));
+    if (elements.length) list.append(this.group('board', this.deps.strings.board, elements));
     if (!this.rows.length) {
       const empty = document.createElement('div');
       empty.className = 'fieldnotes-palette-empty';
@@ -220,13 +223,17 @@ export class CommandPalette implements PaletteApi {
     status.textContent = this.rows.length ? String(this.rows.length) : this.deps.strings.noResults;
   }
 
-  private group(title: string, rows: readonly PaletteRow[]): HTMLElement {
+  private group(
+    kind: 'actions' | 'board',
+    title: string,
+    rows: readonly PaletteRow[],
+  ): HTMLElement {
     const group = document.createElement('div');
     group.className = 'fieldnotes-palette-group';
     group.setAttribute('role', 'group');
     const heading = document.createElement('div');
     heading.className = 'fieldnotes-palette-group-title';
-    heading.id = `fieldnotes-palette-title-${this.id}-${title === this.deps.strings.actions ? 'actions' : 'board'}`;
+    heading.id = `fieldnotes-palette-title-${this.id}-${kind}`;
     heading.setAttribute('role', 'presentation');
     heading.textContent = title;
     group.setAttribute('aria-labelledby', heading.id);
@@ -242,7 +249,7 @@ export class CommandPalette implements PaletteApi {
     option.className = 'fieldnotes-palette-option';
     if (selected) option.classList.add('fieldnotes-palette-option--active');
     option.id = `fieldnotes-palette-option-${this.id}-${key}`;
-    option.dataset.key = key;
+    option.dataset.key = row.kind === 'action' ? row.id : row.hit.id;
     option.setAttribute('role', 'option');
     option.setAttribute('aria-selected', String(selected));
     option.addEventListener('click', () => this.commit(row));
@@ -269,14 +276,28 @@ export class CommandPalette implements PaletteApi {
   }
 
   private appendHit(option: HTMLElement, hit: SceneSearchHit): void {
-    const line = hit.text.split(/\r?\n/u).find((part) => part.trim()) ?? '';
-    const shown = line.length > 80 ? `${line.slice(0, 80)}…` : line;
-    const start = Math.min(hit.start, shown.length);
-    const end = Math.min(Math.max(hit.end, start), shown.length);
-    option.append(document.createTextNode(shown.slice(0, start)));
+    let offset = 0;
+    let line = '';
+    for (const part of hit.text.split(/(\r?\n)/u)) {
+      if (part === '\n' || part === '\r\n') {
+        offset += part.length;
+        continue;
+      }
+      if (part.trim()) {
+        line = part;
+        break;
+      }
+      offset += part.length;
+    }
+    const source = line.slice(0, 80);
+    const truncated = line.length > source.length;
+    const start = Math.min(Math.max(hit.start - offset, 0), source.length);
+    const end = Math.min(Math.max(hit.end - offset, start), source.length);
+    option.append(document.createTextNode(source.slice(0, start)));
     const mark = document.createElement('mark');
-    mark.textContent = shown.slice(start, end);
-    option.append(mark, document.createTextNode(shown.slice(end)));
+    mark.textContent = source.slice(start, end);
+    option.append(mark, document.createTextNode(source.slice(end)));
+    if (truncated) option.append(document.createTextNode('…'));
     const badge = document.createElement('span');
     badge.className = 'fieldnotes-palette-badge';
     badge.textContent = this.deps.strings.types[hit.type] ?? hit.type;
@@ -301,6 +322,7 @@ export class CommandPalette implements PaletteApi {
       const row = this.rows[next];
       if (row) {
         this.activeKey = this.key(row);
+        this.onActiveRow(row);
         this.render();
       }
       return;
@@ -318,11 +340,24 @@ export class CommandPalette implements PaletteApi {
       this.deps.actions.run(row.id, { source: 'menu' });
       return;
     }
+    this.onElementChosen(row.hit);
     this.close();
   }
 
   private key(row: PaletteRow): string {
-    return row.kind === 'action' ? row.id : row.hit.id;
+    return row.kind === 'action' ? `action:${row.id}` : `element:${row.hit.id}`;
+  }
+
+  private onActiveRow(row: PaletteRow): void {
+    void row;
+  }
+
+  private onElementChosen(hit: SceneSearchHit): void {
+    void hit;
+  }
+
+  private onClose(): void {
+    return;
   }
 }
 
