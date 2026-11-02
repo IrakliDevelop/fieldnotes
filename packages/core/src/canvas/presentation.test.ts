@@ -748,6 +748,63 @@ describe('PresentationMode fullscreen', () => {
     expect(exitFullscreen).toHaveBeenCalledOnce();
   });
 
+  it('a windowed restart survives stale fullscreen entry before request settlement', async () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const request = deferred();
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(
+      h.container,
+      'requestFullscreen',
+      vi.fn<() => Promise<void>>().mockReturnValue(request.promise),
+    );
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    const mode = makeMode(h.deps);
+
+    mode.start();
+    mode.exit();
+    mode.start({ fullscreen: false });
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: false });
+
+    request.resolve();
+    await Promise.resolve();
+    setFullscreenElement(null);
+    document.dispatchEvent(new Event('fullscreenchange'));
+
+    expect(exitFullscreen).toHaveBeenCalledOnce();
+    expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: false });
+  });
+
+  it('a windowed restart survives cleanup that began before restart', async () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const request = deferred();
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    stubValue(
+      h.container,
+      'requestFullscreen',
+      vi.fn<() => Promise<void>>().mockReturnValue(request.promise),
+    );
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    const mode = makeMode(h.deps);
+
+    mode.start();
+    mode.exit();
+    setFullscreenElement(h.container);
+    request.resolve();
+    await Promise.resolve();
+    mode.start({ fullscreen: false });
+    expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: false });
+
+    setFullscreenElement(null);
+    document.dispatchEvent(new Event('fullscreenchange'));
+
+    expect(exitFullscreen).toHaveBeenCalledOnce();
+    expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: false });
+  });
+
   it('leaving owned fullscreen exits the presentation', () => {
     const h = makeDeps();
     const setFullscreenElement = stubFullscreenElement();

@@ -175,7 +175,9 @@ export class PresentationMode implements PresentationApi {
       active: true,
       index,
       count: slides.length,
-      fullscreen: document.fullscreenElement === this.deps.container,
+      fullscreen:
+        document.fullscreenElement === this.deps.container &&
+        !(options.fullscreen === false && this.isStaleFullscreenRequest()),
     };
     this.applySlide(index, false);
     this.emit();
@@ -311,6 +313,18 @@ export class PresentationMode implements PresentationApi {
 
   private onFullscreenChange = (): void => {
     const fullscreen = document.fullscreenElement === this.deps.container;
+    const pending = this.pendingFullscreen;
+    if (pending !== null && this.isStaleFullscreenRequest()) {
+      if (fullscreen) {
+        this.cleanupFullscreenRequest(pending);
+        this.normalizeFullscreen();
+        return;
+      }
+      if (pending.cleanupStarted) {
+        this.finishFullscreenCleanup(pending);
+        return;
+      }
+    }
     if (fullscreen && !this.state.fullscreen) {
       if (this.pendingFullscreen?.owner === this.session && this.session !== null) {
         this.ownsFullscreen = true;
@@ -342,14 +356,26 @@ export class PresentationMode implements PresentationApi {
     if (pendingOwned && pending !== null) pending.owner = null;
     const fullscreen = document.fullscreenElement === this.deps.container;
     if (!fullscreen || (!this.ownsFullscreen && !pendingOwned)) return;
-    if (pending !== null) pending.cleanupStarted = true;
+    if (pendingOwned && pending !== null) {
+      this.cleanupFullscreenRequest(pending);
+      return;
+    }
     void document.exitFullscreen().catch(() => undefined);
   }
 
   private requestFullscreen(enabled: boolean): void {
-    if (!enabled) return;
     const session = this.session;
     const pending = this.pendingFullscreen;
+    if (!enabled) {
+      if (
+        pending !== null &&
+        this.isStaleFullscreenRequest() &&
+        document.fullscreenElement === this.deps.container
+      ) {
+        this.cleanupFullscreenRequest(pending);
+      }
+      return;
+    }
     if (pending !== null && !pending.cleanupStarted) {
       pending.owner = session;
       return;
@@ -365,22 +391,57 @@ export class PresentationMode implements PresentationApi {
     void this.deps.container.requestFullscreen().then(
       () => this.settleFullscreenRequest(request),
       () => {
-        if (this.pendingFullscreen === request) this.pendingFullscreen = null;
+        if (this.pendingFullscreen === request && !request.cleanupStarted) {
+          this.pendingFullscreen = null;
+        }
       },
     );
   }
 
   private settleFullscreenRequest(request: PendingFullscreen): void {
     if (this.pendingFullscreen !== request) return;
-    this.pendingFullscreen = null;
     const fullscreen = document.fullscreenElement === this.deps.container;
     if (request.owner === this.session && this.session !== null && fullscreen) {
       this.ownsFullscreen = true;
+      this.pendingFullscreen = null;
       return;
     }
-    if (!fullscreen || request.cleanupStarted) return;
+    if (!fullscreen) {
+      this.finishFullscreenCleanup(request);
+      return;
+    }
+    this.cleanupFullscreenRequest(request);
+  }
+
+  private isStaleFullscreenRequest(): boolean {
+    return this.pendingFullscreen !== null && this.pendingFullscreen.owner !== this.session;
+  }
+
+  private cleanupFullscreenRequest(request: PendingFullscreen): void {
+    if (request.cleanupStarted) return;
     request.cleanupStarted = true;
-    void document.exitFullscreen().catch(() => undefined);
+    if (document.fullscreenElement !== this.deps.container) {
+      this.finishFullscreenCleanup(request);
+      return;
+    }
+    void document.exitFullscreen().then(
+      () => this.finishFullscreenCleanup(request),
+      () => this.finishFullscreenCleanup(request),
+    );
+  }
+
+  private finishFullscreenCleanup(request: PendingFullscreen): void {
+    if (this.pendingFullscreen !== request || document.fullscreenElement === this.deps.container) {
+      return;
+    }
+    this.pendingFullscreen = null;
+    this.normalizeFullscreen();
+  }
+
+  private normalizeFullscreen(): void {
+    if (!this.state.fullscreen) return;
+    this.state = { ...this.state, fullscreen: false };
+    this.emit();
   }
 
   private emit(): void {
