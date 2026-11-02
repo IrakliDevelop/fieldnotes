@@ -175,9 +175,7 @@ export class PresentationMode implements PresentationApi {
       active: true,
       index,
       count: slides.length,
-      fullscreen:
-        document.fullscreenElement === this.deps.container &&
-        !(options.fullscreen === false && this.isStaleFullscreenRequest()),
+      fullscreen: document.fullscreenElement === this.deps.container,
     };
     this.applySlide(index, false);
     this.emit();
@@ -317,7 +315,10 @@ export class PresentationMode implements PresentationApi {
     if (pending !== null && this.isStaleFullscreenRequest()) {
       if (fullscreen) {
         this.cleanupFullscreenRequest(pending);
-        this.normalizeFullscreen();
+        if (!this.state.fullscreen) {
+          this.state = { ...this.state, fullscreen: true };
+          this.emit();
+        }
         return;
       }
       if (pending.cleanupStarted) {

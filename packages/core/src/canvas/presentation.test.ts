@@ -764,9 +764,14 @@ describe('PresentationMode fullscreen', () => {
     mode.start();
     mode.exit();
     mode.start({ fullscreen: false });
+    const fullscreenStates: boolean[] = [];
+    mode.onChange(() => fullscreenStates.push(mode.getState().fullscreen));
+    expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: false });
+
     setFullscreenElement(h.container);
     document.dispatchEvent(new Event('fullscreenchange'));
-    expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: false });
+    expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: true });
+    expect(fullscreenStates).toEqual([true]);
 
     request.resolve();
     await Promise.resolve();
@@ -775,6 +780,7 @@ describe('PresentationMode fullscreen', () => {
 
     expect(exitFullscreen).toHaveBeenCalledOnce();
     expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: false });
+    expect(fullscreenStates).toEqual([true, false]);
   });
 
   it('a windowed restart survives cleanup that began before restart', async () => {
@@ -796,7 +802,7 @@ describe('PresentationMode fullscreen', () => {
     request.resolve();
     await Promise.resolve();
     mode.start({ fullscreen: false });
-    expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: false });
+    expect(mode.getState()).toMatchObject({ active: true, index: 0, fullscreen: true });
 
     setFullscreenElement(null);
     document.dispatchEvent(new Event('fullscreenchange'));
