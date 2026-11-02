@@ -37,7 +37,7 @@ Each tool takes options in its constructor, and `setOptions` changes them while 
 
 ::code{example="tools-and-input" region="options"}
 
-The highlighter is a second `PencilTool` under its own name, so `setTool('highlighter')` picks it. A tool whose name is not one of the nine above has no default key.
+The highlighter is a second `PencilTool` under its own name, so `setTool('highlighter')` picks it. A tool whose name is not in the default shortcut table has no default key.
 
 `EraserTool` takes `radius` in screen pixels (default 20), and `mode: 'stroke'` makes it delete whole strokes. Hold Shift while drawing a line to snap it to 45° steps.
 
@@ -77,6 +77,7 @@ Shortcuts work while the board has focus, and a click on the board gives it focu
 - Arrow keys: `arrange.nudge-left`, `arrange.nudge-right`, `arrange.nudge-up` and `arrange.nudge-down`, 1 unit at a time or 10 with Shift
 - Shift+1: `view.zoom-to-fit`
 - mod+=, mod+- and mod+0: `view.zoom-in`, `view.zoom-out` and `view.zoom-reset`
+- L: `tool.laser`, when a `LaserTool` is registered (the default tools don't include one)
 - The tool keys above: `tool.select`, `tool.hand`, `tool.pencil`, `tool.eraser`, `tool.arrow`, `tool.note`, `tool.text` and `tool.shape`
 
 `tool.frame` is the F shortcut.
@@ -101,6 +102,16 @@ Rebind keys with `shortcuts.bindings` in the options, or later with `viewport.sh
 ::code{example="tools-and-input" region="shortcuts"}
 
 On a board that sits in a page, disable `select.cycle` and `select.cycle-reverse` as above. Otherwise Tab moves between elements and keyboard users can't leave the board. `viewport.runAction(action)` runs any action from your own buttons.
+
+## Presentation
+
+`viewport.presentation.start()` steps through every frame on a visible layer, in scene order. To show other areas, pass `start({ slides })` with a camera `view` for each slide.
+
+`next()`, `previous()` and `goTo(index)` move between slides and return `false` when they can't; `exit()` ends the presentation. `onChange` reports every step, and `getState()` returns `index` and `count` for a slide counter.
+
+While presenting, Right arrow, Down arrow, PageDown and Space go to the next slide; Left arrow, Up arrow, PageUp and Shift+Space go back; Home and End jump to the first and last slide; Escape ends the presentation. These keys can't be rebound. They don't reach the presentation while focus is on a button or link on the board or, when the board isn't fullscreen, on anything outside its host container, so move focus back to the board after a click on your own controls. With a context menu open or a live HTML element in use, Escape closes that first and ends the presentation on the next press. L picks the laser pointer when a `LaserTool` is registered.
+
+The viewport requests fullscreen on its host container and stays windowed if the browser denies it. Leaving fullscreen ends the presentation. Give the host container an opaque background, because the fullscreen backdrop is black. A board created with [`embedded`](/docs/html-elements/#boards-in-a-scrolling-page) ignores touch while presenting unless it is engaged, so call `setEmbeddedEngaged(true)` before `start()` when presenters use touch. Moving between slides adds no undo step.
 
 ## Write your own tool
 

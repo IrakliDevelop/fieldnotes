@@ -10,11 +10,15 @@ import type {
   CreateFrameOptions,
   FrameData,
   FrameElement,
+  PresentationApi,
+  PresentationStartOptions,
+  PresentationState,
+  PresentationSlide,
 } from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.102.0');
+    expect(FN.VERSION).toBe('0.103.0');
   });
 
   it('exports the frame element surface', () => {
@@ -36,6 +40,15 @@ describe('core public surface', () => {
     expect(typeof FN.toFocusPresence).toBe('function');
     expect(FN.FOCUS_PRESENCE_KIND).toBe('focus');
     expect(typeof FN.RemoteFocusReceiver).toBe('function');
+  });
+
+  it('exports the presentation surface', () => {
+    expect(typeof FN.createPresentationSource).toBe('function');
+    const api: PresentationApi | undefined = undefined;
+    const state: PresentationState | undefined = undefined;
+    const slide: PresentationSlide | undefined = undefined;
+    const options: PresentationStartOptions | undefined = undefined;
+    expect([api, state, slide, options]).toEqual([undefined, undefined, undefined, undefined]);
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -124,6 +137,10 @@ describe('core public surface', () => {
       'STYLE_KEYS',
       'ElementHierarchy',
       'validateHierarchy',
+      'framePresentationSlides',
+      'PresentationMode',
+      'createPresentationActions',
+      'frameContentBounds',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
@@ -291,9 +308,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.102.0', async () => {
+  it('reports VERSION 0.103.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.102.0');
+    expect(VERSION).toBe('0.103.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

@@ -24,6 +24,8 @@
 - Tabletop package with square and hex grids, fog of war, measuring, area templates and per-turn movement tracking on token drags
 - Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export
 - Frames that group and clip elements
+- Presentation mode that steps through frames fullscreen
+- Laser pointer on the L key
 - Camera constraints applied to camera mutations and animations
 - A scheduled Chromium performance gate that records 90 render-loop samples on 10,011 elements against a checked-in p95 budget
 

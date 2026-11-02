@@ -26,6 +26,7 @@ import {
   createNote,
   PeerRoster,
   RemoteCursorOverlay,
+  createPresentationSource,
 } from '@fieldnotes/core';
 import type { AlignEdge, DistributeAxis, CameraView, FocusAudience } from '@fieldnotes/core';
 import {
@@ -286,6 +287,34 @@ document.getElementById('toolbar')?.addEventListener('click', (e) => {
   const toolName = btn?.dataset['tool'];
   if (toolName) setActiveTool(toolName);
 });
+
+document
+  .getElementById('present-btn')
+  ?.addEventListener('click', () => viewport.runAction('presentation.start'));
+
+const presentationBar = document.getElementById('presentation-bar');
+const presentationCounter = presentationBar?.querySelector('[data-presentation="counter"]');
+
+presentationBar?.addEventListener('click', (e) => {
+  const action = (e.target as HTMLElement).closest<HTMLButtonElement>('button')?.dataset[
+    'presentation'
+  ];
+  if (action === 'laser') setActiveTool('laser');
+  else if (action === 'previous' || action === 'next' || action === 'exit') {
+    viewport.runAction(`presentation.${action}`);
+  }
+  viewport.domLayer.parentElement?.focus({ preventScroll: true });
+});
+
+const presentationSource = createPresentationSource(viewport);
+function renderPresentationBar() {
+  const state = presentationSource.getSnapshot();
+  if (presentationBar) presentationBar.hidden = !state.active;
+  if (presentationCounter)
+    presentationCounter.textContent = state.active ? `${state.index + 1} / ${state.count}` : '';
+}
+presentationSource.subscribe(renderPresentationBar);
+renderPresentationBar();
 
 const fileInput = document.getElementById('image-file') as HTMLInputElement | null;
 
@@ -730,10 +759,6 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'i') {
     fileInput?.click();
-  }
-  if (e.key === 'l') {
-    const panel = document.getElementById('layers-panel');
-    if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
   }
 });
 

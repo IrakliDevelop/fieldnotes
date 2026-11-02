@@ -16,7 +16,7 @@ export interface BuiltinActionDeps {
 /** Context-menu groups emitted by the built-in table, in display order. */
 export const BUILTIN_MENU_GROUPS = ['clipboard', 'arrange', 'transform', 'lock'] as const;
 
-/** Default shortcut bindings for the nine built-in tool names. */
+/** Default shortcut bindings for the ten built-in tool names. */
 export const DEFAULT_TOOL_SHORTCUTS: Readonly<Record<string, readonly string[]>> = {
   select: ['v'],
   hand: ['h'],
@@ -27,6 +27,7 @@ export const DEFAULT_TOOL_SHORTCUTS: Readonly<Record<string, readonly string[]>>
   text: ['t'],
   shape: ['s'],
   frame: ['f'],
+  laser: ['l'],
 };
 
 // ---------------------------------------------------------------------------

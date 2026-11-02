@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.103.0 — presentation mode
+
+Release notes prepared 2026-11-02.
+
+**Added**
+
+- `viewport.presentation` with `start`, `exit`, `next`, `previous`, `goTo`, `getState`,
+  `getSlides`, and `onChange`; the public `PresentationApi`, `PresentationState`,
+  `PresentationSlide`, and `PresentationStartOptions` types; and `createPresentationSource`.
+- `presentation.start`, `presentation.exit`, `presentation.next`, and `presentation.previous`
+  actions. While presenting, the fixed navigation keys are Arrow keys, PageUp/PageDown, Space and
+  Shift+Space, Home, End, and Escape.
+- Presentation requests fullscreen on the host container and continues windowed when fullscreen is
+  unavailable or denied.
+- `L` is the default `tool.laser` shortcut.
+- `viewport.runAction(name)` returns whether the action ran.
+
+**Compatibility**
+
+- Persisted state and the sync protocol are unchanged. Presentation is local and is never persisted
+  or synced.
+- Leaving fullscreen ends the presentation. The navigation key table is fixed and cannot be rebound.
+- A host that bound `l` to another action now conflicts with `tool.laser`, and the action registered first wins. Rebind or disable `tool.laser` to keep the old key. A disengaged embedded board ignores touch while presenting.
+
 ### Core 0.102.0 — frames
 
 Release notes prepared 2026-10-29.

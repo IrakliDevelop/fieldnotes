@@ -82,6 +82,12 @@ import {
   planFrameSelection,
   planRemoveFromFrame,
 } from '../elements/frame-commands';
+import {
+  createPresentationActions,
+  framePresentationSlides,
+  PresentationMode,
+} from './presentation';
+import type { PresentationApi } from './presentation';
 export type {
   PluginConfigureContext,
   PluginStartContext,
@@ -167,6 +173,7 @@ export class Viewport {
   private readonly disposers: (() => void)[] = [];
   private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
+  private readonly presentationMode: PresentationMode;
   private readonly background: Background;
   private readonly renderer: ElementRenderer;
   private readonly noteEditor: NoteEditor;
@@ -416,6 +423,25 @@ export class Viewport {
       acceptsPointer,
     });
     this.disposers.push(() => this.inputHandler.destroy());
+    this.presentationMode = new PresentationMode({
+      container: this.container,
+      wrapper: this.wrapper,
+      camera: this.camera,
+      getCanvasSize: () => this.getCanvasSize(),
+      defaultSlides: () =>
+        framePresentationSlides(this.store, (id) => this.layerManager.isLayerVisible(id)),
+      onResize: (listener) => this.onResize(listener),
+      activeToolName: () => this.toolManager.activeTool?.name ?? null,
+      setTool: (name) => this.actionRegistry.run('tool.' + name, { source: 'api' }),
+      clearSelection: () => this.getSelectTool()?.setSelection([]),
+      stopCameraMotion: () => this.inputHandler.stopPanInertia(),
+      hasOpenOverlay: () =>
+        (this.contextMenu?.isOpen() ?? false) || this.interactMode.isInteracting(),
+    });
+    const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
+      (action) => this.actionRegistry.register(action),
+    );
+    this.disposers.push(...unregisterPresentationActions, () => this.presentationMode.destroy());
     if (options.embedded) {
       // After InputHandler, whose touch-action: none this overrides.
       const embeddedMode = new EmbeddedMode({
@@ -1032,6 +1058,11 @@ export class Viewport {
     return this.inputHandler.shortcuts;
   }
 
+  /** Presentation controls for this viewport. */
+  get presentation(): PresentationApi {
+    return this.presentationMode;
+  }
+
   /**
    * Groups synchronous local store and layer mutations into one undo step.
    * Joins any open transaction (a nested call or a live tool gesture); a pending
@@ -1442,8 +1473,9 @@ export class Viewport {
     return this.getSelectTool()?.selectedIds ?? EMPTY_IDS;
   }
 
-  runAction(action: string): void {
-    this.actionRegistry.run(action, { source: 'api' });
+  /** Returns whether the action ran. */
+  runAction(action: string): boolean {
+    return this.actionRegistry.run(action, { source: 'api' });
   }
 
   canPaste(): boolean {

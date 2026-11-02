@@ -146,6 +146,16 @@ export function isFrameElement(value: unknown): value is FrameElement {
   );
 }
 
+/** Returns the frame area below its header. */
+export function frameContentBounds(el: FrameElement): Bounds {
+  return {
+    x: el.position.x,
+    y: el.position.y + HEADER_HEIGHT,
+    w: el.size.w,
+    h: el.size.h - HEADER_HEIGHT,
+  };
+}
+
 /** Built-in behavior for frame envelopes. */
 export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
   type: FRAME_ELEMENT_TYPE,
@@ -161,12 +171,7 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
   },
   wrap: (el) => el,
   bounds: (el): Bounds => ({ ...el.position, ...el.size }),
-  clipBounds: (el): Bounds => ({
-    x: el.position.x,
-    y: el.position.y + HEADER_HEIGHT,
-    w: el.size.w,
-    h: el.size.h - HEADER_HEIGHT,
-  }),
+  clipBounds: frameContentBounds,
   hitTest: (el, point) => {
     const { x, y } = el.position;
     const { w, h } = el.size;

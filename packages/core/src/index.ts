@@ -1,4 +1,4 @@
-export const VERSION = '0.102.0';
+export const VERSION = '0.103.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -72,6 +72,7 @@ export {
   createHistorySource,
   createLayersSource,
   createActiveToolSource,
+  createPresentationSource,
   createToolOptionsSource,
 } from './canvas/viewport-sources';
 export type {
@@ -155,6 +156,12 @@ export {
   applyCameraView,
 } from './canvas/camera-view';
 export type { CameraView } from './canvas/camera-view';
+export type {
+  PresentationApi,
+  PresentationSlide,
+  PresentationStartOptions,
+  PresentationState,
+} from './canvas/presentation';
 export { CameraAnimator } from './canvas/camera-animator';
 export type {
   CameraAnimatorOptions,

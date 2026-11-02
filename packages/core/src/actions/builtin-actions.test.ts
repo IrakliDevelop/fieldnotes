@@ -560,11 +560,12 @@ describe('createToolAction', () => {
     expect(pencilAction.shortcut).toEqual(['p']);
 
     // Unknown tool
-    const customAction = createToolAction('laser', toolDeps);
-    expect(customAction.id).toBe('tool.laser');
-    expect(customAction.label).toBe('Laser tool');
-    expect(customAction.keywords).toEqual(['laser']);
+    const customAction = createToolAction('custom', toolDeps);
+    expect(customAction.id).toBe('tool.custom');
+    expect(customAction.label).toBe('Custom tool');
+    expect(customAction.keywords).toEqual(['custom']);
     expect(customAction.shortcut).toBeUndefined();
+    expect(createToolAction('laser', toolDeps).shortcut).toEqual(['l']);
   });
 
   it('enabled = hasTool && !isToolActive, perform calls switchTool(name)', () => {
@@ -598,7 +599,7 @@ describe('createToolAction', () => {
     expect(switchTool).toHaveBeenCalledWith('pencil');
   });
 
-  it('DEFAULT_TOOL_SHORTCUTS has exactly the nine known tools', () => {
+  it('DEFAULT_TOOL_SHORTCUTS has exactly the ten known tools', () => {
     expect(DEFAULT_TOOL_SHORTCUTS).toEqual({
       select: ['v'],
       hand: ['h'],
@@ -609,6 +610,7 @@ describe('createToolAction', () => {
       text: ['t'],
       shape: ['s'],
       frame: ['f'],
+      laser: ['l'],
     });
   });
 });
