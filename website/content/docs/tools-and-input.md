@@ -109,7 +109,7 @@ On a board that sits in a page, disable `select.cycle` and `select.cycle-reverse
 
 `next()`, `previous()` and `goTo(index)` move between slides and return `false` when they can't; `exit()` ends the presentation. `onChange` reports every step, and `getState()` returns `index` and `count` for a slide counter.
 
-While presenting, Right arrow, Down arrow, PageDown and Space go to the next slide; Left arrow, Up arrow, PageUp and Shift+Space go back; Home and End jump to the first and last slide; Escape ends the presentation. These keys can't be rebound. L picks the laser pointer when a `LaserTool` is registered.
+While presenting, Right arrow, Down arrow, PageDown and Space go to the next slide; Left arrow, Up arrow, PageUp and Shift+Space go back; Home and End jump to the first and last slide; Escape ends the presentation. These keys can't be rebound. They don't reach the presentation while focus is on a button or link on the board or, when the board isn't fullscreen, on anything outside its host container, so move focus back to the board after a click on your own controls. With a context menu open or a live HTML element in use, Escape closes that first and ends the presentation on the next press. L picks the laser pointer when a `LaserTool` is registered.
 
 The viewport requests fullscreen on its host container and stays windowed if the browser denies it. Leaving fullscreen ends the presentation. Give the host container an opaque background, because the fullscreen backdrop is black. A board created with [`embedded`](/docs/html-elements/#boards-in-a-scrolling-page) ignores touch while presenting unless it is engaged, so call `setEmbeddedEngaged(true)` before `start()` when presenters use touch. Moving between slides adds no undo step.
 
