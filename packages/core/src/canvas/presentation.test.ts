@@ -1056,6 +1056,34 @@ describe('PresentationMode fullscreen', () => {
     expect(document.fullscreenElement).toBeNull();
   });
 
+  it('does not retry nested fullscreen exit when the fullscreen element is unchanged', async () => {
+    const h = makeDeps();
+    const setFullscreenElement = stubFullscreenElement();
+    const child = document.createElement('video');
+    h.container.append(child);
+    const exitFullscreen = vi.fn<() => Promise<void>>().mockImplementation(() => {
+      if (exitFullscreen.mock.calls.length > 5) throw new Error('exitFullscreen retried');
+      return Promise.resolve();
+    });
+    stubValue(
+      h.container,
+      'requestFullscreen',
+      vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    );
+    stubValue(document, 'exitFullscreen', exitFullscreen);
+    const mode = makeMode(h.deps);
+
+    mode.start();
+    setFullscreenElement(h.container);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    setFullscreenElement(child);
+    document.dispatchEvent(new Event('fullscreenchange'));
+    mode.exit();
+    await Promise.resolve();
+
+    expect(exitFullscreen).toHaveBeenCalledOnce();
+  });
+
   it('destroy removes listeners without restoring or emitting', () => {
     const h = makeDeps();
     const setFullscreenElement = stubFullscreenElement();

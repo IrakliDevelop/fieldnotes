@@ -448,7 +448,11 @@ export class PresentationMode implements PresentationApi {
     void document.exitFullscreen().then(
       () => {
         if (this.pendingFullscreen !== request) return;
-        if (fullscreenElement !== this.deps.container && this.isContainerFullscreen()) {
+        if (
+          fullscreenElement !== this.deps.container &&
+          document.fullscreenElement !== fullscreenElement &&
+          this.isContainerFullscreen()
+        ) {
           request.cleanupStarted = false;
           this.cleanupFullscreenRequest(request);
           return;
