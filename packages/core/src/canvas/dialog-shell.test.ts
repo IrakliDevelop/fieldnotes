@@ -326,6 +326,7 @@ describe('dialog shell', () => {
     nextRoot.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
 
     expect(second.onDismiss).not.toHaveBeenCalled();
+    expect(first.onDismiss).not.toHaveBeenCalled();
   });
 
   it('focusBoard refocuses from the dialog and preserves an outside control', () => {
