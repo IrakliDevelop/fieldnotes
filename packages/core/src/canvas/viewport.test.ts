@@ -3265,7 +3265,7 @@ describe('Viewport', () => {
     }
 
     function sizeCanvas(viewport: Viewport, width = 800, height = 600): void {
-      const canvas = viewport.container.querySelector('canvas');
+      const canvas = viewport.domLayer.parentElement?.querySelector('canvas');
       if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
       Object.defineProperties(canvas, {
         clientWidth: { value: width, configurable: true },
