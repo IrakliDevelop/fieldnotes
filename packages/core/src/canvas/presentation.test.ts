@@ -648,6 +648,25 @@ describe('PresentationMode keys', () => {
     expect(mode.getState().index).toBe(0);
   });
 
+  it.each([
+    ['windowed', false],
+    ['fullscreen', true],
+  ])('navigates after starting from an outside button while %s', (_state, fullscreen) => {
+    const h = makeDeps();
+    const mode = makeMode(h.deps);
+    const button = document.createElement('button');
+    document.body.append(button);
+    if (fullscreen) stubFullscreenElement()(h.container);
+    button.focus();
+
+    mode.start({ fullscreen: false, animate: false });
+
+    expect(document.activeElement).toBe(document.body);
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+    expect(mode.getState().index).toBe(1);
+  });
+
   it('does not navigate with Space on a focused button in the wrapper', () => {
     const h = makeDeps();
     const mode = makeMode(h.deps);

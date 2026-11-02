@@ -172,6 +172,10 @@ export class PresentationMode implements PresentationApi {
       this.previousTool = activeTool;
     }
     this.deps.wrapper.focus({ preventScroll: true });
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && !this.deps.container.contains(activeElement)) {
+      activeElement.blur();
+    }
     this.state = {
       active: true,
       index,
@@ -347,7 +351,9 @@ export class PresentationMode implements PresentationApi {
     }
     const tag = element?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
-    if (element?.matches('button, a[href], [role]')) return false;
+    if (element?.matches('button, a[href], [role]') && this.deps.container.contains(element)) {
+      return false;
+    }
     if (!this.state.fullscreen) {
       const activeElement = document.activeElement;
       if (
