@@ -201,6 +201,7 @@ describe('palette model', () => {
       types: { 'zoo:cat': 'Cat' },
       placeholder: 'Suche',
       results: 'Treffer',
+      close: 'Schließen',
     });
 
     expect(DEFAULT_PALETTE_STRINGS).toEqual({
@@ -209,7 +210,7 @@ describe('palette model', () => {
       actions: 'Actions',
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
-      close: 'Close the palette',
+      close: 'Close',
       results: 'results',
       groups: {
         edit: 'Edit',
@@ -228,7 +229,7 @@ describe('palette model', () => {
       actions: 'Actions',
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
-      close: 'Close the palette',
+      close: 'Schließen',
       results: 'Treffer',
       groups: {
         edit: 'Edit',
@@ -254,7 +255,7 @@ describe('palette model', () => {
       actions: 'Actions',
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
-      close: 'Close the palette',
+      close: 'Close',
       results: 'results',
       groups: {
         edit: 'Edit',

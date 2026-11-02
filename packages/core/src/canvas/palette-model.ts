@@ -31,7 +31,7 @@ export const DEFAULT_PALETTE_STRINGS: PaletteStrings = {
   actions: 'Actions',
   board: 'On the board',
   helpTitle: 'Keyboard shortcuts',
-  close: 'Close the palette',
+  close: 'Close',
   groups: {
     edit: 'Edit',
     select: 'Select',

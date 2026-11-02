@@ -93,6 +93,7 @@ describe('shortcuts help', () => {
     expect(root?.textContent).toContain('Ctrl+Z');
     expect(root?.textContent).toContain('Ctrl+Y');
     expect(root?.textContent).toContain('Ctrl+Shift+Z');
+    expect(container.querySelector('.fieldnotes-help-close')?.textContent).toBe('Close');
     expect(document.activeElement).toBe(root);
     expect(closeOthers).toHaveBeenCalledOnce();
   });
