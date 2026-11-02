@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ElementRegistry, getRegistryToken } from './element-registry';
 import { pickBaseFields } from './base-fields';
+import { getDefaultElementRegistry } from './default-registry';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 import { FRAME_ELEMENT_TYPE, frameElementDefinition } from './frame-element';
 
@@ -127,6 +128,37 @@ describe('ElementRegistry', () => {
     const noClip = new ElementRegistry();
     noClip.register({ ...markerDefinition, type: 'test:no-clip', legacyTypes: [] });
     expect(noClip.getAdapter('test:no-clip')?.clipBounds).toBeUndefined();
+  });
+
+  it('register forwards searchText on the adapter', () => {
+    const registry = new ElementRegistry(getDefaultElementRegistry());
+    const envelope: ExtensionElementEnvelope = {
+      id: 'label-1',
+      type: 'extension',
+      extensionType: 'test:label',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: 'default',
+      data: { name: 'Alpha' },
+    };
+    const labelDefinition: ElementTypeDefinition<ExtensionElementEnvelope> = {
+      type: 'test:label',
+      legacyTypes: [],
+      decodeLegacy: () => envelope,
+      validateData: () => true,
+      unwrap: (el) => el,
+      wrap: (el) => el,
+      bounds: () => null,
+      searchText: (el) => String(el.data['name']),
+    };
+
+    registry.register(labelDefinition);
+    registry.register({ ...labelDefinition, type: 'test:no-search-text', searchText: undefined });
+
+    expect(registry.getAdapter('test:label')?.searchText?.(envelope)).toBe('Alpha');
+    expect(registry.getAdapter('test:no-search-text')?.searchText).toBeUndefined();
   });
 
   it('keeps cache tokens internal and advances only for successful local or parent changes', () => {
