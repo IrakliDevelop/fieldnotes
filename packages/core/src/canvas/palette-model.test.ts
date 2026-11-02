@@ -67,11 +67,39 @@ describe('palette model', () => {
     ]);
   });
 
+  it('searchActions keeps every score tier and tied prefix matches in registration order', () => {
+    const definitions = [
+      action('search.catalog', 'Catalog'),
+      action('search.catapult', 'Catapult'),
+      action('search.big-animal', 'Big Cat'),
+      action('search.disperse', 'Scatter'),
+      action('search.find', 'Find', ['category']),
+      action('search.cat-id', 'Seek', ['seek']),
+    ];
+
+    expect(
+      searchActions(definitions, 'cat', {
+        isEnabled: () => true,
+        label: (definition) => (typeof definition.label === 'string' ? definition.label : ''),
+        bindings: {},
+      }).map((row) => row.id),
+    ).toEqual([
+      'search.catalog',
+      'search.catapult',
+      'search.big-animal',
+      'search.disperse',
+      'search.find',
+      'search.cat-id',
+    ]);
+  });
+
   it.each([
     ['mod+k', true, '⌘K'],
     ['mod+k', false, 'Ctrl+K'],
     ['mod+shift+z', true, '⇧⌘Z'],
     ['mod+shift+z', false, 'Ctrl+Shift+Z'],
+    ['alt+mod+x', false, 'Ctrl+Alt+X'],
+    ['ctrl+alt+shift+meta+x', false, 'Ctrl+Alt+Shift+Win+X'],
     ['ctrl+alt+x', true, '⌃⌥X'],
     ['shift+1', false, 'Shift+1'],
     ['arrowleft', false, '←'],
@@ -90,16 +118,29 @@ describe('palette model', () => {
   });
 
   it('buildHelpSections groups by namespace, appends fixed rows and shows rebinds', () => {
+    const rename = action('edit.rename', () => 'Definition rename');
+    const disabled = { ...action('edit.disabled', 'Disabled'), enabled: () => false };
     const definitions = [
       action('edit.undo', 'Undo'),
+      rename,
+      disabled,
       action('edit.paste', 'Paste'),
       action('tool.pencil', 'Pencil'),
       action('zoo.frob', 'Frob'),
     ];
     const sections = buildHelpSections(
       definitions,
-      { 'edit.undo': ['mod+u'], 'tool.pencil': ['p'], 'zoo.frob': ['mod+shift+f'] },
-      (definition) => (typeof definition.label === 'string' ? definition.label : ''),
+      {
+        'edit.undo': ['mod+u'],
+        'edit.rename': ['mod+r'],
+        'edit.disabled': ['mod+d'],
+        'tool.pencil': ['p'],
+        'zoo.frob': ['mod+shift+f'],
+      },
+      (definition) => {
+        if (definition === rename) return 'Visible rename';
+        return typeof definition.label === 'string' ? definition.label : '';
+      },
       DEFAULT_PALETTE_STRINGS,
     );
 
@@ -112,13 +153,32 @@ describe('palette model', () => {
     ]);
     expect(sections[0]?.rows).toEqual([
       { label: 'Undo', keys: ['mod+u'] },
+      { label: 'Visible rename', keys: ['mod+r'] },
+      { label: 'Disabled', keys: ['mod+d'] },
       { label: 'Paste', keys: ['mod+v'] },
+    ]);
+    expect(sections[2]?.rows).toEqual([
+      { label: 'Move through results', keys: ['arrowup', 'arrowdown'] },
+      { label: 'Run the action or go to the element', keys: ['enter'] },
+      { label: 'Close', keys: ['escape'] },
     ]);
     expect(sections[4]?.rows).toEqual([{ label: 'Frob', keys: ['mod+shift+f'] }]);
   });
 
-  it('FIXED_HELP_ROWS fixes the presentation key table', () => {
-    expect(FIXED_HELP_ROWS.filter((row) => row.group === 'presentation')).toEqual([
+  it('FIXED_HELP_ROWS fixes every fixed help row', () => {
+    expect(FIXED_HELP_ROWS).toEqual([
+      { group: 'edit', label: 'Paste', keys: ['mod+v'] },
+      {
+        group: 'palette',
+        label: 'Move through results',
+        keys: ['arrowup', 'arrowdown'],
+      },
+      {
+        group: 'palette',
+        label: 'Run the action or go to the element',
+        keys: ['enter'],
+      },
+      { group: 'palette', label: 'Close', keys: ['escape'] },
       {
         group: 'presentation',
         label: 'Next slide',
