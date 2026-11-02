@@ -37,7 +37,7 @@ Each tool takes options in its constructor, and `setOptions` changes them while 
 
 ::code{example="tools-and-input" region="options"}
 
-The highlighter is a second `PencilTool` under its own name, so `setTool('highlighter')` picks it. A tool whose name is not one of the nine above has no default key.
+The highlighter is a second `PencilTool` under its own name, so `setTool('highlighter')` picks it. A tool whose name is not in the default shortcut table has no default key.
 
 `EraserTool` takes `radius` in screen pixels (default 20), and `mode: 'stroke'` makes it delete whole strokes. Hold Shift while drawing a line to snap it to 45° steps.
 
@@ -81,6 +81,8 @@ Shortcuts work while the board has focus, and a click on the board gives it focu
 
 `tool.frame` is the F shortcut.
 
+`L`: `tool.laser`, when a `LaserTool` is registered.
+
 ## Frames
 
 Frames are root-only, non-nested, non-rotating parents. A frame contains only elements explicitly
@@ -101,6 +103,20 @@ Rebind keys with `shortcuts.bindings` in the options, or later with `viewport.sh
 ::code{example="tools-and-input" region="shortcuts"}
 
 On a board that sits in a page, disable `select.cycle` and `select.cycle-reverse` as above. Otherwise Tab moves between elements and keyboard users can't leave the board. `viewport.runAction(action)` runs any action from your own buttons.
+
+## Presentation
+
+Call `viewport.presentation.start()` to present the visible-layer frames in scene order. Pass slides
+to `start()` to use explicit camera views instead.
+
+Presentation navigation has a fixed key table: Arrow keys, PageUp/PageDown, Space and Shift+Space,
+Home, End, and Escape. These keys cannot be rebound. `L` activates a registered `LaserTool`.
+
+The viewport requests fullscreen on its host container and stays windowed if the request is denied
+or unavailable. Give the host container an opaque background because the fullscreen backdrop is
+black. A disengaged embedded board ignores touch while presenting; call
+`setEmbeddedEngaged(true)` before starting when touch input is needed. Presentation steps do not
+touch the undo stack.
 
 ## Write your own tool
 

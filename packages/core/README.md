@@ -220,6 +220,24 @@ removeConstraint();
 Constraints run in registration order for every camera mutation and animation. The function
 returned by `addConstraint` unregisters that constraint.
 
+## Presentation
+
+```ts
+const presentation = createPresentationSource(viewport);
+
+viewport.presentation.start();
+viewport.presentation.next();
+viewport.presentation.onChange(() => {
+  console.log(viewport.presentation.getState());
+});
+presentation.subscribe(() => renderPresentation(presentation.getSnapshot()));
+```
+
+`start()` uses visible-layer frames in scene order when no slides are supplied. Arrow keys,
+PageUp/PageDown, Space and Shift+Space, Home, End, and Escape are a fixed navigation table and
+cannot be rebound. The host container should have an opaque background because the fullscreen
+backdrop is black.
+
 ## Element Store
 
 Direct access to canvas elements:
@@ -353,7 +371,7 @@ Defaults (remappable): `Delete`/`Backspace` delete · `Escape` deselect · `mod+
 `mod+Y`/`mod+Shift+Z` redo · `mod+A` select all · `mod+C/V/D` copy/paste/duplicate ·
 `[`/`]` z-order (with `mod` = to back/front) · `Shift+1` zoom-to-fit · `mod+=` zoom in ·
 `mod+-` zoom out · `mod+0` reset zoom to 100% · arrows nudge · tool keys `V` select,
-`H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape, `F` frame.
+`H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape, `F` frame, `L` laser.
 
 `mod` = Ctrl or Cmd. Shortcuts fire only while the canvas has focus (click it once);
 pass `shortcuts: { scope: 'window' }` for page-wide handling.

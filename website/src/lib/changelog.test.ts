@@ -183,7 +183,7 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     const frames = release('@fieldnotes/core', '0.102.0');
     const prior = release('@fieldnotes/core', '0.101.0');
 
-    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.102.0' });
+    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.103.0' });
     expect(
       current.filter(
         (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.102.0',
