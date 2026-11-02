@@ -73,13 +73,13 @@ export class CommandPalette implements PaletteApi {
   }
 
   open(query = ''): void {
+    this.reduceMotion =
+      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (this.input) {
       this.input.value = query;
       this.render();
       return;
     }
-    this.reduceMotion =
-      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.deps.closeContextMenu();
     this.help.close();
     const root = document.createElement('div');

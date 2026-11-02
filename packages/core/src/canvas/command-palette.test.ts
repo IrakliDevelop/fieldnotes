@@ -626,6 +626,24 @@ describe('CommandPalette reveal', () => {
     expect(fixture.calls.stop).toHaveBeenCalledOnce();
   });
 
+  it('re-opening while open resamples reduced motion', () => {
+    let reducedMotion = false;
+    const media = vi.fn(() => ({ matches: reducedMotion }));
+    vi.stubGlobal('matchMedia', media);
+    const fixture = makeDeps();
+    addAction(fixture.harness, 'test.ping', 'Ping test');
+    fixture.harness.viewport.store.add({
+      ...createNote({ position: { x: 100, y: 100 }, size: { w: 50, h: 20 }, text: 'Budget ping' }),
+      id: 'budget',
+    });
+    fixture.palette.open('ping');
+    reducedMotion = true;
+    fixture.palette.open('ping');
+    key(input(fixture.container), 'ArrowDown');
+    expect(fixture.deps.camera.position).toEqual({ x: 275, y: 190 });
+    expect(media).toHaveBeenCalledTimes(2);
+  });
+
   it('ArrowUp back onto an action row removes the highlight and does not move the camera again', () => {
     const overlay = makeHost();
     const fixture = makeDeps({ overlayHost: overlay.host });
@@ -657,23 +675,45 @@ describe('CommandPalette reveal', () => {
 
   it('Enter on an element reveals, lingers the highlight, and closes', () => {
     let clock = 0;
-    let overlayFrame: (() => void) | undefined;
+    const animatorFrames: (() => void)[] = [];
+    const overlayFrames: (() => void)[] = [];
+    const overlay = makeHost();
+    const fixture = makeDeps({
+      overlayHost: overlay.host,
+      frames: {
+        requestFrame: (callback) => {
+          animatorFrames.push(callback);
+          return animatorFrames.length;
+        },
+        cancelFrame: () => undefined,
+      },
+      now: () => clock,
+    });
+    fixture.harness.viewport.store.add({
+      ...createNote({ position: { x: 100, y: 100 }, size: { w: 50, h: 20 }, text: 'Budget ping' }),
+      id: 'budget',
+    });
+    fixture.palette.open('budget');
     vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
-      overlayFrame = callback;
-      return 1;
+      overlayFrames.push(callback);
+      return overlayFrames.length;
     });
     vi.stubGlobal('cancelAnimationFrame', () => undefined);
-    const overlay = makeHost();
-    const fixture = makeDeps({ overlayHost: overlay.host, now: () => clock });
-    addHit(fixture.harness, 'note', 'Budget ping', 'budget');
-    fixture.palette.open('budget');
     key(input(fixture.container), 'Enter');
+    expect(fixture.calls.stop).toHaveBeenCalledOnce();
+    clock = 450;
+    const frames = [...animatorFrames];
+    for (const frame of frames) frame();
     const canvas = recordingCanvas();
     overlay.getRenderer()?.(canvas.ctx);
     expect(fixture.palette.isOpen()).toBe(false);
+    expect(fixture.deps.camera.position).toEqual({ x: 275, y: 190 });
+    expect(fixture.deps.camera.zoom).toBe(1);
     expect(canvas.strokes).toEqual([{ style: '#2196F3', alpha: 1 }]);
     clock = 1901;
-    overlayFrame?.();
+    const overlayFrame = overlayFrames[0];
+    if (!overlayFrame) throw new Error('missing overlay frame');
+    overlayFrame();
     const faded = recordingCanvas();
     overlay.getRenderer()?.(faded.ctx);
     expect(faded.strokes).toEqual([]);
@@ -743,22 +783,48 @@ describe('CommandPalette reveal', () => {
   });
 
   it('destroy disposes the animator and overlay', () => {
-    const pending: (() => void)[] = [];
+    const clock = 0;
+    const animatorFrames: (() => void)[] = [];
+    const overlayFrames: (() => void)[] = [];
     const overlay = makeHost();
     const fixture = makeDeps({
       overlayHost: overlay.host,
       frames: {
-        requestFrame: (callback) => (pending.push(callback), pending.length),
+        requestFrame: (callback) => (animatorFrames.push(callback), animatorFrames.length),
         cancelFrame: () => undefined,
       },
+      now: () => clock,
     });
     addAction(fixture.harness, 'test.ping', 'Ping test');
     addHit(fixture.harness, 'note', 'Budget ping', 'budget');
     fixture.palette.open('ping');
     key(input(fixture.container), 'ArrowDown');
+    expect(animatorFrames).toHaveLength(1);
+    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
+      overlayFrames.push(callback);
+      return overlayFrames.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    fixture.palette.close();
+    expect(overlayFrames).toHaveLength(1);
+    const animatorFrame = animatorFrames[0];
+    const overlayFrame = overlayFrames[0];
+    if (!animatorFrame || !overlayFrame) throw new Error('missing queued frame');
+    const position = fixture.deps.camera.position;
+    const zoom = fixture.deps.camera.zoom;
     fixture.palette.destroy();
-    for (const frame of pending) frame();
+    expect(() => {
+      animatorFrame();
+      overlayFrame();
+    }).not.toThrow();
     expect(overlay.unregister).toHaveBeenCalledOnce();
-    expect(fixture.deps.camera.position).toEqual({ x: 0, y: 0 });
+    const canvas = recordingCanvas();
+    overlay.getRenderer()?.(canvas.ctx);
+    expect(overlay.getRenderer()).toBeNull();
+    expect(canvas.strokes).toEqual([]);
+    expect(fixture.deps.camera.position).toEqual(position);
+    expect(fixture.deps.camera.zoom).toBe(zoom);
+    expect(animatorFrames).toHaveLength(1);
+    expect(overlayFrames).toHaveLength(1);
   });
 });
