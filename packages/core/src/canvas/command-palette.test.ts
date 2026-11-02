@@ -193,6 +193,7 @@ describe('command palette', () => {
     expect(container.textContent).not.toContain('On the board');
     type(container, 'zzz');
     expect(container.querySelector('.fieldnotes-palette-empty')?.textContent).toBe('No matches');
+    expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe('No matches');
     expect(input(container).hasAttribute('aria-activedescendant')).toBe(false);
   });
 
@@ -338,6 +339,9 @@ describe('command palette', () => {
     deps.camera.setZoom(1.7);
     palette.open();
     type(container, 'bud');
+    expect(rows(container)).toHaveLength(1);
+    expect(rows(container)[0]?.dataset.key).toBe('budget');
+    expect(active(container).dataset.key).toBe('budget');
     expect(deps.camera.position).toEqual({ x: 17, y: 23 });
     expect(deps.camera.zoom).toBe(1.7);
     expect(deps.stopCameraMotion).not.toHaveBeenCalled();
@@ -403,8 +407,17 @@ describe('command palette', () => {
 
   it('destroy removes the root and the subscriptions', async () => {
     const { harness, container, wrapper, palette } = makeDeps();
+    const render = vi.spyOn(Object.getPrototypeOf(palette), 'render');
+    cleanup.push(() => render.mockRestore());
     palette.open();
     expect(document.activeElement).toBe(input(container));
+    addHit(harness, 'note', 'Queued before destroy', 'queued');
+    const removeQueued = harness.viewport.actions.register({
+      id: 'test.queued',
+      label: 'Queued',
+      perform: () => undefined,
+    });
+    cleanup.push(removeQueued);
     palette.destroy();
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).not.toBe(wrapper);
@@ -416,7 +429,10 @@ describe('command palette', () => {
     });
     cleanup.push(remove);
     await Promise.resolve();
+    expect(render).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(container.children).toHaveLength(0);
+    expect(document.activeElement).not.toBe(wrapper);
   });
 
   it('the stylesheet is appended once for two palettes', () => {
@@ -447,6 +463,7 @@ describe('command palette', () => {
 
   it('an enabled palette.open action is still excluded by id', () => {
     const { harness, container, palette } = makeDeps();
+    addAction(harness, 'test.control', 'Visible control');
     const remove = harness.viewport.actions.register({
       id: 'palette.open',
       label: 'Command palette',
@@ -455,6 +472,7 @@ describe('command palette', () => {
     });
     cleanup.push(remove);
     palette.open();
+    expect(rows(container).some((row) => row.dataset.key === 'test.control')).toBe(true);
     expect(rows(container).some((row) => row.dataset.key === 'palette.open')).toBe(false);
   });
 

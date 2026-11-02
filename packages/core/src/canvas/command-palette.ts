@@ -201,11 +201,9 @@ export class CommandPalette implements PaletteApi {
     const prior = this.activeKey;
     this.rows = this.rowsFor(input.value);
     const first = this.rows[0];
-    this.activeKey = this.rows.some((row) => this.key(row) === prior)
-      ? prior
-      : first
-        ? this.key(first)
-        : null;
+    if (this.rows.some((row) => this.key(row) === prior)) this.activeKey = prior;
+    else if (first) this.activeKey = this.key(first);
+    else this.activeKey = null;
     if (!this.activeKey) input.removeAttribute('aria-activedescendant');
     list.replaceChildren();
     const actions = this.rows.filter((row): row is PaletteActionRow => row.kind === 'action');
