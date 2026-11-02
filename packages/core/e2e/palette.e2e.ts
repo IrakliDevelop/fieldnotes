@@ -38,6 +38,7 @@ interface PaletteFixtureViewport {
   history: { undoCount: number };
   getVisibleRect: () => View;
   camera: { position: { x: number; y: number }; zoom: number };
+  toolManager: { activeTool: { name: string } | null };
   domLayer: { parentElement: Element | null };
 }
 
@@ -64,6 +65,7 @@ interface CanvasState {
   undoCount: number;
   visibleRect: View;
   camera: CameraState;
+  activeTool: string | undefined;
   boardFocused: boolean;
 }
 
@@ -124,6 +126,7 @@ async function state(page: Page): Promise<CanvasState> {
         y: viewport.camera.position.y,
         zoom: viewport.camera.zoom,
       },
+      activeTool: viewport.toolManager.activeTool?.name,
       boardFocused: document.activeElement === viewport.domLayer.parentElement,
     };
   });
@@ -150,6 +153,9 @@ test.describe('command palette', () => {
     if (!box) throw new Error('Wrapper not found');
 
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    let result = await state(page);
+    expect(result.boardFocused).toBe(true);
+    expect(result.activeTool).toBe('select');
     await page.keyboard.press('ControlOrMeta+k');
     await page.waitForFunction(() =>
       (
@@ -159,6 +165,7 @@ test.describe('command palette', () => {
     await expect(page.locator('.fieldnotes-palette-input')).toBeFocused();
 
     await page.keyboard.type('cafe');
+    expect((await state(page)).activeTool).toBe('select');
     const option = page.locator('.fieldnotes-palette-option');
     await expect(option).toHaveCount(1);
     await expect(option).toContainText('Budget 2026');
@@ -181,7 +188,7 @@ test.describe('command palette', () => {
       )
       .toBe(true);
 
-    let result = await state(page);
+    result = await state(page);
     expect(result.undoCount).toBe(undoCount);
     expect(result.selectedIds).toEqual([]);
     expect(result.boardFocused).toBe(true);
@@ -277,6 +284,7 @@ test.describe('command palette', () => {
     test.skip(testInfo.project.name !== 'ipad', 'iPad touch coverage');
     const { errors } = await openCanvas(page);
     await seed(page);
+    expect((await state(page)).activeTool).toBe('select');
 
     await page.locator('#palette-btn').tap();
     await page.waitForFunction(() =>
@@ -285,6 +293,7 @@ test.describe('command palette', () => {
       ).__fieldnotes_viewport.palette.isOpen(),
     );
     await page.keyboard.type('shop');
+    expect((await state(page)).activeTool).toBe('select');
     await page.locator('.fieldnotes-palette-option').first().tap();
     await page.waitForFunction(
       () =>
