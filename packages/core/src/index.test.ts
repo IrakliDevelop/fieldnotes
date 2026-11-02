@@ -93,10 +93,13 @@ describe('core public surface', () => {
     const options: PaletteOptions = {
       strings: { placeholder: 'Find', groups: { palette: 'Commands' }, types: { note: 'Memo' } },
     };
-    palette.open('open');
+    palette.open();
     expect(palette.isOpen()).toBe(true);
     palette.close();
     expect(palette.isOpen()).toBe(false);
+    palette.open('open');
+    expect(palette.isOpen()).toBe(true);
+    palette.close();
     help.open();
     expect(help.isOpen()).toBe(true);
     help.close();

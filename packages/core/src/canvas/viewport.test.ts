@@ -3408,14 +3408,16 @@ describe('Viewport', () => {
     });
 
     it('destroy removes the dialogs', () => {
-      const viewport = createPaletteViewport();
-      viewport.palette.open();
+      const viewport = createPaletteViewport(container, { shortcuts: { scope: 'window' } });
+      const beforeDestroy = keydown(document.body, { key: 'k', ctrlKey: true });
+      expect(beforeDestroy.defaultPrevented).toBe(true);
+      expect(viewport.palette.isOpen()).toBe(true);
       expect(container.querySelector('.fieldnotes-palette')).not.toBeNull();
       viewport.destroy();
       viewports.delete(viewport);
       expect(container.querySelector('.fieldnotes-palette')).toBeNull();
-      const event = keydown(document.body, { key: 'k', ctrlKey: true });
-      expect(event.defaultPrevented).toBe(false);
+      const afterDestroy = keydown(document.body, { key: 'k', ctrlKey: true });
+      expect(afterDestroy.defaultPrevented).toBe(false);
       expect(viewport.palette.isOpen()).toBe(false);
     });
 
@@ -3460,7 +3462,28 @@ describe('Viewport', () => {
         'End the presentation': null,
       };
       const wrapper = wrapperOf(container);
-      for (const row of FIXED_HELP_ROWS.filter((row) => row.group === 'presentation')) {
+      const presentationRows = FIXED_HELP_ROWS.filter((row) => row.group === 'presentation');
+      expect(presentationRows.map((row) => row.label)).toEqual([
+        'Next slide',
+        'Previous slide',
+        'First slide',
+        'Last slide',
+        'End the presentation',
+      ]);
+      expect(presentationRows.flatMap((row) => row.keys)).toEqual([
+        'arrowright',
+        'arrowdown',
+        'pagedown',
+        'space',
+        'arrowleft',
+        'arrowup',
+        'pageup',
+        'shift+space',
+        'home',
+        'end',
+        'escape',
+      ]);
+      for (const row of presentationRows) {
         expect(labels).toHaveProperty(row.label);
         const target = labels[row.label];
         if (target === undefined) throw new Error(`missing label mapping: ${row.label}`);
@@ -3503,6 +3526,7 @@ describe('Viewport', () => {
 
     it('a search, reveal and close leave history and selection untouched', () => {
       vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      cleanup.push(() => vi.unstubAllGlobals());
       const viewport = createPaletteViewport();
       sizeCanvas(viewport);
       viewport.transaction(() => {
