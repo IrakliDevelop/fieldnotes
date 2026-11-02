@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   FRAME_ELEMENT_TYPE,
   createFrame,
+  frameContentBounds,
   frameElementDefinition,
   isFrameElement,
 } from './frame-element';
@@ -49,6 +50,14 @@ describe('frame element', () => {
     expect(() => createFrame({ position: { x: 0, y: 0 }, size: { w: 79, h: 48 } })).toThrow(
       /80 x 48/,
     );
+  });
+
+  it('frameContentBounds returns the area below the 24px header', () => {
+    const value = createFrame({ position: { x: 10, y: 20 }, size: { w: 200, h: 124 } });
+    const expected = { x: 10, y: 44, w: 200, h: 100 };
+
+    expect(frameContentBounds(value)).toEqual(expected);
+    expect(frameElementDefinition.clipBounds?.(value)).toEqual(expected);
   });
 
   it('requires a complete valid frame envelope', () => {
