@@ -59,7 +59,26 @@ export class SceneSearch {
 
     matches.sort((a, b) => a.at - b.at);
     return matches.slice(0, options.limit ?? 20).map(({ element, entry, at }) => {
-      const { start, end } = sourceRange(entry.text, at, foldedQuery.length);
+      const targetEnd = at + foldedQuery.length;
+      let foldedOffset = 0;
+      let sourceOffset = 0;
+      let start = 0;
+      let end = entry.text.length;
+      let inWhitespace = false;
+
+      for (const ch of entry.text) {
+        const nextSourceOffset = sourceOffset + ch.length;
+        const folded = /\s/u.test(ch) ? (inWhitespace ? '' : ' ') : foldText(ch);
+        inWhitespace = /\s/u.test(ch);
+        const nextFoldedOffset = foldedOffset + folded.length;
+
+        if (at >= foldedOffset && at < nextFoldedOffset) start = sourceOffset;
+        if (targetEnd > foldedOffset && targetEnd <= nextFoldedOffset) end = nextSourceOffset;
+
+        foldedOffset = nextFoldedOffset;
+        sourceOffset = nextSourceOffset;
+      }
+
       return {
         id: element.id,
         type: element.type === 'extension' ? element.extensionType : element.type,
@@ -104,28 +123,4 @@ export class SceneSearch {
         return null;
     }
   }
-}
-
-function sourceRange(text: string, at: number, length: number): { start: number; end: number } {
-  const targetEnd = at + length;
-  let foldedOffset = 0;
-  let sourceOffset = 0;
-  let start = 0;
-  let end = text.length;
-  let inWhitespace = false;
-
-  for (const ch of text) {
-    const nextSourceOffset = sourceOffset + ch.length;
-    const folded = /\s/u.test(ch) ? (inWhitespace ? '' : ' ') : foldText(ch);
-    inWhitespace = /\s/u.test(ch);
-    const nextFoldedOffset = foldedOffset + folded.length;
-
-    if (at >= foldedOffset && at < nextFoldedOffset) start = sourceOffset;
-    if (targetEnd > foldedOffset && targetEnd <= nextFoldedOffset) end = nextSourceOffset;
-
-    foldedOffset = nextFoldedOffset;
-    sourceOffset = nextSourceOffset;
-  }
-
-  return { start, end };
 }

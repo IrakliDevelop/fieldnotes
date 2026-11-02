@@ -140,6 +140,7 @@ describe('SceneSearch', () => {
   it('folds case and diacritics without drifting indices', () => {
     const istanbul = createNote({ position: { x: 0, y: 0 }, text: 'İstanbul' });
     const emoji = createNote({ position: { x: 0, y: 0 }, text: '🙂 hi' });
+    const whitespace = createNote({ position: { x: 0, y: 0 }, text: 'one \n\t  two' });
     const search = new SceneSearch(getDefaultElementRegistry());
 
     expect(search.search([istanbul], 'ist')).toEqual([
@@ -148,24 +149,35 @@ describe('SceneSearch', () => {
     expect(search.search([emoji], 'hi')).toEqual([
       { id: emoji.id, type: 'note', text: '🙂 hi', start: 3, end: 5 },
     ]);
+    expect(search.search([whitespace], 'two')).toEqual([
+      { id: whitespace.id, type: 'note', text: 'one \n\t  two', start: 8, end: 11 },
+    ]);
   });
 
   it('orders by match position then scene order and applies limit and filter', () => {
     const a = createNote({ position: { x: 0, y: 0 }, text: 'the cat' });
     const b = createNote({ position: { x: 0, y: 0 }, text: 'cat' });
     const c = createNote({ position: { x: 0, y: 0 }, text: 'a cat' });
+    const d = createNote({ position: { x: 0, y: 0 }, text: 'cat one' });
+    const e = createNote({ position: { x: 0, y: 0 }, text: 'cat two' });
     const search = new SceneSearch(getDefaultElementRegistry());
 
-    expect(search.search([a, b, c], 'cat').map((hit) => hit.id)).toEqual([b.id, c.id, a.id]);
-    expect(search.search([a, b, c], 'cat', { limit: 2 }).map((hit) => hit.id)).toEqual([
+    expect(search.search([a, b, c, d, e], 'cat').map((hit) => hit.id)).toEqual([
       b.id,
+      d.id,
+      e.id,
       c.id,
+      a.id,
+    ]);
+    expect(search.search([a, b, c, d, e], 'cat', { limit: 2 }).map((hit) => hit.id)).toEqual([
+      b.id,
+      d.id,
     ]);
     expect(
       search
-        .search([a, b, c], 'cat', { filter: (element) => element.id !== b.id })
+        .search([a, b, c, d, e], 'cat', { filter: (element) => element.id !== b.id })
         .map((hit) => hit.id),
-    ).toEqual([c.id, a.id]);
+    ).toEqual([d.id, e.id, c.id, a.id]);
   });
 
   it('hits the same element object again without recomputing visible state', () => {
