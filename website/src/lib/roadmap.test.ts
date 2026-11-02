@@ -68,6 +68,11 @@ describe('parseRoadmap', () => {
     expect(roadmap.built).toContain('Frames that group and clip elements');
     expect(roadmap.built).toContain('Presentation mode that steps through frames fullscreen');
     expect(roadmap.built).toContain('Laser pointer on the L key');
+    expect(roadmap.built).toContain('Command palette on Ctrl or ⌘+K to search and run actions');
+    expect(roadmap.built).toContain(
+      'Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match',
+    );
+    expect(roadmap.built).toContain('Shortcuts help on ? generated from the current bindings');
     expect(roadmap.next).not.toContain(
       'Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export',
     );
@@ -77,8 +82,6 @@ describe('parseRoadmap', () => {
     ]);
     expect(roadmap.next).not.toContain('Frames that group and clip elements');
     expect(roadmap.notBuilt).toEqual([
-      'Find text on the board',
-      'Command palette',
       'Elbow arrows that route around shapes',
       'Text inside shapes',
     ]);

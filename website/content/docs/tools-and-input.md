@@ -78,6 +78,8 @@ Shortcuts work while the board has focus, and a click on the board gives it focu
 - Shift+1: `view.zoom-to-fit`
 - mod+=, mod+- and mod+0: `view.zoom-in`, `view.zoom-out` and `view.zoom-reset`
 - L: `tool.laser`, when a `LaserTool` is registered (the default tools don't include one)
+- mod+K: `palette.open`, which opens the command palette
+- ?: `palette.help`, which opens shortcuts help
 - The tool keys above: `tool.select`, `tool.hand`, `tool.pencil`, `tool.eraser`, `tool.arrow`, `tool.note`, `tool.text` and `tool.shape`
 
 `tool.frame` is the F shortcut.
@@ -102,6 +104,22 @@ Rebind keys with `shortcuts.bindings` in the options, or later with `viewport.sh
 ::code{example="tools-and-input" region="shortcuts"}
 
 On a board that sits in a page, disable `select.cycle` and `select.cycle-reverse` as above. Otherwise Tab moves between elements and keyboard users can't leave the board. `viewport.runAction(action)` runs any action from your own buttons.
+
+## Command palette and find on the board
+
+Ctrl/⌘+K opens the command palette. With an empty query, it lists enabled actions and their current keys. Typing searches notes, text, arrow labels, and frame titles. Matches ignore case and accents. Elements on hidden layers are skipped.
+
+Down and Up move through results. Enter runs an action or moves the camera to a board result and closes the palette. Escape closes it. A board result is outlined for 1.5 seconds and the outline then fades. It does not select the element or add an undo step.
+
+Open a query from a host control with `viewport.palette.open('budget')`. Add Ctrl/⌘+F with `shortcuts.rebind('palette.open', ['mod+k', 'mod+f'])`; Ctrl/⌘+F has no default binding. Pass `palette: false` to remove the palette and help. Pass `palette: { strings }` to localize it. Its `groups` and `types` strings merge by key.
+
+A plugin element type can provide `searchText`. Search finds a child clipped by its frame and reveals it inside the frame like any other element. The palette lives inside the host container and uses fixed positioning. A host container with CSS `transform` or `filter` re-anchors it. Use `--fieldnotes-palette-*` custom properties for colours. The highlight overlay registers on first use.
+
+During a windowed presentation, Escape first closes the palette and the next Escape ends the presentation. In fullscreen, browser Escape leaves fullscreen and ends the presentation whatever is open.
+
+## Shortcuts help
+
+Press ? or call `viewport.shortcutsHelp.open()` to open shortcuts help. It is built from actions and current bindings, so a rebind is shown there. It also lists Paste, the fixed palette keys, and the fixed presentation keys. Escape or ? closes it and returns focus to the board.
 
 ## Presentation
 

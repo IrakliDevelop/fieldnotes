@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.104.0 — command palette, find and shortcuts help
+
+Release notes prepared 2026-11-02.
+
+**Added**
+
+- `viewport.palette` with `open`, `close`, and `isOpen`; `viewport.shortcutsHelp` with
+  `open`, `close`, and `isOpen`; and the public `PaletteApi`, `ShortcutsHelpApi`,
+  `PaletteOptions`, and `PaletteStrings` types.
+- `palette.open` (`mod+k`) and `palette.help` (`?`) actions. An empty palette query lists
+  enabled actions with their current bindings. A query also finds notes, text, arrow labels, and
+  frame titles without regard to case or accents.
+- Choosing a board result moves the camera through its constraints and draws a highlight that
+  fades. The shortcuts help dialog is generated from the action registry and current bindings.
+- `ViewportOptions.palette` (`false` or `strings`). `ElementTypeDefinition` and
+  `ElementTypeAdapter` accept optional `searchText`; frames provide their title.
+
+**Compatibility**
+
+- Persisted state and the sync protocol are unchanged. The palette writes neither the store, the
+  history, nor the wire.
+- A host binding for `mod+k` or `?` conflicts with `palette.open` or `palette.help`. The
+  action registered first wins. Rebind or disable the action, or pass `palette: false`.
+- The dialogs mount in the host container and use `position: fixed`. A transformed container
+  re-anchors them. Their colours come from `--fieldnotes-palette-*` custom properties.
+
 ### Core 0.103.0 — presentation mode
 
 Release notes prepared 2026-11-02.

@@ -183,6 +183,7 @@ The model is authoritative op-broadcast with last-write-wins (not CRDT). Add [`@
 - Select, multi-select, move, resize, rotate, group / ungroup
 - Align, distribute, smart guides, and element-to-element snapping
 - Minimap overview, laser pointer, fit-to-content, zoom presets
+- Command palette (Ctrl/⌘+K), find on the board, and a shortcuts help dialog (?)
 - Runtime tool configuration (color, width, smoothing)
 - Undo / redo (one step per drag)
 - State serialization (versioned JSON export/import, CanvasState v4 with extension envelopes)

@@ -368,7 +368,7 @@ Defaults (remappable): `Delete`/`Backspace` delete · `Escape` deselect · `mod+
 `mod+Y`/`mod+Shift+Z` redo · `mod+A` select all · `mod+C/V/D` copy/paste/duplicate ·
 `[`/`]` z-order (with `mod` = to back/front) · `Shift+1` zoom-to-fit · `mod+=` zoom in ·
 `mod+-` zoom out · `mod+0` reset zoom to 100% · arrows nudge · tool keys `V` select,
-`H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape, `F` frame, and `L` laser when a `LaserTool` is registered.
+`H` hand, `P` pencil, `E` eraser, `A` arrow, `N` note, `T` text, `S` shape, `F` frame, and `L` laser when a `LaserTool` is registered · `mod+K` opens the command palette · `?` opens shortcuts help.
 
 `mod` = Ctrl or Cmd. Shortcuts fire only while the canvas has focus (click it once);
 pass `shortcuts: { scope: 'window' }` for page-wide handling.
@@ -440,6 +440,22 @@ configure(ctx) {
 > New action definitions passed to `viewport.actions.register()` or `ctx.registerAction()` must
 > use canonical ids. Recognized legacy aliases are rejected with their canonical replacement;
 > legacy lookup and input compatibility remains available until 0.88.0.
+
+## Command palette, find and shortcuts help
+
+`mod+K` opens the command palette. An empty query lists enabled actions with their current keys.
+Typing finds notes, text, arrow labels, and frame titles without regard to case or accents. Enter
+runs an action or reveals a board result. `?` opens shortcuts help, which lists current bindings.
+
+```ts
+viewport.palette.open('budget');
+viewport.shortcutsHelp.open();
+new Viewport(el, { palette: { strings: { placeholder: 'Suche' } } });
+```
+
+Pass `palette: false` to remove the palette and help. Use `--fieldnotes-palette-*` custom
+properties to style the dialogs. They mount in the host container with fixed positioning. A host
+container with a CSS transform re-anchors them.
 
 ## Changing Tool Options at Runtime
 
@@ -635,6 +651,7 @@ interface BaseElement {
 | `html`   | `size`                                                                                                                                       |
 
 Custom element types, plugins, render hooks, and services are covered in [Extending Field Notes](../../docs/EXTENDING.md).
+An element type definition can provide `searchText` for the text that board search matches.
 
 ## Styling the Selection
 

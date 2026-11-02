@@ -26,6 +26,9 @@
 - Frames that group and clip elements
 - Presentation mode that steps through frames fullscreen
 - Laser pointer on the L key
+- Command palette on Ctrl or ⌘+K to search and run actions
+- Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match
+- Shortcuts help on ? generated from the current bindings
 - Camera constraints applied to camera mutations and animations
 - A scheduled Chromium performance gate that records 90 render-loop samples on 10,011 elements against a checked-in p95 budget
 
@@ -36,7 +39,5 @@
 
 ## Not built yet
 
-- Find text on the board
-- Command palette
 - Elbow arrows that route around shapes
 - Text inside shapes
