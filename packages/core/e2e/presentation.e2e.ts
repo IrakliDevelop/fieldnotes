@@ -1,5 +1,6 @@
 import { test, expect, CanvasPage } from './fixtures/canvas-page';
 import { singleFingerDraw, pinchGesture } from './helpers/touch';
+import { redPixelCount } from './helpers/red-pixel-count';
 import type { Page } from '@playwright/test';
 
 interface CameraState {
@@ -106,23 +107,6 @@ async function state(page: Page): Promise<CanvasState> {
   });
 }
 
-async function redPixelCount(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const canvas = window.__fnCompositeCanvas();
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return -1;
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    let count = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i] ?? 0;
-      const g = data[i + 1] ?? 0;
-      const b = data[i + 2] ?? 0;
-      if (r > 200 && g < 60 && b < 60) count += 1;
-    }
-    return count;
-  });
-}
-
 function visibleRectContains(rect: View, view: View): boolean {
   return (
     rect.x <= view.x + 1 &&
@@ -130,6 +114,30 @@ function visibleRectContains(rect: View, view: View): boolean {
     rect.x + rect.w >= view.x + view.w - 1 &&
     rect.y + rect.h >= view.y + view.h - 1
   );
+}
+
+type PresentationPredicate = Partial<PresentationState>;
+
+async function waitForPresentation(page: Page, predicate: PresentationPredicate): Promise<void> {
+  await page.waitForFunction((expected) => {
+    const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+      presentation: { getState: () => PresentationState };
+    };
+    const state = viewport.presentation.getState();
+    return Object.entries(expected).every(
+      ([key, value]) => state[key as keyof PresentationState] === value,
+    );
+  }, predicate);
+}
+
+async function waitForVisibleSlide(page: Page, index: number): Promise<void> {
+  await expect
+    .poll(async () => {
+      const result = await state(page);
+      const slide = result.slides[index];
+      return slide !== undefined && visibleRectContains(result.visibleRect, slide.view);
+    })
+    .toBe(true);
 }
 
 test.describe('presentation mode', () => {
@@ -141,25 +149,13 @@ test.describe('presentation mode', () => {
     const seeded = await seedFrames(page);
 
     await page.locator('#present-btn').click();
-    await page.waitForFunction(
-      () =>
-        (
-          window as unknown as {
-            __fieldnotes_viewport: { presentation: { getState: () => PresentationState } };
-          }
-        ).__fieldnotes_viewport.presentation.getState().active,
-    );
+    await waitForPresentation(page, { active: true });
+    await waitForVisibleSlide(page, 0);
     let result = await state(page);
     expect(result.presentation.index).toBe(0);
     expect(result.presentation.count).toBe(2);
     expect(result.selectedIds).toEqual([]);
     expect(result.activeTool).toBe('hand');
-    expect(
-      visibleRectContains(
-        result.visibleRect,
-        result.slides[0]?.view ?? { x: NaN, y: NaN, w: NaN, h: NaN },
-      ),
-    ).toBe(true);
 
     await page.keyboard.press('v');
     const wrapper = canvasPage.wrapper();
@@ -179,81 +175,33 @@ test.describe('presentation mode', () => {
     );
     await wrapper.focus();
     await page.keyboard.press('ArrowRight');
-    await page.waitForFunction(
-      () =>
-        (
-          window as unknown as {
-            __fieldnotes_viewport: { presentation: { getState: () => PresentationState } };
-          }
-        ).__fieldnotes_viewport.presentation.getState().index === 1,
-    );
-    await page.waitForFunction(() => {
-      const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
-        presentation: { getSlides: () => { view: View }[] };
-        getVisibleRect: () => View;
-      };
-      const slide = viewport.presentation.getSlides()[1];
-      if (!slide) return false;
-      const rect = viewport.getVisibleRect();
-      return (
-        rect.x <= slide.view.x + 1 &&
-        rect.y <= slide.view.y + 1 &&
-        rect.x + rect.w >= slide.view.x + slide.view.w - 1 &&
-        rect.y + rect.h >= slide.view.y + slide.view.h - 1
-      );
-    });
+    await waitForPresentation(page, { index: 1 });
+    await waitForVisibleSlide(page, 1);
     result = await state(page);
     expect(result.firstShapePosition).toEqual({ x: 0, y: 0 });
     expect(result.undoCount).toBe(seeded.undoCount);
 
     await page.keyboard.press('Home');
-    await page.waitForFunction(
-      () =>
-        (
-          window as unknown as {
-            __fieldnotes_viewport: { presentation: { getState: () => PresentationState } };
-          }
-        ).__fieldnotes_viewport.presentation.getState().index === 0,
-    );
+    await waitForPresentation(page, { index: 0 });
     await page.keyboard.press('End');
-    await page.waitForFunction(
-      () =>
-        (
-          window as unknown as {
-            __fieldnotes_viewport: { presentation: { getState: () => PresentationState } };
-          }
-        ).__fieldnotes_viewport.presentation.getState().index === 1,
-    );
+    await waitForPresentation(page, { index: 1 });
     await page.keyboard.press('Home');
-    await page.waitForFunction(
-      () =>
-        (
-          window as unknown as {
-            __fieldnotes_viewport: { presentation: { getState: () => PresentationState } };
-          }
-        ).__fieldnotes_viewport.presentation.getState().index === 0,
-    );
+    await waitForPresentation(page, { index: 0 });
     await page.keyboard.press('ArrowLeft');
     expect((await state(page)).presentation.index).toBe(0);
 
     await wrapper.focus();
     await page.keyboard.press('l');
     expect((await state(page)).activeTool).toBe('laser');
+    const redBefore = await redPixelCount(page);
     await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width * 0.7, box.y + box.height / 2, { steps: 10 });
     await page.mouse.up();
-    expect(await redPixelCount(page)).toBeGreaterThan(0);
+    expect(await redPixelCount(page)).toBeGreaterThan(redBefore);
 
     await page.keyboard.press('Escape');
-    await page.waitForFunction(
-      () =>
-        !(
-          window as unknown as {
-            __fieldnotes_viewport: { presentation: { getState: () => PresentationState } };
-          }
-        ).__fieldnotes_viewport.presentation.getState().active,
-    );
+    await waitForPresentation(page, { active: false });
     result = await state(page);
     expect(result.camera).toEqual(seeded.camera);
     expect(result.activeTool).toBe('select');
@@ -267,35 +215,22 @@ test.describe('presentation mode', () => {
     await seedFrames(page);
 
     await page.locator('#present-btn').tap();
-    await page.waitForFunction(
-      () =>
-        (
-          window as unknown as {
-            __fieldnotes_viewport: { presentation: { getState: () => PresentationState } };
-          }
-        ).__fieldnotes_viewport.presentation.getState().active,
-    );
+    await waitForPresentation(page, { active: true });
     expect((await state(page)).selectedIds).toEqual([]);
 
     await page.locator('[data-presentation="next"]').tap();
-    await page.waitForFunction(
-      () =>
-        (
-          window as unknown as {
-            __fieldnotes_viewport: { presentation: { getState: () => PresentationState } };
-          }
-        ).__fieldnotes_viewport.presentation.getState().index === 1,
-    );
+    await waitForPresentation(page, { index: 1 });
     await page.locator('[data-presentation="laser"]').tap();
     expect((await state(page)).activeTool).toBe('laser');
     const box = await canvasPage.wrapper().boundingBox();
     if (!box) throw new Error('Wrapper not found');
+    const redBefore = await redPixelCount(page);
     await singleFingerDraw(page, [
       { x: box.x + box.width * 0.3, y: box.y + box.height / 2 },
       { x: box.x + box.width * 0.5, y: box.y + box.height / 2 },
       { x: box.x + box.width * 0.7, y: box.y + box.height / 2 },
     ]);
-    expect(await redPixelCount(page)).toBeGreaterThan(0);
+    expect(await redPixelCount(page)).toBeGreaterThan(redBefore);
 
     const zoom = (await state(page)).camera.zoom;
     await pinchGesture(page, { x: box.x + box.width / 2, y: box.y + box.height / 2 }, 100, 200);
@@ -304,34 +239,10 @@ test.describe('presentation mode', () => {
     expect(result.camera.zoom).not.toBe(zoom);
 
     await page.locator('[data-presentation="previous"]').tap();
-    await page.waitForFunction(() => {
-      const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
-        presentation: {
-          getState: () => PresentationState;
-          getSlides: () => { view: View }[];
-        };
-        getVisibleRect: () => View;
-      };
-      if (viewport.presentation.getState().index !== 0) return false;
-      const slide = viewport.presentation.getSlides()[0];
-      if (!slide) return false;
-      const rect = viewport.getVisibleRect();
-      return (
-        rect.x <= slide.view.x + 1 &&
-        rect.y <= slide.view.y + 1 &&
-        rect.x + rect.w >= slide.view.x + slide.view.w - 1 &&
-        rect.y + rect.h >= slide.view.y + slide.view.h - 1
-      );
-    });
+    await waitForPresentation(page, { index: 0 });
+    await waitForVisibleSlide(page, 0);
     await page.locator('[data-presentation="exit"]').tap();
-    await page.waitForFunction(
-      () =>
-        !(
-          window as unknown as {
-            __fieldnotes_viewport: { presentation: { getState: () => PresentationState } };
-          }
-        ).__fieldnotes_viewport.presentation.getState().active,
-    );
+    await waitForPresentation(page, { active: false });
     await expect(page.locator('#presentation-bar')).toBeHidden();
     expect(errors).toEqual([]);
   });

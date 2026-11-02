@@ -1,5 +1,6 @@
 import { CanvasPage, test, expect } from './fixtures/canvas-page';
 import { singleFingerDraw } from './helpers/touch';
+import { redPixelCount } from './helpers/red-pixel-count';
 import type { Page } from '@playwright/test';
 
 /**
@@ -8,24 +9,6 @@ import type { Page } from '@playwright/test';
  * and RemoteLaserOverlay apply/remove/fade. The demo page exposes
  * `__fieldnotes_viewport` and `__fieldnotes_remote_laser`.
  */
-
-/** Counts strongly red pixels on the main canvas (background dots are gray). */
-async function redPixelCount(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const canvas = window.__fnCompositeCanvas();
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return -1;
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    let count = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i] ?? 0;
-      const g = data[i + 1] ?? 0;
-      const b = data[i + 2] ?? 0;
-      if (r > 200 && g < 60 && b < 60) count += 1;
-    }
-    return count;
-  });
-}
 
 interface EmissionShape {
   points: { x: number; y: number }[];

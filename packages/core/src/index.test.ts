@@ -138,6 +138,9 @@ describe('core public surface', () => {
       'ElementHierarchy',
       'validateHierarchy',
       'framePresentationSlides',
+      'PresentationMode',
+      'createPresentationActions',
+      'frameContentBounds',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
