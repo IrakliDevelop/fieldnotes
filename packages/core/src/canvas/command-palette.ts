@@ -46,7 +46,61 @@ export interface CommandPaletteDeps {
   now?: () => number;
 }
 
-type PaletteRow = PaletteActionRow | { kind: 'element'; hit: SceneSearchHit };
+interface HitExcerpt {
+  text: string;
+  markStart: number;
+  markEnd: number;
+}
+
+interface PaletteElementRow {
+  kind: 'element';
+  hit: SceneSearchHit;
+  badge: string;
+}
+
+type PaletteRow = PaletteActionRow | PaletteElementRow;
+
+function hitExcerpt(hit: SceneSearchHit): HitExcerpt {
+  let lineStart = 0;
+  let lineEnd = hit.text.length;
+  for (const boundary of hit.text.matchAll(/\r?\n/gu)) {
+    if (hit.start <= boundary.index) {
+      lineEnd = boundary.index;
+      break;
+    }
+    lineStart = boundary.index + boundary[0].length;
+  }
+  const characters = Array.from(hit.text.slice(lineStart, lineEnd));
+  const matchStart = Math.min(Math.max(hit.start - lineStart, 0), lineEnd - lineStart);
+  const matchEnd = Math.min(Math.max(hit.end - lineStart, matchStart), lineEnd - lineStart);
+  let start = 0;
+  let startOffset = 0;
+  for (const character of characters) {
+    if (startOffset >= matchStart) break;
+    startOffset += character.length;
+    start += 1;
+  }
+  let end = start;
+  let endOffset = startOffset;
+  for (const character of characters.slice(start)) {
+    if (endOffset >= matchEnd) break;
+    endOffset += character.length;
+    end += 1;
+  }
+  const windowStart = Math.max(start - 40, 0);
+  const windowEnd = Math.min(windowStart + 80, characters.length);
+  const before = characters.slice(windowStart, Math.max(start, windowStart)).join('');
+  const marked = characters.slice(Math.max(start, windowStart), Math.min(end, windowEnd)).join('');
+  const after = characters.slice(Math.min(end, windowEnd), windowEnd).join('');
+  const leading = windowStart > 0 ? '…' : '';
+  const trailing = windowEnd < characters.length ? '…' : '';
+  const markStart = leading.length + before.length;
+  return {
+    text: `${leading}${before}${marked}${after}${trailing}`,
+    markStart,
+    markEnd: markStart + marked.length,
+  };
+}
 
 let paletteId = 0;
 
@@ -191,7 +245,14 @@ export class CommandPalette implements PaletteApi {
     const hits = this.search.search(this.deps.store.getAll(), query, {
       filter: (element) => this.deps.isLayerVisible(element.layerId),
     });
-    return [...actions, ...hits.map((hit) => ({ kind: 'element' as const, hit }))];
+    return [
+      ...actions,
+      ...hits.map((hit) => ({
+        kind: 'element' as const,
+        hit,
+        badge: this.deps.strings.types[hit.type] ?? hit.type,
+      })),
+    ];
   }
 
   private render(): void {
@@ -214,15 +275,17 @@ export class CommandPalette implements PaletteApi {
     if (!this.activeKey) input.removeAttribute('aria-activedescendant');
     const signature = JSON.stringify([
       this.activeKey,
-      this.rows.map((row) =>
-        row.kind === 'action'
-          ? [
-              this.key(row),
-              row.label,
-              row.keys.map((binding) => formatBinding(binding, this.deps.isMac())),
-            ]
-          : [this.key(row), row.hit.type, row.hit.text, row.hit.start, row.hit.end],
-      ),
+      this.rows.map((row) => {
+        if (row.kind === 'action') {
+          return [
+            this.key(row),
+            row.label,
+            row.keys.map((binding) => formatBinding(binding, this.deps.isMac())),
+          ];
+        }
+        const excerpt = hitExcerpt(row.hit);
+        return [this.key(row), excerpt.text, excerpt.markStart, excerpt.markEnd, row.badge];
+      }),
     ]);
     if (signature === this.rowSignature) return;
     const scrollActive =
@@ -231,9 +294,7 @@ export class CommandPalette implements PaletteApi {
     this.renderedActiveKey = this.activeKey;
     list.replaceChildren();
     const actions = this.rows.filter((row): row is PaletteActionRow => row.kind === 'action');
-    const elements = this.rows.filter(
-      (row): row is { kind: 'element'; hit: SceneSearchHit } => row.kind === 'element',
-    );
+    const elements = this.rows.filter((row): row is PaletteElementRow => row.kind === 'element');
     if (actions.length) {
       list.append(this.group('actions', this.deps.strings.actions, actions, scrollActive));
     }
@@ -295,7 +356,7 @@ export class CommandPalette implements PaletteApi {
       }
       option.append(label, keys);
     } else {
-      this.appendHit(option, row.hit);
+      this.appendHit(option, row.hit, row.badge);
     }
     if (selected) {
       this.input?.setAttribute('aria-activedescendant', option.id);
@@ -304,47 +365,15 @@ export class CommandPalette implements PaletteApi {
     return option;
   }
 
-  private appendHit(option: HTMLElement, hit: SceneSearchHit): void {
-    let lineStart = 0;
-    let lineEnd = hit.text.length;
-    for (const boundary of hit.text.matchAll(/\r?\n/gu)) {
-      if (hit.start <= boundary.index) {
-        lineEnd = boundary.index;
-        break;
-      }
-      lineStart = boundary.index + boundary[0].length;
-    }
-    const characters = Array.from(hit.text.slice(lineStart, lineEnd));
-    const matchStart = Math.min(Math.max(hit.start - lineStart, 0), lineEnd - lineStart);
-    const matchEnd = Math.min(Math.max(hit.end - lineStart, matchStart), lineEnd - lineStart);
-    let start = 0;
-    let startOffset = 0;
-    for (const character of characters) {
-      if (startOffset >= matchStart) break;
-      startOffset += character.length;
-      start += 1;
-    }
-    let end = start;
-    let endOffset = startOffset;
-    for (const character of characters.slice(start)) {
-      if (endOffset >= matchEnd) break;
-      endOffset += character.length;
-      end += 1;
-    }
-    const windowStart = Math.max(start - 40, 0);
-    const windowEnd = Math.min(windowStart + 80, characters.length);
-    const visibleStart = Math.max(start, windowStart);
-    const visibleEnd = Math.min(end, windowEnd);
-    if (windowStart > 0) option.append(document.createTextNode('…'));
-    option.append(document.createTextNode(characters.slice(windowStart, visibleStart).join('')));
+  private appendHit(option: HTMLElement, hit: SceneSearchHit, badge: string): void {
+    const excerpt = hitExcerpt(hit);
+    option.append(document.createTextNode(excerpt.text.slice(0, excerpt.markStart)));
     const mark = document.createElement('mark');
-    mark.textContent = characters.slice(visibleStart, visibleEnd).join('');
-    option.append(mark, document.createTextNode(characters.slice(visibleEnd, windowEnd).join('')));
-    if (windowEnd < characters.length) option.append(document.createTextNode('…'));
-    const badge = document.createElement('span');
-    badge.className = 'fieldnotes-palette-badge';
-    badge.textContent = this.deps.strings.types[hit.type] ?? hit.type;
-    option.append(badge);
+    mark.textContent = excerpt.text.slice(excerpt.markStart, excerpt.markEnd);
+    const badgeElement = document.createElement('span');
+    badgeElement.className = 'fieldnotes-palette-badge';
+    badgeElement.textContent = badge;
+    option.append(mark, document.createTextNode(excerpt.text.slice(excerpt.markEnd)), badgeElement);
   }
 
   private onKeyDown(event: KeyboardEvent): void {

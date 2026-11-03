@@ -411,6 +411,33 @@ describe('command palette', () => {
     expect(palette.isOpen()).toBe(false);
   });
 
+  it('keeps a board row when only hidden text outside its excerpt changes', async () => {
+    const { harness, container, palette } = makeDeps();
+    const text = `${'a'.repeat(50)}budget${'x'.repeat(100)}`;
+    addHit(harness, 'note', text, 'budget');
+    palette.open('budget');
+    const row = rows(container)[0];
+    if (!row) throw new Error('missing board row');
+    const excerpt = row.textContent;
+    const mark = row.querySelector('mark')?.textContent;
+    const badge = row.querySelector('.fieldnotes-palette-badge')?.textContent;
+    const rowKey = row.dataset.key;
+    const selected = row.getAttribute('aria-selected');
+
+    harness.viewport.store.update('budget', {
+      text: `${'a'.repeat(50)}budget${'x'.repeat(34)}changed outside the excerpt`,
+    });
+    await Promise.resolve();
+
+    expect(row.isConnected).toBe(true);
+    expect(rows(container)).toContain(row);
+    expect(row.textContent).toBe(excerpt);
+    expect(row.querySelector('mark')?.textContent).toBe(mark);
+    expect(row.querySelector('.fieldnotes-palette-badge')?.textContent).toBe(badge);
+    expect(row.dataset.key).toBe(rowKey);
+    expect(row.getAttribute('aria-selected')).toBe(selected);
+  });
+
   it('does not scroll when a store update leaves rows and the active key unchanged', async () => {
     const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
     const scrollIntoView = vi.fn();
