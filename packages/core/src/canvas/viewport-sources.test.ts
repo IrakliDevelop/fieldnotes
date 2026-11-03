@@ -159,8 +159,11 @@ describe('createElementSource', () => {
     vp.store.update(b.id, { position: { x: 25, y: 0 } });
     expect(source.getSnapshot()).toBe(first);
     vp.store.update(a.id, { position: { x: 5, y: 0 } });
-    expect(source.getSnapshot()).toMatchObject({ position: { x: 5 } });
-    expect(source.getSnapshot()).not.toBe(first);
+    const updated = source.getSnapshot();
+    expect(updated).toBe(vp.store.getById(a.id));
+    if (updated === null) throw new Error('expected updated element');
+    expect(updated.position.x).toBe(5);
+    expect(updated).not.toBe(first);
   });
 });
 
@@ -175,12 +178,17 @@ describe('createCanvasSizeSource', () => {
   });
 
   it('reads the canvas size and keeps the reference until it changes', () => {
-    let callback: (() => void) | undefined;
-    class FakeResizeObserver {
-      constructor(next: () => void) {
+    let callback: ResizeObserverCallback | undefined;
+    const observers: ResizeObserver[] = [];
+    class FakeResizeObserver implements ResizeObserver {
+      constructor(next: ResizeObserverCallback) {
         callback = next;
+        observers.push(this);
       }
-      observe(): void {
+      observe(_target: Element, _options?: ResizeObserverOptions): void {
+        return undefined;
+      }
+      unobserve(_target: Element): void {
         return undefined;
       }
       disconnect(): void {
@@ -198,18 +206,20 @@ describe('createCanvasSizeSource', () => {
     Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: 200 });
     const source = createCanvasSizeSource(resizeVp);
     const first = source.getSnapshot();
+    const observer = observers[0];
 
     expect(first).toEqual({ w: 300, h: 200 });
     expect(source.getSnapshot()).toBe(first);
     const changed = counter();
     const off = source.subscribe(changed.onChange);
     Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 400 });
-    callback?.();
+    if (!callback || !observer) throw new Error('expected ResizeObserver callback');
+    callback([], observer);
     expect(changed.calls).toBe(1);
     expect(source.getSnapshot()).toEqual({ w: 400, h: 200 });
     expect(source.getSnapshot()).not.toBe(first);
     off();
-    callback?.();
+    callback([], observer);
     expect(changed.calls).toBe(1);
   });
 });
