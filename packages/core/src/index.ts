@@ -83,7 +83,11 @@ export type {
   SelectionOpsState,
 } from './canvas/viewport-sources';
 export { mountViewport } from './canvas/mount-viewport';
-export type { MountViewportOptions, MountedViewport } from './canvas/mount-viewport';
+export type {
+  MountAutoSaveOptions,
+  MountViewportOptions,
+  MountedViewport,
+} from './canvas/mount-viewport';
 export { attachHostElement } from './canvas/host-element';
 export type { HostElementGeometry, HostElementHandle } from './canvas/host-element';
 export type {

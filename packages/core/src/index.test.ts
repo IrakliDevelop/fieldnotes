@@ -18,11 +18,20 @@ import type {
   PaletteOptions,
   PaletteStrings,
   ShortcutsHelpApi,
+  MountAutoSaveOptions,
 } from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
     expect(FN.VERSION).toBe('0.104.0');
+  });
+
+  it('exports mount autosave options and no autosave without the option', () => {
+    const options: MountAutoSaveOptions = { key: 'x' };
+    const mounted = FN.mountViewport(document.createElement('div'), { autoSave: undefined });
+    expect(options.key).toBe('x');
+    expect(mounted.autoSave).toBeNull();
+    mounted.destroy();
   });
 
   it('exports the frame element surface', () => {

@@ -8,7 +8,13 @@ import { HandTool } from '../tools/hand-tool';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { createShape } from '../elements/element-factory';
+import { exportState } from '../core/state-serializer';
 import type { CanvasState } from '../core/state-serializer';
+import { ElementStore } from '../elements/element-store';
+import { Camera } from './camera';
+import { MemoryAdapter } from '../core/storage/memory-adapter';
+import type { StorageAdapter } from '../core/storage/storage-adapter';
+import type { ViewportPlugin } from './viewport-plugin';
 import type { Tool } from '../tools/types';
 
 const DEFAULT_TOOL_NAMES = [
@@ -48,6 +54,15 @@ function addShape(viewport: Viewport, id: string) {
     id,
     layerId: viewport.layerManager.activeLayerId,
   });
+}
+
+function exportedShape(id: string, extensions?: CanvasState['extensions']): CanvasState {
+  const store = new ElementStore();
+  store.add({
+    ...createShape({ position: { x: 0, y: 0 }, size: { w: 5, h: 5 } }),
+    id,
+  });
+  return exportState(store.snapshot(), new Camera(), [], undefined, extensions);
 }
 
 afterEach(() => {
@@ -368,6 +383,186 @@ describe('mountViewport onChange', () => {
     addShape(m.viewport, 'late');
     vi.advanceTimersByTime(1000);
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('mountViewport autoSave', () => {
+  it('loads the saved board after onReady and does not report it through onChange', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', JSON.stringify(exportedShape('saved')));
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    const onReady = vi.fn((vp: Viewport) => expect(vp.store.count).toBe(0));
+    const m = mount({ autoSave: { adapter, key: 'k' }, onReady, onChange });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(m.viewport.store.getById('saved')).toBeDefined();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('a saved board wins over initialData', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', JSON.stringify(exportedShape('saved')));
+    const m = mount({ autoSave: { adapter, key: 'k' }, initialData: exportedShape('a') });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(m.viewport.store.getAll().map((element) => element.id)).toEqual(['saved']);
+  });
+
+  it('saves changes through the adapter after the load', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    const m = mount({ autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    await vi.advanceTimersByTimeAsync(100);
+
+    const state = JSON.parse((await adapter.load('k')) ?? 'null') as CanvasState;
+    expect(state.elements[0]?.id).toBe('b');
+  });
+
+  it('destroy flushes a pending autosave before destroying', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    const m = mount({ autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    m.destroy();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const state = JSON.parse((await adapter.load('k')) ?? 'null') as CanvasState;
+    expect(state.elements).toHaveLength(1);
+  });
+
+  it('a load that resolves after destroy is dropped', async () => {
+    vi.useFakeTimers();
+    let resolveLoad: ((value: string | null) => void) | undefined;
+    const adapter: StorageAdapter = {
+      load: () =>
+        new Promise((resolve) => {
+          resolveLoad = resolve;
+        }),
+      save: vi.fn(async () => undefined),
+      clear: async () => undefined,
+    };
+    const loadState = vi.spyOn(Viewport.prototype, 'loadState');
+    const m = mount({ autoSave: { adapter, key: 'k' } });
+    m.destroy();
+    resolveLoad?.(JSON.stringify(exportedShape('saved')));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(loadState).not.toHaveBeenCalled();
+    expect(adapter.save).not.toHaveBeenCalled();
+  });
+
+  it('start runs even when nothing is saved', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    const m = mount({ autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(await adapter.load('k')).not.toBeNull();
+  });
+
+  it('a saved board that fails to apply is reported and never overwritten', async () => {
+    vi.useFakeTimers();
+    const plugin: ViewportPlugin = {
+      name: 'invalid-state',
+      start: () => ({
+        dispose: () => undefined,
+        exportState: () => ({ value: 'current' }),
+        loadState: () => undefined,
+        validateState: () => {
+          throw new Error('invalid plugin state');
+        },
+      }),
+    };
+    const seeded = JSON.stringify(
+      exportedShape('saved', { 'invalid-state': { version: 1, data: {} } }),
+    );
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', seeded);
+    const onError = vi.fn<(error: Error) => void>();
+    const m = mount({
+      options: { plugins: [plugin] },
+      autoSave: { adapter, key: 'k', onError, debounceMs: 100 },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    expect(await adapter.load('k')).toBe(seeded);
+  });
+
+  it('reports an unappliable saved board through reportFailure without onError', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('reportError', undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const plugin: ViewportPlugin = {
+      name: 'invalid-state',
+      start: () => ({
+        dispose: () => undefined,
+        exportState: () => ({}),
+        loadState: () => undefined,
+        validateState: () => {
+          throw new Error('invalid plugin state');
+        },
+      }),
+    };
+    const seeded = JSON.stringify(
+      exportedShape('saved', { 'invalid-state': { version: 1, data: {} } }),
+    );
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', seeded);
+    const m = mount({
+      options: { plugins: [plugin] },
+      autoSave: { adapter, key: 'k', debounceMs: 100 },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(error).toHaveBeenCalledOnce();
+    expect(await adapter.load('k')).toBe(seeded);
+  });
+
+  it('a plugin-state change alone is saved', async () => {
+    vi.useFakeTimers();
+    let changePluginState: (() => void) | undefined;
+    let value = 'before';
+    const plugin: ViewportPlugin = {
+      name: 'stateful',
+      start: (context) => {
+        changePluginState = () => {
+          value = 'after';
+          context.notifyChange();
+        };
+        return { dispose: () => undefined, exportState: () => ({ value }) };
+      },
+    };
+    const adapter = new MemoryAdapter();
+    mount({ options: { plugins: [plugin] }, autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    changePluginState?.();
+    await vi.advanceTimersByTimeAsync(100);
+
+    const state = JSON.parse((await adapter.load('k')) ?? 'null') as CanvasState;
+    expect(state.extensions?.['stateful']?.data).toEqual({ value: 'after' });
   });
 });
 

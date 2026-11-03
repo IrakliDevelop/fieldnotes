@@ -2,8 +2,16 @@ import { Viewport } from './viewport';
 import type { ViewportOptions } from './viewport';
 import { createDefaultTools } from '../tools/default-tools';
 import { reportFailure } from '../core/report-failure';
+import { AutoSave } from '../core/auto-save';
+import type { AutoSaveOptions } from '../core/auto-save';
 import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import type { Tool } from '../tools/types';
+
+/** Autosave options; the store, camera, layer manager, plugin state and registry come from the viewport. */
+export type MountAutoSaveOptions = Omit<
+  AutoSaveOptions,
+  'layerManager' | 'elementRegistry' | 'pluginStateManager' | 'changeEmitters'
+>;
 
 /** Mount options; `onChange`, `changeDebounceMs`, `onToolChange`, `tool` and `defaultTool` are read at use time, so getters stay live. */
 export interface MountViewportOptions {
@@ -26,6 +34,8 @@ export interface MountViewportOptions {
   onChange?: (state: CanvasState) => void;
   /** Debounce window for `onChange` in milliseconds (default 250). */
   changeDebounceMs?: number;
+  /** Loads the saved board after `onReady` (a saved board wins over `initialData`), then saves on change. */
+  autoSave?: MountAutoSaveOptions;
   /** Fires on active-tool changes after mount, not for activation during mount. */
   onToolChange?: (name: string) => void;
 }
@@ -33,6 +43,8 @@ export interface MountViewportOptions {
 /** A viewport mounted by `mountViewport`, with the calls framework bindings need. */
 export interface MountedViewport {
   readonly viewport: Viewport;
+  /** The autosave instance, or `null` without `autoSave`. */
+  readonly autoSave: AutoSave | null;
   /** Activates `name` unless it is already the active tool. */
   setTool(name: string): void;
   /** Registers each tool whose name is not registered yet (append-only). */
@@ -48,6 +60,8 @@ export function mountViewport(
 ): MountedViewport {
   const { options, tools, initialData } = opts;
   const vp = new Viewport(container, options);
+  let destroyed = false;
+  let muted = false;
 
   const activate = (fallback?: string) => {
     const name = opts.tool ?? opts.defaultTool ?? fallback;
@@ -75,6 +89,7 @@ export function mountViewport(
   };
   // Subscribed after initialData so the initial load is not reported as a change.
   const unsubscribe = vp.onStateChange(() => {
+    if (muted) return;
     clearTimeout(timer);
     timer = setTimeout(emitChange, opts.changeDebounceMs ?? 250);
   });
@@ -97,11 +112,41 @@ export function mountViewport(
     throw error;
   }
 
+  const autoSave = opts.autoSave
+    ? new AutoSave(vp.store, vp.camera, {
+        ...opts.autoSave,
+        layerManager: vp.layerManager,
+        pluginStateManager: vp.plugins,
+        changeEmitters: [{ onChange: (listener) => vp.onStateChange(listener) }],
+      })
+    : null;
+  if (autoSave) {
+    void autoSave.load().then((state) => {
+      if (destroyed) return;
+      if (state) {
+        muted = true;
+        try {
+          vp.loadState(state);
+        } catch (error) {
+          if (opts.autoSave?.onError) {
+            opts.autoSave.onError(error instanceof Error ? error : new Error(String(error)));
+          } else {
+            reportFailure(error, 'autosave load failed to apply');
+          }
+          return;
+        } finally {
+          muted = false;
+        }
+      }
+      autoSave.start();
+    });
+  }
+
   const unsubscribeTool = vp.toolManager.onChange((name) => opts.onToolChange?.(name));
-  let destroyed = false;
 
   return {
     viewport: vp,
+    autoSave,
     setTool(name) {
       if (vp.toolManager.activeTool?.name !== name) vp.setTool(name);
     },
@@ -121,6 +166,10 @@ export function mountViewport(
           // A failing host save must not leak the viewport or throw out of unmount.
           reportFailure(error, 'onChange failed during unmount');
         }
+      }
+      if (autoSave) {
+        void autoSave.flush();
+        autoSave.stop();
       }
       unsubscribeTool();
       unsubscribe();
