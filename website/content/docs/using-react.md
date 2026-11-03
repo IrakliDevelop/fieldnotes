@@ -11,7 +11,7 @@ order: 2
 npm install @fieldnotes/core @fieldnotes/react
 ```
 
-`@fieldnotes/react` needs React 18 or 19 and `@fieldnotes/core` 0.96.0 or newer.
+`@fieldnotes/react` needs React 18 or 19 and `@fieldnotes/core` 0.105.0 or newer.
 
 ## Mount a board
 
@@ -33,12 +33,28 @@ Children of `<FieldNotesCanvas>` can call the hooks. `useActiveTool` returns the
 
 ::code{example="using-react" region="tool-button"}
 
-`useViewport()` returns the `Viewport` itself, for anything the hooks don't cover. It throws outside `<FieldNotesCanvas>`. From outside, use the `onReady(viewport)` prop or a ref. `useHistory`, `useLayers`, `useSelection` and `useCamera` re-render the component when undo state, layers, the selection or the camera change.
+`useViewport()` returns the `Viewport` itself, for anything the hooks don't cover. It throws outside `<FieldNotesCanvas>`. From outside, use the `onReady(viewport)` prop or a ref. `useHistory`, `useLayers`, `useSelection` and `useCamera` re-render the component when undo state, layers, the selection or the camera change. `useExport` and `useLoad` export and load the board ([Export](/docs/export/), [Saving and loading](/docs/saving-and-loading/)). `useCameraControls` moves the camera, and `useCanvasSize` returns the board's size in CSS pixels. `useShortcuts` reads and rebinds [keyboard shortcuts](/docs/tools-and-input/#keyboard-shortcuts). `useElement(id)` returns one element. `useTransaction` makes several changes [one undo step](/docs/undo-and-history/#group-your-own-changes). `usePresence` shows who else is on the board.
 
 ## React components on the board
 
-`<CanvasElement position={{ x, y }}>` renders its children on the board, where they pan and zoom with it. React owns the element: moving it creates no undo step, and `exportState()` leaves it out of the saved board.
+`<HostElement position={{ x, y }}>` renders its children on the board, where they pan and zoom with it. React owns the element: moving it creates no undo step, and `exportState()` leaves it out of the saved board. `CanvasElement` still works as a deprecated alias; `@fieldnotes/react` 0.16.0 removes it.
 
 The [`@fieldnotes/react` README](https://github.com/IrakliDevelop/fieldnotes/blob/master/packages/react/README.md#prop-reactivity) says which props are read only at mount, and covers custom tools and the selection hooks.
 
-[`@fieldnotes/vue`](https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/vue#readme), [`@fieldnotes/svelte`](https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/svelte#readme) and [`@fieldnotes/angular`](https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/angular#readme) have `FieldNotesCanvas`, `CanvasElement` and `Minimap` as in React, and helpers with the React hook names that give their state as Vue refs, Svelte stores and Angular signals. Angular changes `use` to `inject` in the names (`injectCamera`).
+[`@fieldnotes/vue`](https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/vue#readme), [`@fieldnotes/svelte`](https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/svelte#readme) and [`@fieldnotes/angular`](https://github.com/IrakliDevelop/fieldnotes/tree/master/packages/angular#readme) export `FieldNotesCanvas`, `CanvasElement` (`HostElement` in React) and `Minimap`, and helpers with the React hook names that give their state as Vue refs, Svelte stores and Angular signals. Angular changes `use` to `inject` in the names (`injectCamera`).
+
+## Save the board automatically
+
+`autoSave={{ key: 'board' }}` loads the board saved under that key after `onReady`, then saves 1000ms after the last change, to localStorage unless you pass an `adapter`. A saved board replaces `initialData` and anything `onReady` added. [Saving and loading](/docs/saving-and-loading/#save-automatically) lists the options.
+
+::code{example="using-react" region="autosave"}
+
+## Shortcuts
+
+`useShortcuts()` returns the current bindings, re-renders when one changes, and gives `rebind`, `disable` and `reset`. A hoisted `shortcuts` prop sets bindings ([Keyboard shortcuts](/docs/tools-and-input/#keyboard-shortcuts)).
+
+::code{example="using-react" region="shortcuts"}
+
+## Presence
+
+`usePresence(client, { identity })` draws other people's cursors and selections and returns them as `peers` ([README](https://github.com/IrakliDevelop/fieldnotes/blob/master/packages/react/README.md#presence)).

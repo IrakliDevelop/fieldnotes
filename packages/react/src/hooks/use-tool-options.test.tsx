@@ -1,6 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, cleanup, act } from '@testing-library/react';
+import { render, cleanup, act, renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { FieldNotesCanvas } from '../field-notes-canvas';
+import { ViewportContext } from '../context';
+import { createTestViewport, destroyTestViewports } from '../test-utils/create-test-viewport';
 import { useToolOptions } from './use-tool-options';
 import { PencilTool, HandTool, ShapeTool } from '@fieldnotes/core';
 import type { PencilToolOptions } from '@fieldnotes/core';
@@ -11,7 +14,10 @@ import type { PencilToolOptions } from '@fieldnotes/core';
 type PencilOptions = { [K in keyof PencilToolOptions]: PencilToolOptions[K] };
 
 describe('useToolOptions', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    destroyTestViewports();
+  });
 
   it('returns current tool options', () => {
     const pencil = new PencilTool({ color: '#ff0000', width: 5 });
@@ -170,5 +176,20 @@ describe('useToolOptions', () => {
       pencil.setOptions({ color: '#00ff00' });
     });
     expect(renders).toBe(rendersBefore);
+  });
+
+  it('sees a tool registered after the first render', () => {
+    const viewport = createTestViewport();
+    const pencil = new PencilTool({ width: 4 });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ViewportContext.Provider value={viewport}>{children}</ViewportContext.Provider>
+    );
+    const { result } = renderHook(() => useToolOptions<PencilOptions>('pencil'), { wrapper });
+
+    expect(result.current[0]).toBeNull();
+    act(() => viewport.toolManager.register(pencil));
+    expect(result.current[0]?.width).toBe(4);
+    act(() => pencil.setOptions({ width: 6 }));
+    expect(result.current[0]?.width).toBe(6);
   });
 });

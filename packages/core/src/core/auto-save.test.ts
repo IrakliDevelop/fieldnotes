@@ -183,6 +183,167 @@ describe('AutoSave', () => {
     expect(localStorage.getItem('test-save')).toBeNull();
   });
 
+  it('flush saves a pending change without waiting for the debounce', async () => {
+    const adapter = new MemoryAdapter();
+    const save = vi.spyOn(adapter, 'save');
+    autoSave = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 1000 });
+    autoSave.start();
+
+    store.add(makeNote('x'));
+    await autoSave.flush();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(save).toHaveBeenCalledOnce();
+    const saved = JSON.parse((await adapter.load('k')) ?? 'null') as { elements: unknown[] };
+    expect(saved.elements).toHaveLength(1);
+  });
+
+  it('flush is a no-op when nothing is pending', async () => {
+    const adapter = new MemoryAdapter();
+    autoSave = new AutoSave(store, camera, { adapter, key: 'k' });
+    autoSave.start();
+
+    await autoSave.flush();
+
+    expect(await adapter.load('k')).toBeNull();
+  });
+
+  it('flush takes its snapshot before the adapter write settles', async () => {
+    let resolveSave: (() => void) | undefined;
+    let savedValue: string | undefined;
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      clear: async () => undefined,
+      save: async (_key, value) => {
+        savedValue = value;
+        await new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        });
+      },
+    };
+    autoSave = new AutoSave(store, camera, { adapter, debounceMs: 1000 });
+    autoSave.start();
+
+    store.add(makeNote());
+    let flushSettled = false;
+    const flush = autoSave.flush().then(() => {
+      flushSettled = true;
+    });
+    store.clear();
+    await Promise.resolve();
+    expect(flushSettled).toBe(false);
+    resolveSave?.();
+    await flush;
+
+    const saved = JSON.parse(savedValue ?? 'null') as { elements: unknown[] };
+    expect(saved.elements).toHaveLength(1);
+  });
+
+  it('flush waits for an in-flight write and the newer queued snapshot', async () => {
+    const saved = new Map<string, string>();
+    const deferreds: (() => void)[] = [];
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      clear: async () => undefined,
+      save: (key, value) =>
+        new Promise<void>((resolve) => {
+          deferreds.push(() => {
+            saved.set(key, value);
+            resolve();
+          });
+        }),
+    };
+    autoSave = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 100 });
+    autoSave.start();
+
+    store.add(makeNote('first'));
+    await vi.advanceTimersByTimeAsync(100);
+    store.add(makeNote('second'));
+
+    let flushed = false;
+    const flush = autoSave.flush().then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+
+    expect(flushed).toBe(false);
+    expect(deferreds).toHaveLength(1);
+
+    deferreds[0]?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(flushed).toBe(false);
+    expect(deferreds).toHaveLength(2);
+
+    deferreds[1]?.();
+    await flush;
+
+    const state = JSON.parse(saved.get('k') ?? 'null') as { elements: { text: string }[] };
+    expect(state.elements.map((element) => element.text)).toEqual(['first', 'second']);
+  });
+
+  it('a new AutoSave on the same key loads after the previous instance finishes writing', async () => {
+    const saved = new Map<string, string>();
+    const deferreds: (() => void)[] = [];
+    const adapter: StorageAdapter = {
+      load: async (key) => saved.get(key) ?? null,
+      clear: async () => undefined,
+      save: (key, value) =>
+        new Promise<void>((resolve) => {
+          deferreds.push(() => {
+            saved.set(key, value);
+            resolve();
+          });
+        }),
+    };
+    const first = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 100 });
+    first.start();
+    store.add(makeNote('a1'));
+    await vi.advanceTimersByTimeAsync(100);
+    store.add(makeNote('a2'));
+    void first.flush();
+    first.stop();
+
+    const second = new AutoSave(new ElementStore(), new Camera(), { adapter, key: 'k' });
+    let loaded: { elements: { text: string }[] } | null | undefined;
+    const load = second.load().then((state) => {
+      loaded = state as { elements: { text: string }[] } | null;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loaded).toBeUndefined();
+
+    deferreds[0]?.();
+    await vi.advanceTimersByTimeAsync(0);
+    deferreds[1]?.();
+    await load;
+
+    expect(loaded?.elements.map((element) => element.text)).toEqual(['a1', 'a2']);
+  });
+
+  it('flush after stop does not save', async () => {
+    const adapter = new MemoryAdapter();
+    autoSave = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 1000 });
+    autoSave.start();
+
+    store.add(makeNote());
+    autoSave.stop();
+    await autoSave.flush();
+
+    expect(await adapter.load('k')).toBeNull();
+  });
+
+  it('flush is a no-op after the debounced save already ran', async () => {
+    const adapter = new MemoryAdapter();
+    const save = vi.spyOn(adapter, 'save');
+    autoSave = new AutoSave(store, camera, { adapter, debounceMs: 1000 });
+    autoSave.start();
+
+    store.add(makeNote());
+    await vi.advanceTimersByTimeAsync(1000);
+    await autoSave.flush();
+
+    expect(save).toHaveBeenCalledOnce();
+  });
+
   it('respects custom debounce time', async () => {
     autoSave = new AutoSave(store, camera, {
       key: 'test-save',
@@ -298,6 +459,52 @@ describe('AutoSave', () => {
     await expect(vi.advanceTimersByTimeAsync(1000)).resolves.not.toThrow();
 
     vi.restoreAllMocks();
+  });
+
+  it('drains queued writes when onError throws for an adapter failure', async () => {
+    const saved = new Map<string, string>();
+    let rejectFirst: ((error: Error) => void) | undefined;
+    let first = true;
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      clear: async () => undefined,
+      save: (key, value) => {
+        if (first) {
+          first = false;
+          return new Promise<void>((_resolve, reject) => {
+            rejectFirst = reject;
+          });
+        }
+        saved.set(key, value);
+        return Promise.resolve();
+      },
+    };
+    const adapterFailure = new Error('adapter failed');
+    const callbackFailure = new Error('host callback failed');
+    const reportError = vi.fn();
+    vi.stubGlobal('reportError', reportError);
+    autoSave = new AutoSave(store, camera, {
+      adapter,
+      key: 'k',
+      debounceMs: 100,
+      onError: () => {
+        throw callbackFailure;
+      },
+    });
+    autoSave.start();
+
+    store.add(makeNote('first'));
+    await vi.advanceTimersByTimeAsync(100);
+    store.add(makeNote('second'));
+    const flush = autoSave.flush();
+
+    rejectFirst?.(adapterFailure);
+    await expect(flush).resolves.toBeUndefined();
+
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledWith(callbackFailure);
+    const state = JSON.parse(saved.get('k') ?? 'null') as { elements: { text: string }[] };
+    expect(state.elements.map((element) => element.text)).toEqual(['first', 'second']);
   });
 
   it('serializes overlapping saves and persists the latest state', async () => {

@@ -1,6 +1,7 @@
 interface ToolbarProps {
   tool: string;
   onSelect: (name: string) => void;
+  hasStamp: boolean;
 }
 
 const TOOL_LABELS: readonly (readonly [string, string])[] = [
@@ -13,10 +14,10 @@ const TOOL_LABELS: readonly (readonly [string, string])[] = [
   ['stamp', 'Stamp'],
 ];
 
-export function Toolbar({ tool, onSelect }: ToolbarProps) {
+export function Toolbar({ tool, onSelect, hasStamp }: ToolbarProps) {
   return (
     <div className="toolbar">
-      {TOOL_LABELS.map(([name, label]) => (
+      {TOOL_LABELS.filter(([name]) => hasStamp || name !== 'stamp').map(([name, label]) => (
         <button key={name} className={tool === name ? 'active' : ''} onClick={() => onSelect(name)}>
           {label}
         </button>

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { ToolManager } from './tool-manager';
 import type { Tool, ToolContext, PointerState } from './types';
 
@@ -23,6 +23,11 @@ function stubContext(): ToolContext {
 }
 
 const point: PointerState = { x: 10, y: 20, pressure: 0.5, pointerType: 'mouse', shiftKey: false };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 function makeTool(name: string): Tool {
   return { name, onPointerDown: vi.fn(), onPointerMove: vi.fn(), onPointerUp: vi.fn() };
@@ -110,6 +115,38 @@ describe('ToolManager', () => {
     manager.setTool('pencil', ctx);
 
     expect(listener).toHaveBeenCalledWith('pencil');
+  });
+
+  it('reports a throwing change listener and continues to later listeners', () => {
+    const manager = new ToolManager();
+    const error = new Error('host bug');
+    const reportError = vi.fn<(error: unknown) => void>();
+    const laterListener = vi.fn();
+    vi.stubGlobal('reportError', reportError);
+
+    manager.register(stubTool('pencil'));
+    manager.onChange(() => {
+      throw error;
+    });
+    manager.onChange(laterListener);
+
+    expect(() => manager.setTool('pencil', stubContext())).not.toThrow();
+    expect(reportError).toHaveBeenCalledWith(error);
+    expect(laterListener).toHaveBeenCalledWith('pencil');
+  });
+
+  it('does not call a listener removed by an earlier listener during dispatch', () => {
+    const manager = new ToolManager();
+    const laterListener = vi.fn();
+    let removeLater: () => void = () => undefined;
+
+    manager.register(stubTool('pencil'));
+    manager.onChange(() => removeLater());
+    removeLater = manager.onChange(laterListener);
+
+    manager.setTool('pencil', stubContext());
+
+    expect(laterListener).not.toHaveBeenCalled();
   });
 
   it('retrieves a registered tool by name', () => {

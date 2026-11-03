@@ -6,6 +6,77 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.105.0 — wrapper helpers
+
+Release notes prepared 2026-11-03.
+
+**Added**
+
+- `AutoSave.flush`; `MountViewportOptions.autoSave`; `MountedViewport.autoSave` and
+  `MountedViewport.setTools`; and `MountAutoSaveOptions`.
+- `ShortcutsApi.onChange`, `createShortcutsSource`, `createElementSource`,
+  `createCanvasSizeSource`, `createPeersSource`, and `CanvasSize`.
+- `MountViewportOptions.onToolChange` receives `''` when `setTools` leaves no active tool.
+
+**Changed**
+
+- `mountViewport` skips a `tools` entry whose name `options.tools` already registered, and uses the
+  first instance when an array repeats a name. The Vue, Svelte and Angular canvases get this through
+  core.
+
+**Fixed**
+
+- `createToolOptionsSource` notifies when the named tool is registered later.
+- `@fieldnotes/vue`, `@fieldnotes/svelte`, and `@fieldnotes/angular` get this fix for their
+  `useToolOptions` helpers by installing core 0.105.0; there is no wrapper release and no peer
+  floor change.
+- Tool change listeners are isolated; a throwing listener is reported and the others still run.
+- `AutoSave.load` waits for a write still in flight from another `AutoSave` on the same adapter and
+  key, so a board remounted under the same key no longer loads an older save and overwrites the
+  newer one.
+
+**Compatibility**
+
+- Persisted state and the protocol are unchanged.
+- `ShortcutsApi` gains a member and core is its only implementer.
+- `ShortcutsApi.onChange` also fires for `setDefault` and `clearDefault` of a non-overridden
+  action.
+
+### React 0.15.0 — React parity
+
+Release notes prepared 2026-11-03.
+
+**Added**
+
+- The `autoSave`, `shortcuts`, `activation` and `onElementActivate` props, with other `div` attributes passed to the root div; `ref.autoSave`; `useExport`, `useLoad`, `useTransaction`, `useElement`, `useCanvasSize`, `useCameraControls`, `useShortcuts` and `usePresence`; `HostElement` and `HostElementProps`; and `UseCameraControlsResult`, `UseShortcutsResult`, `UseExportResult` and `UsePresenceResult`.
+- Type re-exports: `ActivationOptions`, `AttachAwarenessOptions`, `AwarenessFields`, `Bounds`,
+  `CameraView`, `CanvasSize`, `CanvasState`, `ElementActivationEvent`, `ExportImageOptions`,
+  `ExportSvgOptions`, `HistoryState`, `HostElementGeometry`, `ImportableCanvasState`, `Layer`,
+  `LayersState`, `MountAutoSaveOptions`, `Peer`, `Point`, `PointerState`, `PresenceChannel`,
+  `SelectionOpsState`, `ShortcutBindings`, `Tool`, `ToolContext`, `Viewport`, and
+  `ViewportOptions`.
+
+**Changed**
+
+- **A `tool` prop now reverts a switch the host does not adopt; hosts that passed `tool` without updating it from `onToolChange` should drop `tool` or adopt the change.** Update `tool` in the same `onToolChange` call (`onToolChange={setTool}`); an update deferred to a timer or promise lands after the revert.
+- Reactive `tools` unregisters names that leave and reconciles by name without swapping a new
+  same-name instance.
+- `FieldNotesCanvasRef.viewport` is readonly and live, set before parent effects, and null after
+  unmount.
+- The `onToolChange` prop also receives `''` when `tools` removes the active tool and no fallback is registered.
+- `FieldNotesCanvasProps` extends `Omit<HTMLAttributes<HTMLDivElement>, 'autoSave' | 'onChange' | 'children' | 'dangerouslySetInnerHTML'>` and spreads other `div` props on the root div; the DOM `onChange` is unavailable because `onChange` receives the board state.
+- `FieldNotesCanvasRef` gains a readonly `autoSave`: the live `AutoSave` instance, or `null` without the `autoSave` prop.
+- `useToolOptions` sees a named tool registered later.
+
+**Deprecated**
+
+- `CanvasElement` and `CanvasElementProps`; both are removed in 0.16.0.
+
+**Compatibility**
+
+- The core peer floor is `>=0.105.0`.
+- No export was removed.
+
 ### Core 0.104.0 — command palette, find and shortcuts help
 
 Release notes prepared 2026-11-02.

@@ -1,4 +1,5 @@
 import type { Tool, ToolContext, PointerState } from './types';
+import { reportFailure } from '../core/report-failure';
 
 export class ToolManager {
   private tools = new Map<string, Tool>();
@@ -39,7 +40,13 @@ export class ToolManager {
     this.current?.onDeactivate?.(ctx);
     this.current = tool;
     this.current.onActivate?.(ctx);
-    this.changeListeners.forEach((fn) => fn(name));
+    for (const listener of this.changeListeners) {
+      try {
+        listener(name);
+      } catch (error) {
+        reportFailure(error, 'tool change listener failed');
+      }
+    }
   }
 
   handlePointerDown(state: PointerState, ctx: ToolContext): void {

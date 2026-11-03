@@ -179,14 +179,17 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('keeps the pending palette release first and undated', () => {
+  it('keeps the pending wrapper-helper and React parity releases first and undated', () => {
+    const wrapperHelpers = release('@fieldnotes/core', '0.105.0');
+    const reactParity = release('@fieldnotes/react', '0.15.0');
     const palette = release('@fieldnotes/core', '0.104.0');
     const presentation = release('@fieldnotes/core', '0.103.0');
     const frames = release('@fieldnotes/core', '0.102.0');
     const prior = release('@fieldnotes/core', '0.101.0');
 
-    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.104.0' });
-    for (const version of ['0.103.0', '0.102.0', '0.101.0']) {
+    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.105.0' });
+    expect(current[1]).toMatchObject({ npmName: '@fieldnotes/react', version: '0.15.0' });
+    for (const version of ['0.104.0', '0.103.0', '0.102.0', '0.101.0']) {
       expect(
         current.filter(
           (entry) => entry.npmName === '@fieldnotes/core' && entry.version === version,
@@ -195,7 +198,9 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     }
     expect(frames).toBeDefined();
     expect(prior).toBeDefined();
-    if (!palette || !presentation || !frames || !prior) return;
+    if (!wrapperHelpers || !reactParity || !palette || !presentation || !frames || !prior) return;
+    expect(wrapperHelpers.date).toBeUndefined();
+    expect(reactParity.date).toBeUndefined();
     expect(palette.date).toBeUndefined();
     expect(presentation.date).toBeUndefined();
     expect(frames.date).toBeUndefined();

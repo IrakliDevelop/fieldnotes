@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from './viewport';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
@@ -18,9 +18,15 @@ import {
   createSelectionSource,
   createSelectionStyleDetailsSource,
   createSelectionStyleSource,
+  createShortcutsSource,
   createToolOptionsSource,
   createPresentationSource,
+  createElementSource,
+  createCanvasSizeSource,
+  createPeersSource,
 } from './viewport-sources';
+import { PeerRoster } from './awareness-roster';
+import { AWARENESS_PRESENCE_KIND } from './awareness-presence';
 import type { CanvasElement, ElementType } from '../elements/types';
 import type { Tool } from '../tools/types';
 
@@ -129,6 +135,118 @@ describe('createElementsSource', () => {
     off();
     addNote();
     expect(c.calls).toBe(1);
+  });
+});
+
+describe('createElementSource', () => {
+  it('returns the element by id and null when absent', () => {
+    const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    vp.store.add(a);
+
+    expect(createElementSource(vp, () => a.id).getSnapshot()).toBe(vp.store.getById(a.id));
+    expect(createElementSource(vp, () => 'missing').getSnapshot()).toBeNull();
+    expect(createElementSource(vp, () => null).getSnapshot()).toBeNull();
+  });
+
+  it('keeps the reference until that element changes', () => {
+    const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    const b = createShape({ position: { x: 20, y: 0 }, size: { w: 10, h: 10 } });
+    vp.store.add(a);
+    vp.store.add(b);
+    const source = createElementSource(vp, () => a.id);
+    const first = source.getSnapshot();
+
+    vp.store.update(b.id, { position: { x: 25, y: 0 } });
+    expect(source.getSnapshot()).toBe(first);
+    vp.store.update(a.id, { position: { x: 5, y: 0 } });
+    const updated = source.getSnapshot();
+    expect(updated).toBe(vp.store.getById(a.id));
+    if (updated === null) throw new Error('expected updated element');
+    expect(updated.position.x).toBe(5);
+    expect(updated).not.toBe(first);
+  });
+});
+
+describe('createCanvasSizeSource', () => {
+  let resizeVp: Viewport | null = null;
+  let resizeContainer: HTMLDivElement | null = null;
+
+  afterEach(() => {
+    resizeVp?.destroy();
+    resizeContainer?.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it('reads the canvas size and keeps the reference until it changes', () => {
+    let callback: ResizeObserverCallback | undefined;
+    const observers: ResizeObserver[] = [];
+    class FakeResizeObserver implements ResizeObserver {
+      constructor(next: ResizeObserverCallback) {
+        callback = next;
+        observers.push(this);
+      }
+      observe(_target: Element, _options?: ResizeObserverOptions): void {
+        return undefined;
+      }
+      unobserve(_target: Element): void {
+        return undefined;
+      }
+      disconnect(): void {
+        return undefined;
+      }
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    resizeContainer = document.createElement('div');
+    document.body.appendChild(resizeContainer);
+    resizeVp = new Viewport(resizeContainer, { tools: [new SelectTool(), new PencilTool()] });
+    const canvas = resizeVp.domLayer.parentElement?.querySelector('canvas');
+    expect(canvas).not.toBeNull();
+    if (!canvas) return;
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 300 });
+    Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: 200 });
+    const source = createCanvasSizeSource(resizeVp);
+    const first = source.getSnapshot();
+    const observer = observers[0];
+
+    expect(first).toEqual({ w: 300, h: 200 });
+    expect(source.getSnapshot()).toBe(first);
+    const changed = counter();
+    const off = source.subscribe(changed.onChange);
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 400 });
+    if (!callback || !observer) throw new Error('expected ResizeObserver callback');
+    callback([], observer);
+    expect(changed.calls).toBe(1);
+    expect(source.getSnapshot()).toEqual({ w: 400, h: 200 });
+    expect(source.getSnapshot()).not.toBe(first);
+    off();
+    callback([], observer);
+    expect(changed.calls).toBe(1);
+  });
+});
+
+describe('createPeersSource', () => {
+  it('forwards the roster snapshot and lifecycle', () => {
+    const roster = new PeerRoster();
+    roster.apply('p1', {
+      kind: AWARENESS_PRESENCE_KIND,
+      id: 'u1',
+      name: 'Ann',
+      color: '#f00',
+    });
+    const source = createPeersSource(roster);
+    const snapshot = source.getSnapshot();
+
+    expect(snapshot).toBe(roster.getPeers());
+    expect(snapshot).toHaveLength(1);
+    expect(snapshot[0]).toMatchObject({ from: 'p1', id: 'u1', name: 'Ann', color: '#f00' });
+    const changed = counter();
+    const off = source.subscribe(changed.onChange);
+    roster.remove('p1');
+    expect(changed.calls).toBe(1);
+    off();
+    roster.apply('p1', { kind: AWARENESS_PRESENCE_KIND, id: 'u1', name: 'Ann', color: '#f00' });
+    expect(changed.calls).toBe(1);
+    roster.dispose();
   });
 });
 
@@ -351,6 +469,30 @@ describe('createActiveToolSource', () => {
   });
 });
 
+describe('createShortcutsSource', () => {
+  it('returns the same reference until a binding changes', () => {
+    const source = createShortcutsSource(vp);
+    const first = source.getSnapshot();
+
+    expect(source.getSnapshot()).toBe(first);
+    vp.shortcuts.rebind('edit.undo', 'mod+u');
+    const changed = source.getSnapshot();
+
+    expect(changed).not.toBe(first);
+    expect(changed['edit.undo']).toEqual(['mod+u']);
+  });
+
+  it('notifies subscribers on rebind', () => {
+    const source = createShortcutsSource(vp);
+    const changed = counter();
+    source.subscribe(changed.onChange);
+
+    vp.shortcuts.rebind('edit.undo', 'mod+u');
+
+    expect(changed.calls).toBe(1);
+  });
+});
+
 describe('createPresentationSource', () => {
   it('keeps its snapshot until the presentation changes', () => {
     Object.defineProperty(container, 'clientWidth', { configurable: true, value: 800 });
@@ -378,6 +520,95 @@ describe('createPresentationSource', () => {
 });
 
 describe('createToolOptionsSource', () => {
+  function createOptionsTool(name: string, size: number) {
+    let options = { size };
+    const listeners = new Set<() => void>();
+    return {
+      name,
+      onPointerDown: () => undefined,
+      onPointerMove: () => undefined,
+      onPointerUp: () => undefined,
+      getOptions: () => options,
+      setOptions: (next: { size: number }) => {
+        options = next;
+        listeners.forEach((listener) => listener());
+      },
+      onOptionsChange: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+  }
+
+  it('notifies when the named tool is registered after subscribing', () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    source.subscribe(c.onChange);
+    expect(source.getSnapshot()).toBeNull();
+
+    vp.toolManager.register(createOptionsTool('custom', 4));
+
+    expect(c.calls).toBe(1);
+    expect(source.getSnapshot()).toEqual({ size: 4 });
+  });
+
+  it("follows the newly registered instance's option changes", () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    source.subscribe(c.onChange);
+    const custom = createOptionsTool('custom', 4);
+    vp.toolManager.register(custom);
+
+    custom.setOptions({ size: 6 });
+
+    expect(c.calls).toBe(2);
+    expect(source.getSnapshot()).toEqual({ size: 6 });
+  });
+
+  it('follows a replacement and detaches the previous instance', () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    source.subscribe(c.onChange);
+    const custom = createOptionsTool('custom', 4);
+    vp.toolManager.register(custom);
+    const replacement = createOptionsTool('custom', 6);
+    vp.toolManager.register(replacement);
+
+    custom.setOptions({ size: 8 });
+    expect(c.calls).toBe(2);
+    expect(source.getSnapshot()).toEqual({ size: 6 });
+
+    replacement.setOptions({ size: 10 });
+
+    expect(c.calls).toBe(3);
+    expect(source.getSnapshot()).toEqual({ size: 10 });
+  });
+
+  it('unsubscribe removes both the register and options listener', () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    const off = source.subscribe(c.onChange);
+    const custom = createOptionsTool('custom', 4);
+    vp.toolManager.register(custom);
+    off();
+
+    custom.setOptions({ size: 6 });
+    vp.toolManager.register(createOptionsTool('custom', 12));
+
+    expect(c.calls).toBe(1);
+    expect(source.getSnapshot()).toEqual({ size: 12 });
+  });
+
+  it('ignores registrations of other tools', () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    source.subscribe(c.onChange);
+
+    vp.toolManager.register(createOptionsTool('eraser', 4));
+
+    expect(c.calls).toBe(0);
+  });
+
   it('keeps the reference until the tool options change', () => {
     const source = createToolOptionsSource<{ color: string }>(vp, () => 'pencil');
     const c = counter();

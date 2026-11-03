@@ -1,4 +1,5 @@
 import { resolveActionId } from '../actions/legacy-action-ids';
+import { reportFailure } from '../core/report-failure';
 
 export type ShortcutBindings = Record<string, string | string[] | null>;
 
@@ -8,6 +9,8 @@ export interface ShortcutOptions {
 }
 
 export interface ShortcutsApi {
+  /** Calls `listener` after a binding changes. Returns unsubscribe. */
+  onChange(listener: () => void): () => void;
   rebind(action: string, bindings: string | string[] | null): void;
   disable(action: string): void;
   reset(action?: string): void;
@@ -104,6 +107,7 @@ export class ShortcutMap implements ShortcutsApi {
   private defaults = new Map<string, { bindings: readonly string[]; allowShift: boolean }>();
   private userOverridden = new Set<string>();
   private allowShiftSet = new Set<string>();
+  private readonly changeListeners = new Set<() => void>();
 
   // No constructor overrides — user bindings are applied after defaults via rebind().
 
@@ -129,7 +133,11 @@ export class ShortcutMap implements ShortcutsApi {
       this.allowShiftSet.delete(action);
     }
     if (!this.userOverridden.has(action)) {
-      this.apply(action, [...bindings]);
+      const next = [...bindings];
+      if (!sameList(this.raw.get(action), next)) {
+        this.apply(action, next);
+        this.emitChange();
+      }
     }
   }
 
@@ -138,15 +146,25 @@ export class ShortcutMap implements ShortcutsApi {
     this.defaults.delete(action);
     this.allowShiftSet.delete(action);
     if (!this.userOverridden.has(action)) {
-      this.raw.delete(action);
-      this.parsed.delete(action);
+      if (this.raw.delete(action)) {
+        this.parsed.delete(action);
+        this.emitChange();
+      }
     }
+  }
+
+  onChange(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => this.changeListeners.delete(listener);
   }
 
   rebind(action: string, bindings: string | string[] | null): void {
     const canonical = resolveActionId(action);
+    const next = toArray(bindings);
     this.userOverridden.add(canonical);
-    this.apply(canonical, toArray(bindings));
+    if (sameList(this.raw.get(canonical), next)) return;
+    this.apply(canonical, next);
+    this.emitChange();
   }
 
   disable(action: string): void {
@@ -163,9 +181,11 @@ export class ShortcutMap implements ShortcutsApi {
         if (def.allowShift) this.allowShiftSet.add(id);
         this.apply(id, [...def.bindings]);
       }
+      this.emitChange();
       return;
     }
     const canonical = resolveActionId(action);
+    const before = this.raw.get(canonical);
     this.userOverridden.delete(canonical);
     const def = this.defaults.get(canonical);
     if (def) {
@@ -179,6 +199,7 @@ export class ShortcutMap implements ShortcutsApi {
       this.raw.delete(canonical);
       this.parsed.delete(canonical);
     }
+    if (!sameList(before, this.raw.get(canonical))) this.emitChange();
   }
 
   getBindings(): Record<string, string[]> {
@@ -208,4 +229,22 @@ export class ShortcutMap implements ShortcutsApi {
     this.raw.set(action, list);
     this.parsed.set(action, parsedList);
   }
+
+  private emitChange(): void {
+    for (const listener of [...this.changeListeners]) {
+      try {
+        listener();
+      } catch (error) {
+        reportFailure(error, 'shortcuts onChange listener failed');
+      }
+    }
+  }
+}
+
+export function sameList(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.length === b.length && a.every((binding, index) => binding === b[index]);
 }

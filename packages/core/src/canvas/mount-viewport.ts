@@ -2,8 +2,16 @@ import { Viewport } from './viewport';
 import type { ViewportOptions } from './viewport';
 import { createDefaultTools } from '../tools/default-tools';
 import { reportFailure } from '../core/report-failure';
+import { AutoSave } from '../core/auto-save';
+import type { AutoSaveOptions } from '../core/auto-save';
 import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import type { Tool } from '../tools/types';
+
+/** Autosave options; the store, camera, layer manager, plugin state and registry come from the viewport. */
+export type MountAutoSaveOptions = Omit<
+  AutoSaveOptions,
+  'layerManager' | 'elementRegistry' | 'pluginStateManager' | 'changeEmitters'
+>;
 
 /** Mount options; `onChange`, `changeDebounceMs`, `onToolChange`, `tool` and `defaultTool` are read at use time, so getters stay live. */
 export interface MountViewportOptions {
@@ -26,6 +34,8 @@ export interface MountViewportOptions {
   onChange?: (state: CanvasState) => void;
   /** Debounce window for `onChange` in milliseconds (default 250). */
   changeDebounceMs?: number;
+  /** Loads the saved board after `onReady` (a saved board wins over `initialData`), then saves on change. */
+  autoSave?: MountAutoSaveOptions;
   /** Fires on active-tool changes after mount, not for activation during mount. */
   onToolChange?: (name: string) => void;
 }
@@ -33,10 +43,14 @@ export interface MountViewportOptions {
 /** A viewport mounted by `mountViewport`, with the calls framework bindings need. */
 export interface MountedViewport {
   readonly viewport: Viewport;
+  /** The autosave instance, or `null` without `autoSave`. */
+  readonly autoSave: AutoSave | null;
   /** Activates `name` unless it is already the active tool. */
   setTool(name: string): void;
   /** Registers each tool whose name is not registered yet (append-only). */
   addTools(tools: readonly Tool[]): void;
+  /** Reconciles by name; the first instance stays until that name leaves this mount's tools. */
+  setTools(tools: readonly Tool[]): void;
   /** Flushes a pending onChange, unsubscribes, destroys the viewport. Idempotent. */
   destroy(): void;
 }
@@ -48,6 +62,14 @@ export function mountViewport(
 ): MountedViewport {
   const { options, tools, initialData } = opts;
   const vp = new Viewport(container, options);
+  let destroyed = false;
+  let muted = false;
+  const registrations = new Map<string, { tool: Tool; dispose: () => void }>();
+
+  const register = (tool: Tool) => {
+    if (registrations.has(tool.name) || vp.toolManager.getTool(tool.name)) return;
+    registrations.set(tool.name, { tool, dispose: vp.toolManager.register(tool) });
+  };
 
   const activate = (fallback?: string) => {
     const name = opts.tool ?? opts.defaultTool ?? fallback;
@@ -56,7 +78,7 @@ export function mountViewport(
   // An explicit `options.tools` is the host's choice; core registers it and activates select.
   const deferDefaults = tools === undefined && options?.tools === undefined;
   for (const t of tools === 'default' ? createDefaultTools() : (tools ?? [])) {
-    vp.toolManager.register(t);
+    register(t);
   }
   if (!deferDefaults) activate(tools === 'default' ? 'select' : undefined);
 
@@ -75,6 +97,7 @@ export function mountViewport(
   };
   // Subscribed after initialData so the initial load is not reported as a change.
   const unsubscribe = vp.onStateChange(() => {
+    if (muted) return;
     clearTimeout(timer);
     timer = setTimeout(emitChange, opts.changeDebounceMs ?? 250);
   });
@@ -86,7 +109,7 @@ export function mountViewport(
     if (deferDefaults) {
       const registerDefaults = vp.toolManager.toolNames.length === 0;
       if (registerDefaults) {
-        for (const t of createDefaultTools()) vp.toolManager.register(t);
+        for (const t of createDefaultTools()) register(t);
       }
       activate(registerDefaults ? 'select' : undefined);
     }
@@ -97,17 +120,86 @@ export function mountViewport(
     throw error;
   }
 
+  const autoSave = opts.autoSave
+    ? new AutoSave(vp.store, vp.camera, {
+        ...opts.autoSave,
+        layerManager: vp.layerManager,
+        elementRegistry: vp.elementRegistry,
+        pluginStateManager: vp.plugins,
+        changeEmitters: [{ onChange: (listener) => vp.onStateChange(listener) }],
+      })
+    : null;
+  if (autoSave) {
+    void autoSave
+      .load()
+      .then((state) => {
+        if (destroyed) return;
+        if (state) {
+          clearTimeout(timer);
+          timer = undefined;
+          muted = true;
+          try {
+            vp.loadState(state);
+          } catch (error) {
+            if (destroyed) return;
+            if (opts.autoSave?.onError) {
+              opts.autoSave.onError(error instanceof Error ? error : new Error(String(error)));
+            } else {
+              reportFailure(error, 'autosave load failed to apply');
+            }
+            return;
+          } finally {
+            muted = false;
+          }
+          if (destroyed) return;
+        }
+        autoSave.start();
+      })
+      .catch((error) => reportFailure(error, 'autosave load failed'));
+  }
+
   const unsubscribeTool = vp.toolManager.onChange((name) => opts.onToolChange?.(name));
-  let destroyed = false;
 
   return {
     viewport: vp,
+    autoSave,
     setTool(name) {
       if (vp.toolManager.activeTool?.name !== name) vp.setTool(name);
     },
     addTools(added) {
-      for (const t of added) {
-        if (!vp.toolManager.getTool(t.name)) vp.toolManager.register(t);
+      for (const tool of added) register(tool);
+    },
+    setTools(next) {
+      const names = new Set(next.map((tool) => tool.name));
+      for (const tool of next) register(tool);
+      const removed = new Set([...registrations.keys()].filter((name) => !names.has(name)));
+
+      for (const [name, { tool, dispose }] of registrations) {
+        if (names.has(name)) continue;
+
+        if (vp.toolManager.activeTool === tool) {
+          const fallback = [opts.tool, opts.defaultTool, 'select', next[0]?.name].find(
+            (candidate) =>
+              candidate !== undefined &&
+              !removed.has(candidate) &&
+              vp.toolManager.getTool(candidate) !== undefined,
+          );
+          if (fallback) vp.setTool(fallback);
+          else {
+            tool.onDeactivate?.(vp.toolContext);
+            dispose();
+            try {
+              opts.onToolChange?.('');
+            } catch (error) {
+              reportFailure(error, 'tool change listener failed');
+            }
+            registrations.delete(name);
+            continue;
+          }
+        }
+
+        dispose();
+        registrations.delete(name);
       }
     },
     destroy() {
@@ -121,6 +213,10 @@ export function mountViewport(
           // A failing host save must not leak the viewport or throw out of unmount.
           reportFailure(error, 'onChange failed during unmount');
         }
+      }
+      if (autoSave) {
+        void autoSave.flush();
+        autoSave.stop();
       }
       unsubscribeTool();
       unsubscribe();

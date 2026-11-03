@@ -33,12 +33,12 @@
 - Command palette on Ctrl or ⌘+K to search and run actions
 - Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match
 - Shortcuts help on the ? key, generated from the current bindings
+- React props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence
 
 ## Next
 
-- I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.
+- I'm adding text inside shapes, with wrapping and auto-resize.
 
 ## Not built yet
 
 - Elbow arrows that route around shapes
-- Text inside shapes

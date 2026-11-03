@@ -54,7 +54,7 @@ describe('parseRoadmap', () => {
     );
   });
 
-  it('lists Built in shipping order and the React line as the only Next item', () => {
+  it('keeps Built in shipping order with React props and hooks last and text inside shapes as sole Next item', () => {
     const roadmap = parseRoadmap(
       readFileSync(new URL('../../content/roadmap.md', import.meta.url), 'utf8'),
     );
@@ -72,19 +72,22 @@ describe('parseRoadmap', () => {
     const shortcuts = roadmap.built.indexOf(
       'Shortcuts help on the ? key, generated from the current bindings',
     );
-
     expect(camera).toBeGreaterThanOrEqual(0);
     expect(frames).toBeGreaterThanOrEqual(0);
     expect(shortcuts).toBeGreaterThanOrEqual(0);
     expect(camera).toBeLessThan(frames);
     expect(frames).toBeLessThan(shortcuts);
-    expect(roadmap.next).toEqual([
-      "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
-    ]);
-    expect(roadmap.notBuilt).toEqual([
-      'Elbow arrows that route around shapes',
-      'Text inside shapes',
-    ]);
+    expect(roadmap.built.at(-1)).toBe(
+      'React props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence',
+    );
+    expect(roadmap.built).toContain('React bindings: a canvas component and hooks');
+    expect(roadmap.built.indexOf('React bindings: a canvas component and hooks')).toBeLessThan(
+      roadmap.built.indexOf(
+        'Vue and Svelte bindings: a canvas component and helpers with the React hook names',
+      ),
+    );
+    expect(roadmap.next).toEqual(["I'm adding text inside shapes, with wrapping and auto-resize."]);
+    expect(roadmap.notBuilt).toEqual(['Elbow arrows that route around shapes']);
     for (const section of [roadmap.built, roadmap.next, roadmap.notBuilt]) {
       expect(section).not.toContain(
         "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",

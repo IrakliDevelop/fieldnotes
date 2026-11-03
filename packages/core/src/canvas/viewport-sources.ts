@@ -1,9 +1,11 @@
 import type { Viewport } from './viewport';
+import { sameList } from './shortcut-map';
 import type { PresentationState } from './presentation';
 import type { SelectionStyleDetails } from './selection-ops';
 import type { CanvasElement, ElementType } from '../elements/types';
 import type { ElementStyle } from '../elements/element-style';
 import type { Layer } from '../layers/types';
+import type { Peer, PeerRoster } from './awareness-roster';
 
 /** A subscribable viewport value with a referentially stable snapshot, for UI bindings. */
 export interface ViewportSource<T> {
@@ -18,6 +20,12 @@ export interface CameraState {
   x: number;
   y: number;
   zoom: number;
+}
+
+/** Canvas dimensions in CSS pixels. */
+export interface CanvasSize {
+  w: number;
+  h: number;
 }
 
 /** Undo/redo availability. */
@@ -99,6 +107,42 @@ export function createElementsSource(
       cached = next;
       return next;
     },
+  };
+}
+
+/** One element by id, or `null` when the id is absent. */
+export function createElementSource(
+  vp: Viewport,
+  getId: () => string | null,
+): ViewportSource<CanvasElement | null> {
+  return {
+    subscribe: (onChange) => vp.store.onChange(onChange),
+    getSnapshot: () => {
+      const id = getId();
+      return id === null ? null : (vp.store.getById(id) ?? null);
+    },
+  };
+}
+
+/** Canvas dimensions in CSS pixels; changes when the viewport resizes. */
+export function createCanvasSizeSource(vp: Viewport): ViewportSource<CanvasSize> {
+  let cached: CanvasSize | null = null;
+  return {
+    subscribe: (onChange) => vp.onResize(onChange),
+    getSnapshot() {
+      const next = vp.getCanvasSize();
+      if (cached?.w === next.w && cached.h === next.h) return cached;
+      cached = next;
+      return cached;
+    },
+  };
+}
+
+/** Current awareness peers; changes when the roster changes. */
+export function createPeersSource(roster: PeerRoster): ViewportSource<readonly Peer[]> {
+  return {
+    subscribe: (onChange) => roster.onChange(onChange),
+    getSnapshot: () => roster.getPeers(),
   };
 }
 
@@ -318,6 +362,33 @@ export function createPresentationSource(vp: Viewport): ViewportSource<Presentat
   };
 }
 
+/** Current bindings per action; changes on any binding change (defaults, rebind, disable, reset). */
+export function createShortcutsSource(
+  vp: Viewport,
+): ViewportSource<Record<string, readonly string[]>> {
+  let cached: Record<string, readonly string[]> = {};
+  return {
+    subscribe: (onChange) => vp.shortcuts.onChange(onChange),
+    getSnapshot() {
+      const next = vp.shortcuts.getBindings();
+      const cachedKeys = Object.keys(cached);
+      const nextKeys = Object.keys(next);
+      if (
+        cachedKeys.length === nextKeys.length &&
+        cachedKeys.every((key) => {
+          const previous = cached[key];
+          const bindings = next[key];
+          return sameList(previous, bindings);
+        })
+      ) {
+        return cached;
+      }
+      cached = next;
+      return cached;
+    },
+  };
+}
+
 function optionsEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const keysA = Object.keys(a);
   const keysB = Object.keys(b);
@@ -351,8 +422,8 @@ function optionsEqual(a: Record<string, unknown>, b: Record<string, unknown>): b
 
 /**
  * Options of the tool `getToolName` names; `null` if the tool is not registered or exposes no
- * options. The cache survives the name changing, so a new tool with shallow-equal options returns
- * the previous object.
+ * options. A later registration of the named tool notifies subscribers. The cache survives the
+ * name changing, so a new tool with shallow-equal options returns the previous object.
  */
 export function createToolOptionsSource<T extends Record<string, unknown>>(
   vp: Viewport,
@@ -361,9 +432,22 @@ export function createToolOptionsSource<T extends Record<string, unknown>>(
   let cached: T | null = null;
   return {
     subscribe(onChange) {
-      const tool = vp.toolManager.getTool(getToolName());
-      if (!tool?.onOptionsChange) return noop;
-      return tool.onOptionsChange(onChange);
+      let offOptions = noop;
+      const attach = () => {
+        const tool = vp.toolManager.getTool(getToolName());
+        offOptions = tool?.onOptionsChange ? tool.onOptionsChange(onChange) : noop;
+      };
+      attach();
+      const offRegister = vp.toolManager.onRegister((tool) => {
+        if (tool.name !== getToolName()) return;
+        offOptions();
+        attach();
+        onChange();
+      });
+      return () => {
+        offOptions();
+        offRegister();
+      };
     },
     getSnapshot() {
       const tool = vp.toolManager.getTool(getToolName());

@@ -8,7 +8,15 @@ import { HandTool } from '../tools/hand-tool';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { createShape } from '../elements/element-factory';
+import { exportState } from '../core/state-serializer';
 import type { CanvasState } from '../core/state-serializer';
+import { ElementStore } from '../elements/element-store';
+import { Camera } from './camera';
+import { MemoryAdapter } from '../core/storage/memory-adapter';
+import type { StorageAdapter } from '../core/storage/storage-adapter';
+import { ElementRegistry } from '../elements/element-registry';
+import type { ElementTypeDefinition, ExtensionElementEnvelope } from '../elements/types';
+import type { ViewportPlugin } from './viewport-plugin';
 import type { Tool } from '../tools/types';
 
 const DEFAULT_TOOL_NAMES = [
@@ -49,6 +57,39 @@ function addShape(viewport: Viewport, id: string) {
     layerId: viewport.layerManager.activeLayerId,
   });
 }
+
+function exportedShape(id: string, extensions?: CanvasState['extensions']): CanvasState {
+  const store = new ElementStore();
+  store.add({
+    ...createShape({ position: { x: 0, y: 0 }, size: { w: 5, h: 5 } }),
+    id,
+  });
+  return exportState(store.snapshot(), new Camera(), [], undefined, extensions);
+}
+
+const autosaveElement: ExtensionElementEnvelope = {
+  id: 'autosave-element',
+  type: 'extension',
+  extensionType: 'test:autosave',
+  position: { x: 0, y: 0 },
+  index: 'a0',
+  version: 1,
+  locked: false,
+  layerId: '',
+  data: { saved: true },
+};
+
+const autosaveElementDefinition: ElementTypeDefinition<ExtensionElementEnvelope> = {
+  type: 'test:autosave',
+  legacyTypes: [],
+  decodeLegacy: () => autosaveElement,
+  validateData: (data) => data['saved'] === true,
+  unwrap: (element) => element,
+  wrap: (element) => element,
+  bounds: () => null,
+  dataVersion: 2,
+  migrate: (data) => data,
+};
 
 afterEach(() => {
   for (const m of mounted.splice(0)) m.destroy();
@@ -161,6 +202,220 @@ describe('mountViewport tools', () => {
     };
     const { viewport } = mount(opts);
     expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+  });
+});
+
+describe('mountViewport setTools', () => {
+  it('setTools registers new names and unregisters names that left', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mount({ tools: [hand, select] });
+
+    m.setTools([select, pencil]);
+
+    expect(m.viewport.toolManager.toolNames).toEqual(['select', 'pencil']);
+  });
+
+  it('an inline array with new instances of the same names changes nothing', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const deactivate = vi.spyOn(hand, 'onDeactivate');
+    const m = mount({ tools: [hand, select], defaultTool: 'hand' });
+    const register = vi.spyOn(m.viewport.toolManager, 'register');
+
+    m.setTools([new HandTool(), new SelectTool()]);
+
+    expect(register).not.toHaveBeenCalled();
+    expect(m.viewport.toolManager.getTool('hand')).toBe(hand);
+    expect(deactivate).not.toHaveBeenCalled();
+  });
+
+  it('setTools reads tool live', () => {
+    let tool: string | undefined = 'hand';
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mount({
+      tools: [hand, select, pencil],
+      get tool() {
+        return tool;
+      },
+    });
+    m.setTool('pencil');
+    tool = 'select';
+
+    m.setTools([hand, select]);
+
+    expect(m.viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('setTools reads defaultTool live', () => {
+    let defaultTool: string | undefined = 'hand';
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mount({
+      tools: [hand, select, pencil],
+      get defaultTool() {
+        return defaultTool;
+      },
+    });
+    m.setTool('pencil');
+    defaultTool = 'select';
+
+    m.setTools([hand, select]);
+
+    expect(m.viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('removing the active tool mid-gesture leaves no partial element and at most one undo step', () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mountViewport(container, { tools: [select, pencil], tool: 'pencil' });
+    mounted.push(m);
+    const wrapper = container.firstElementChild;
+    if (!wrapper) throw new Error('viewport wrapper missing');
+
+    wrapper.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+        pointerId: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+      }),
+    );
+    wrapper.dispatchEvent(
+      new PointerEvent('pointermove', {
+        bubbles: true,
+        clientX: 20,
+        clientY: 20,
+        pointerId: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+      }),
+    );
+
+    m.setTools([select]);
+    wrapper.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        clientX: 20,
+        clientY: 20,
+        pointerId: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+      }),
+    );
+
+    expect(m.viewport.store.count).toBe(0);
+    expect(m.viewport.undo()).toBe(false);
+    container.remove();
+  });
+
+  it('removing the active tool activates the controlled tool when present', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const deactivate = vi.spyOn(pencil, 'onDeactivate');
+    const m = mount({ tools: [hand, select, pencil], tool: 'select' });
+    m.setTool('pencil');
+
+    m.setTools([hand, select]);
+
+    expect(m.viewport.toolManager.activeTool?.name).toBe('select');
+    expect(deactivate).toHaveBeenCalledTimes(1);
+  });
+
+  it('removing the active tool falls back to select, then the first remaining tool', () => {
+    const hand = new HandTool();
+    const pencil = new PencilTool();
+    const first = mount({ tools: [hand, pencil], defaultTool: 'pencil' });
+
+    first.setTools([hand]);
+
+    expect(first.viewport.toolManager.activeTool?.name).toBe('hand');
+
+    const select = new SelectTool();
+    const secondPencil = new PencilTool();
+    const second = mount({ tools: [select, secondPencil], defaultTool: 'pencil' });
+
+    second.setTools([select]);
+
+    expect(second.viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('removing the last tool deactivates it, leaves no tool active and reports empty', () => {
+    const pencil = new PencilTool();
+    const deactivate = vi.spyOn(pencil, 'onDeactivate');
+    const onToolChange = vi.fn<(name: string) => void>();
+    const m = mount({ tools: [pencil], defaultTool: 'pencil', onToolChange });
+
+    m.setTools([]);
+
+    expect(m.viewport.toolManager.activeTool).toBeNull();
+    expect(deactivate).toHaveBeenCalledOnce();
+    expect(deactivate).toHaveBeenCalledWith(m.viewport.toolContext);
+    expect(onToolChange).toHaveBeenCalledOnce();
+    expect(onToolChange).toHaveBeenCalledWith('');
+  });
+
+  it('reports a throwing empty tool-change callback when removing the last tool', () => {
+    const error = new Error('host bug');
+    const reportError = vi.fn<(error: unknown) => void>();
+    vi.stubGlobal('reportError', reportError);
+    const m = mount({
+      tools: [new PencilTool()],
+      defaultTool: 'pencil',
+      onToolChange: () => {
+        throw error;
+      },
+    });
+
+    expect(() => m.setTools([])).not.toThrow();
+    expect(m.viewport.toolManager.activeTool).toBeNull();
+    expect(reportError).toHaveBeenCalledWith(error);
+  });
+
+  it('setTools leaves tools registered by onReady alone', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const custom = new PencilTool({ name: 'custom' });
+    const m = mount({
+      tools: [hand],
+      onReady: (vp) => vp.toolManager.register(custom),
+    });
+
+    m.setTools([select]);
+
+    expect(m.viewport.toolManager.toolNames).toEqual(['custom', 'select']);
+  });
+
+  it('setTools reports one onToolChange per activation', () => {
+    const onToolChange = vi.fn<(name: string) => void>();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mount({ tools: [select, pencil], defaultTool: 'pencil', onToolChange });
+
+    m.setTools([select]);
+
+    expect(onToolChange.mock.calls).toEqual([['select']]);
+  });
+
+  it('setTools does not re-register an instance already present', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const m = mount({ tools: [hand, select] });
+    const register = vi.spyOn(m.viewport.toolManager, 'register');
+
+    m.setTools([hand, select]);
+
+    expect(register).not.toHaveBeenCalled();
   });
 });
 
@@ -368,6 +623,353 @@ describe('mountViewport onChange', () => {
     addShape(m.viewport, 'late');
     vi.advanceTimersByTime(1000);
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('mountViewport autoSave', () => {
+  it('a null autosave load preserves an onReady change', async () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    mount({
+      autoSave: { adapter: new MemoryAdapter(), key: 'k' },
+      onReady: (vp) => addShape(vp, 'ready'),
+      onChange,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0]?.[0].elements.map((element) => element.id)).toEqual(['ready']);
+  });
+
+  it('loads the saved board after onReady and does not report it through onChange', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', JSON.stringify(exportedShape('saved')));
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    const onReady = vi.fn((vp: Viewport) => {
+      expect(vp.store.count).toBe(0);
+      addShape(vp, 'ready');
+    });
+    const m = mount({ autoSave: { adapter, key: 'k' }, onReady, onChange });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(m.viewport.store.getById('saved')).toBeDefined();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('saves registered custom elements through mounted autosave', async () => {
+    vi.useFakeTimers();
+    const registry = new ElementRegistry();
+    registry.register(autosaveElementDefinition);
+    const adapter = new MemoryAdapter();
+    const m = mount({
+      options: { elementRegistry: registry },
+      autoSave: { adapter, key: 'k', debounceMs: 100 },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    m.viewport.store.setElementRegistry(new ElementRegistry());
+    m.viewport.store.add(autosaveElement);
+    await vi.advanceTimersByTimeAsync(100);
+
+    const state = JSON.parse((await adapter.load('k')) ?? 'null') as CanvasState;
+    expect(state.elements).toEqual([{ ...autosaveElement, dataVersion: 2 }]);
+  });
+
+  it('a saved board wins over initialData', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', JSON.stringify(exportedShape('saved')));
+    const m = mount({ autoSave: { adapter, key: 'k' }, initialData: exportedShape('a') });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(m.viewport.store.getAll().map((element) => element.id)).toEqual(['saved']);
+  });
+
+  it('does not start autosave when applying a saved board destroys the mount', async () => {
+    vi.useFakeTimers();
+    const seeded = JSON.stringify(exportedShape('saved'));
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', seeded);
+    const m = mount({
+      autoSave: { adapter, key: 'k', debounceMs: 100 },
+      onChange: () => undefined,
+      onReady: (vp) => {
+        vp.onStateChange(() => m?.destroy());
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'late');
+    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(await adapter.load('k')).toBe(seeded);
+  });
+
+  it('saves changes through the adapter after the load', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    const m = mount({ autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    await vi.advanceTimersByTimeAsync(100);
+
+    const state = JSON.parse((await adapter.load('k')) ?? 'null') as CanvasState;
+    expect(state.elements[0]?.id).toBe('b');
+  });
+
+  it('destroy flushes a pending autosave before destroying', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    const m = mount({ autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    m.destroy();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const state = JSON.parse((await adapter.load('k')) ?? 'null') as CanvasState;
+    expect(state.elements).toHaveLength(1);
+  });
+
+  it('queues the latest autosave state before destroy without later reading the viewport', async () => {
+    vi.useFakeTimers();
+    const data = new Map<string, string>();
+    const deferreds: (() => void)[] = [];
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      clear: async () => undefined,
+      save: (key, value) =>
+        new Promise<void>((resolve) => {
+          deferreds.push(() => {
+            data.set(key, value);
+            resolve();
+          });
+        }),
+    };
+    const plugin: ViewportPlugin = {
+      name: 'stateful',
+      start: () => ({
+        dispose: () => undefined,
+        exportState: () => ({ fog: [1, 2, 3] }),
+      }),
+    };
+    const m = mount({
+      options: { plugins: [plugin] },
+      autoSave: { adapter, key: 'k', debounceMs: 100 },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'first');
+    await vi.advanceTimersByTimeAsync(100);
+    addShape(m.viewport, 'second');
+    const exportState = vi.spyOn(m.viewport.plugins, 'exportState');
+
+    m.destroy();
+    const exportsAtDestroy = exportState.mock.calls.length;
+    deferreds[0]?.();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(exportState).toHaveBeenCalledTimes(exportsAtDestroy);
+    expect(deferreds).toHaveLength(2);
+
+    deferreds[1]?.();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const state = JSON.parse(data.get('k') ?? 'null') as CanvasState;
+    expect(state.elements.map((element) => element.id)).toEqual(['first', 'second']);
+    expect(state.extensions?.['stateful']?.data).toEqual({ fog: [1, 2, 3] });
+  });
+
+  it('a load that resolves after destroy is dropped', async () => {
+    vi.useFakeTimers();
+    let resolveLoad: ((value: string | null) => void) | undefined;
+    const adapter: StorageAdapter = {
+      load: () =>
+        new Promise((resolve) => {
+          resolveLoad = resolve;
+        }),
+      save: vi.fn(async () => undefined),
+      clear: async () => undefined,
+    };
+    const loadState = vi.spyOn(Viewport.prototype, 'loadState');
+    const m = mount({ autoSave: { adapter, key: 'k' } });
+    m.destroy();
+    resolveLoad?.(JSON.stringify(exportedShape('saved')));
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'late');
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(loadState).not.toHaveBeenCalled();
+    expect(adapter.save).not.toHaveBeenCalled();
+  });
+
+  it('stops saving after a settled load is destroyed', async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => undefined);
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      save,
+      clear: async () => undefined,
+    };
+    const m = mount({ autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    m.destroy();
+    save.mockClear();
+    addShape(m.viewport, 'late');
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(adapter.save).not.toHaveBeenCalled();
+  });
+
+  it('start runs even when nothing is saved', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    const m = mount({ autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(await adapter.load('k')).not.toBeNull();
+  });
+
+  it('reports a rejected autosave onError after a saved board cannot apply', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('reportError', undefined);
+    const failure = new Error('autosave onError failed');
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const plugin: ViewportPlugin = {
+      name: 'invalid-state',
+      start: () => ({
+        dispose: () => undefined,
+        exportState: () => ({}),
+        loadState: () => undefined,
+        validateState: () => {
+          throw 'invalid plugin state';
+        },
+      }),
+    };
+    const seeded = JSON.stringify(
+      exportedShape('saved', { 'invalid-state': { version: 1, data: {} } }),
+    );
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', seeded);
+    mount({
+      options: { plugins: [plugin] },
+      autoSave: {
+        adapter,
+        key: 'k',
+        onError: () => {
+          throw failure;
+        },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(error).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledWith('[fieldnotes] autosave load failed', failure);
+  });
+
+  it('a saved board that fails to apply is reported and never overwritten', async () => {
+    vi.useFakeTimers();
+    const plugin: ViewportPlugin = {
+      name: 'invalid-state',
+      start: () => ({
+        dispose: () => undefined,
+        exportState: () => ({}),
+        loadState: () => undefined,
+        validateState: () => {
+          throw 'invalid plugin state';
+        },
+      }),
+    };
+    const seeded = JSON.stringify(
+      exportedShape('saved', { 'invalid-state': { version: 1, data: {} } }),
+    );
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', seeded);
+    const onError = vi.fn<(error: Error) => void>();
+    const m = mount({
+      options: { plugins: [plugin] },
+      autoSave: { adapter, key: 'k', onError, debounceMs: 100 },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    expect(await adapter.load('k')).toBe(seeded);
+  });
+
+  it('reports an unappliable saved board through reportFailure without onError', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('reportError', undefined);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const plugin: ViewportPlugin = {
+      name: 'invalid-state',
+      start: () => ({
+        dispose: () => undefined,
+        exportState: () => ({}),
+        loadState: () => undefined,
+        validateState: () => {
+          throw 'invalid plugin state';
+        },
+      }),
+    };
+    const seeded = JSON.stringify(
+      exportedShape('saved', { 'invalid-state': { version: 1, data: {} } }),
+    );
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', seeded);
+    const m = mount({
+      options: { plugins: [plugin] },
+      autoSave: { adapter, key: 'k', debounceMs: 100 },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'b');
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(error).toHaveBeenCalledOnce();
+    expect(await adapter.load('k')).toBe(seeded);
+  });
+
+  it('a plugin-state change alone is saved', async () => {
+    vi.useFakeTimers();
+    let changePluginState: (() => void) | undefined;
+    let value = 'before';
+    const plugin: ViewportPlugin = {
+      name: 'stateful',
+      start: (context) => {
+        changePluginState = () => {
+          value = 'after';
+          context.notifyChange();
+        };
+        return { dispose: () => undefined, exportState: () => ({ value }) };
+      },
+    };
+    const adapter = new MemoryAdapter();
+    mount({ options: { plugins: [plugin] }, autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    changePluginState?.();
+    await vi.advanceTimersByTimeAsync(100);
+
+    const state = JSON.parse((await adapter.load('k')) ?? 'null') as CanvasState;
+    expect(state.extensions?.['stateful']?.data).toEqual({ value: 'after' });
   });
 });
 

@@ -18,11 +18,24 @@ import type {
   PaletteOptions,
   PaletteStrings,
   ShortcutsHelpApi,
+  MountAutoSaveOptions,
 } from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.104.0');
+    expect(FN.VERSION).toBe('0.105.0');
+  });
+
+  it('exports mount autosave options and no autosave without the option', () => {
+    const options: MountAutoSaveOptions = { key: 'x' };
+    const mounted = FN.mountViewport(document.createElement('div'), { autoSave: undefined });
+    const configured = FN.mountViewport(document.createElement('div'), {
+      autoSave: { ...options, adapter: new FN.MemoryAdapter() },
+    });
+    expect(mounted.autoSave).toBeNull();
+    expect(configured.autoSave).toBeInstanceOf(FN.AutoSave);
+    mounted.destroy();
+    configured.destroy();
   });
 
   it('exports the frame element surface', () => {
@@ -256,6 +269,9 @@ describe('core public surface', () => {
       FN.createCameraSource,
       FN.createElementsSource,
       FN.createElementsSelectorSource,
+      FN.createElementSource,
+      FN.createCanvasSizeSource,
+      FN.createPeersSource,
       FN.createSelectionSource,
       FN.createSelectionOpsSource,
       FN.createSelectionStyleSource,
@@ -263,11 +279,13 @@ describe('core public surface', () => {
       FN.createHistorySource,
       FN.createLayersSource,
       FN.createActiveToolSource,
+      FN.createShortcutsSource,
       FN.createToolOptionsSource,
     ];
     for (const factory of factories) expect(factory).toBeTypeOf('function');
     const camera: FN.CameraState = { x: 0, y: 0, zoom: 1 };
     const history: FN.HistoryState = { canUndo: false, canRedo: false };
+    const size: FN.CanvasSize = { w: 3, h: 4 };
     const layers: FN.LayersState = { layers: [], activeLayerId: '' };
     const ops: FN.SelectionOpsState = {
       selectedIds: [],
@@ -284,10 +302,11 @@ describe('core public surface', () => {
     expect([
       camera.zoom,
       history.canUndo,
+      size.w,
       layers.activeLayerId,
       ops.isLocked,
       source.getSnapshot(),
-    ]).toEqual([1, false, '', null, 1]);
+    ]).toEqual([1, false, 3, '', null, 1]);
   });
 
   it('exports camera constraints without replacing the viewport CameraState', () => {
@@ -304,8 +323,15 @@ describe('core public surface', () => {
   it('exports mountViewport for framework bindings', () => {
     expect(typeof FN.mountViewport).toBe('function');
     const opts: FN.MountViewportOptions = { tools: 'default', changeDebounceMs: 0 };
-    const members: (keyof FN.MountedViewport)[] = ['viewport', 'setTool', 'addTools', 'destroy'];
-    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual(['default', 0, 4]);
+    const members: (keyof FN.MountedViewport)[] = [
+      'viewport',
+      'autoSave',
+      'setTool',
+      'addTools',
+      'setTools',
+      'destroy',
+    ];
+    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual(['default', 0, 6]);
   });
 
   it('exports attachHostElement for framework bindings', () => {
@@ -335,9 +361,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.104.0', async () => {
+  it('reports VERSION 0.105.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.104.0');
+    expect(VERSION).toBe('0.105.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

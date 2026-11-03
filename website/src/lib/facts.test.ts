@@ -44,6 +44,6 @@ describe('getFacts', () => {
       version: '9.9.9',
       source: 'npm',
     });
-    expect(facts.docs.notBuilt).toHaveLength(2);
+    expect(facts.docs.notBuilt).toHaveLength(1);
   });
 });
