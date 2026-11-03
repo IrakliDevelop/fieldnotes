@@ -115,7 +115,6 @@ export class CommandPalette implements PaletteApi {
   private rows: PaletteRow[] = [];
   private activeKey: string | null = null;
   private rowSignature: string | null = null;
-  private renderedActiveKey: string | null = null;
   private disposeShell: (() => void) | null = null;
   private unsubscribers: (() => void)[] = [];
   private scheduled = false;
@@ -288,18 +287,15 @@ export class CommandPalette implements PaletteApi {
       }),
     ]);
     if (signature === this.rowSignature) return;
-    const scrollActive =
-      this.activeKey !== this.renderedActiveKey || signature !== this.rowSignature;
     this.rowSignature = signature;
-    this.renderedActiveKey = this.activeKey;
     list.replaceChildren();
     const actions = this.rows.filter((row): row is PaletteActionRow => row.kind === 'action');
     const elements = this.rows.filter((row): row is PaletteElementRow => row.kind === 'element');
     if (actions.length) {
-      list.append(this.group('actions', this.deps.strings.actions, actions, scrollActive));
+      list.append(this.group('actions', this.deps.strings.actions, actions));
     }
     if (elements.length) {
-      list.append(this.group('board', this.deps.strings.board, elements, scrollActive));
+      list.append(this.group('board', this.deps.strings.board, elements));
     }
     if (!this.rows.length) {
       const empty = document.createElement('div');
@@ -316,7 +312,6 @@ export class CommandPalette implements PaletteApi {
     kind: 'actions' | 'board',
     title: string,
     rows: readonly PaletteRow[],
-    scrollActive: boolean,
   ): HTMLElement {
     const group = document.createElement('div');
     group.className = 'fieldnotes-palette-group';
@@ -328,11 +323,11 @@ export class CommandPalette implements PaletteApi {
     heading.textContent = title;
     group.setAttribute('aria-labelledby', heading.id);
     group.append(heading);
-    for (const row of rows) group.append(this.option(row, scrollActive));
+    for (const row of rows) group.append(this.option(row));
     return group;
   }
 
-  private option(row: PaletteRow, scrollActive: boolean): HTMLElement {
+  private option(row: PaletteRow): HTMLElement {
     const option = document.createElement('div');
     const key = this.key(row);
     const selected = key === this.activeKey;
@@ -360,7 +355,7 @@ export class CommandPalette implements PaletteApi {
     }
     if (selected) {
       this.input?.setAttribute('aria-activedescendant', option.id);
-      if (scrollActive) option.scrollIntoView?.({ block: 'nearest' });
+      option.scrollIntoView?.({ block: 'nearest' });
     }
     return option;
   }
@@ -444,7 +439,6 @@ export class CommandPalette implements PaletteApi {
     this.rows = [];
     this.activeKey = null;
     this.rowSignature = null;
-    this.renderedActiveKey = null;
   }
 
   private reveal(hit: SceneSearchHit): void {
