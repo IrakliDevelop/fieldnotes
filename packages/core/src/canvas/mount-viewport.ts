@@ -130,29 +130,32 @@ export function mountViewport(
       })
     : null;
   if (autoSave) {
-    void autoSave.load().then((state) => {
-      if (destroyed) return;
-      if (state) {
-        clearTimeout(timer);
-        timer = undefined;
-        muted = true;
-        try {
-          vp.loadState(state);
-        } catch (error) {
-          if (destroyed) return;
-          if (opts.autoSave?.onError) {
-            opts.autoSave.onError(error instanceof Error ? error : new Error(String(error)));
-          } else {
-            reportFailure(error, 'autosave load failed to apply');
-          }
-          return;
-        } finally {
-          muted = false;
-        }
+    void autoSave
+      .load()
+      .then((state) => {
         if (destroyed) return;
-      }
-      autoSave.start();
-    });
+        if (state) {
+          clearTimeout(timer);
+          timer = undefined;
+          muted = true;
+          try {
+            vp.loadState(state);
+          } catch (error) {
+            if (destroyed) return;
+            if (opts.autoSave?.onError) {
+              opts.autoSave.onError(error instanceof Error ? error : new Error(String(error)));
+            } else {
+              reportFailure(error, 'autosave load failed to apply');
+            }
+            return;
+          } finally {
+            muted = false;
+          }
+          if (destroyed) return;
+        }
+        autoSave.start();
+      })
+      .catch((error) => reportFailure(error, 'autosave load failed'));
   }
 
   const unsubscribeTool = vp.toolManager.onChange((name) => opts.onToolChange?.(name));

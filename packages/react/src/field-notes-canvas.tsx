@@ -25,7 +25,7 @@ import { ViewportContext } from './context';
 
 export interface FieldNotesCanvasProps extends Omit<
   HTMLAttributes<HTMLDivElement>,
-  'autoSave' | 'onChange' | 'children'
+  'autoSave' | 'onChange' | 'children' | 'dangerouslySetInnerHTML'
 > {
   /** Constructor-only: changes after mount are ignored (the canvas is stateful). */
   options?: ViewportOptions;

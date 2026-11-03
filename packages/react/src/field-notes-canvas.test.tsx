@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
+import { describe, it, expect, expectTypeOf, vi, afterEach, type Mock } from 'vitest';
 import { render, cleanup, act, waitFor } from '@testing-library/react';
 import { renderToString } from 'react-dom/server';
 import {
@@ -11,7 +11,11 @@ import {
   StrictMode,
   type ReactNode,
 } from 'react';
-import { FieldNotesCanvas, type FieldNotesCanvasRef } from './field-notes-canvas';
+import {
+  FieldNotesCanvas,
+  type FieldNotesCanvasProps,
+  type FieldNotesCanvasRef,
+} from './field-notes-canvas';
 import { ViewportContext } from './context';
 import { useActiveTool } from './hooks/use-active-tool';
 import {
@@ -41,6 +45,10 @@ function viewportAt(onReady: OnReady, index: number): Viewport {
 
 describe('FieldNotesCanvas', () => {
   afterEach(cleanup);
+
+  it('does not accept dangerouslySetInnerHTML', () => {
+    expectTypeOf<FieldNotesCanvasProps>().not.toHaveProperty('dangerouslySetInnerHTML');
+  });
 
   it('renders a container div', () => {
     const { container } = render(<FieldNotesCanvas />);

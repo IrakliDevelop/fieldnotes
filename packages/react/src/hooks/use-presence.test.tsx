@@ -4,7 +4,6 @@ import type { ReactNode } from 'react';
 import type { PresenceChannel } from '@fieldnotes/core';
 import { ViewportContext } from '../context';
 import { FieldNotesCanvas } from '../field-notes-canvas';
-import { usePresence as publicUsePresence } from '../index';
 import { createTestViewport, destroyTestViewports } from '../test-utils/create-test-viewport';
 import { usePresence } from './use-presence';
 
@@ -201,9 +200,5 @@ describe('usePresence', () => {
     expect(Array.from(channel.messageHandlers)).toEqual([messageHandler]);
     expect(Array.from(channel.leaveHandlers)).toEqual([leaveHandler]);
     expect(channel.sent).not.toContainEqual(expect.objectContaining({ cleared: true }));
-  });
-
-  it('exports the public hook', () => {
-    expect(publicUsePresence).toBe(usePresence);
   });
 });

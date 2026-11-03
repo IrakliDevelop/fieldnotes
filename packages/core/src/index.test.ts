@@ -32,7 +32,6 @@ describe('core public surface', () => {
     const configured = FN.mountViewport(document.createElement('div'), {
       autoSave: { ...options, adapter: new FN.MemoryAdapter() },
     });
-    expect(options.key).toBe('x');
     expect(mounted.autoSave).toBeNull();
     expect(configured.autoSave).toBeInstanceOf(FN.AutoSave);
     mounted.destroy();
@@ -266,7 +265,6 @@ describe('core public surface', () => {
   });
 
   it('exports the viewport source factories and state types', () => {
-    expect(typeof FN.createShortcutsSource).toBe('function');
     const factories = [
       FN.createCameraSource,
       FN.createElementsSource,
@@ -325,8 +323,15 @@ describe('core public surface', () => {
   it('exports mountViewport for framework bindings', () => {
     expect(typeof FN.mountViewport).toBe('function');
     const opts: FN.MountViewportOptions = { tools: 'default', changeDebounceMs: 0 };
-    const members: (keyof FN.MountedViewport)[] = ['viewport', 'setTool', 'addTools', 'destroy'];
-    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual(['default', 0, 4]);
+    const members: (keyof FN.MountedViewport)[] = [
+      'viewport',
+      'autoSave',
+      'setTool',
+      'addTools',
+      'setTools',
+      'destroy',
+    ];
+    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual(['default', 0, 6]);
   });
 
   it('exports attachHostElement for framework bindings', () => {

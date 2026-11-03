@@ -241,7 +241,10 @@ export class ShortcutMap implements ShortcutsApi {
   }
 }
 
-function sameList(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+export function sameList(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): boolean {
   if (a === undefined || b === undefined) return a === b;
   return a.length === b.length && a.every((binding, index) => binding === b[index]);
 }
