@@ -75,17 +75,18 @@ describe('parseRoadmap', () => {
     expect(roadmap.built).toContain(
       'Shortcuts help on the ? key, generated from the current bindings',
     );
+    expect(roadmap.built.at(-1)).toBe(
+      'React bindings with props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence',
+    );
+    expect(roadmap.built).not.toContain('React bindings: a canvas component and hooks');
     expect(roadmap.next).not.toContain(
       'Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export',
     );
     expect(roadmap.next).toEqual([
       "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
-      "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
+      "I'm adding text inside shapes, with wrapping and auto-resize.",
     ]);
     expect(roadmap.next).not.toContain('Frames that group and clip elements');
-    expect(roadmap.notBuilt).toEqual([
-      'Elbow arrows that route around shapes',
-      'Text inside shapes',
-    ]);
+    expect(roadmap.notBuilt).toEqual(['Elbow arrows that route around shapes']);
   });
 });

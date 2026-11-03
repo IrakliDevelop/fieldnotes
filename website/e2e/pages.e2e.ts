@@ -8,17 +8,18 @@ const [newest] = parseChangelog(readFileSync(repoFile('CHANGELOG.md'), 'utf8'));
 if (!newest) throw new Error('CHANGELOG.md has no release');
 const NEWEST = `${displayName(newest)} ${newest.version}`;
 
-const NOT_BUILT = ['Elbow arrows that route around shapes', 'Text inside shapes'];
+const NOT_BUILT = ['Elbow arrows that route around shapes'];
 
 const BUILT = [
   'Command palette on Ctrl or ⌘+K to search and run actions',
   'Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match',
   'Shortcuts help on the ? key, generated from the current bindings',
+  'React bindings with props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence',
 ];
 
 const NEXT = [
   "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
-  "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
+  "I'm adding text inside shapes, with wrapping and auto-resize.",
 ];
 
 const BUILT_FRAMES = 'Frames that group and clip elements';
@@ -91,7 +92,7 @@ test.describe('changelog and roadmap without JavaScript', () => {
     );
     await page.goto('/roadmap/');
     await expect(page.getByRole('region', { name: 'Not built yet' })).toContainText(
-      'Text inside shapes',
+      'Elbow arrows that route around shapes',
     );
   });
 });

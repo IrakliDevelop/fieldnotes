@@ -6,6 +6,69 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.105.0 — wrapper helpers
+
+Release notes prepared 2026-11-03.
+
+**Added**
+
+- `AutoSave.flush`; `MountViewportOptions.autoSave`; `MountedViewport.autoSave` and
+  `MountedViewport.setTools`; and `MountAutoSaveOptions`.
+- `ShortcutsApi.onChange`, `createShortcutsSource`, `createElementSource`,
+  `createCanvasSizeSource`, `createPeersSource`, and `CanvasSize`.
+- `MountViewportOptions.onToolChange` receives `''` when `setTools` leaves no active tool.
+
+**Fixed**
+
+- `createToolOptionsSource` notifies when the named tool is registered later.
+- `@fieldnotes/vue`, `@fieldnotes/svelte`, and `@fieldnotes/angular` get this fix for their
+  `useToolOptions` helpers by installing core 0.105.0; there is no wrapper release and no peer
+  floor change.
+
+**Compatibility**
+
+- Persisted state and the protocol are unchanged.
+- `ShortcutsApi` gains a member and core is its only implementer.
+- `ShortcutsApi.onChange` also fires for `setDefault` and `clearDefault` of a non-overridden
+  action.
+
+### React 0.15.0 — React parity
+
+Release notes prepared 2026-11-03.
+
+**Added**
+
+- `autoSave`, `shortcuts`, `activation`, `onElementActivate`, and other root-div props;
+  `ref.autoSave`; `useExport`, `useLoad`, `useTransaction`, `useElement`, `useCanvasSize`,
+  `useCameraControls`, `useShortcuts`, and `usePresence`; and `HostElement`.
+- Type re-exports: `ActivationOptions`, `AttachAwarenessOptions`, `AwarenessFields`, `Bounds`,
+  `CameraView`, `CanvasSize`, `CanvasState`, `CameraState`, `ElementStyle`,
+  `ElementActivationEvent`, `SelectionStyleDetails`, `ElementRect`, `ExportImageOptions`,
+  `ExportSvgOptions`, `HistoryState`, `HostElementGeometry`, `ImportableCanvasState`, `Layer`,
+  `LayersState`, `MountAutoSaveOptions`, `Peer`, `Point`, `PointerState`, `PresenceChannel`,
+  `SelectionOpsState`, `ShortcutBindings`, `Tool`, `ToolContext`, `Viewport`, and
+  `ViewportOptions`.
+
+**Changed**
+
+- **A `tool` prop now reverts a switch the host does not adopt; hosts that passed `tool` without updating it from `onToolChange` should drop `tool` or adopt the change.**
+- Reactive `tools` unregisters names that leave and reconciles by name without swapping a new
+  same-name instance.
+- `FieldNotesCanvasRef.viewport` is readonly and live, set before parent effects, and null after
+  unmount.
+- `FieldNotesCanvasProps` extends `HTMLAttributes<HTMLDivElement>` and spreads unknown props on
+  the root div while DOM `onChange` is not reachable.
+- `useToolOptions` sees a named tool registered later.
+
+**Deprecated**
+
+- `CanvasElement` and `CanvasElementProps`; both are removed in 0.16.0.
+
+**Compatibility**
+
+- The core peer floor is `>=0.105.0`.
+- No export was removed.
+
 ### Core 0.104.0 — command palette, find and shortcuts help
 
 Release notes prepared 2026-11-02.

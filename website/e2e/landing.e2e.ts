@@ -64,10 +64,7 @@ test.describe('landing without JavaScript', () => {
     ).toHaveAttribute('href', 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE');
 
     const notBuilt = page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem');
-    await expect(notBuilt).toHaveText([
-      'Elbow arrows that route around shapes',
-      'Text inside shapes',
-    ]);
+    await expect(notBuilt).toHaveText(['Elbow arrows that route around shapes']);
 
     const packages = page.getByRole('contentinfo').getByRole('row');
     await expect(packages.getByRole('link')).toHaveText([

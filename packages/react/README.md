@@ -8,7 +8,7 @@ React bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnotes
 npm install @fieldnotes/core @fieldnotes/react
 ```
 
-Requires React 18+. Using Vue, Svelte or Angular? See [`@fieldnotes/vue`](../vue), [`@fieldnotes/svelte`](../svelte) and [`@fieldnotes/angular`](../angular).
+Requires React 18+ and `@fieldnotes/core` 0.105.0 or newer. Using Vue, Svelte or Angular? See [`@fieldnotes/vue`](../vue), [`@fieldnotes/svelte`](../svelte) and [`@fieldnotes/angular`](../angular).
 
 ## Quick Start
 
@@ -109,22 +109,27 @@ function Toolbar({ tool, onSelect }: { tool: string; onSelect: (name: string) =>
 
 Not all props are reactive — the canvas is stateful. Changing a mount-only prop after mount has no effect:
 
-| Prop                               | Reactivity                                                                   |
-| ---------------------------------- | ---------------------------------------------------------------------------- |
-| `options`                          | Mount-only — the canvas is stateful; construct with the right options        |
-| `tools`                            | Array: reactive, append-only. Omitted or `'default'`: mount-only (see below) |
-| `initialData`                      | Mount-only — loaded once before `onReady`                                    |
-| `onChange` / `changeDebounceMs`    | Reactive — the latest callback is used without resubscribing                 |
-| `tool` / `onToolChange`            | Reactive (controlled). Memoize the callback                                  |
-| `defaultTool`                      | Mount-only (uncontrolled initial tool)                                       |
-| `snapToGrid` (deprecated)          | Reactive compatibility prop; prefer a domain constraint service              |
-| `className` / `style` / `children` | Reactive (plain React)                                                       |
+| Prop                               | Reactivity                                                                                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `options`                          | Mount-only; construct the stateful canvas with the right options.                                                                                                               |
+| `tools`                            | An array is reactive by name: new names register and names that leave unregister. A new instance under an already registered name is ignored until a different name or remount. |
+| `initialData`                      | Mount-only; loaded once before `onReady`.                                                                                                                                       |
+| `autoSave`                         | Mount-only. A saved board replaces what `onReady` added, and `ref.autoSave` reaches `clear()`.                                                                                  |
+| `onChange` / `changeDebounceMs`    | Reactive; the latest callback is used without resubscribing.                                                                                                                    |
+| `tool` / `onToolChange`            | Controlled; `onToolChange` also receives `''` when `tools` removes the active tool and no fallback exists.                                                                      |
+| `defaultTool`                      | Mount-only uncontrolled initial tool.                                                                                                                                           |
+| `shortcuts`                        | Reactive; hoist the object. Removed actions return to defaults.                                                                                                                 |
+| `activation` / `onElementActivate` | Reactive; hoist `activation`.                                                                                                                                                   |
+| `snapToGrid` (deprecated)          | Reactive compatibility prop; prefer a domain constraint service.                                                                                                                |
+| Other `div` props                  | Spread on the root div; DOM `onChange` is not available.                                                                                                                        |
 
-`tools` as an array registers each tool once (tools cannot be unregistered); hoist it out of render.
-`tools="default"` registers `createDefaultTools()` at mount, before `onReady` (so you can customise
-them there). Omitted registers the same bundle after `onReady` only when neither `options.tools` is
-set nor any tool was registered by then, then activates `tool`, `defaultTool` or `select`; hosts
-that register tools in `onReady` get no defaults. `tools={[]}` registers nothing.
+A `tool` prop now reverts a switch the host does not adopt; hosts that passed `tool` without updating it from `onToolChange` should drop `tool` or adopt the change. Adopt the switch synchronously in `onToolChange`; a deferred adoption is reverted.
+
+`useToolOptions` keeps a removed tool's last options until its next render.
+
+An array `tools` prop reconciles by name. `tools="default"` registers `createDefaultTools()` at
+mount, before `onReady`, and omitted registers the same bundle after `onReady` only when neither
+`options.tools` is set nor any tool was registered by then. `tools={[]}` registers nothing.
 
 Runtime changes beyond these go through the viewport — access it via `useViewport()` or the ref. Grid snapping is domain behavior; VTT consumers should configure `GridController` and its constraint service rather than adopting the deprecated React prop. The background pattern is constructor-only (`options.background`).
 
@@ -133,7 +138,7 @@ Runtime changes beyond these go through the viewport — access it via `useViewp
 The headline feature — render any React subtree as a canvas element that pans, zooms, and resizes with the canvas:
 
 ```tsx
-import { FieldNotesCanvas, CanvasElement } from '@fieldnotes/react';
+import { FieldNotesCanvas, HostElement } from '@fieldnotes/react';
 import { SelectTool } from '@fieldnotes/core';
 
 function App() {
@@ -143,13 +148,13 @@ function App() {
       defaultTool="select"
       style={{ width: '100vw', height: '100vh' }}
     >
-      <CanvasElement position={{ x: 100, y: 200 }} size={{ w: 300, h: 200 }}>
+      <HostElement position={{ x: 100, y: 200 }} size={{ w: 300, h: 200 }}>
         <MyCard />
-      </CanvasElement>
+      </HostElement>
 
-      <CanvasElement position={{ x: 500, y: 100 }}>
+      <HostElement position={{ x: 500, y: 100 }}>
         <button onClick={() => console.log('clicked!')}>Interactive button on the canvas</button>
-      </CanvasElement>
+      </HostElement>
     </FieldNotesCanvas>
   );
 }
@@ -157,9 +162,13 @@ function App() {
 
 Embedded components use a **two-mode interaction model**: by default they can be selected, dragged, and resized. **Double-click** to enter interact mode (clicks, inputs, forms work). **Escape** or click outside to exit.
 
-`position` is required; `size` is optional — omit it to let the element size to its content. Both props are reactive: updating them moves or resizes the element on the canvas.
+`position` is required; `size` is optional. Omit it to let the element size to its content. Both props are reactive: updating them moves or resizes the element on the canvas.
 
-`<CanvasElement>` is **host-owned**: React is the source of truth for its element. Its store mutations carry `origin: 'host'`, so mounting, moving, resizing and unmounting never create undo steps and are never sent to a sync relay (the DOM subtree exists only in this document). The element is **transient**: `exportState()` / `exportJSON()` omit it, so a saved canvas never contains a ghost of a React embed. After a store `clear` (a user's clear-canvas gesture or a remote one) or a `loadState()` the component re-registers itself, so the embed survives. To persist an embed across reloads, use the viewport's `registerHtmlRenderer` with an `htmlType` and serializable `data` instead.
+`<HostElement>` is **host-owned**: React is the source of truth for its element. Its store mutations carry `origin: 'host'`, so mounting, moving, resizing and unmounting never create undo steps and are never sent to a sync relay (the DOM subtree exists only in this document). The element is **transient**: `exportState()` / `exportJSON()` omit it, so a saved canvas never contains a ghost of a React embed. After a store `clear` (a user's clear-canvas gesture or a remote one) or a `loadState()` the component re-registers itself, so the embed survives. To persist an embed across reloads, use the viewport's `registerHtmlRenderer` with an `htmlType` and serializable `data` instead.
+
+`CanvasElement` still works as an alias until 0.16.0.
+
+The core canvas element type named `CanvasElement` is imported from `@fieldnotes/core`.
 
 ## Undo / Redo
 
@@ -316,20 +325,27 @@ See [core README](../core/README.md#styling-the-selection) for the full `Element
 
 ## Save / Load
 
-Access the viewport imperatively for export and import:
+Use the mount-only `autoSave` prop to save and restore a board:
 
 ```tsx
-import { useViewport } from '@fieldnotes/react';
+<FieldNotesCanvas autoSave={{ key: 'my-board' }} style={{ width: '100%', height: '100%' }} />
+```
+
+Use `useExport` and `useLoad` for manual export and loading:
+
+```tsx
+import { useExport, useLoad } from '@fieldnotes/react';
 
 export function SaveControls() {
-  const viewport = useViewport();
+  const { exportJSON } = useExport();
+  const loadState = useLoad();
 
   const save = () => {
-    localStorage.setItem('fieldnotes-example', viewport.exportJSON());
+    localStorage.setItem('fieldnotes-example', exportJSON());
   };
   const load = () => {
     const json = localStorage.getItem('fieldnotes-example');
-    if (json) viewport.loadJSON(json);
+    if (json) loadState(json);
   };
 
   return (
@@ -341,21 +357,102 @@ export function SaveControls() {
 }
 ```
 
-For periodic auto-saving, use `AutoSave` from `@fieldnotes/core` — it debounces writes to `localStorage` and subscribes to the store and camera automatically:
+## Minimap
+
+`<Minimap>` is the React minimap; place it inside the canvas for a host-positioned minimap.
+It can start collapsed and accepts the same size and colour props as the core minimap.
+`options.minimap` creates the core built-in minimap; do not enable it when rendering `<Minimap>`.
 
 ```tsx
-import { AutoSave } from '@fieldnotes/core';
+import { FieldNotesCanvas, Minimap } from '@fieldnotes/react';
 
-// in onReady or a useEffect after useViewport():
-const autoSave = new AutoSave(viewport.store, viewport.camera, {
-  key: 'my-board',
-  layerManager: viewport.layerManager,
-});
-autoSave.start();
-// call autoSave.stop() on cleanup
+<FieldNotesCanvas style={{ width: '100%', height: '100%' }}>
+  <Minimap defaultCollapsed />
+</FieldNotesCanvas>;
 ```
 
-Pass `layerManager` — without it, saved boards lose their layer structure.
+## Camera
+
+`useCameraControls` changes the camera, and `useCanvasSize` reads the canvas dimensions.
+
+```tsx
+import { useCameraControls, useCanvasSize } from '@fieldnotes/react';
+
+function CameraControls() {
+  const { fitToContent } = useCameraControls();
+  const { w, h } = useCanvasSize();
+  return (
+    <button onClick={fitToContent}>
+      Fit {w} × {h}
+    </button>
+  );
+}
+```
+
+## Shortcuts
+
+Hoist shortcut bindings for the `shortcuts` prop, and use `useShortcuts` to read or change them.
+
+```tsx
+import { FieldNotesCanvas, useShortcuts } from '@fieldnotes/react';
+
+const SHORTCUTS = { 'edit.undo': 'mod+u' };
+
+function ShortcutControls() {
+  const { bindings, reset } = useShortcuts();
+  return <button onClick={() => reset('edit.undo')}>{bindings['edit.undo']?.join(', ')}</button>;
+}
+
+<FieldNotesCanvas shortcuts={SHORTCUTS}>
+  <ShortcutControls />
+</FieldNotesCanvas>;
+```
+
+## Presence
+
+`usePresence` attaches awareness to a `PresenceChannel` from the `@fieldnotes/sync` client.
+When the connection becomes live, the host calls `announce`.
+
+```tsx
+import { useEffect } from 'react';
+import { usePresence } from '@fieldnotes/react';
+import type { PresenceChannel } from '@fieldnotes/sync';
+
+function Presence({ channel, live }: { channel: PresenceChannel | null; live: boolean }) {
+  const { peers, announce } = usePresence(channel, { identity: { id: 'me' } });
+  useEffect(() => {
+    if (live) announce();
+  }, [live, announce]);
+  return <span>{peers.length} peers</span>;
+}
+```
+
+## One element
+
+`useElement` reads one element by id and returns `null` when it is absent.
+
+```tsx
+import { useElement } from '@fieldnotes/react';
+
+function ElementName({ id }: { id: string }) {
+  const element = useElement(id);
+  return <span>{element?.id ?? 'Missing'}</span>;
+}
+```
+
+## Transactions
+
+`useTransaction` groups synchronous viewport mutations into one undo step.
+
+```tsx
+import { useTransaction, useViewport } from '@fieldnotes/react';
+
+function GroupedEdit() {
+  const transaction = useTransaction();
+  const viewport = useViewport();
+  return <button onClick={() => transaction(() => viewport.clear())}>Clear</button>;
+}
+```
 
 ## Custom Tools
 
@@ -409,7 +506,9 @@ function App() {
 
 ### `onReady`
 
-Fires once after the `Viewport` is created and tools are registered. Use it for imperative setup that can't wait for a child hook:
+`onReady` fires once per viewport, synchronously before the first frame after tools and `initialData` but before autosave load.
+StrictMode creates two distinct viewports and destroys the first.
+Make host setup idempotent per viewport; resources needing cleanup belong in a child effect using `useViewport()`.
 
 ```tsx
 <FieldNotesCanvas
@@ -469,7 +568,7 @@ Fires for **every** drop event on the canvas surface. Providing this callback re
 
 ## Escape Hatch
 
-`useViewport()` returns the raw `Viewport` instance for anything not covered by the hooks above. A `ref` on `<FieldNotesCanvas>` gives the same access outside of child components:
+`useViewport()` returns the raw `Viewport` instance for anything not covered by the hooks above. A `ref` on `<FieldNotesCanvas>` gives the same access outside of child components. Its `viewport` is set before parent mount effects and reads `null` after unmount. `ref.autoSave` reaches the configured autosave instance.
 
 ```tsx
 import { useRef } from 'react';

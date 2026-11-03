@@ -81,7 +81,7 @@ bundle, so a persisting board is one component ([details](packages/react/README.
 Pass your own tools and embed React components:
 
 ```tsx
-import { FieldNotesCanvas, CanvasElement, useCamera } from '@fieldnotes/react';
+import { FieldNotesCanvas, HostElement, useCamera } from '@fieldnotes/react';
 import { SelectTool, PencilTool, HandTool } from '@fieldnotes/core';
 
 function App() {
@@ -91,9 +91,9 @@ function App() {
       defaultTool="select"
       style={{ width: '100vw', height: '100vh' }}
     >
-      <CanvasElement position={{ x: 100, y: 200 }} size={{ w: 300, h: 200 }}>
+      <HostElement position={{ x: 100, y: 200 }} size={{ w: 300, h: 200 }}>
         <MyReactComponent />
-      </CanvasElement>
+      </HostElement>
       <CameraInfo />
     </FieldNotesCanvas>
   );
@@ -119,8 +119,10 @@ npm install @fieldnotes/core @fieldnotes/svelte  # Svelte 5
 npm install @fieldnotes/core @fieldnotes/angular # Angular 20 to 22
 ```
 
-All three mirror the React package: `FieldNotesCanvas`, `CanvasElement`, `Minimap` and the React
-hooks as composables returning refs in Vue, store helpers in Svelte and signal helpers in Angular.
+Vue, Svelte and Angular still export the component as `CanvasElement`; React's `HostElement` keeps
+`CanvasElement` as an alias until 0.16.0. All three mirror the React package with `FieldNotesCanvas`,
+`Minimap`, and the React hooks as composables returning refs in Vue, store helpers in Svelte and
+signal helpers in Angular.
 Vue and Svelte keep the hook names; Angular renames `use` to `inject` (`injectCamera`) and uses
 `fn-` selectors (`<fn-canvas>`). The canvas mounts on the client; server rendering emits an empty
 container.

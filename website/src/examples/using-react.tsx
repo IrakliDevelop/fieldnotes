@@ -1,5 +1,5 @@
 import type { CanvasState } from '@fieldnotes/core';
-import { FieldNotesCanvas, useActiveTool } from '@fieldnotes/react';
+import { FieldNotesCanvas, useActiveTool, useShortcuts } from '@fieldnotes/react';
 
 // #region app
 const saved = localStorage.getItem('board') ?? undefined;
@@ -14,6 +14,12 @@ export function App() {
 }
 // #endregion app
 
+// #region autosave
+export function AutoSaveApp() {
+  return <FieldNotesCanvas autoSave={{ key: 'board' }} style={{ height: '100vh' }} />;
+}
+// #endregion autosave
+
 // #region tool-button
 function PencilButton() {
   const [tool, setTool] = useActiveTool();
@@ -24,3 +30,10 @@ function PencilButton() {
   );
 }
 // #endregion tool-button
+
+// #region shortcuts
+export function UndoShortcut() {
+  const { bindings } = useShortcuts();
+  return <span>{bindings['edit.undo']?.join(', ') ?? ''}</span>;
+}
+// #endregion shortcuts

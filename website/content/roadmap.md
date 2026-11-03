@@ -17,7 +17,6 @@
 - Save and load as JSON, with older saves migrated on load
 - Autosave to IndexedDB, localStorage or memory
 - Embedded boards that let a plain wheel and a one-finger swipe scroll the page
-- React bindings: a canvas component and hooks
 - Vue and Svelte bindings: a canvas component and helpers with the React hook names
 - Angular bindings: a canvas component and signal helpers named after the React hooks, with `use` changed to `inject`
 - Self-hosted WebSocket sync server, with Redis for persistence and fan-out across instances
@@ -31,13 +30,13 @@
 - Shortcuts help on the ? key, generated from the current bindings
 - Camera constraints applied to camera mutations and animations
 - A scheduled Chromium performance gate that records 90 render-loop samples on 10,011 elements against a checked-in p95 budget
+- React bindings with props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence
 
 ## Next
 
 - I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.
-- I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.
+- I'm adding text inside shapes, with wrapping and auto-resize.
 
 ## Not built yet
 
 - Elbow arrows that route around shapes
-- Text inside shapes
