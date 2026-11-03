@@ -185,12 +185,15 @@ describe('AutoSave', () => {
 
   it('flush saves a pending change without waiting for the debounce', async () => {
     const adapter = new MemoryAdapter();
+    const save = vi.spyOn(adapter, 'save');
     autoSave = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 1000 });
     autoSave.start();
 
     store.add(makeNote('x'));
     await autoSave.flush();
+    await vi.advanceTimersByTimeAsync(1000);
 
+    expect(save).toHaveBeenCalledOnce();
     const saved = JSON.parse((await adapter.load('k')) ?? 'null') as { elements: unknown[] };
     expect(saved.elements).toHaveLength(1);
   });
@@ -222,8 +225,13 @@ describe('AutoSave', () => {
     autoSave.start();
 
     store.add(makeNote());
-    const flush = autoSave.flush();
+    let flushSettled = false;
+    const flush = autoSave.flush().then(() => {
+      flushSettled = true;
+    });
     store.clear();
+    await Promise.resolve();
+    expect(flushSettled).toBe(false);
     resolveSave?.();
     await flush;
 
