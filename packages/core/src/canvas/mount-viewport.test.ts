@@ -14,6 +14,8 @@ import { ElementStore } from '../elements/element-store';
 import { Camera } from './camera';
 import { MemoryAdapter } from '../core/storage/memory-adapter';
 import type { StorageAdapter } from '../core/storage/storage-adapter';
+import { ElementRegistry } from '../elements/element-registry';
+import type { ElementTypeDefinition, ExtensionElementEnvelope } from '../elements/types';
 import type { ViewportPlugin } from './viewport-plugin';
 import type { Tool } from '../tools/types';
 
@@ -64,6 +66,30 @@ function exportedShape(id: string, extensions?: CanvasState['extensions']): Canv
   });
   return exportState(store.snapshot(), new Camera(), [], undefined, extensions);
 }
+
+const autosaveElement: ExtensionElementEnvelope = {
+  id: 'autosave-element',
+  type: 'extension',
+  extensionType: 'test:autosave',
+  position: { x: 0, y: 0 },
+  index: 'a0',
+  version: 1,
+  locked: false,
+  layerId: '',
+  data: { saved: true },
+};
+
+const autosaveElementDefinition: ElementTypeDefinition<ExtensionElementEnvelope> = {
+  type: 'test:autosave',
+  legacyTypes: [],
+  decodeLegacy: () => autosaveElement,
+  validateData: (data) => data['saved'] === true,
+  unwrap: (element) => element,
+  wrap: (element) => element,
+  bounds: () => null,
+  dataVersion: 2,
+  migrate: (data) => data,
+};
 
 afterEach(() => {
   for (const m of mounted.splice(0)) m.destroy();
@@ -392,7 +418,10 @@ describe('mountViewport autoSave', () => {
     const adapter = new MemoryAdapter();
     await adapter.save('k', JSON.stringify(exportedShape('saved')));
     const onChange = vi.fn<(state: CanvasState) => void>();
-    const onReady = vi.fn((vp: Viewport) => expect(vp.store.count).toBe(0));
+    const onReady = vi.fn((vp: Viewport) => {
+      expect(vp.store.count).toBe(0);
+      addShape(vp, 'ready');
+    });
     const m = mount({ autoSave: { adapter, key: 'k' }, onReady, onChange });
 
     await vi.advanceTimersByTimeAsync(0);
@@ -401,6 +430,25 @@ describe('mountViewport autoSave', () => {
     expect(onReady).toHaveBeenCalledOnce();
     expect(m.viewport.store.getById('saved')).toBeDefined();
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('saves registered custom elements through mounted autosave', async () => {
+    vi.useFakeTimers();
+    const registry = new ElementRegistry();
+    registry.register(autosaveElementDefinition);
+    const adapter = new MemoryAdapter();
+    const m = mount({
+      options: { elementRegistry: registry },
+      autoSave: { adapter, key: 'k', debounceMs: 100 },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    m.viewport.store.setElementRegistry(new ElementRegistry());
+    m.viewport.store.add(autosaveElement);
+    await vi.advanceTimersByTimeAsync(100);
+
+    const state = JSON.parse((await adapter.load('k')) ?? 'null') as CanvasState;
+    expect(state.elements).toEqual([{ ...autosaveElement, dataVersion: 2 }]);
   });
 
   it('a saved board wins over initialData', async () => {
@@ -457,8 +505,29 @@ describe('mountViewport autoSave', () => {
     m.destroy();
     resolveLoad?.(JSON.stringify(exportedShape('saved')));
     await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'late');
+    await vi.advanceTimersByTimeAsync(1000);
 
     expect(loadState).not.toHaveBeenCalled();
+    expect(adapter.save).not.toHaveBeenCalled();
+  });
+
+  it('stops saving after a settled load is destroyed', async () => {
+    vi.useFakeTimers();
+    const save = vi.fn(async () => undefined);
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      save,
+      clear: async () => undefined,
+    };
+    const m = mount({ autoSave: { adapter, key: 'k', debounceMs: 100 } });
+
+    await vi.advanceTimersByTimeAsync(0);
+    m.destroy();
+    save.mockClear();
+    addShape(m.viewport, 'late');
+    await vi.advanceTimersByTimeAsync(1000);
+
     expect(adapter.save).not.toHaveBeenCalled();
   });
 
@@ -476,25 +545,14 @@ describe('mountViewport autoSave', () => {
 
   it('a saved board that fails to apply is reported and never overwritten', async () => {
     vi.useFakeTimers();
-    const plugin: ViewportPlugin = {
-      name: 'invalid-state',
-      start: () => ({
-        dispose: () => undefined,
-        exportState: () => ({ value: 'current' }),
-        loadState: () => undefined,
-        validateState: () => {
-          throw new Error('invalid plugin state');
-        },
-      }),
-    };
-    const seeded = JSON.stringify(
-      exportedShape('saved', { 'invalid-state': { version: 1, data: {} } }),
-    );
+    const seeded = JSON.stringify(exportedShape('saved'));
     const adapter = new MemoryAdapter();
     await adapter.save('k', seeded);
     const onError = vi.fn<(error: Error) => void>();
+    vi.spyOn(Viewport.prototype, 'loadState').mockImplementationOnce(() => {
+      throw 'invalid plugin state';
+    });
     const m = mount({
-      options: { plugins: [plugin] },
       autoSave: { adapter, key: 'k', onError, debounceMs: 100 },
     });
 
@@ -504,6 +562,7 @@ describe('mountViewport autoSave', () => {
 
     expect(onError).toHaveBeenCalledOnce();
     expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
+    expect(onError.mock.calls[0]?.[0].message).toBe('invalid plugin state');
     expect(await adapter.load('k')).toBe(seeded);
   });
 

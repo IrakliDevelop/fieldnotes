@@ -116,6 +116,7 @@ export function mountViewport(
     ? new AutoSave(vp.store, vp.camera, {
         ...opts.autoSave,
         layerManager: vp.layerManager,
+        elementRegistry: vp.elementRegistry,
         pluginStateManager: vp.plugins,
         changeEmitters: [{ onChange: (listener) => vp.onStateChange(listener) }],
       })
@@ -124,6 +125,8 @@ export function mountViewport(
     void autoSave.load().then((state) => {
       if (destroyed) return;
       if (state) {
+        clearTimeout(timer);
+        timer = undefined;
         muted = true;
         try {
           vp.loadState(state);

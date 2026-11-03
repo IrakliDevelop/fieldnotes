@@ -29,9 +29,14 @@ describe('core public surface', () => {
   it('exports mount autosave options and no autosave without the option', () => {
     const options: MountAutoSaveOptions = { key: 'x' };
     const mounted = FN.mountViewport(document.createElement('div'), { autoSave: undefined });
+    const configured = FN.mountViewport(document.createElement('div'), {
+      autoSave: { ...options, adapter: new FN.MemoryAdapter() },
+    });
     expect(options.key).toBe('x');
     expect(mounted.autoSave).toBeNull();
+    expect(configured.autoSave).toBeInstanceOf(FN.AutoSave);
     mounted.destroy();
+    configured.destroy();
   });
 
   it('exports the frame element surface', () => {
