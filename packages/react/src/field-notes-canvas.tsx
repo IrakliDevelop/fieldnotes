@@ -16,9 +16,12 @@ import type {
   ViewportOptions,
   Tool,
   CanvasState,
+  ActivationOptions,
+  ElementActivationEvent,
   ImportableCanvasState,
   MountAutoSaveOptions,
   MountedViewport,
+  ShortcutBindings,
   ViewportSource,
 } from '@fieldnotes/core';
 import { ViewportContext } from './context';
@@ -49,6 +52,12 @@ export interface FieldNotesCanvasProps extends Omit<
   changeDebounceMs?: number;
   /** Mount-only autosave configuration. */
   autoSave?: MountAutoSaveOptions;
+  /** Reactive shortcut bindings. Hoist the object to avoid rebinding on every render. */
+  shortcuts?: ShortcutBindings;
+  /** Reactive activation options. A new object replaces activation and resets pending gestures. */
+  activation?: ActivationOptions | null;
+  /** Receives element activation events. */
+  onElementActivate?: (event: ElementActivationEvent) => void;
   /** Uncontrolled initial tool. Ignored when `tool` is set. */
   defaultTool?: string;
   /** Controlled active tool. Pair with `onToolChange`. */
@@ -89,6 +98,9 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
       onChange,
       changeDebounceMs = 250,
       autoSave,
+      shortcuts,
+      activation,
+      onElementActivate,
       snapToGrid,
       className,
       style,
@@ -104,9 +116,12 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
     const changeRef = useRef({ onChange, changeDebounceMs });
     const toolRef = useRef({ tool, defaultTool });
     const toolChangeRef = useRef(onToolChange);
+    const previousShortcuts = useRef<ShortcutBindings | undefined>(undefined);
+    const activationRef = useRef(onElementActivate);
     changeRef.current = { onChange, changeDebounceMs };
     toolRef.current = { tool, defaultTool };
     toolChangeRef.current = onToolChange;
+    activationRef.current = onElementActivate;
     const activeSource = useMemo(
       () => (viewport ? createActiveToolSource(viewport) : INERT),
       [viewport],
@@ -177,6 +192,35 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
       if (!viewport || snapToGrid === undefined) return;
       viewport.setSnapToGrid(snapToGrid);
     }, [viewport, snapToGrid]);
+
+    useEffect(() => {
+      if (!viewport) return;
+      const previous = previousShortcuts.current ?? {};
+      const next = shortcuts ?? {};
+      for (const action of Object.keys(previous)) {
+        if (!(action in next)) viewport.shortcuts.reset(action);
+      }
+      for (const [action, bindings] of Object.entries(next)) {
+        viewport.shortcuts.rebind(action, bindings);
+      }
+      previousShortcuts.current = shortcuts;
+    }, [viewport, shortcuts]);
+
+    useEffect(() => {
+      return () => {
+        previousShortcuts.current = undefined;
+      };
+    }, [viewport]);
+
+    useEffect(() => {
+      if (!viewport || activation === undefined) return;
+      return viewport.setActivation(activation);
+    }, [viewport, activation]);
+
+    useEffect(() => {
+      if (!viewport) return;
+      return viewport.onElementActivate((event) => activationRef.current?.(event));
+    }, [viewport]);
 
     return (
       <div {...rest} ref={containerRef} className={className} style={style}>

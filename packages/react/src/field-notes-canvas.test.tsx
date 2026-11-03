@@ -22,7 +22,12 @@ import {
   Viewport,
   createShape,
 } from '@fieldnotes/core';
-import type { CanvasState, ImportableCanvasState } from '@fieldnotes/core';
+import type {
+  ActivationOptions,
+  CanvasState,
+  ElementActivationEvent,
+  ImportableCanvasState,
+} from '@fieldnotes/core';
 
 type OnReady = Mock<(viewport: Viewport) => void>;
 
@@ -82,6 +87,98 @@ describe('FieldNotesCanvas', () => {
     const bareRef = createRef<FieldNotesCanvasRef>();
     render(<FieldNotesCanvas ref={bareRef} />);
     expect(bareRef.current?.autoSave).toBeNull();
+  });
+
+  it('shortcuts rebinds on mount and resets removed actions on change', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const { rerender } = render(
+      <FieldNotesCanvas shortcuts={{ 'edit.undo': 'mod+u' }} onReady={onReady} />,
+    );
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.shortcuts.getBindings()['edit.undo']).toEqual(['mod+u']);
+
+    const fresh = new Viewport(document.createElement('div'));
+    const defaultUndo = fresh.shortcuts.getBindings()['edit.undo'];
+    fresh.destroy();
+
+    rerender(<FieldNotesCanvas shortcuts={{ 'edit.redo': 'mod+r' }} onReady={onReady} />);
+    expect(viewport.shortcuts.getBindings()['edit.undo']).toEqual(defaultUndo);
+    expect(viewport.shortcuts.getBindings()['edit.redo']).toEqual(['mod+r']);
+  });
+
+  it('activation is set, replaced and disposed', () => {
+    const original = Viewport.prototype.setActivation;
+    const disposed: (ActivationOptions | null)[] = [];
+    const spy = vi.spyOn(Viewport.prototype, 'setActivation').mockImplementation(function (
+      this: Viewport,
+      options,
+    ) {
+      const dispose = original.call(this, options);
+      return () => {
+        disposed.push(options);
+        dispose();
+      };
+    });
+    const single: ActivationOptions = { gesture: 'single' };
+    const { rerender, unmount } = render(<FieldNotesCanvas activation={single} />);
+    expect(spy).toHaveBeenCalledWith(single);
+
+    rerender(<FieldNotesCanvas activation={null} />);
+    expect(spy).toHaveBeenLastCalledWith(null);
+    expect(disposed).toEqual([single]);
+
+    unmount();
+    expect(disposed).toEqual([single, null]);
+    spy.mockRestore();
+  });
+
+  it('cleanup uses the returned disposer, not setActivation(null)', () => {
+    const original = Viewport.prototype.setActivation;
+    const dispose = vi.fn();
+    const spy = vi.spyOn(Viewport.prototype, 'setActivation').mockImplementation(function (
+      this: Viewport,
+      options,
+    ) {
+      const realDispose = original.call(this, options);
+      return () => {
+        dispose();
+        realDispose();
+      };
+    });
+    const { unmount } = render(<FieldNotesCanvas activation={{ gesture: 'single' }} />);
+
+    unmount();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(spy).not.toHaveBeenCalledWith(null);
+    spy.mockRestore();
+  });
+
+  it('onElementActivate forwards events and reads the latest callback', () => {
+    const original = Viewport.prototype.onElementActivate;
+    let listener: ((event: ElementActivationEvent) => void) | undefined;
+    const spy = vi.spyOn(Viewport.prototype, 'onElementActivate').mockImplementation(function (
+      this: Viewport,
+      next,
+    ) {
+      listener = next;
+      return original.call(this, next);
+    });
+    const first = vi.fn();
+    const second = vi.fn();
+    const { rerender } = render(<FieldNotesCanvas onElementActivate={first} />);
+    rerender(<FieldNotesCanvas onElementActivate={second} />);
+
+    if (!listener) throw new Error('activation listener was not installed');
+    listener({
+      element: createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }),
+      world: { x: 0, y: 0 },
+      pointerType: 'mouse',
+      gesture: 'single',
+    });
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledOnce();
+    spy.mockRestore();
   });
 
   it('creates a Viewport with canvas inside the container', () => {
@@ -486,6 +583,42 @@ describe('FieldNotesCanvas initialData and onChange', () => {
       layerId: viewport.layerManager.activeLayerId,
     });
   }
+
+  it('autoSave loads the saved board, mutes onChange and saves changes', async () => {
+    vi.useFakeTimers();
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', JSON.stringify(saved));
+    const ref = createRef<FieldNotesCanvasRef>();
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    render(
+      <FieldNotesCanvas
+        ref={ref}
+        autoSave={{ adapter, key: 'k', debounceMs: 50 }}
+        onReady={onReady}
+        onChange={onChange}
+      />,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.store.count).toBe(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(onChange).not.toHaveBeenCalled();
+
+    addShape(viewport, 'b');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect((await ref.current?.autoSave?.load())?.elements.map((element) => element.id)).toEqual([
+      's1',
+      'b',
+    ]);
+  });
 
   it.each([
     ['object', saved],
