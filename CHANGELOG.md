@@ -23,12 +23,16 @@ Release notes prepared 2026-11-02.
   bindings.
 - `ViewportOptions.palette` (`false`, or `{ strings }`). `ElementTypeDefinition` and
   `ElementTypeAdapter` accept optional `searchText`; frames provide their title.
+- `ActionInvocation.repeat` is `true` when a keyboard shortcut fires from a held key.
+  `actions.run` callers can leave it out; it defaults to `false`.
 
 **Compatibility**
 
 - Persisted state and the sync protocol are unchanged. The palette writes neither the store, the
   history, nor the wire.
 - The palette actions register in the `Viewport` constructor, so they win over actions a plugin or the host registers later. A built-in action rebound to `mod+k` or `?` still wins over them.
+- Code that builds a whole `ActionInvocation` object, for example to call an action's `perform`
+  directly, must now set `repeat`.
 - The dialogs mount in the host container and use `position: fixed`. A container with a CSS
   `transform` or `filter` positions them instead of the window. `--fieldnotes-palette-*` custom
   properties set their colours, font and shadow.
