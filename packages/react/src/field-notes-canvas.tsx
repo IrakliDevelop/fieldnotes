@@ -164,6 +164,11 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
     }, []);
 
     useEffect(() => {
+      if (!viewport || !Array.isArray(tools)) return;
+      mountedRef.current?.setTools(tools);
+    }, [viewport, tools]);
+
+    useEffect(() => {
       if (!viewport || tool === undefined || active === tool) return;
       mountedRef.current?.setTool(tool);
     }, [viewport, tool, active]);
@@ -172,11 +177,6 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
       if (!viewport || snapToGrid === undefined) return;
       viewport.setSnapToGrid(snapToGrid);
     }, [viewport, snapToGrid]);
-
-    useEffect(() => {
-      if (!viewport || !Array.isArray(tools)) return;
-      mountedRef.current?.setTools(tools);
-    }, [viewport, tools]);
 
     return (
       <div {...rest} ref={containerRef} className={className} style={style}>

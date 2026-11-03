@@ -168,6 +168,35 @@ describe('FieldNotesCanvas', () => {
     expect(viewport.toolManager.activeTool?.name).toBe('hand');
   });
 
+  it('registers new tools before adopting a controlled tool from the same render', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onToolChange = vi.fn();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const { rerender } = render(
+      <FieldNotesCanvas
+        tools={[select]}
+        tool="select"
+        onReady={onReady}
+        onToolChange={onToolChange}
+      />,
+    );
+    const viewport = viewportAt(onReady, 0);
+
+    rerender(
+      <FieldNotesCanvas
+        tools={[select, pencil]}
+        tool="pencil"
+        onReady={onReady}
+        onToolChange={onToolChange}
+      />,
+    );
+
+    expect(viewport.toolManager.toolNames).toContain('pencil');
+    expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+    expect(onToolChange.mock.calls).toEqual([['pencil']]);
+  });
+
   it('onToolChange fires when the tool switches imperatively', () => {
     const onReady = vi.fn<(viewport: Viewport) => void>();
     const onToolChange = vi.fn();
