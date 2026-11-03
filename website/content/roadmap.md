@@ -19,6 +19,7 @@
 - Save and load as JSON, with older saves migrated on load
 - Autosave to IndexedDB, localStorage or memory
 - Embedded boards that let a plain wheel and a one-finger swipe scroll the page
+- React bindings: a canvas component and hooks
 - Vue and Svelte bindings: a canvas component and helpers with the React hook names
 - Angular bindings: a canvas component and signal helpers named after the React hooks, with `use` changed to `inject`
 - Self-hosted WebSocket sync server, with Redis for persistence and fan-out across instances
@@ -32,7 +33,7 @@
 - Command palette on Ctrl or ⌘+K to search and run actions
 - Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match
 - Shortcuts help on the ? key, generated from the current bindings
-- React bindings with props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence
+- React props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence
 
 ## Next
 
