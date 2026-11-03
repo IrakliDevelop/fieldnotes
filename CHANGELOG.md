@@ -20,15 +20,20 @@ Release notes prepared 2026-11-03.
 
 **Changed**
 
-- A `tools` array no longer overrides a name `options.tools` already registered; the first duplicate in an array wins.
+- `mountViewport` skips a `tools` entry whose name `options.tools` already registered, and uses the
+  first instance when an array repeats a name. The Vue, Svelte and Angular canvases get this through
+  core.
 
 **Fixed**
 
 - `createToolOptionsSource` notifies when the named tool is registered later.
-- tool change listeners are isolated; a throwing listener is reported and the others still run.
 - `@fieldnotes/vue`, `@fieldnotes/svelte`, and `@fieldnotes/angular` get this fix for their
   `useToolOptions` helpers by installing core 0.105.0; there is no wrapper release and no peer
   floor change.
+- Tool change listeners are isolated; a throwing listener is reported and the others still run.
+- `AutoSave.load` waits for a write still in flight from another `AutoSave` on the same adapter and
+  key, so a board remounted under the same key no longer loads an older save and overwrites the
+  newer one.
 
 **Compatibility**
 

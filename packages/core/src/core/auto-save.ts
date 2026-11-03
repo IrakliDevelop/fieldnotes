@@ -23,11 +23,26 @@ export interface AutoSaveOptions {
 const DEFAULT_KEY = 'fieldnotes-autosave';
 const DEFAULT_DEBOUNCE_MS = 1000;
 
+// Writes still in flight per storage target and key, so a remount on the same key loads after them.
+// Every default LocalStorageAdapter writes to the same localStorage, so they share one target.
+const pendingWrites = new WeakMap<object, Map<string, Promise<void>>>();
+const LOCAL_STORAGE_TARGET = {};
+
+function writesFor(target: object): Map<string, Promise<void>> {
+  let writes = pendingWrites.get(target);
+  if (!writes) {
+    writes = new Map();
+    pendingWrites.set(target, writes);
+  }
+  return writes;
+}
+
 export class AutoSave {
   private readonly key: string;
   private readonly debounceMs: number;
   private readonly layerManager?: LayerManager;
   private readonly adapter: StorageAdapter;
+  private readonly target: object;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
   private readonly onError?: (error: Error) => void;
@@ -49,6 +64,7 @@ export class AutoSave {
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.layerManager = options.layerManager;
     this.adapter = options.adapter ?? new LocalStorageAdapter();
+    this.target = options.adapter ?? LOCAL_STORAGE_TARGET;
     this.onError = options.onError;
     this.explicitRegistry = options.elementRegistry;
     this.pluginStateManager = options.pluginStateManager;
@@ -103,6 +119,7 @@ export class AutoSave {
    */
   async load(): Promise<CanvasState | null> {
     try {
+      await pendingWrites.get(this.target)?.get(this.key);
       const json = await this.adapter.load(this.key);
       if (!json) {
         this.loadFailed = false;
@@ -164,8 +181,14 @@ export class AutoSave {
         return;
       }
       this.saving = true;
-      this.writeChain = this.write(json);
-      await this.writeChain;
+      const chain = this.write(json);
+      this.writeChain = chain;
+      const writes = writesFor(this.target);
+      writes.set(this.key, chain);
+      void chain.finally(() => {
+        if (writes.get(this.key) === chain) writes.delete(this.key);
+      });
+      await chain;
     } catch (e) {
       this.notifyError(e);
     }

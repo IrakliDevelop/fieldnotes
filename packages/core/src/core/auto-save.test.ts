@@ -281,6 +281,44 @@ describe('AutoSave', () => {
     expect(state.elements.map((element) => element.text)).toEqual(['first', 'second']);
   });
 
+  it('a new AutoSave on the same key loads after the previous instance finishes writing', async () => {
+    const saved = new Map<string, string>();
+    const deferreds: (() => void)[] = [];
+    const adapter: StorageAdapter = {
+      load: async (key) => saved.get(key) ?? null,
+      clear: async () => undefined,
+      save: (key, value) =>
+        new Promise<void>((resolve) => {
+          deferreds.push(() => {
+            saved.set(key, value);
+            resolve();
+          });
+        }),
+    };
+    const first = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 100 });
+    first.start();
+    store.add(makeNote('a1'));
+    await vi.advanceTimersByTimeAsync(100);
+    store.add(makeNote('a2'));
+    void first.flush();
+    first.stop();
+
+    const second = new AutoSave(new ElementStore(), new Camera(), { adapter, key: 'k' });
+    let loaded: { elements: { text: string }[] } | null | undefined;
+    const load = second.load().then((state) => {
+      loaded = state as { elements: { text: string }[] } | null;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loaded).toBeUndefined();
+
+    deferreds[0]?.();
+    await vi.advanceTimersByTimeAsync(0);
+    deferreds[1]?.();
+    await load;
+
+    expect(loaded?.elements.map((element) => element.text)).toEqual(['a1', 'a2']);
+  });
+
   it('flush after stop does not save', async () => {
     const adapter = new MemoryAdapter();
     autoSave = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 1000 });
