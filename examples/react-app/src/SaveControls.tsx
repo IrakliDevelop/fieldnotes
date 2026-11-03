@@ -12,19 +12,26 @@ export function SaveControls() {
     if (json) loadState(json);
   };
   const exportPng = async () => {
+    let image: Blob | null;
     try {
-      const image = await exportImage({ scale: 1 });
-      if (!image) throw new Error('PNG export failed');
-      const url = URL.createObjectURL(image);
-      const opened = window.open(url);
-      if (!opened) {
-        URL.revokeObjectURL(url);
-        throw new Error('PNG tab blocked');
-      }
-      opened.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
-    } catch {
-      window.alert('The browser blocked the PNG tab. Allow pop-ups for this page and try again.');
+      image = await exportImage({ scale: 1 });
+    } catch (error) {
+      console.error(error);
+      window.alert('PNG export failed. Check the console for the error.');
+      return;
     }
+    if (!image) {
+      window.alert('The board is empty, so there is no PNG to open. Draw something and try again.');
+      return;
+    }
+    const url = URL.createObjectURL(image);
+    const opened = window.open(url);
+    if (!opened) {
+      URL.revokeObjectURL(url);
+      window.alert('The browser blocked the PNG tab. Allow pop-ups for this page and try again.');
+      return;
+    }
+    opened.addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
   };
 
   return (
