@@ -4,6 +4,7 @@ import type { SelectionStyleDetails } from './selection-ops';
 import type { CanvasElement, ElementType } from '../elements/types';
 import type { ElementStyle } from '../elements/element-style';
 import type { Layer } from '../layers/types';
+import type { Peer, PeerRoster } from './awareness-roster';
 
 /** A subscribable viewport value with a referentially stable snapshot, for UI bindings. */
 export interface ViewportSource<T> {
@@ -18,6 +19,12 @@ export interface CameraState {
   x: number;
   y: number;
   zoom: number;
+}
+
+/** Canvas dimensions in CSS pixels. */
+export interface CanvasSize {
+  w: number;
+  h: number;
 }
 
 /** Undo/redo availability. */
@@ -99,6 +106,42 @@ export function createElementsSource(
       cached = next;
       return next;
     },
+  };
+}
+
+/** One element by id, or `null` when the id is absent. */
+export function createElementSource(
+  vp: Viewport,
+  getId: () => string | null,
+): ViewportSource<CanvasElement | null> {
+  return {
+    subscribe: (onChange) => vp.store.onChange(onChange),
+    getSnapshot: () => {
+      const id = getId();
+      return id === null ? null : (vp.store.getById(id) ?? null);
+    },
+  };
+}
+
+/** Canvas dimensions in CSS pixels; changes when the viewport resizes. */
+export function createCanvasSizeSource(vp: Viewport): ViewportSource<CanvasSize> {
+  let cached: CanvasSize | null = null;
+  return {
+    subscribe: (onChange) => vp.onResize(onChange),
+    getSnapshot() {
+      const next = vp.getCanvasSize();
+      if (cached?.w === next.w && cached.h === next.h) return cached;
+      cached = next;
+      return cached;
+    },
+  };
+}
+
+/** Current awareness peers; changes when the roster changes. */
+export function createPeersSource(roster: PeerRoster): ViewportSource<readonly Peer[]> {
+  return {
+    subscribe: (onChange) => roster.onChange(onChange),
+    getSnapshot: () => roster.getPeers(),
   };
 }
 

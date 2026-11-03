@@ -65,6 +65,9 @@ export {
   createCameraSource,
   createElementsSource,
   createElementsSelectorSource,
+  createElementSource,
+  createCanvasSizeSource,
+  createPeersSource,
   createSelectionSource,
   createSelectionOpsSource,
   createSelectionStyleSource,
@@ -79,6 +82,7 @@ export {
 export type {
   ViewportSource,
   CameraState,
+  CanvasSize,
   HistoryState,
   LayersState,
   SelectionOpsState,

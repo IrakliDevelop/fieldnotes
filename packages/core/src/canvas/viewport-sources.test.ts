@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from './viewport';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
@@ -21,7 +21,12 @@ import {
   createShortcutsSource,
   createToolOptionsSource,
   createPresentationSource,
+  createElementSource,
+  createCanvasSizeSource,
+  createPeersSource,
 } from './viewport-sources';
+import { PeerRoster } from './awareness-roster';
+import { AWARENESS_PRESENCE_KIND } from './awareness-presence';
 import type { CanvasElement, ElementType } from '../elements/types';
 import type { Tool } from '../tools/types';
 
@@ -130,6 +135,108 @@ describe('createElementsSource', () => {
     off();
     addNote();
     expect(c.calls).toBe(1);
+  });
+});
+
+describe('createElementSource', () => {
+  it('returns the element by id and null when absent', () => {
+    const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    vp.store.add(a);
+
+    expect(createElementSource(vp, () => a.id).getSnapshot()).toBe(vp.store.getById(a.id));
+    expect(createElementSource(vp, () => 'missing').getSnapshot()).toBeNull();
+    expect(createElementSource(vp, () => null).getSnapshot()).toBeNull();
+  });
+
+  it('keeps the reference until that element changes', () => {
+    const a = createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } });
+    const b = createShape({ position: { x: 20, y: 0 }, size: { w: 10, h: 10 } });
+    vp.store.add(a);
+    vp.store.add(b);
+    const source = createElementSource(vp, () => a.id);
+    const first = source.getSnapshot();
+
+    vp.store.update(b.id, { position: { x: 25, y: 0 } });
+    expect(source.getSnapshot()).toBe(first);
+    vp.store.update(a.id, { position: { x: 5, y: 0 } });
+    expect(source.getSnapshot()).toMatchObject({ position: { x: 5 } });
+    expect(source.getSnapshot()).not.toBe(first);
+  });
+});
+
+describe('createCanvasSizeSource', () => {
+  let resizeVp: Viewport | null = null;
+  let resizeContainer: HTMLDivElement | null = null;
+
+  afterEach(() => {
+    resizeVp?.destroy();
+    resizeContainer?.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it('reads the canvas size and keeps the reference until it changes', () => {
+    let callback: (() => void) | undefined;
+    class FakeResizeObserver {
+      constructor(next: () => void) {
+        callback = next;
+      }
+      observe(): void {
+        return undefined;
+      }
+      disconnect(): void {
+        return undefined;
+      }
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    resizeContainer = document.createElement('div');
+    document.body.appendChild(resizeContainer);
+    resizeVp = new Viewport(resizeContainer, { tools: [new SelectTool(), new PencilTool()] });
+    const canvas = resizeVp.domLayer.parentElement?.querySelector('canvas');
+    expect(canvas).not.toBeNull();
+    if (!canvas) return;
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 300 });
+    Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: 200 });
+    const source = createCanvasSizeSource(resizeVp);
+    const first = source.getSnapshot();
+
+    expect(first).toEqual({ w: 300, h: 200 });
+    expect(source.getSnapshot()).toBe(first);
+    const changed = counter();
+    const off = source.subscribe(changed.onChange);
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 400 });
+    callback?.();
+    expect(changed.calls).toBe(1);
+    expect(source.getSnapshot()).toEqual({ w: 400, h: 200 });
+    expect(source.getSnapshot()).not.toBe(first);
+    off();
+    callback?.();
+    expect(changed.calls).toBe(1);
+  });
+});
+
+describe('createPeersSource', () => {
+  it('forwards the roster snapshot and lifecycle', () => {
+    const roster = new PeerRoster();
+    roster.apply('p1', {
+      kind: AWARENESS_PRESENCE_KIND,
+      id: 'u1',
+      name: 'Ann',
+      color: '#f00',
+    });
+    const source = createPeersSource(roster);
+    const snapshot = source.getSnapshot();
+
+    expect(snapshot).toBe(roster.getPeers());
+    expect(snapshot).toHaveLength(1);
+    expect(snapshot[0]).toMatchObject({ from: 'p1', id: 'u1', name: 'Ann', color: '#f00' });
+    const changed = counter();
+    const off = source.subscribe(changed.onChange);
+    roster.remove('p1');
+    expect(changed.calls).toBe(1);
+    off();
+    roster.apply('p1', { kind: AWARENESS_PRESENCE_KIND, id: 'u1', name: 'Ann', color: '#f00' });
+    expect(changed.calls).toBe(1);
+    roster.dispose();
   });
 });
 

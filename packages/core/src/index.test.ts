@@ -271,6 +271,9 @@ describe('core public surface', () => {
       FN.createCameraSource,
       FN.createElementsSource,
       FN.createElementsSelectorSource,
+      FN.createElementSource,
+      FN.createCanvasSizeSource,
+      FN.createPeersSource,
       FN.createSelectionSource,
       FN.createSelectionOpsSource,
       FN.createSelectionStyleSource,
@@ -284,6 +287,7 @@ describe('core public surface', () => {
     for (const factory of factories) expect(factory).toBeTypeOf('function');
     const camera: FN.CameraState = { x: 0, y: 0, zoom: 1 };
     const history: FN.HistoryState = { canUndo: false, canRedo: false };
+    const size: FN.CanvasSize = { w: 3, h: 4 };
     const layers: FN.LayersState = { layers: [], activeLayerId: '' };
     const ops: FN.SelectionOpsState = {
       selectedIds: [],
@@ -300,10 +304,11 @@ describe('core public surface', () => {
     expect([
       camera.zoom,
       history.canUndo,
+      size.w,
       layers.activeLayerId,
       ops.isLocked,
       source.getSnapshot(),
-    ]).toEqual([1, false, '', null, 1]);
+    ]).toEqual([1, false, 3, '', null, 1]);
   });
 
   it('exports camera constraints without replacing the viewport CameraState', () => {
