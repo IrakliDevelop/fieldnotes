@@ -7,6 +7,7 @@ import type { CameraView } from './camera-view';
 export interface PaletteStrings {
   readonly placeholder: string;
   readonly noResults: string;
+  /** Live result count; `{count}` is replaced with the number of rows. */
   readonly results: string;
   readonly actions: string;
   readonly board: string;
@@ -27,7 +28,7 @@ export interface PaletteOptions {
 export const DEFAULT_PALETTE_STRINGS: PaletteStrings = {
   placeholder: 'Search actions and the board',
   noResults: 'No matches. Try a shorter search.',
-  results: 'results',
+  results: 'Results: {count}',
   actions: 'Actions',
   board: 'On the board',
   helpTitle: 'Keyboard shortcuts',

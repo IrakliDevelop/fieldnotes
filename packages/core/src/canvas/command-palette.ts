@@ -246,7 +246,7 @@ export class CommandPalette implements PaletteApi {
       list.append(empty);
     }
     status.textContent = this.rows.length
-      ? `${this.rows.length} ${this.deps.strings.results}`
+      ? this.deps.strings.results.replace('{count}', String(this.rows.length))
       : this.deps.strings.noResults;
   }
 

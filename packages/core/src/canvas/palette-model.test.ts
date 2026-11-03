@@ -200,7 +200,7 @@ describe('palette model', () => {
       groups: { zoo: 'Zoo' },
       types: { 'zoo:cat': 'Cat' },
       placeholder: 'Suche',
-      results: 'Treffer',
+      results: '{count} Treffer',
       close: 'Schließen',
     });
 
@@ -211,7 +211,7 @@ describe('palette model', () => {
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
       close: 'Close',
-      results: 'results',
+      results: 'Results: {count}',
       groups: {
         edit: 'Edit',
         select: 'Select',
@@ -230,7 +230,7 @@ describe('palette model', () => {
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
       close: 'Schließen',
-      results: 'Treffer',
+      results: '{count} Treffer',
       groups: {
         edit: 'Edit',
         select: 'Select',
@@ -256,7 +256,7 @@ describe('palette model', () => {
       board: 'On the board',
       helpTitle: 'Keyboard shortcuts',
       close: 'Close',
-      results: 'results',
+      results: 'Results: {count}',
       groups: {
         edit: 'Edit',
         select: 'Select',

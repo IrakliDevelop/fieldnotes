@@ -230,7 +230,7 @@ describe('command palette', () => {
       'polite',
     );
     expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe(
-      `${rows(container).length} results`,
+      `Results: ${rows(container).length}`,
     );
     expect(calls.context).toHaveBeenCalledOnce();
     expect(calls.help).toHaveBeenCalledOnce();
@@ -242,17 +242,18 @@ describe('command palette', () => {
       placeholder: 'Suche',
       actions: 'Befehle',
       board: 'Treffer',
-      results: 'Treffer',
+      results: '{count} Treffer',
     };
     const { harness, container, palette } = makeDeps({ strings });
     addAction(harness, 'test.budget', 'Budget command');
     addHit(harness, 'note', 'Budget note', 'budget');
+    addHit(harness, 'text', 'Budget text', 'budget-text');
     palette.open('bud');
     expect(input(container).placeholder).toBe('Suche');
     expect(container.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Suche');
     expect(container.textContent).toContain('Befehle');
     expect(container.textContent).toContain('Treffer');
-    expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe('2 Treffer');
+    expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe('3 Treffer');
   });
 
   it('typing filters actions and adds board hits under the second group', () => {
@@ -272,6 +273,7 @@ describe('command palette', () => {
     expect(rows(container)).toHaveLength(1);
     expect(rows(container)[0]?.textContent).toContain('Present');
     expect(container.textContent).not.toContain('On the board');
+    expect(container.querySelector('.fieldnotes-palette-status')?.textContent).toBe('Results: 1');
     type(container, 'zzz');
     expect(container.querySelector('.fieldnotes-palette-empty')?.textContent).toBe(
       'No matches. Try a shorter search.',
