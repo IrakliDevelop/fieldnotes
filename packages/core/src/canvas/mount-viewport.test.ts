@@ -205,6 +205,184 @@ describe('mountViewport tools', () => {
   });
 });
 
+describe('mountViewport setTools', () => {
+  it('setTools registers new names and unregisters names that left', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mount({ tools: [hand, select] });
+
+    m.setTools([select, pencil]);
+
+    expect(m.viewport.toolManager.toolNames).toEqual(['select', 'pencil']);
+  });
+
+  it('an inline array with new instances of the same names changes nothing', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const deactivate = vi.spyOn(hand, 'onDeactivate');
+    const m = mount({ tools: [hand, select], defaultTool: 'hand' });
+    const register = vi.spyOn(m.viewport.toolManager, 'register');
+
+    m.setTools([new HandTool(), new SelectTool()]);
+
+    expect(register).not.toHaveBeenCalled();
+    expect(m.viewport.toolManager.getTool('hand')).toBe(hand);
+    expect(deactivate).not.toHaveBeenCalled();
+  });
+
+  it('setTools reads tool and defaultTool live', () => {
+    let tool: string | undefined = 'hand';
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mount({
+      tools: [hand, select, pencil],
+      get tool() {
+        return tool;
+      },
+    });
+    m.setTool('pencil');
+    tool = 'select';
+
+    m.setTools([hand, select]);
+
+    expect(m.viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('removing the active tool mid-gesture leaves no partial element and at most one undo step', () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mountViewport(container, { tools: [select, pencil], tool: 'pencil' });
+    mounted.push(m);
+    const wrapper = container.firstElementChild;
+    if (!wrapper) throw new Error('viewport wrapper missing');
+
+    wrapper.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+        pointerId: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+      }),
+    );
+    wrapper.dispatchEvent(
+      new PointerEvent('pointermove', {
+        bubbles: true,
+        clientX: 20,
+        clientY: 20,
+        pointerId: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+      }),
+    );
+
+    m.setTools([select]);
+    wrapper.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        clientX: 20,
+        clientY: 20,
+        pointerId: 1,
+        pointerType: 'mouse',
+        pressure: 0.5,
+      }),
+    );
+
+    expect(m.viewport.store.count).toBe(0);
+    expect(m.viewport.undo()).toBe(false);
+    container.remove();
+  });
+
+  it('removing the active tool activates the controlled tool when present', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const deactivate = vi.spyOn(pencil, 'onDeactivate');
+    const m = mount({ tools: [hand, select, pencil], tool: 'select' });
+    m.setTool('pencil');
+
+    m.setTools([hand, select]);
+
+    expect(m.viewport.toolManager.activeTool?.name).toBe('select');
+    expect(deactivate).toHaveBeenCalledTimes(1);
+  });
+
+  it('removing the active tool falls back to select, then the first remaining tool', () => {
+    const hand = new HandTool();
+    const pencil = new PencilTool();
+    const first = mount({ tools: [hand, pencil], defaultTool: 'pencil' });
+
+    first.setTools([hand]);
+
+    expect(first.viewport.toolManager.activeTool?.name).toBe('hand');
+
+    const select = new SelectTool();
+    const secondPencil = new PencilTool();
+    const second = mount({ tools: [select, secondPencil], defaultTool: 'pencil' });
+
+    second.setTools([select]);
+
+    expect(second.viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('removing the last tool deactivates it, leaves no tool active and reports empty', () => {
+    const pencil = new PencilTool();
+    const deactivate = vi.spyOn(pencil, 'onDeactivate');
+    const onToolChange = vi.fn<(name: string) => void>();
+    const m = mount({ tools: [pencil], defaultTool: 'pencil', onToolChange });
+
+    m.setTools([]);
+
+    expect(m.viewport.toolManager.activeTool).toBeNull();
+    expect(deactivate).toHaveBeenCalledOnce();
+    expect(deactivate).toHaveBeenCalledWith(m.viewport.toolContext);
+    expect(onToolChange).toHaveBeenCalledOnce();
+    expect(onToolChange).toHaveBeenCalledWith('');
+  });
+
+  it('setTools leaves tools registered by onReady alone', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const custom = new PencilTool({ name: 'custom' });
+    const m = mount({
+      tools: [hand],
+      onReady: (vp) => vp.toolManager.register(custom),
+    });
+
+    m.setTools([select]);
+
+    expect(m.viewport.toolManager.toolNames).toEqual(['custom', 'select']);
+  });
+
+  it('setTools reports one onToolChange per activation', () => {
+    const onToolChange = vi.fn<(name: string) => void>();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mount({ tools: [select, pencil], defaultTool: 'pencil', onToolChange });
+
+    m.setTools([select]);
+
+    expect(onToolChange.mock.calls).toEqual([['select']]);
+  });
+
+  it('setTools does not re-register an instance already present', () => {
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const m = mount({ tools: [hand, select] });
+    const register = vi.spyOn(m.viewport.toolManager, 'register');
+
+    m.setTools([hand, select]);
+
+    expect(register).not.toHaveBeenCalled();
+  });
+});
+
 describe('mountViewport initialData and errors', () => {
   it.each([
     ['object', saved],

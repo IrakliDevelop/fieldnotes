@@ -49,6 +49,8 @@ export interface MountedViewport {
   setTool(name: string): void;
   /** Registers each tool whose name is not registered yet (append-only). */
   addTools(tools: readonly Tool[]): void;
+  /** Reconciles by name: registers names not registered yet, unregisters this mount's registrations whose name left. */
+  setTools(tools: readonly Tool[]): void;
   /** Flushes a pending onChange, unsubscribes, destroys the viewport. Idempotent. */
   destroy(): void;
 }
@@ -62,6 +64,12 @@ export function mountViewport(
   const vp = new Viewport(container, options);
   let destroyed = false;
   let muted = false;
+  const registrations = new Map<string, { tool: Tool; dispose: () => void }>();
+
+  const register = (tool: Tool) => {
+    if (registrations.has(tool.name) || vp.toolManager.getTool(tool.name)) return;
+    registrations.set(tool.name, { tool, dispose: vp.toolManager.register(tool) });
+  };
 
   const activate = (fallback?: string) => {
     const name = opts.tool ?? opts.defaultTool ?? fallback;
@@ -70,7 +78,7 @@ export function mountViewport(
   // An explicit `options.tools` is the host's choice; core registers it and activates select.
   const deferDefaults = tools === undefined && options?.tools === undefined;
   for (const t of tools === 'default' ? createDefaultTools() : (tools ?? [])) {
-    vp.toolManager.register(t);
+    register(t);
   }
   if (!deferDefaults) activate(tools === 'default' ? 'select' : undefined);
 
@@ -101,7 +109,7 @@ export function mountViewport(
     if (deferDefaults) {
       const registerDefaults = vp.toolManager.toolNames.length === 0;
       if (registerDefaults) {
-        for (const t of createDefaultTools()) vp.toolManager.register(t);
+        for (const t of createDefaultTools()) register(t);
       }
       activate(registerDefaults ? 'select' : undefined);
     }
@@ -156,8 +164,35 @@ export function mountViewport(
       if (vp.toolManager.activeTool?.name !== name) vp.setTool(name);
     },
     addTools(added) {
-      for (const t of added) {
-        if (!vp.toolManager.getTool(t.name)) vp.toolManager.register(t);
+      for (const tool of added) register(tool);
+    },
+    setTools(next) {
+      const names = new Set(next.map((tool) => tool.name));
+      for (const tool of next) register(tool);
+      const removed = new Set([...registrations.keys()].filter((name) => !names.has(name)));
+
+      for (const [name, { tool, dispose }] of registrations) {
+        if (names.has(name)) continue;
+
+        if (vp.toolManager.activeTool === tool) {
+          const fallback = [opts.tool, opts.defaultTool, 'select', next[0]?.name].find(
+            (candidate) =>
+              candidate !== undefined &&
+              !removed.has(candidate) &&
+              vp.toolManager.getTool(candidate) !== undefined,
+          );
+          if (fallback) vp.setTool(fallback);
+          else {
+            tool.onDeactivate?.(vp.toolContext);
+            dispose();
+            opts.onToolChange?.('');
+            registrations.delete(name);
+            continue;
+          }
+        }
+
+        dispose();
+        registrations.delete(name);
       }
     },
     destroy() {
