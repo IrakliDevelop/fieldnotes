@@ -4,8 +4,8 @@ import { attachHostElement } from '@fieldnotes/core';
 import type { HostElementGeometry, HostElementHandle } from '@fieldnotes/core';
 import { useViewport } from './hooks/use-viewport';
 
-/** Props for {@link CanvasElement}. */
-export interface CanvasElementProps {
+/** Props for {@link HostElement}. */
+export interface HostElementProps {
   /** Canvas-space position of the element's top-left corner. */
   position: { x: number; y: number };
   /** Optional fixed size; omit to let the element size to its content. */
@@ -19,7 +19,7 @@ export interface CanvasElementProps {
  * in exported state, and never records an undo step.
  * Must be used inside a `<FieldNotesCanvas>`.
  */
-export function CanvasElement({ position, size, children }: CanvasElementProps) {
+export function HostElement({ position, size, children }: HostElementProps) {
   const viewport = useViewport();
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const hostRef = useRef<HostElementHandle | null>(null);
@@ -51,3 +51,9 @@ export function CanvasElement({ position, size, children }: CanvasElementProps) 
   if (!portalTarget) return null;
   return createPortal(children, portalTarget);
 }
+
+/** @deprecated Use `HostElement`; removed in 0.16.0. */
+export const CanvasElement = HostElement;
+
+/** @deprecated Use `HostElementProps`; removed in 0.16.0. */
+export type CanvasElementProps = HostElementProps;

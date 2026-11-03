@@ -2,11 +2,15 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { StrictMode } from 'react';
 import { render, cleanup } from '@testing-library/react';
 import { FieldNotesCanvas } from './field-notes-canvas';
-import { CanvasElement } from './canvas-element';
+import { CanvasElement, HostElement } from './index';
 import type { Viewport } from '@fieldnotes/core';
 
-describe('CanvasElement', () => {
+describe('HostElement', () => {
   afterEach(cleanup);
+
+  it('keeps CanvasElement as the same component as HostElement', () => {
+    expect(CanvasElement).toBe(HostElement);
+  });
 
   it('adds an html element to the store on mount', () => {
     const captured: { vp: Viewport | null } = { vp: null };
@@ -16,9 +20,9 @@ describe('CanvasElement', () => {
           captured.vp = v;
         }}
       >
-        <CanvasElement position={{ x: 10, y: 20 }}>
+        <HostElement position={{ x: 10, y: 20 }}>
           <div>Hello</div>
-        </CanvasElement>
+        </HostElement>
       </FieldNotesCanvas>,
     );
     const vp = captured.vp;
@@ -32,9 +36,9 @@ describe('CanvasElement', () => {
   it('renders children via portal', () => {
     render(
       <FieldNotesCanvas>
-        <CanvasElement position={{ x: 0, y: 0 }}>
+        <HostElement position={{ x: 0, y: 0 }}>
           <span data-testid="portal-child">Portal Content</span>
-        </CanvasElement>
+        </HostElement>
       </FieldNotesCanvas>,
     );
     const child = document.querySelector('[data-testid="portal-child"]');
@@ -49,9 +53,9 @@ describe('CanvasElement', () => {
     function Inner() {
       if (!showChild) return null;
       return (
-        <CanvasElement position={{ x: 0, y: 0 }}>
+        <HostElement position={{ x: 0, y: 0 }}>
           <div>Remove me</div>
-        </CanvasElement>
+        </HostElement>
       );
     }
 
@@ -90,9 +94,9 @@ describe('CanvasElement', () => {
           captured.vp = v;
         }}
       >
-        <CanvasElement position={{ x: 0, y: 0 }} size={{ w: 400, h: 300 }}>
+        <HostElement position={{ x: 0, y: 0 }} size={{ w: 400, h: 300 }}>
           <div>Sized</div>
-        </CanvasElement>
+        </HostElement>
       </FieldNotesCanvas>,
     );
     const vp = captured.vp;
@@ -112,9 +116,9 @@ describe('CanvasElement', () => {
             captured.vp = v;
           }}
         >
-          <CanvasElement position={{ x, y: 0 }} size={{ w, h: 100 }}>
+          <HostElement position={{ x, y: 0 }} size={{ w, h: 100 }}>
             <div>Host owned</div>
-          </CanvasElement>
+          </HostElement>
         </FieldNotesCanvas>
       );
     }
@@ -143,9 +147,9 @@ describe('CanvasElement', () => {
           captured.vp = v;
         }}
       >
-        <CanvasElement position={{ x: 10, y: 20 }} size={{ w: 200, h: 100 }}>
+        <HostElement position={{ x: 10, y: 20 }} size={{ w: 200, h: 100 }}>
           <div>Not exported</div>
-        </CanvasElement>
+        </HostElement>
       </FieldNotesCanvas>,
     );
     const vp = captured.vp;
@@ -176,9 +180,9 @@ describe('CanvasElement', () => {
             );
           }}
         >
-          <CanvasElement position={{ x, y: 0 }} size={{ w: 200, h: 100 }}>
+          <HostElement position={{ x, y: 0 }} size={{ w: 200, h: 100 }}>
             <div>Tagged</div>
-          </CanvasElement>
+          </HostElement>
         </FieldNotesCanvas>
       );
     }
@@ -200,9 +204,9 @@ describe('CanvasElement', () => {
           captured.vp = v;
         }}
       >
-        <CanvasElement position={{ x: 10, y: 20 }}>
+        <HostElement position={{ x: 10, y: 20 }}>
           <span data-testid="clear-survivor">Survivor</span>
-        </CanvasElement>
+        </HostElement>
       </FieldNotesCanvas>,
     );
     const vp = captured.vp;
@@ -233,9 +237,9 @@ describe('CanvasElement', () => {
           captured.vp = v;
         }}
       >
-        <CanvasElement position={{ x: 10, y: 20 }}>
+        <HostElement position={{ x: 10, y: 20 }}>
           <span data-testid="local-clear-survivor">Survivor</span>
-        </CanvasElement>
+        </HostElement>
       </FieldNotesCanvas>,
     );
     const vp = captured.vp;
@@ -261,9 +265,9 @@ describe('CanvasElement', () => {
           captured.vp = v;
         }}
       >
-        <CanvasElement position={{ x: 10, y: 20 }}>
+        <HostElement position={{ x: 10, y: 20 }}>
           <span data-testid="load-state-survivor">Survivor</span>
-        </CanvasElement>
+        </HostElement>
       </FieldNotesCanvas>,
     );
     const vp = captured.vp;
@@ -293,9 +297,9 @@ describe('CanvasElement', () => {
             captured.vp = v;
           }}
         >
-          <CanvasElement position={{ x: 5, y: 6 }}>
+          <HostElement position={{ x: 5, y: 6 }}>
             <span data-testid="strict-child">Strict</span>
-          </CanvasElement>
+          </HostElement>
         </FieldNotesCanvas>
       </StrictMode>,
     );
