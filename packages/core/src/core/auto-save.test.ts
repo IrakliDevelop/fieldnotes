@@ -239,6 +239,48 @@ describe('AutoSave', () => {
     expect(saved.elements).toHaveLength(1);
   });
 
+  it('flush waits for an in-flight write and the newer queued snapshot', async () => {
+    const saved = new Map<string, string>();
+    const deferreds: (() => void)[] = [];
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      clear: async () => undefined,
+      save: (key, value) =>
+        new Promise<void>((resolve) => {
+          deferreds.push(() => {
+            saved.set(key, value);
+            resolve();
+          });
+        }),
+    };
+    autoSave = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 100 });
+    autoSave.start();
+
+    store.add(makeNote('first'));
+    await vi.advanceTimersByTimeAsync(100);
+    store.add(makeNote('second'));
+
+    let flushed = false;
+    const flush = autoSave.flush().then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+
+    expect(flushed).toBe(false);
+    expect(deferreds).toHaveLength(1);
+
+    deferreds[0]?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(flushed).toBe(false);
+    expect(deferreds).toHaveLength(2);
+
+    deferreds[1]?.();
+    await flush;
+
+    const state = JSON.parse(saved.get('k') ?? 'null') as { elements: { text: string }[] };
+    expect(state.elements.map((element) => element.text)).toEqual(['first', 'second']);
+  });
+
   it('flush after stop does not save', async () => {
     const adapter = new MemoryAdapter();
     autoSave = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 1000 });

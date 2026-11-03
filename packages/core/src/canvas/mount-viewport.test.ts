@@ -723,6 +723,55 @@ describe('mountViewport autoSave', () => {
     expect(state.elements).toHaveLength(1);
   });
 
+  it('queues the latest autosave state before destroy without later reading the viewport', async () => {
+    vi.useFakeTimers();
+    const data = new Map<string, string>();
+    const deferreds: (() => void)[] = [];
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      clear: async () => undefined,
+      save: (key, value) =>
+        new Promise<void>((resolve) => {
+          deferreds.push(() => {
+            data.set(key, value);
+            resolve();
+          });
+        }),
+    };
+    const plugin: ViewportPlugin = {
+      name: 'stateful',
+      start: () => ({
+        dispose: () => undefined,
+        exportState: () => ({ fog: [1, 2, 3] }),
+      }),
+    };
+    const m = mount({
+      options: { plugins: [plugin] },
+      autoSave: { adapter, key: 'k', debounceMs: 100 },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'first');
+    await vi.advanceTimersByTimeAsync(100);
+    addShape(m.viewport, 'second');
+    const exportState = vi.spyOn(m.viewport.plugins, 'exportState');
+
+    m.destroy();
+    const exportsAtDestroy = exportState.mock.calls.length;
+    deferreds[0]?.();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(exportState).toHaveBeenCalledTimes(exportsAtDestroy);
+    expect(deferreds).toHaveLength(2);
+
+    deferreds[1]?.();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const state = JSON.parse(data.get('k') ?? 'null') as CanvasState;
+    expect(state.elements.map((element) => element.id)).toEqual(['first', 'second']);
+    expect(state.extensions?.['stateful']?.data).toEqual({ fog: [1, 2, 3] });
+  });
+
   it('a load that resolves after destroy is dropped', async () => {
     vi.useFakeTimers();
     let resolveLoad: ((value: string | null) => void) | undefined;

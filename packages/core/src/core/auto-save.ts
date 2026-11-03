@@ -34,9 +34,10 @@ export class AutoSave {
   private readonly pluginStateManager?: PluginStateManager;
   private readonly changeEmitters?: { onChange(listener: () => void): () => void }[];
   private saving = false;
+  private writeChain: Promise<void> | null = null;
   /** Set when the saved data was unreadable; blocks saves so it is not clobbered. */
   private loadFailed = false;
-  private pendingSave = false;
+  private queuedJson: string | null = null;
 
   constructor(
     private readonly store: ElementStore,
@@ -83,11 +84,13 @@ export class AutoSave {
     this.unsubscribers = [];
   }
 
-  /** Runs a pending debounced save now; a no-op when none is pending. */
+  /** Writes any pending change now; resolves when every queued write has settled. */
   async flush(): Promise<void> {
-    if (this.timerId === null) return;
-    this.cancelPending();
-    await this.save();
+    if (this.timerId !== null) {
+      this.cancelPending();
+      await this.save();
+    }
+    await this.writeChain;
   }
 
   /**
@@ -142,11 +145,6 @@ export class AutoSave {
 
   private async save(): Promise<void> {
     if (this.loadFailed) return;
-    if (this.saving) {
-      this.pendingSave = true;
-      return;
-    }
-    this.saving = true;
     try {
       const layers = this.layerManager?.snapshot() ?? [];
       const extensions = this.pluginStateManager?.exportState();
@@ -158,15 +156,35 @@ export class AutoSave {
         extensions,
         this.elementRegistry,
       );
-      await this.adapter.save(this.key, JSON.stringify(state));
+      const json = JSON.stringify(state);
+      if (this.saving) {
+        this.queuedJson = json;
+        await this.writeChain;
+        return;
+      }
+      this.saving = true;
+      this.writeChain = this.write(json);
+      await this.writeChain;
     } catch (e) {
       this.onError?.(e instanceof Error ? e : new Error(String(e)));
+    }
+  }
+
+  private async write(json: string): Promise<void> {
+    let next: string | null = json;
+    try {
+      while (next !== null) {
+        try {
+          await this.adapter.save(this.key, next);
+        } catch (e) {
+          this.onError?.(e instanceof Error ? e : new Error(String(e)));
+        }
+        next = this.queuedJson;
+        this.queuedJson = null;
+      }
     } finally {
       this.saving = false;
-      if (this.pendingSave) {
-        this.pendingSave = false;
-        void this.save();
-      }
+      this.writeChain = null;
     }
   }
 }
