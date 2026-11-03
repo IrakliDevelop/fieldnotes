@@ -99,7 +99,7 @@ describe('ActionRegistry', () => {
 
     expect(spy).toHaveBeenCalledOnce();
     const [ctx, inv] = spy.mock.calls[0] as [ActionContext, ActionInvocation];
-    expect(inv).toEqual({ source: 'api', shiftKey: false });
+    expect(inv).toEqual({ source: 'api', shiftKey: false, repeat: false });
     expect(ctx.selectedIds).toEqual(['el-1', 'el-2']);
   });
 

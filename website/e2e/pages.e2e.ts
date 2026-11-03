@@ -8,11 +8,12 @@ const [newest] = parseChangelog(readFileSync(repoFile('CHANGELOG.md'), 'utf8'));
 if (!newest) throw new Error('CHANGELOG.md has no release');
 const NEWEST = `${displayName(newest)} ${newest.version}`;
 
-const NOT_BUILT = [
-  'Find text on the board',
-  'Command palette',
-  'Elbow arrows that route around shapes',
-  'Text inside shapes',
+const NOT_BUILT = ['Elbow arrows that route around shapes', 'Text inside shapes'];
+
+const BUILT = [
+  'Command palette on Ctrl or ⌘+K to search and run actions',
+  'Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match',
+  'Shortcuts help on the ? key, generated from the current bindings',
 ];
 
 const NEXT = [
@@ -64,6 +65,11 @@ test('the roadmap shows its three sections with frames built and the not built l
   await expect(
     page.getByRole('region', { name: 'Built' }).getByText(BUILT_FRAMES, { exact: true }),
   ).toHaveText(BUILT_FRAMES);
+  for (const item of BUILT) {
+    await expect(
+      page.getByRole('region', { name: 'Built' }).getByText(item, { exact: true }),
+    ).toHaveText(item);
+  }
   await expect(page.getByRole('region', { name: 'Next' }).getByRole('listitem')).toHaveText(NEXT);
   await expect(page.getByRole('region', { name: 'Next' })).not.toContainText(BUILT_FRAMES);
 });

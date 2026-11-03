@@ -34,6 +34,7 @@ import { recordingCanvas } from '../test-helpers/recording-canvas';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { pointerDown, pointerUp } from '../test-helpers/pointer-helpers';
 import { LaserTool } from '../tools/laser-tool';
+import { FIXED_HELP_ROWS } from './palette-model';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -2710,12 +2711,15 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('viewport.actions.list() contains the 31 built-ins followed by presentation.* and tool.* actions, and shortcuts.getBindings() has canonical keys only', () => {
+    it('viewport.actions.list() contains the 31 built-ins followed by presentation, palette and tool actions, and shortcuts.getBindings() has canonical keys only', () => {
       const viewport = new Viewport(container);
       setupSelect(viewport);
       const list = viewport.actions.list();
       const builtins = list.filter(
-        (a) => !a.id.startsWith('tool.') && !a.id.startsWith('presentation.'),
+        (a) =>
+          !a.id.startsWith('tool.') &&
+          !a.id.startsWith('presentation.') &&
+          !a.id.startsWith('palette.'),
       );
       expect(builtins).toHaveLength(31);
       expect(list.filter((a) => a.id.startsWith('presentation.')).map((a) => a.id)).toEqual([
@@ -2723,6 +2727,10 @@ describe('Viewport', () => {
         'presentation.exit',
         'presentation.next',
         'presentation.previous',
+      ]);
+      expect(list.filter((a) => a.id.startsWith('palette.')).map((a) => a.id)).toEqual([
+        'palette.open',
+        'palette.help',
       ]);
       const tools = list.filter((a) => a.id.startsWith('tool.'));
       expect(tools.some((t) => t.id === 'tool.select')).toBe(true);
@@ -3234,6 +3242,331 @@ describe('Viewport', () => {
       } finally {
         h.container.remove();
       }
+    });
+  });
+
+  describe('palette', () => {
+    const viewports = new Set<Viewport>();
+    const cleanup: (() => void)[] = [];
+
+    afterEach(() => {
+      for (const viewport of viewports) viewport.destroy();
+      viewports.clear();
+      for (const dispose of cleanup.splice(0).reverse()) dispose();
+    });
+
+    function createPaletteViewport(
+      host: HTMLElement = container,
+      options?: ConstructorParameters<typeof Viewport>[1],
+    ): Viewport {
+      const viewport = new Viewport(host, options);
+      viewports.add(viewport);
+      return viewport;
+    }
+
+    function sizeCanvas(viewport: Viewport, width = 800, height = 600): void {
+      const canvas = viewport.domLayer.parentElement?.querySelector('canvas');
+      if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
+      Object.defineProperties(canvas, {
+        clientWidth: { value: width, configurable: true },
+        clientHeight: { value: height, configurable: true },
+      });
+    }
+
+    function addFrames(viewport: Viewport, count = 2): void {
+      for (let index = 0; index < count; index += 1) {
+        viewport.store.add(
+          createFrame({
+            position: { x: index * 1000, y: 0 },
+            size: { w: 400, h: 324 },
+            layerId: viewport.layerManager.activeLayerId,
+            index: `a${index}`,
+          }),
+        );
+      }
+    }
+
+    function keydown(target: EventTarget, init: KeyboardEventInit): KeyboardEvent {
+      const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+      target.dispatchEvent(event);
+      return event;
+    }
+
+    it('mod+k on the focused wrapper opens the palette and ? opens help', () => {
+      const viewport = createPaletteViewport();
+      const wrapper = wrapperOf(container);
+      wrapper.focus();
+      const open = new KeyboardEvent('keydown', {
+        key: 'k',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      wrapper.dispatchEvent(open);
+      expect(open.defaultPrevented).toBe(true);
+      expect(viewport.palette.isOpen()).toBe(true);
+      expect(container.querySelectorAll('.fieldnotes-palette')).toHaveLength(1);
+      viewport.palette.close();
+      const help = new KeyboardEvent('keydown', {
+        key: '?',
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      wrapper.dispatchEvent(help);
+      expect(help.defaultPrevented).toBe(true);
+      expect(viewport.shortcutsHelp.isOpen()).toBe(true);
+    });
+
+    it('repeated ? neither opens nor closes help', () => {
+      const viewport = createPaletteViewport();
+      const wrapper = wrapperOf(container);
+      wrapper.focus();
+
+      keydown(wrapper, { key: '?', shiftKey: true, repeat: true });
+      expect(viewport.shortcutsHelp.isOpen()).toBe(false);
+
+      keydown(wrapper, { key: '?', shiftKey: true });
+      expect(viewport.shortcutsHelp.isOpen()).toBe(true);
+      const help = container.querySelector<HTMLElement>('.fieldnotes-help');
+      if (!help) throw new Error('help dialog not found');
+      for (let count = 0; count < 3; count += 1) {
+        keydown(help, { key: '?', shiftKey: true, repeat: true });
+      }
+      expect(viewport.shortcutsHelp.isOpen()).toBe(true);
+    });
+
+    it('mod+k typed in an editable target or a host input opens nothing', () => {
+      const viewport = createPaletteViewport();
+      const editable = document.createElement('div');
+      editable.contentEditable = 'true';
+      editable.tabIndex = 0;
+      Object.defineProperty(editable, 'isContentEditable', { value: true });
+      viewport.domLayer.appendChild(editable);
+      cleanup.push(() => editable.remove());
+      editable.focus();
+      expect(document.activeElement).toBe(editable);
+      const editableOpen = keydown(editable, { key: 'k', ctrlKey: true });
+      expect(editableOpen.defaultPrevented).toBe(false);
+      expect(viewport.palette.isOpen()).toBe(false);
+
+      const host = document.createElement('div');
+      document.body.appendChild(host);
+      cleanup.push(() => host.remove());
+      const windowViewport = createPaletteViewport(host, { shortcuts: { scope: 'window' } });
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      cleanup.push(() => input.remove());
+      input.focus();
+      expect(document.activeElement).toBe(input);
+      const inputOpen = keydown(input, { key: 'k', ctrlKey: true });
+      expect(inputOpen.defaultPrevented).toBe(false);
+      expect(windowViewport.palette.isOpen()).toBe(false);
+      input.blur();
+      const bodyOpen = keydown(document.body, { key: 'k', ctrlKey: true });
+      expect(bodyOpen.defaultPrevented).toBe(true);
+      expect(windowViewport.palette.isOpen()).toBe(true);
+      windowViewport.palette.close();
+
+      const wrapper = wrapperOf(container);
+      wrapper.focus();
+      const wrapperOpen = keydown(wrapper, { key: 'k', ctrlKey: true });
+      expect(wrapperOpen.defaultPrevented).toBe(true);
+      expect(viewport.palette.isOpen()).toBe(true);
+    });
+
+    it('a palette.open key typed into the open palette is swallowed', () => {
+      const viewport = createPaletteViewport();
+      const wrapper = wrapperOf(container);
+      wrapper.focus();
+      keydown(wrapper, { key: 'k', ctrlKey: true });
+      const input = container.querySelector('.fieldnotes-palette-input');
+      if (!(input instanceof HTMLInputElement)) throw new Error('palette input not found');
+      const reopen = keydown(input, { key: 'k', ctrlKey: true });
+      expect(reopen.defaultPrevented).toBe(true);
+      expect(viewport.palette.isOpen()).toBe(true);
+      expect(container.querySelectorAll('.fieldnotes-palette')).toHaveLength(1);
+    });
+
+    it('palette: false registers no actions and returns inert apis', () => {
+      const viewport = createPaletteViewport(container, { palette: false });
+      expect(viewport.actions.list().some((action) => action.id.startsWith('palette.'))).toBe(
+        false,
+      );
+      viewport.palette.open();
+      viewport.shortcutsHelp.open();
+      expect(viewport.palette.isOpen()).toBe(false);
+      expect(viewport.shortcutsHelp.isOpen()).toBe(false);
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it('strings reach the palette', () => {
+      const viewport = createPaletteViewport(container, {
+        palette: { strings: { placeholder: 'Suche' } },
+      });
+      viewport.palette.open();
+      const input = container.querySelector('.fieldnotes-palette-input');
+      if (!(input instanceof HTMLInputElement)) throw new Error('palette input not found');
+      expect(input.placeholder).toBe('Suche');
+    });
+
+    it('Escape closes the palette before ending a presentation', () => {
+      const viewport = createPaletteViewport();
+      sizeCanvas(viewport);
+      addFrames(viewport);
+      expect(viewport.presentation.start({ fullscreen: false, animate: false })).toBe(true);
+      viewport.palette.open();
+      const input = container.querySelector('.fieldnotes-palette-input');
+      if (!(input instanceof HTMLInputElement)) throw new Error('palette input not found');
+      keydown(input, { key: 'Escape' });
+      expect(viewport.palette.isOpen()).toBe(false);
+      expect(viewport.presentation.getState().active).toBe(true);
+      keydown(wrapperOf(container), { key: 'Escape' });
+      expect(viewport.presentation.getState().active).toBe(false);
+    });
+
+    it('destroy removes the dialogs', () => {
+      const viewport = createPaletteViewport(container, { shortcuts: { scope: 'window' } });
+      const beforeDestroy = keydown(document.body, { key: 'k', ctrlKey: true });
+      expect(beforeDestroy.defaultPrevented).toBe(true);
+      expect(viewport.palette.isOpen()).toBe(true);
+      expect(container.querySelector('.fieldnotes-palette')).not.toBeNull();
+      viewport.destroy();
+      viewports.delete(viewport);
+      expect(container.querySelector('.fieldnotes-palette')).toBeNull();
+      const afterDestroy = keydown(document.body, { key: 'k', ctrlKey: true });
+      expect(afterDestroy.defaultPrevented).toBe(false);
+      expect(viewport.palette.isOpen()).toBe(false);
+    });
+
+    it('Escape on the board with the palette open closes the palette and keeps the presentation', () => {
+      const viewport = createPaletteViewport();
+      sizeCanvas(viewport);
+      addFrames(viewport);
+      expect(viewport.presentation.start({ fullscreen: false, animate: false })).toBe(true);
+      viewport.palette.open();
+      const wrapper = wrapperOf(container);
+      wrapper.focus();
+      keydown(wrapper, { key: 'Escape' });
+      expect(viewport.palette.isOpen()).toBe(false);
+      expect(viewport.presentation.getState().active).toBe(true);
+    });
+
+    it('fixed presentation help rows drive the presentation', () => {
+      const viewport = createPaletteViewport();
+      sizeCanvas(viewport, 400, 324);
+      addFrames(viewport, 3);
+      const keys: Record<
+        string,
+        { key: string; start: number; target: number | null; shiftKey?: boolean }
+      > = {
+        arrowright: { key: 'ArrowRight', start: 1, target: 2 },
+        arrowdown: { key: 'ArrowDown', start: 1, target: 2 },
+        pagedown: { key: 'PageDown', start: 1, target: 2 },
+        space: { key: ' ', start: 1, target: 2 },
+        'shift+space': { key: ' ', shiftKey: true, start: 1, target: 0 },
+        arrowleft: { key: 'ArrowLeft', start: 1, target: 0 },
+        arrowup: { key: 'ArrowUp', start: 1, target: 0 },
+        pageup: { key: 'PageUp', start: 1, target: 0 },
+        home: { key: 'Home', start: 2, target: 0 },
+        end: { key: 'End', start: 0, target: 2 },
+        escape: { key: 'Escape', start: 0, target: null },
+      };
+      const labels: Record<string, number | null> = {
+        'Next slide': 2,
+        'Previous slide': 0,
+        'First slide': 0,
+        'Last slide': 2,
+        'End the presentation': null,
+      };
+      const wrapper = wrapperOf(container);
+      const presentationRows = FIXED_HELP_ROWS.filter((row) => row.group === 'presentation');
+      expect(presentationRows.map((row) => row.label)).toEqual([
+        'Next slide',
+        'Previous slide',
+        'First slide',
+        'Last slide',
+        'End the presentation',
+      ]);
+      expect(presentationRows.flatMap((row) => row.keys)).toEqual([
+        'arrowright',
+        'arrowdown',
+        'pagedown',
+        'space',
+        'arrowleft',
+        'arrowup',
+        'pageup',
+        'shift+space',
+        'home',
+        'end',
+        'escape',
+      ]);
+      for (const row of presentationRows) {
+        expect(labels).toHaveProperty(row.label);
+        const target = labels[row.label];
+        if (target === undefined) throw new Error(`missing label mapping: ${row.label}`);
+        for (const binding of row.keys) {
+          expect(keys).toHaveProperty(binding);
+          const expected = keys[binding];
+          if (!expected) throw new Error(`missing key mapping: ${binding}`);
+          expect(expected.target).toBe(target);
+          expect(
+            viewport.presentation.start({
+              fullscreen: false,
+              animate: false,
+              index: expected.start,
+            }),
+          ).toBe(true);
+          wrapper.focus();
+          keydown(wrapper, { key: expected.key, shiftKey: expected.shiftKey });
+          if (target === null) {
+            expect(viewport.presentation.getState().active).toBe(false);
+          } else {
+            expect(viewport.presentation.getState().index).toBe(target);
+            viewport.presentation.exit();
+          }
+        }
+      }
+      expect(Object.keys(keys).sort()).toEqual([
+        'arrowdown',
+        'arrowleft',
+        'arrowright',
+        'arrowup',
+        'end',
+        'escape',
+        'home',
+        'pagedown',
+        'pageup',
+        'shift+space',
+        'space',
+      ]);
+    });
+
+    it('a search, reveal and close leave history and selection untouched', () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      cleanup.push(() => vi.unstubAllGlobals());
+      const viewport = createPaletteViewport();
+      sizeCanvas(viewport);
+      viewport.transaction(() => {
+        viewport.store.add(
+          createNote({
+            position: { x: 100, y: 100 },
+            size: { w: 50, h: 20 },
+            text: 'Budget',
+            layerId: viewport.layerManager.activeLayerId,
+          }),
+        );
+      });
+      const undoCount = viewport.history.undoCount;
+      viewport.palette.open('bud');
+      const input = container.querySelector('.fieldnotes-palette-input');
+      if (!(input instanceof HTMLInputElement)) throw new Error('palette input not found');
+      expect(input.value).toBe('bud');
+      keydown(input, { key: 'Enter' });
+      expect(viewport.palette.isOpen()).toBe(false);
+      expect(viewport.camera.position).toEqual({ x: 275, y: 190 });
+      expect(viewport.history.undoCount).toBe(undoCount);
+      expect(viewport.getSelectedIds()).toEqual([]);
     });
   });
 

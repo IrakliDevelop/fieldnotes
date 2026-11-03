@@ -186,6 +186,8 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   bounds(el: T): Bounds | null;
   /** Optional world-space rectangle which clips this element's descendants. */
   clipBounds?(el: T): Bounds | null;
+  /** Text the board search matches; absent or `null` means not searchable. */
+  searchText?(el: T): string | null;
   hitTest?(el: T, point: Point): boolean;
   interaction?: ElementInteractionAdapter<T>;
   /** `'canvas'` and `'hybrid'` draw with `render` on the canvas; `'none'` is treated the same
@@ -229,6 +231,7 @@ export interface ElementTypeAdapter {
   unwrap(el: ExtensionElementEnvelope): BaseElement;
   bounds(el: ExtensionElementEnvelope): Bounds | null;
   clipBounds?(el: ExtensionElementEnvelope): Bounds | null;
+  searchText?(el: ExtensionElementEnvelope): string | null;
   hitTest?(el: ExtensionElementEnvelope, point: Point): boolean;
   hitTestHandle?(
     el: ExtensionElementEnvelope,

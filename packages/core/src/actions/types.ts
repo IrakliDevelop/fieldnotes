@@ -12,6 +12,7 @@ export type ActionSource = 'keyboard' | 'menu' | 'api';
 export interface ActionInvocation {
   readonly source: ActionSource;
   readonly shiftKey: boolean;
+  readonly repeat: boolean;
 }
 
 export interface ActionMenuPlacement {

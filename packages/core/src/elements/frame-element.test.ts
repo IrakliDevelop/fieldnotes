@@ -52,6 +52,18 @@ describe('frame element', () => {
     );
   });
 
+  it('searchText is the frame title', () => {
+    expect(
+      frameElementDefinition.searchText?.(
+        createFrame({
+          position: { x: 0, y: 0 },
+          size: { w: 200, h: 124 },
+          title: 'Roadmap',
+        }),
+      ),
+    ).toBe('Roadmap');
+  });
+
   it('frameContentBounds returns the area below the 24px header', () => {
     const value = createFrame({ position: { x: 10, y: 20 }, size: { w: 200, h: 124 } });
     const expected = { x: 10, y: 44, w: 200, h: 100 };

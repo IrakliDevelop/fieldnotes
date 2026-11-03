@@ -238,9 +238,13 @@ describe('PresentationMode', () => {
     expect(action('presentation.exit').enabled?.(context)).toBe(true);
     expect(action('presentation.next').enabled?.(context)).toBe(true);
     expect(action('presentation.previous').enabled?.(context)).toBe(true);
-    expect(action('presentation.next').perform(context, { source: 'api', shiftKey: false })).toBe(
-      true,
-    );
+    expect(
+      action('presentation.next').perform(context, {
+        source: 'api',
+        shiftKey: false,
+        repeat: false,
+      }),
+    ).toBe(true);
   });
 
   it('start returns false with no slides and leaves the camera alone', () => {

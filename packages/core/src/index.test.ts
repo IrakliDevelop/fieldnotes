@@ -14,11 +14,15 @@ import type {
   PresentationStartOptions,
   PresentationState,
   PresentationSlide,
+  PaletteApi,
+  PaletteOptions,
+  PaletteStrings,
+  ShortcutsHelpApi,
 } from './index';
 
 describe('core public surface', () => {
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.103.0');
+    expect(FN.VERSION).toBe('0.104.0');
   });
 
   it('exports the frame element surface', () => {
@@ -49,6 +53,14 @@ describe('core public surface', () => {
     const slide: PresentationSlide | undefined = undefined;
     const options: PresentationStartOptions | undefined = undefined;
     expect([api, state, slide, options]).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it('exports the palette surface', () => {
+    const palette: PaletteApi | undefined = undefined;
+    const help: ShortcutsHelpApi | undefined = undefined;
+    const strings: PaletteStrings | undefined = undefined;
+    const options: PaletteOptions | undefined = undefined;
+    expect([palette, help, strings, options]).toEqual([undefined, undefined, undefined, undefined]);
   });
 
   it('does not export internal machinery (trimmed before 1.0)', () => {
@@ -141,6 +153,21 @@ describe('core public surface', () => {
       'PresentationMode',
       'createPresentationActions',
       'frameContentBounds',
+      'CommandPalette',
+      'ShortcutsHelp',
+      'openDialogShell',
+      'focusBoard',
+      'searchActions',
+      'buildHelpSections',
+      'formatBinding',
+      'revealView',
+      'resolvePaletteStrings',
+      'foldText',
+      'createPaletteActions',
+      'ensurePaletteStyles',
+      'DEFAULT_PALETTE_STRINGS',
+      'FIXED_HELP_ROWS',
+      'SceneSearch',
     ];
     for (const name of removed) {
       expect(name in FN, `${name} should not be exported`).toBe(false);
@@ -308,9 +335,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.103.0', async () => {
+  it('reports VERSION 0.104.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.103.0');
+    expect(VERSION).toBe('0.104.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

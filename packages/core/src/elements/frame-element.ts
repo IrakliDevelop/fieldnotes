@@ -172,6 +172,7 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
   wrap: (el) => el,
   bounds: (el): Bounds => ({ ...el.position, ...el.size }),
   clipBounds: frameContentBounds,
+  searchText: (el) => el.data.title,
   hitTest: (el, point) => {
     const { x, y } = el.position;
     const { w, h } = el.size;

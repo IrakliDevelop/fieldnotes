@@ -88,6 +88,12 @@ import {
   PresentationMode,
 } from './presentation';
 import type { PresentationApi } from './presentation';
+import { CommandPalette, createPaletteActions } from './command-palette';
+import type { PaletteApi } from './command-palette';
+import { ShortcutsHelp } from './shortcuts-help';
+import type { ShortcutsHelpApi } from './shortcuts-help';
+import { resolvePaletteStrings } from './palette-model';
+import type { PaletteOptions } from './palette-model';
 export type {
   PluginConfigureContext,
   PluginStartContext,
@@ -103,6 +109,18 @@ const EMPTY_IDS: string[] = [];
 function noop(): void {
   // Stable unsubscribe handle for listeners that can never fire.
 }
+
+const INERT_PALETTE: PaletteApi = {
+  open: noop,
+  close: noop,
+  isOpen: () => false,
+};
+
+const INERT_SHORTCUTS_HELP: ShortcutsHelpApi = {
+  open: noop,
+  close: noop,
+  isOpen: () => false,
+};
 
 export interface ViewportOptions {
   camera?: CameraOptions;
@@ -123,6 +141,8 @@ export interface ViewportOptions {
   panBufferMargin?: number;
   /** Enable the built-in context menu. Default `true`. */
   contextMenu?: boolean;
+  /** Command palette and shortcuts help. `false` removes both and their actions. Default enabled. */
+  palette?: PaletteOptions | false;
   /** Coast (inertial glide) after a pan flick. Default `true`. */
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
@@ -174,6 +194,8 @@ export class Viewport {
   private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
   private readonly presentationMode: PresentationMode;
+  private readonly commandPalette: CommandPalette | null;
+  private readonly shortcutsHelpDialog: ShortcutsHelp | null;
   private readonly background: Background;
   private readonly renderer: ElementRenderer;
   private readonly noteEditor: NoteEditor;
@@ -436,7 +458,10 @@ export class Viewport {
       clearSelection: () => this.getSelectTool()?.setSelection([]),
       stopCameraMotion: () => this.inputHandler.stopPanInertia(),
       hasOpenOverlay: () =>
-        (this.contextMenu?.isOpen() ?? false) || this.interactMode.isInteracting(),
+        (this.contextMenu?.isOpen() ?? false) ||
+        this.interactMode.isInteracting() ||
+        (this.commandPalette?.isOpen() ?? false) ||
+        (this.shortcutsHelpDialog?.isOpen() ?? false),
     });
     const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
       (action) => this.actionRegistry.register(action),
@@ -469,6 +494,60 @@ export class Viewport {
       unsubRecorderEnd,
       () => this.historyRecorder.destroy(),
     );
+
+    if (options.palette === false) {
+      this.commandPalette = null;
+      this.shortcutsHelpDialog = null;
+    } else {
+      const strings = resolvePaletteStrings(options.palette?.strings);
+      const isMac = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+      let palette: CommandPalette | null = null;
+      const help = new ShortcutsHelp({
+        container: this.container,
+        wrapper: this.wrapper,
+        actions: this.actionRegistry,
+        getActionContext: () => this.currentActionContext(),
+        getBindings: () => this.inputHandler.shortcuts.getBindings(),
+        matchShortcut: (event) => this.inputHandler.matchShortcut(event),
+        isMac,
+        strings,
+        closeOthers: () => {
+          this.contextMenu?.close();
+          palette?.close();
+        },
+      });
+      palette = new CommandPalette({
+        container: this.container,
+        wrapper: this.wrapper,
+        actions: this.actionRegistry,
+        getActionContext: () => this.currentActionContext(),
+        getBindings: () => this.inputHandler.shortcuts.getBindings(),
+        store: this.store,
+        registry: this.elementRegistry,
+        isLayerVisible: (id) => this.layerManager.isLayerVisible(id),
+        camera: this.camera,
+        getCanvasSize: () => this.getCanvasSize(),
+        overlayHost: this,
+        stopCameraMotion: () => this.inputHandler.stopPanInertia(),
+        closeContextMenu: () => this.contextMenu?.close(),
+        help,
+        matchShortcut: (event) => this.inputHandler.matchShortcut(event),
+        selectionColor: options.selectionColor ?? DEFAULT_SELECTION_COLOR,
+        isMac,
+        strings,
+      });
+      this.commandPalette = palette;
+      this.shortcutsHelpDialog = help;
+      this.disposers.push(
+        ...createPaletteActions(palette, help).map((action) =>
+          this.actionRegistry.register(action),
+        ),
+        () => {
+          help.destroy();
+          palette.destroy();
+        },
+      );
+    }
 
     try {
       this.pluginHost.configurePlugins(options.plugins);
@@ -1061,6 +1140,16 @@ export class Viewport {
   /** Presentation controls for this viewport. */
   get presentation(): PresentationApi {
     return this.presentationMode;
+  }
+
+  /** Command palette controls for this viewport. */
+  get palette(): PaletteApi {
+    return this.commandPalette ?? INERT_PALETTE;
+  }
+
+  /** Shortcuts help controls for this viewport. */
+  get shortcutsHelp(): ShortcutsHelpApi {
+    return this.shortcutsHelpDialog ?? INERT_SHORTCUTS_HELP;
   }
 
   /**

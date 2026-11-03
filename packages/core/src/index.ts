@@ -1,4 +1,4 @@
-export const VERSION = '0.103.0';
+export const VERSION = '0.104.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -162,6 +162,9 @@ export type {
   PresentationStartOptions,
   PresentationState,
 } from './canvas/presentation';
+export type { PaletteApi } from './canvas/command-palette';
+export type { ShortcutsHelpApi } from './canvas/shortcuts-help';
+export type { PaletteOptions, PaletteStrings } from './canvas/palette-model';
 export { CameraAnimator } from './canvas/camera-animator';
 export type {
   CameraAnimatorOptions,

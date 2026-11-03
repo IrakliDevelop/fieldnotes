@@ -78,6 +78,8 @@ Shortcuts work while the board has focus, and a click on the board gives it focu
 - Shift+1: `view.zoom-to-fit`
 - mod+=, mod+- and mod+0: `view.zoom-in`, `view.zoom-out` and `view.zoom-reset`
 - L: `tool.laser`, when a `LaserTool` is registered (the default tools don't include one)
+- mod+K: `palette.open`, which opens the command palette
+- ?: `palette.help`, which opens shortcuts help
 - The tool keys above: `tool.select`, `tool.hand`, `tool.pencil`, `tool.eraser`, `tool.arrow`, `tool.note`, `tool.text` and `tool.shape`
 
 `tool.frame` is the F shortcut.
@@ -102,6 +104,22 @@ Rebind keys with `shortcuts.bindings` in the options, or later with `viewport.sh
 ::code{example="tools-and-input" region="shortcuts"}
 
 On a board that sits in a page, disable `select.cycle` and `select.cycle-reverse` as above. Otherwise Tab moves between elements and keyboard users can't leave the board. `viewport.runAction(action)` runs any action from your own buttons.
+
+## Command palette and find on the board
+
+Ctrl/⌘+K opens the command palette. With an empty query, it lists enabled actions and their current keys. Typing filters the actions by name and searches notes, text, arrow labels and frame titles, showing up to 20 board results. Matches ignore case and accents. Elements on hidden layers are skipped.
+
+Down and Up move through results, and the camera moves to each board result as it becomes active. Enter or a click runs the action or goes to the board result, then closes the palette. Escape or a click outside closes it and does not move the camera back. Camera moves keep to the zoom limits and any `viewport.camera.addConstraint` constraints. The active board result is outlined; after the palette closes the outline holds for 1.5 seconds, then fades. Revealing does not select the element or add an undo step. Opening the palette, searching and revealing write nothing to the element store or the saved board, and send nothing over sync.
+
+`viewport.palette.open('budget')` opens the palette with budget already typed, for a search button in your own UI. Add Ctrl/⌘+F with `shortcuts.rebind('palette.open', ['mod+k', 'mod+f'])`; Ctrl/⌘+F has no default binding. Pass `palette: false` to remove the palette and help. Pass `palette: { strings }` to translate the palette's and help dialog's own text: the placeholder, the empty state and result count (`noResults`, `results`, where `{count}` is replaced with the number of results), the result group titles (`actions`, `board`), the help title and its Close button (`helpTitle`, `close`), the help section headings (`groups`, keyed by action namespace such as `edit`) and the result badges (`types`, keyed by element type). Keys you leave out keep their English default. Action labels come from each action's `label`, and the fixed help rows stay in English.
+
+An element type from a [plugin](/docs/writing-a-plugin/#define-an-element-type) is searchable when its definition has `searchText(element)`, which returns the text to match or `null`. Search finds a child clipped by its frame and reveals it inside the frame like any other element. The palette and shortcuts help mount inside the host container with `position: fixed`. If the host container has a CSS `transform` or `filter`, they are placed against the container instead of the browser window. Style both dialogs with `--fieldnotes-palette-bg`, `-fg`, `-border`, `-active`, `-muted`, `-shadow` and `-font`.
+
+During a windowed presentation, Escape first closes the palette or shortcuts help, and the next Escape ends the presentation.
+
+## Shortcuts help
+
+Press ? or call `viewport.shortcutsHelp.open()` to open shortcuts help. It is built from actions and current bindings, so a rebind is shown there. It also lists Paste, the fixed palette keys, and the fixed presentation keys. Escape or ? closes it and returns focus to the board.
 
 ## Presentation
 

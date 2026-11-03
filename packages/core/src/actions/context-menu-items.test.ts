@@ -170,12 +170,13 @@ describe('buildContextMenuItems', () => {
 
   it('a throwing function label falls back to the action id', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const error = new Error('label bug');
     const ctx = fakeContext();
     const defs: ActionDefinition[] = [
       {
         id: 'clip.bad-label',
         label: () => {
-          throw new Error('label bug');
+          throw error;
         },
         menu: { group: 'clipboard', order: 10 },
         perform: () => undefined,
@@ -184,9 +185,10 @@ describe('buildContextMenuItems', () => {
     const api = fakeRegistry(defs, ctx);
     const items = buildContextMenuItems(api, ctx);
     expect(items).toEqual([{ label: 'clip.bad-label', action: 'clip.bad-label' }]);
+    expect(errorSpy).toHaveBeenCalledOnce();
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[fieldnotes]'),
-      expect.any(Error),
+      '[fieldnotes] action label() failed for "clip.bad-label"',
+      error,
     );
     errorSpy.mockRestore();
   });

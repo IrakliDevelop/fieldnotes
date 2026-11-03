@@ -107,6 +107,7 @@ export class ElementRegistry {
         return def.bounds(typed);
       },
       clipBounds: def.clipBounds ? (el) => def.clipBounds?.(def.unwrap(el)) ?? null : undefined,
+      searchText: def.searchText ? (el) => def.searchText?.(def.unwrap(el)) ?? null : undefined,
       hitTest: def.hitTest
         ? (el, point) => {
             const fn = def.hitTest;

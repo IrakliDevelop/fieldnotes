@@ -291,6 +291,12 @@ document.getElementById('toolbar')?.addEventListener('click', (e) => {
 document
   .getElementById('present-btn')
   ?.addEventListener('click', () => viewport.runAction('presentation.start'));
+document
+  .getElementById('palette-btn')
+  ?.addEventListener('click', () => viewport.runAction('palette.open'));
+document
+  .getElementById('help-btn')
+  ?.addEventListener('click', () => viewport.runAction('palette.help'));
 
 const presentationBar = document.getElementById('presentation-bar');
 const presentationCounter = presentationBar?.querySelector('[data-presentation="counter"]');
