@@ -13,7 +13,6 @@ import type { CanvasState } from '../core/state-serializer';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from './camera';
 import { MemoryAdapter } from '../core/storage/memory-adapter';
-import { AutoSave } from '../core/auto-save';
 import type { StorageAdapter } from '../core/storage/storage-adapter';
 import { ElementRegistry } from '../elements/element-registry';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from '../elements/types';
@@ -844,18 +843,41 @@ describe('mountViewport autoSave', () => {
     expect(await adapter.load('k')).not.toBeNull();
   });
 
-  it('reports a rejected autosave start instead of leaving it unhandled', async () => {
+  it('reports a rejected autosave onError after a saved board cannot apply', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('reportError', undefined);
-    const failure = new Error('autosave start failed');
+    const failure = new Error('autosave onError failed');
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    vi.spyOn(AutoSave.prototype, 'start').mockImplementation(() => {
-      throw failure;
+    const plugin: ViewportPlugin = {
+      name: 'invalid-state',
+      start: () => ({
+        dispose: () => undefined,
+        exportState: () => ({}),
+        loadState: () => undefined,
+        validateState: () => {
+          throw 'invalid plugin state';
+        },
+      }),
+    };
+    const seeded = JSON.stringify(
+      exportedShape('saved', { 'invalid-state': { version: 1, data: {} } }),
+    );
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', seeded);
+    mount({
+      options: { plugins: [plugin] },
+      autoSave: {
+        adapter,
+        key: 'k',
+        onError: () => {
+          throw failure;
+        },
+      },
     });
-    mount({ autoSave: { adapter: new MemoryAdapter(), key: 'k' } });
 
     await vi.advanceTimersByTimeAsync(0);
 
+    expect(error).toHaveBeenCalledOnce();
     expect(error).toHaveBeenCalledWith('[fieldnotes] autosave load failed', failure);
   });
 
