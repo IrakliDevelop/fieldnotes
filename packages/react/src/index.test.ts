@@ -31,7 +31,7 @@ import type {
 
 const point: Point = { x: 0, y: 0 };
 const bounds: Bounds = { x: 0, y: 0, w: 0, h: 0 };
-const bindings: ShortcutBindings = {};
+const bindings = { 'edit.undo': ['mod+z'] } satisfies ShortcutBindings;
 const canvasSize: CanvasSize = { w: 0, h: 0 };
 const geometry: HostElementGeometry = { position: point, size: canvasSize };
 const noop = () => {
