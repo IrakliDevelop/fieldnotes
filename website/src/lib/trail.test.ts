@@ -79,6 +79,13 @@ describe('trailMap', () => {
     expect(map.next.endsWith('L320.1 129.5')).toBe(true);
   });
 
+  it('drops the Here note below the camp when only the trail crosses its upper position', () => {
+    expect(trailMap({ built: ['a', 'b'], next: ['c'], notBuilt: [] }).notes.here).toEqual({
+      x: 127.6,
+      y: 130.5,
+    });
+  });
+
   it('writes no Unexplored note when Not built yet is empty', () => {
     const map = trailMap({ built: ['a', 'b', 'c'], next: ['d'], notBuilt: [] });
     expect(map.height).toBe(224);

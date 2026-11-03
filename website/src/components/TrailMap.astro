@@ -7,6 +7,7 @@ interface Props {
 
 const { map } = Astro.props;
 const unexploredNote = map.notes.unexplored;
+const round = (value: number) => Math.round(value * 10) / 10;
 ---
 
 <svg viewBox={`0 0 ${map.width} ${map.height}`} aria-hidden="true">
@@ -24,7 +25,7 @@ const unexploredNote = map.notes.unexplored;
   </g>
   <path
     class="tent"
-    d={`M${map.camp.x - 34} ${map.camp.y + 10}l14-24 14 24zM${map.camp.x - 20} ${map.camp.y - 14}v24`}
+    d={`M${round(map.camp.x - 34)} ${round(map.camp.y + 10)}l14-24 14 24zM${round(map.camp.x - 20)} ${round(map.camp.y - 14)}v24`}
   />
   {
     map.waypoints.map((waypoint) => (
@@ -35,7 +36,7 @@ const unexploredNote = map.notes.unexplored;
           cy={waypoint.y}
           r={waypoint.kind === 'next' ? 7 : 4.5}
         />
-        <text class="n" x={waypoint.x + 9} y={waypoint.y + 1}>{waypoint.n}</text>
+        <text class="n" x={round(waypoint.x + 9)} y={round(waypoint.y + 1)}>{waypoint.n}</text>
       </>
     ))
   }
@@ -97,10 +98,8 @@ const unexploredNote = map.notes.unexplored;
   }
 
   .trail.unexplored {
-    fill: none;
     stroke: var(--muted);
     stroke-dasharray: 2 7;
-    stroke-linecap: round;
     stroke-width: 2;
   }
 

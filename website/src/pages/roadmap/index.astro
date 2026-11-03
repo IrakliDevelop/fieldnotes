@@ -21,76 +21,76 @@ const recent = built.slice(earlier.length);
   <main class="wrap roadmap">
     <div class="columns">
       <div class="list">
-      <h1>Roadmap</h1>
-      <div class="intro">
-        <p>
-          This is what I've built into Field Notes so far, what I'm working on next and what isn't
-          built yet. The pull request that finishes an item moves it to Built, and the <a
-            href={link('/changelog/')}>changelog</a
-          > dates each release.
-        </p>
-        <p class="signature">Irakli</p>
-      </div>
+        <h1>Roadmap</h1>
+        <div class="intro">
+          <p>
+            This is what I've built into Field Notes so far, what I'm working on next and what isn't
+            built yet. The pull request that finishes an item moves it to Built, and the <a
+              href={link('/changelog/')}>changelog</a
+            > dates each release.
+          </p>
+          <p class="signature">Irakli</p>
+        </div>
 
-      <section aria-labelledby="built">
-        <h2 id="built">Built</h2>
+        <section aria-labelledby="built">
+          <h2 id="built">Built</h2>
+          {
+            earlier.length > 0 && (
+              <details class="fold">
+                <summary>
+                  <span class="closed"
+                    ><svg
+                      aria-hidden="true"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      ><path d="M8 1v5M5.5 3.5L8 1l2.5 2.5M8 15v-5M5.5 12.5L8 15l2.5-2.5M2 8h12" /></svg
+                    >Show items 1–{earlier.length}</span
+                  >
+                  <span class="open"
+                    ><svg
+                      aria-hidden="true"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      ><path d="M8 6V1M5.5 3.5L8 6l2.5-2.5M8 10v5M5.5 12.5L8 10l2.5 2.5M2 8h12" /></svg
+                    >Hide items 1–{earlier.length}</span
+                  >
+                </summary>
+                <ol start="1">{earlier.map((item) => <li>{item}</li>)}</ol>
+              </details>
+            )
+          }
+          <ol start={earlier.length + 1}>{recent.map((item) => <li>{item}</li>)}</ol>
+        </section>
+
         {
-          earlier.length > 0 && (
-            <details class="fold">
-              <summary>
-                <span class="closed"
-                  ><svg
-                    aria-hidden="true"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.6"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    ><path d="M8 1v5M5.5 3.5L8 1l2.5 2.5M8 15v-5M5.5 12.5L8 15l2.5-2.5M2 8" /></svg
-                  >Show items 1–{earlier.length}</span
-                >
-                <span class="open"
-                  ><svg
-                    aria-hidden="true"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.6"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    ><path d="M8 6V1M5.5 3.5L8 6l2.5-2.5M8 10v5M5.5 12.5L8 10l2.5 2.5M2 8" /></svg
-                  >Hide items 1–{earlier.length}</span
-                >
-              </summary>
-              <ol start="1">{earlier.map((item) => <li>{item}</li>)}</ol>
-            </details>
+          next.length > 0 && (
+            <section aria-labelledby="next">
+              <h2 id="next">Next</h2>
+              <ol start={built.length + 1}>{next.map((item) => <li>{item}</li>)}</ol>
+            </section>
           )
         }
-        <ol start={earlier.length + 1}>{recent.map((item) => <li>{item}</li>)}</ol>
-      </section>
 
-      {
-        next.length > 0 && (
-          <section aria-labelledby="next">
-            <h2 id="next">Next</h2>
-            <ol start={built.length + 1}>{next.map((item) => <li>{item}</li>)}</ol>
-          </section>
-        )
-      }
-
-      {
-        notBuilt.length > 0 && (
-          <section class="unpaved" aria-labelledby="not-built">
-            <h2 id="not-built">Not built yet</h2>
-            <ol start={built.length + next.length + 1}>{notBuilt.map((item) => <li>{item}</li>)}</ol>
-          </section>
-        )
-      }
+        {
+          notBuilt.length > 0 && (
+            <section class="unpaved" aria-labelledby="not-built">
+              <h2 id="not-built">Not built yet</h2>
+              <ol start={built.length + next.length + 1}>{notBuilt.map((item) => <li>{item}</li>)}</ol>
+            </section>
+          )
+        }
       </div>
       <div class="map" data-trail-map aria-hidden="true">
         <TrailMap map={map} />
