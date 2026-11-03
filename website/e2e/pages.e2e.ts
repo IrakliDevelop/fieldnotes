@@ -17,7 +17,6 @@ const BUILT = [
 ];
 
 const NEXT = [
-  "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
   "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
 ];
 
