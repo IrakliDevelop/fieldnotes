@@ -50,7 +50,7 @@ export function App() {
         <SaveControls />
         <CameraBar />
         <Sidebar />
-        <div className="toolbar" style={{ top: 116 }}>
+        <div className="toolbar" style={{ top: 220 }}>
           <label>
             <input
               type="checkbox"

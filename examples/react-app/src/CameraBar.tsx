@@ -8,13 +8,13 @@ export function CameraBar() {
 
   return (
     <div className="toolbar" style={{ top: 168 }}>
-      <button onClick={() => fitToContent()}>Fit</button>
+      <button onClick={() => fitToContent()}>Fit to content</button>
       <button onClick={() => setZoom(2)}>Zoom 2×</button>
       <button onClick={() => animateTo({ x: 0, y: 0, w: 400, h: 300 })}>Animate to origin</button>
       <span>
-        {w}×{h}
+        Canvas {w}×{h}px
       </span>
-      <span>{undoBindings.join(', ')}</span>
+      <span>Undo: {undoBindings.join(', ')}</span>
     </div>
   );
 }
