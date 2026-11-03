@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, render, renderHook } from '@testing-library/react';
-import { StrictMode, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { PresenceChannel } from '@fieldnotes/core';
 import { ViewportContext } from '../context';
 import { FieldNotesCanvas } from '../field-notes-canvas';
@@ -146,10 +146,15 @@ describe('usePresence', () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ViewportContext.Provider value={viewport}>{children}</ViewportContext.Provider>
     );
-    const { result } = renderHook(() => usePresence(null, { identity }), { wrapper });
+    const { result, rerender } = renderHook(() => usePresence(null, { identity }), { wrapper });
+    const initial = result.current;
+    const peers = result.current.peers;
 
-    expect(result.current.peers).toEqual([]);
-    expect(Object.isFrozen(result.current.peers)).toBe(true);
+    expect(peers).toEqual([]);
+    expect(Object.isFrozen(peers)).toBe(true);
+    rerender();
+    expect(result.current).toBe(initial);
+    expect(result.current.peers).toBe(peers);
     act(() => {
       result.current.announce();
       result.current.setFields({ selection: true });
@@ -160,15 +165,42 @@ describe('usePresence', () => {
     const viewport = createTestViewport();
     const channel = new FakeChannel();
     const wrapper = ({ children }: { children: ReactNode }) => (
-      <StrictMode>
-        <ViewportContext.Provider value={viewport}>{children}</ViewportContext.Provider>
-      </StrictMode>
+      <ViewportContext.Provider value={viewport}>{children}</ViewportContext.Provider>
     );
 
-    renderHook(() => usePresence(channel, { identity }), { wrapper });
+    renderHook(() => usePresence(channel, { identity }), { wrapper, reactStrictMode: true });
 
     expect(channel.messageHandlers).toHaveLength(1);
     expect(channel.leaveHandlers).toHaveLength(1);
+  });
+
+  it('changing options alone does not reattach', () => {
+    const viewport = createTestViewport();
+    const channel = new FakeChannel();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ViewportContext.Provider value={viewport}>{children}</ViewportContext.Provider>
+    );
+    const { rerender } = renderHook(({ options }) => usePresence(channel, options), {
+      initialProps: {
+        options: { identity, fields: { selection: false }, intervalMs: 0, heartbeatMs: 0 },
+      },
+      wrapper,
+    });
+    const messageHandler = Array.from(channel.messageHandlers)[0];
+    const leaveHandler = Array.from(channel.leaveHandlers)[0];
+
+    rerender({
+      options: {
+        identity: { id: 'u1', name: 'Annie', color: '#0f0' },
+        fields: { selection: true },
+        intervalMs: 1,
+        heartbeatMs: 1,
+      },
+    });
+
+    expect(Array.from(channel.messageHandlers)).toEqual([messageHandler]);
+    expect(Array.from(channel.leaveHandlers)).toEqual([leaveHandler]);
+    expect(channel.sent).not.toContainEqual(expect.objectContaining({ cleared: true }));
   });
 
   it('exports the public hook', () => {

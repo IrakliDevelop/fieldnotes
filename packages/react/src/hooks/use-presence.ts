@@ -16,6 +16,7 @@ const DETACHED_SOURCE: ViewportSource<readonly Peer[]> = {
   getSnapshot: () => EMPTY_PEERS,
 };
 
+/** Presence controls and the current remote peers. */
 export interface UsePresenceResult {
   readonly peers: readonly Peer[];
   /** Re-sends local presence, or does nothing while detached. */
