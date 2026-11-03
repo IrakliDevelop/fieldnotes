@@ -1,9 +1,27 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
-import { render, cleanup, act } from '@testing-library/react';
-import { Component, createRef, useContext, useState, StrictMode, type ReactNode } from 'react';
+import { render, cleanup, act, waitFor } from '@testing-library/react';
+import { renderToString } from 'react-dom/server';
+import {
+  Component,
+  createRef,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  StrictMode,
+  type ReactNode,
+} from 'react';
 import { FieldNotesCanvas, type FieldNotesCanvasRef } from './field-notes-canvas';
 import { ViewportContext } from './context';
-import { HandTool, SelectTool, PencilTool, Viewport, createShape } from '@fieldnotes/core';
+import {
+  AutoSave,
+  HandTool,
+  MemoryAdapter,
+  SelectTool,
+  PencilTool,
+  Viewport,
+  createShape,
+} from '@fieldnotes/core';
 import type { CanvasState, ImportableCanvasState } from '@fieldnotes/core';
 
 type OnReady = Mock<(viewport: Viewport) => void>;
@@ -23,6 +41,47 @@ describe('FieldNotesCanvas', () => {
     const div = container.firstElementChild as HTMLElement;
     expect(div).not.toBeNull();
     expect(div.tagName).toBe('DIV');
+  });
+
+  it('ref.viewport is set when a parent mount effect runs', () => {
+    let seen: Viewport | null = null;
+    function Parent() {
+      const ref = useRef<FieldNotesCanvasRef>(null);
+      useEffect(() => {
+        seen = ref.current?.viewport ?? null;
+      }, []);
+      return <FieldNotesCanvas ref={ref} />;
+    }
+    render(<Parent />);
+    expect(seen).toBeInstanceOf(Viewport);
+  });
+
+  it('ref.viewport is null after unmount', () => {
+    const ref = createRef<FieldNotesCanvasRef>();
+    const { unmount } = render(<FieldNotesCanvas ref={ref} />);
+    const handle = ref.current;
+    if (!handle) throw new Error('ref not mounted');
+    unmount();
+    expect(handle.viewport).toBeNull();
+  });
+
+  it('renders on the server without throwing', () => {
+    expect(renderToString(<FieldNotesCanvas tool="select" />)).toContain('<div');
+  });
+
+  it('ref.autoSave reaches the autosave instance', () => {
+    const configuredRef = createRef<FieldNotesCanvasRef>();
+    render(
+      <FieldNotesCanvas
+        ref={configuredRef}
+        autoSave={{ adapter: new MemoryAdapter(), key: 'k' }}
+      />,
+    );
+    expect(configuredRef.current?.autoSave).toBeInstanceOf(AutoSave);
+
+    const bareRef = createRef<FieldNotesCanvasRef>();
+    render(<FieldNotesCanvas ref={bareRef} />);
+    expect(bareRef.current?.autoSave).toBeNull();
   });
 
   it('creates a Viewport with canvas inside the container', () => {
@@ -78,6 +137,12 @@ describe('FieldNotesCanvas', () => {
     expect(div.style.border).toBe('1px solid red');
   });
 
+  it('rest props reach the root div', () => {
+    const { getByTestId } = render(<FieldNotesCanvas data-testid="board" aria-label="Board" />);
+    const board = getByTestId('board');
+    expect(board.getAttribute('aria-label')).toBe('Board');
+  });
+
   it('controlled tool prop wins over defaultTool at mount', () => {
     const onReady = vi.fn<(viewport: Viewport) => void>();
     render(
@@ -119,6 +184,77 @@ describe('FieldNotesCanvas', () => {
       viewport.setTool('hand');
     });
     expect(onToolChange).toHaveBeenCalledWith('hand');
+  });
+
+  it('a keyboard switch the host does not adopt is reverted', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onToolChange = vi.fn();
+    render(
+      <FieldNotesCanvas
+        tools={[new SelectTool(), new PencilTool()]}
+        tool="select"
+        onReady={onReady}
+        onToolChange={onToolChange}
+      />,
+    );
+    const viewport = viewportAt(onReady, 0);
+    act(() => {
+      viewport.setTool('pencil');
+    });
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
+    expect(onToolChange.mock.calls).toEqual([['pencil'], ['select']]);
+  });
+
+  it('a switch the host adopts is kept', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onToolChange = vi.fn();
+    function Host() {
+      const [tool, setTool] = useState('select');
+      return (
+        <FieldNotesCanvas
+          tools={[new SelectTool(), new PencilTool()]}
+          tool={tool}
+          onReady={onReady}
+          onToolChange={(name) => {
+            onToolChange(name);
+            setTool(name);
+          }}
+        />
+      );
+    }
+    render(<Host />);
+    const viewport = viewportAt(onReady, 0);
+    act(() => {
+      viewport.setTool('pencil');
+    });
+    expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+    expect(onToolChange.mock.calls).toEqual([['pencil']]);
+  });
+
+  it('a switch made from a timer that the host adopts synchronously', async () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onToolChange = vi.fn();
+    function Host() {
+      const [tool, setTool] = useState('select');
+      return (
+        <FieldNotesCanvas
+          tools={[new SelectTool(), new PencilTool()]}
+          tool={tool}
+          onReady={onReady}
+          onToolChange={(name) => {
+            onToolChange(name);
+            setTool(name);
+          }}
+        />
+      );
+    }
+    render(<Host />);
+    const viewport = viewportAt(onReady, 0);
+    setTimeout(() => viewport.setTool('pencil'), 0);
+    await waitFor(() => {
+      expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+    });
+    expect(onToolChange.mock.calls).toEqual([['pencil']]);
   });
 
   it('controlled tool does not loop (set -> onChange -> same value)', () => {
@@ -165,6 +301,16 @@ describe('FieldNotesCanvas', () => {
 
     rerender(<FieldNotesCanvas tools={[new HandTool(), new PencilTool()]} onReady={onReady} />);
     expect(viewport.toolManager.toolNames).toContain('pencil');
+  });
+
+  it('tools removed from the array are unregistered', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const hand = new HandTool();
+    const { rerender } = render(
+      <FieldNotesCanvas tools={[hand, new PencilTool()]} onReady={onReady} />,
+    );
+    rerender(<FieldNotesCanvas tools={[hand]} onReady={onReady} />);
+    expect(viewportAt(onReady, 0).toolManager.toolNames).toEqual(['hand']);
   });
 
   it('survives StrictMode double-mount with a usable viewport', () => {
