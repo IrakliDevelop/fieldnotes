@@ -54,6 +54,10 @@ jobs:
 
       - run: pnpm verify:ci
 
+      # @fieldnotes/react develops against React 19; this runs its tests on React 18, the peer floor.
+      - name: React tests on React 18
+        run: pnpm --filter fieldnotes-react18-check test
+
       # verify:ci builds first; TypeDoc resolves sibling packages through dist.
       - name: Build API reference
         if: matrix.node == '22.22'

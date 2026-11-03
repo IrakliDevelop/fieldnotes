@@ -1,0 +1,17 @@
+{
+  "name": "fieldnotes-react18-check",
+  "private": true,
+  "description": "Runs the @fieldnotes/react test suite against React 18, the floor of its peer range.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@fieldnotes/core": "workspace:*",
+    "@testing-library/react": "^16.3.2",
+    "jsdom": "^29.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vitest": "^5.0.5"
+  }
+}
