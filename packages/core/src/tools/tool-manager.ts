@@ -40,7 +40,7 @@ export class ToolManager {
     this.current?.onDeactivate?.(ctx);
     this.current = tool;
     this.current.onActivate?.(ctx);
-    for (const listener of [...this.changeListeners]) {
+    for (const listener of this.changeListeners) {
       try {
         listener(name);
       } catch (error) {

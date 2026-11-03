@@ -135,6 +135,20 @@ describe('ToolManager', () => {
     expect(laterListener).toHaveBeenCalledWith('pencil');
   });
 
+  it('does not call a listener removed by an earlier listener during dispatch', () => {
+    const manager = new ToolManager();
+    const laterListener = vi.fn();
+    let removeLater = () => undefined;
+
+    manager.register(stubTool('pencil'));
+    manager.onChange(() => removeLater());
+    removeLater = manager.onChange(laterListener);
+
+    manager.setTool('pencil', stubContext());
+
+    expect(laterListener).not.toHaveBeenCalled();
+  });
+
   it('retrieves a registered tool by name', () => {
     const manager = new ToolManager();
     const pencil = stubTool('pencil');
