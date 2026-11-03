@@ -1,5 +1,4 @@
 import type { Viewport } from './viewport';
-import { sameList } from './shortcut-map';
 import type { PresentationState } from './presentation';
 import type { SelectionStyleDetails } from './selection-ops';
 import type { CanvasElement, ElementType } from '../elements/types';
@@ -378,7 +377,12 @@ export function createShortcutsSource(
         cachedKeys.every((key) => {
           const previous = cached[key];
           const bindings = next[key];
-          return sameList(previous, bindings);
+          return (
+            previous !== undefined &&
+            bindings !== undefined &&
+            previous.length === bindings.length &&
+            previous.every((binding, index) => binding === bindings[index])
+          );
         })
       ) {
         return cached;
