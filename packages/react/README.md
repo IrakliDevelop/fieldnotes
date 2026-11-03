@@ -416,10 +416,10 @@ When the connection becomes live, the host calls `announce`.
 ```tsx
 import { useEffect } from 'react';
 import { usePresence } from '@fieldnotes/react';
-import type { PresenceChannel } from '@fieldnotes/sync';
+import type { SyncClient } from '@fieldnotes/sync';
 
-function Presence({ channel, live }: { channel: PresenceChannel | null; live: boolean }) {
-  const { peers, announce } = usePresence(channel, { identity: { id: 'me' } });
+function Presence({ client, live }: { client: SyncClient | null; live: boolean }) {
+  const { peers, announce } = usePresence(client, { identity: { id: 'me' } });
   useEffect(() => {
     if (live) announce();
   }, [live, announce]);
