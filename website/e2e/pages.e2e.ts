@@ -112,6 +112,16 @@ test('the roadmap numbers its sections as one list', async ({ page }) => {
   );
 });
 
+test('the roadmap map is decorative and drawn from the list', async ({ page }) => {
+  await page.goto('/roadmap/');
+  const map = page.locator('[data-trail-map]');
+  await expect(map).toHaveAttribute('aria-hidden', 'true');
+  const total = ROADMAP.built.length + ROADMAP.next.length + ROADMAP.notBuilt.length;
+  await expect(map.locator('circle')).toHaveCount(total);
+  if (test.info().project.name === 'desktop-chrome') await expect(map).toBeVisible();
+  else await expect(map).toBeHidden();
+});
+
 test('the roadmap has no horizontal scroll on a phone', async ({ page }) => {
   test.skip(test.info().project.name !== 'phone', 'phone width only');
   await page.goto('/roadmap/');

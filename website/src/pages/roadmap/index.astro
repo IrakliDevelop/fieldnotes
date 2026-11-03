@@ -1,10 +1,13 @@
 ---
 import roadmap from '../../../content/roadmap.md?raw';
+import TrailMap from '../../components/TrailMap.astro';
 import Base from '../../layouts/Base.astro';
 import { parseRoadmap } from '../../lib/roadmap';
+import { trailMap } from '../../lib/trail';
 import { link } from '../../utils/base';
 
 const { built, next, notBuilt } = parseRoadmap(roadmap);
+const map = trailMap({ built, next, notBuilt });
 const RECENT = 5;
 const earlier = built.slice(0, Math.max(0, built.length - RECENT));
 const recent = built.slice(earlier.length);
@@ -16,7 +19,8 @@ const recent = built.slice(earlier.length);
   current="roadmap"
 >
   <main class="wrap roadmap">
-    <div class="list">
+    <div class="columns">
+      <div class="list">
       <h1>Roadmap</h1>
       <div class="intro">
         <p>
@@ -87,6 +91,10 @@ const recent = built.slice(earlier.length);
           </section>
         )
       }
+      </div>
+      <div class="map" data-trail-map aria-hidden="true">
+        <TrailMap map={map} />
+      </div>
     </div>
   </main>
 </Base>
@@ -95,6 +103,17 @@ const recent = built.slice(earlier.length);
   .roadmap {
     padding-top: 48px;
     padding-bottom: 96px;
+  }
+
+  .columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 56px;
+    align-items: start;
+  }
+
+  .map {
+    display: none;
   }
 
   h1 {
@@ -198,6 +217,18 @@ const recent = built.slice(earlier.length);
   .fold[open] .closed,
   .fold:not([open]) .open {
     display: none;
+  }
+
+  @media (min-width: 1000px) {
+    .columns {
+      grid-template-columns: minmax(0, 1fr) min(460px, 36%);
+    }
+
+    .map {
+      display: block;
+      position: sticky;
+      top: 24px;
+    }
   }
 
   @media (max-width: 480px) {
