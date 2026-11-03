@@ -28,9 +28,7 @@ Release notes prepared 2026-11-02.
 
 - Persisted state and the sync protocol are unchanged. The palette writes neither the store, the
   history, nor the wire.
-- A host binding for `mod+k` or `?` conflicts with `palette.open` or `palette.help`. The
-  palette actions register in the `Viewport` constructor, so they win over host and plugin bindings
-  for the same keys. Rebind or disable the action, or pass `palette: false`.
+- The palette actions register in the `Viewport` constructor, so they win over actions a plugin or the host registers later. A built-in action rebound to `mod+k` or `?` still wins over them.
 - The dialogs mount in the host container and use `position: fixed`. A container with a CSS
   `transform` or `filter` positions them instead of the window. `--fieldnotes-palette-*` custom
   properties set their colours, font and shadow.
