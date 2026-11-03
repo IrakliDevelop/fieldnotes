@@ -365,6 +365,23 @@ describe('mountViewport setTools', () => {
     expect(onToolChange).toHaveBeenCalledWith('');
   });
 
+  it('reports a throwing empty tool-change callback when removing the last tool', () => {
+    const error = new Error('host bug');
+    const reportError = vi.fn<(error: unknown) => void>();
+    vi.stubGlobal('reportError', reportError);
+    const m = mount({
+      tools: [new PencilTool()],
+      defaultTool: 'pencil',
+      onToolChange: () => {
+        throw error;
+      },
+    });
+
+    expect(() => m.setTools([])).not.toThrow();
+    expect(m.viewport.toolManager.activeTool).toBeNull();
+    expect(reportError).toHaveBeenCalledWith(error);
+  });
+
   it('setTools leaves tools registered by onReady alone', () => {
     const hand = new HandTool();
     const select = new SelectTool();

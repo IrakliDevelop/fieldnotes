@@ -21,6 +21,7 @@ Release notes prepared 2026-11-03.
 **Fixed**
 
 - `createToolOptionsSource` notifies when the named tool is registered later.
+- tool change listeners are isolated; a throwing listener is reported and the others still run.
 - `@fieldnotes/vue`, `@fieldnotes/svelte`, and `@fieldnotes/angular` get this fix for their
   `useToolOptions` helpers by installing core 0.105.0; there is no wrapper release and no peer
   floor change.

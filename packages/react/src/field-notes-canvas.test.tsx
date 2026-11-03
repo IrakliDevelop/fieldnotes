@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { FieldNotesCanvas, type FieldNotesCanvasRef } from './field-notes-canvas';
 import { ViewportContext } from './context';
+import { useActiveTool } from './hooks/use-active-tool';
 import {
   AutoSave,
   HandTool,
@@ -361,6 +362,45 @@ describe('FieldNotesCanvas', () => {
     });
     expect(viewport.toolManager.activeTool?.name).toBe('select');
     expect(onToolChange.mock.calls).toEqual([['pencil'], ['select']]);
+  });
+
+  it('a throwing controlled callback does not block active-tool updates or the revert', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const reportError = vi.fn<(error: unknown) => void>();
+    const error = new Error('host bug');
+    const seen: string[] = [];
+    vi.stubGlobal('reportError', reportError);
+    function Probe() {
+      const [tool] = useActiveTool();
+      useEffect(() => {
+        seen.push(tool);
+      }, [tool]);
+      return null;
+    }
+
+    render(
+      <FieldNotesCanvas
+        tools={[new SelectTool(), new PencilTool()]}
+        tool="select"
+        onReady={onReady}
+        onToolChange={() => {
+          throw error;
+        }}
+      >
+        <Probe />
+      </FieldNotesCanvas>,
+    );
+    const viewport = viewportAt(onReady, 0);
+
+    expect(() => {
+      act(() => {
+        viewport.setTool('pencil');
+      });
+    }).not.toThrow();
+    expect(seen).toContain('pencil');
+    expect(seen.at(-1)).toBe('select');
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
+    expect(reportError).toHaveBeenCalledWith(error);
   });
 
   it('a switch the host adopts is kept', () => {

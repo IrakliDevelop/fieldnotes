@@ -185,7 +185,11 @@ export function mountViewport(
           else {
             tool.onDeactivate?.(vp.toolContext);
             dispose();
-            opts.onToolChange?.('');
+            try {
+              opts.onToolChange?.('');
+            } catch (error) {
+              reportFailure(error, 'tool change listener failed');
+            }
             registrations.delete(name);
             continue;
           }
