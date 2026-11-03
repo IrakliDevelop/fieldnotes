@@ -18,7 +18,7 @@ const unexploredNote = map.notes.unexplored;
   <path class="north stem" d="M412 52v14" />
   <path class="trail" d={map.built} />
   <path class="trail" d={map.next} />
-  <path class="unexplored" d={map.unexplored} />
+  <path class="trail unexplored" d={map.unexplored} />
   <g class="hills">
     {map.hills.map((d) => <path d={d} />)}
   </g>

@@ -118,6 +118,12 @@ test('the roadmap map is decorative and drawn from the list', async ({ page }) =
   await expect(map).toHaveAttribute('aria-hidden', 'true');
   const total = ROADMAP.built.length + ROADMAP.next.length + ROADMAP.notBuilt.length;
   await expect(map.locator('circle')).toHaveCount(total);
+  const unexplored = map.locator('path.unexplored');
+  const unexploredNote = map.locator('text.note.unexplored');
+  await expect(unexplored).toHaveCSS('fill', 'none');
+  await expect(unexplored).toHaveCSS('stroke', 'rgb(95, 101, 108)');
+  await expect(unexplored).toHaveCSS('stroke-dasharray', '2px, 7px');
+  await expect(unexploredNote).toHaveCSS('stroke', 'none');
   if (test.info().project.name === 'desktop-chrome') await expect(map).toBeVisible();
   else await expect(map).toBeHidden();
 });
