@@ -1,18 +1,14 @@
 import type { Roadmap } from './roadmap';
-/** A roadmap waypoint's source section. */
 export type WaypointKind = 'built' | 'next' | 'notBuilt';
-/** Coordinates on the map paper. */
 export interface Point {
   readonly x: number;
   readonly y: number;
 }
-/** A numbered stop on the map trail. */
 export interface Waypoint extends Point {
   /** 1-based across all sections. */
   readonly n: number;
   readonly kind: WaypointKind;
 }
-/** The complete deterministic roadmap trail. */
 export interface TrailMap {
   /** Always 460. */
   readonly width: number;
