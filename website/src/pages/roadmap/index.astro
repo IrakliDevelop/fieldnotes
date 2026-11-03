@@ -1,15 +1,16 @@
 ---
 import roadmap from '../../../content/roadmap.md?raw';
+import TrailMap from '../../components/TrailMap.astro';
 import Base from '../../layouts/Base.astro';
 import { parseRoadmap } from '../../lib/roadmap';
+import { trailMap } from '../../lib/trail';
 import { link } from '../../utils/base';
 
 const { built, next, notBuilt } = parseRoadmap(roadmap);
-const sections = [
-  { id: 'built', title: 'Built', items: built },
-  { id: 'next', title: 'Next', items: next },
-  { id: 'not-built', title: 'Not built yet', items: notBuilt },
-];
+const map = trailMap({ built, next, notBuilt });
+const RECENT = 5;
+const earlier = built.slice(0, Math.max(0, built.length - RECENT));
+const recent = built.slice(earlier.length);
 ---
 
 <Base
@@ -18,38 +19,101 @@ const sections = [
   current="roadmap"
 >
   <main class="wrap roadmap">
-    <h1>Roadmap</h1>
-    <div class="intro">
-      <p>
-        This is what I've built into Field Notes so far, what I'm working on next and what isn't
-        built yet. The pull request that finishes an item moves it to Built, and the <a
-          href={link('/changelog/')}>changelog</a
-        > dates each release.
-      </p>
-      <p class="signature">Irakli</p>
-    </div>
-    {
-      sections.map(({ id, title, items }) => (
-        <section aria-labelledby={id}>
-          <h2 id={id}>{title}</h2>
-          <ul>
-            {items.map((item) => (
-              <li>{item}</li>
-            ))}
-          </ul>
+    <div class="columns">
+      <div class="list">
+        <h1>Roadmap</h1>
+        <div class="intro">
+          <p>
+            This is what I've built into Field Notes so far, what I'm working on next and what isn't
+            built yet. The pull request that finishes an item moves it to Built, and the <a
+              href={link('/changelog/')}>changelog</a
+            > dates each release.
+          </p>
+          <p class="signature">Irakli</p>
+        </div>
+
+        <section aria-labelledby="built">
+          <h2 id="built">Built</h2>
+          {
+            earlier.length > 0 && (
+              <details class="fold">
+                <summary>
+                  <span class="closed"
+                    ><svg
+                      aria-hidden="true"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      ><path d="M8 1v5M5.5 3.5L8 1l2.5 2.5M8 15v-5M5.5 12.5L8 15l2.5-2.5M2 8h12" /></svg
+                    >Show items 1–{earlier.length}</span
+                  >
+                  <span class="open"
+                    ><svg
+                      aria-hidden="true"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      ><path d="M8 6V1M5.5 3.5L8 6l2.5-2.5M8 10v5M5.5 12.5L8 10l2.5 2.5M2 8h12" /></svg
+                    >Hide items 1–{earlier.length}</span
+                  >
+                </summary>
+                <ol start="1">{earlier.map((item) => <li>{item}</li>)}</ol>
+              </details>
+            )
+          }
+          <ol start={earlier.length + 1}>{recent.map((item) => <li>{item}</li>)}</ol>
         </section>
-      ))
-    }
+
+        {
+          next.length > 0 && (
+            <section aria-labelledby="next">
+              <h2 id="next">Next</h2>
+              <ol start={built.length + 1}>{next.map((item) => <li>{item}</li>)}</ol>
+            </section>
+          )
+        }
+
+        {
+          notBuilt.length > 0 && (
+            <section class="unpaved" aria-labelledby="not-built">
+              <h2 id="not-built">Not built yet</h2>
+              <ol start={built.length + next.length + 1}>{notBuilt.map((item) => <li>{item}</li>)}</ol>
+            </section>
+          )
+        }
+      </div>
+      <div class="map" data-trail-map aria-hidden="true">
+        <TrailMap map={map} />
+      </div>
+    </div>
   </main>
 </Base>
 
 <style>
   .roadmap {
-    display: flex;
-    flex-direction: column;
-    gap: 40px;
     padding-top: 48px;
     padding-bottom: 96px;
+  }
+
+  .columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 56px;
+    align-items: start;
+  }
+
+  .map {
+    display: none;
   }
 
   h1 {
@@ -77,22 +141,99 @@ const sections = [
     font-size: 22px;
   }
 
+  h1 + .intro {
+    margin-top: 14px;
+  }
+
+  section {
+    margin-top: 40px;
+  }
+
   h2 {
-    margin: 0 0 16px;
+    margin: 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--divider);
     font-size: 28px;
     line-height: 1.2;
   }
 
-  ul {
-    max-width: 44em;
+  @counter-style trail {
+    system: extends decimal;
+    suffix: ' ';
+  }
+
+  ol {
     margin: 0;
-    padding: 0;
-    list-style: none;
-    border-top: 1px solid var(--divider-2);
+    padding: 0 0 0 52px;
+    list-style: trail;
   }
 
   li {
-    padding: 12px 0;
+    padding: 11px 0;
     border-bottom: 1px solid var(--divider-2);
+  }
+
+  li::marker {
+    color: var(--muted);
+    font: 13px 'JetBrains Mono', monospace;
+  }
+
+  section[aria-labelledby='next'] li {
+    font-weight: 500;
+  }
+
+  .unpaved li {
+    color: var(--muted);
+  }
+
+  .fold summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    margin: 6px 0;
+    padding: 0 14px;
+    border-radius: 4px;
+    background: var(--code-bg);
+    font: 500 15px/1.4 'Public Sans', sans-serif;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .fold summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .fold summary:hover {
+    background: #dfe2dc;
+  }
+
+  .closed,
+  .open {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .fold[open] .closed,
+  .fold:not([open]) .open {
+    display: none;
+  }
+
+  @media (min-width: 1000px) {
+    .columns {
+      grid-template-columns: minmax(0, 1fr) min(460px, 36%);
+    }
+
+    .map {
+      display: block;
+      position: sticky;
+      top: 24px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    h1 {
+      font-size: 34px;
+    }
   }
 </style>

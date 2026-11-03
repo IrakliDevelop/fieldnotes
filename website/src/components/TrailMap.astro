@@ -1,0 +1,156 @@
+---
+import type { TrailMap } from '../lib/trail';
+
+interface Props {
+  map: TrailMap;
+}
+
+const { map } = Astro.props;
+const unexploredNote = map.notes.unexplored;
+const round = (value: number) => Math.round(value * 10) / 10;
+---
+
+<svg viewBox={`0 0 ${map.width} ${map.height}`} aria-hidden="true">
+  <rect x="0.5" y="0.5" width={map.width - 1} height={map.height - 1} rx="6" class="paper" />
+  <g class="terrain">
+    {map.terrain.map((d) => <path d={d} />)}
+  </g>
+  <path class="north head" d="M402 44l10-24 10 24-10-7z" />
+  <path class="north stem" d="M412 52v14" />
+  <path class="trail" d={map.built} />
+  <path class="trail" d={map.next} />
+  <path class="trail unexplored" d={map.unexplored} />
+  <g class="hills">
+    {map.hills.map((d) => <path d={d} />)}
+  </g>
+  <path
+    class="tent"
+    d={`M${round(map.camp.x - 34)} ${round(map.camp.y + 10)}l14-24 14 24zM${round(map.camp.x - 20)} ${round(map.camp.y - 14)}v24`}
+  />
+  {
+    map.waypoints.map((waypoint) => (
+      <>
+        <circle
+          class={waypoint.kind === 'notBuilt' ? 'not-built' : waypoint.kind}
+          cx={waypoint.x}
+          cy={waypoint.y}
+          r={waypoint.kind === 'next' ? 7 : 4.5}
+        />
+        <text class="n" x={round(waypoint.x + 9)} y={round(waypoint.y + 1)}>{waypoint.n}</text>
+      </>
+    ))
+  }
+  <text
+    class="note here"
+    x={map.notes.here.x}
+    y={map.notes.here.y}
+    transform={`rotate(-4 ${map.notes.here.x} ${map.notes.here.y})`}
+  >You are here</text>
+  {
+    unexploredNote && (
+      <text
+        class="note unexplored"
+        x={unexploredNote.x}
+        y={unexploredNote.y}
+        transform={`rotate(3 ${unexploredNote.x} ${unexploredNote.y})`}
+      >Unexplored</text>
+    )
+  }
+</svg>
+
+<style>
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: calc(100vh - 48px);
+  }
+
+  .paper {
+    fill: var(--board);
+    stroke: var(--divider);
+    stroke-width: 1;
+  }
+
+  .terrain {
+    fill: none;
+    stroke: var(--divider);
+    stroke-width: 1;
+  }
+
+  .north {
+    fill: var(--graphite-2);
+  }
+
+  .north.stem {
+    fill: none;
+    stroke: var(--graphite-2);
+    stroke-linecap: round;
+    stroke-width: 1.4;
+  }
+
+  .trail {
+    fill: none;
+    stroke: var(--graphite);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2.5;
+  }
+
+  .trail.unexplored {
+    stroke: var(--muted);
+    stroke-dasharray: 2 7;
+    stroke-width: 2;
+  }
+
+  .hills {
+    fill: none;
+    stroke: var(--graphite-2);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.5;
+  }
+
+  .tent {
+    fill: none;
+    stroke: var(--graphite);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+  }
+
+  .built {
+    fill: var(--graphite);
+  }
+
+  .next {
+    fill: var(--board);
+    stroke: var(--graphite);
+    stroke-width: 2.5;
+  }
+
+  .not-built {
+    fill: var(--board);
+    stroke: var(--muted);
+    stroke-dasharray: 1.5 2;
+    stroke-width: 1.5;
+  }
+
+  .n {
+    font: 11px 'JetBrains Mono', monospace;
+    fill: var(--muted);
+  }
+
+  .note {
+    font-family: 'Kalam', cursive;
+    fill: var(--red);
+  }
+
+  .note.here {
+    font-size: 21px;
+  }
+
+  .note.unexplored {
+    font-size: 19px;
+  }
+</style>
