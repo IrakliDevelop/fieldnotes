@@ -423,6 +423,52 @@ describe('AutoSave', () => {
     vi.restoreAllMocks();
   });
 
+  it('drains queued writes when onError throws for an adapter failure', async () => {
+    const saved = new Map<string, string>();
+    let rejectFirst: ((error: Error) => void) | undefined;
+    let first = true;
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      clear: async () => undefined,
+      save: (key, value) => {
+        if (first) {
+          first = false;
+          return new Promise<void>((_resolve, reject) => {
+            rejectFirst = reject;
+          });
+        }
+        saved.set(key, value);
+        return Promise.resolve();
+      },
+    };
+    const adapterFailure = new Error('adapter failed');
+    const callbackFailure = new Error('host callback failed');
+    const reportError = vi.fn();
+    vi.stubGlobal('reportError', reportError);
+    autoSave = new AutoSave(store, camera, {
+      adapter,
+      key: 'k',
+      debounceMs: 100,
+      onError: () => {
+        throw callbackFailure;
+      },
+    });
+    autoSave.start();
+
+    store.add(makeNote('first'));
+    await vi.advanceTimersByTimeAsync(100);
+    store.add(makeNote('second'));
+    const flush = autoSave.flush();
+
+    rejectFirst?.(adapterFailure);
+    await expect(flush).resolves.toBeUndefined();
+
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledWith(callbackFailure);
+    const state = JSON.parse(saved.get('k') ?? 'null') as { elements: { text: string }[] };
+    expect(state.elements.map((element) => element.text)).toEqual(['first', 'second']);
+  });
+
   it('serializes overlapping saves and persists the latest state', async () => {
     const deferreds: (() => void)[] = [];
     const save = vi.fn(

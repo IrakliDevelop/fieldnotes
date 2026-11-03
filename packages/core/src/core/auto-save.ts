@@ -7,6 +7,7 @@ import { LocalStorageAdapter } from './storage/local-storage-adapter';
 import type { StorageAdapter } from './storage/storage-adapter';
 import type { ElementRegistry } from '../elements/element-registry';
 import type { PluginStateManager } from './plugin-state-manager';
+import { reportFailure } from './report-failure';
 
 export interface AutoSaveOptions {
   key?: string;
@@ -112,7 +113,7 @@ export class AutoSave {
       return state;
     } catch (e) {
       this.loadFailed = true;
-      this.onError?.(
+      this.notifyError(
         new Error(
           `AutoSave: saved state at "${this.key}" could not be loaded and will not be overwritten: ${
             e instanceof Error ? e.message : String(e)
@@ -166,7 +167,7 @@ export class AutoSave {
       this.writeChain = this.write(json);
       await this.writeChain;
     } catch (e) {
-      this.onError?.(e instanceof Error ? e : new Error(String(e)));
+      this.notifyError(e);
     }
   }
 
@@ -177,7 +178,7 @@ export class AutoSave {
         try {
           await this.adapter.save(this.key, next);
         } catch (e) {
-          this.onError?.(e instanceof Error ? e : new Error(String(e)));
+          this.notifyError(e);
         }
         next = this.queuedJson;
         this.queuedJson = null;
@@ -185,6 +186,16 @@ export class AutoSave {
     } finally {
       this.saving = false;
       this.writeChain = null;
+    }
+  }
+
+  private notifyError(error: unknown): void {
+    if (!this.onError) return;
+    const normalized = error instanceof Error ? error : new Error(String(error));
+    try {
+      this.onError(normalized);
+    } catch (callbackError) {
+      reportFailure(callbackError, 'autosave onError failed');
     }
   }
 }
