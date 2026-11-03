@@ -22,6 +22,7 @@ export {
   useTransaction,
   useElement,
   useCanvasSize,
+  usePresence,
 } from './hooks';
 export type {
   UseLayersResult,
@@ -30,6 +31,7 @@ export type {
   UseHistoryResult,
   UseSelectionOpsResult,
   UseExportResult,
+  UsePresenceResult,
 } from './hooks';
 export type {
   CameraState,

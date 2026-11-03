@@ -23,3 +23,5 @@ export { useLoad } from './use-load';
 export { useTransaction } from './use-transaction';
 export { useElement } from './use-element';
 export { useCanvasSize } from './use-canvas-size';
+export { usePresence } from './use-presence';
+export type { UsePresenceResult } from './use-presence';
