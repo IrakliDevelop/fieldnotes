@@ -42,8 +42,7 @@ Release notes prepared 2026-11-03.
   `ref.autoSave`; `useExport`, `useLoad`, `useTransaction`, `useElement`, `useCanvasSize`,
   `useCameraControls`, `useShortcuts`, and `usePresence`; and `HostElement`.
 - Type re-exports: `ActivationOptions`, `AttachAwarenessOptions`, `AwarenessFields`, `Bounds`,
-  `CameraView`, `CanvasSize`, `CanvasState`, `CameraState`, `ElementStyle`,
-  `ElementActivationEvent`, `SelectionStyleDetails`, `ElementRect`, `ExportImageOptions`,
+  `CameraView`, `CanvasSize`, `CanvasState`, `ElementActivationEvent`, `ExportImageOptions`,
   `ExportSvgOptions`, `HistoryState`, `HostElementGeometry`, `ImportableCanvasState`, `Layer`,
   `LayersState`, `MountAutoSaveOptions`, `Peer`, `Point`, `PointerState`, `PresenceChannel`,
   `SelectionOpsState`, `ShortcutBindings`, `Tool`, `ToolContext`, `Viewport`, and
