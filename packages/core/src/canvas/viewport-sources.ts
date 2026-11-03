@@ -351,8 +351,8 @@ function optionsEqual(a: Record<string, unknown>, b: Record<string, unknown>): b
 
 /**
  * Options of the tool `getToolName` names; `null` if the tool is not registered or exposes no
- * options. The cache survives the name changing, so a new tool with shallow-equal options returns
- * the previous object.
+ * options. A later registration of the named tool notifies subscribers. The cache survives the
+ * name changing, so a new tool with shallow-equal options returns the previous object.
  */
 export function createToolOptionsSource<T extends Record<string, unknown>>(
   vp: Viewport,
@@ -361,9 +361,22 @@ export function createToolOptionsSource<T extends Record<string, unknown>>(
   let cached: T | null = null;
   return {
     subscribe(onChange) {
-      const tool = vp.toolManager.getTool(getToolName());
-      if (!tool?.onOptionsChange) return noop;
-      return tool.onOptionsChange(onChange);
+      let offOptions = noop;
+      const attach = () => {
+        const tool = vp.toolManager.getTool(getToolName());
+        offOptions = tool?.onOptionsChange ? tool.onOptionsChange(onChange) : noop;
+      };
+      attach();
+      const offRegister = vp.toolManager.onRegister((tool) => {
+        if (tool.name !== getToolName()) return;
+        offOptions();
+        attach();
+        onChange();
+      });
+      return () => {
+        offOptions();
+        offRegister();
+      };
     },
     getSnapshot() {
       const tool = vp.toolManager.getTool(getToolName());

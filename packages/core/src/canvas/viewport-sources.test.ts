@@ -378,6 +378,79 @@ describe('createPresentationSource', () => {
 });
 
 describe('createToolOptionsSource', () => {
+  function createOptionsTool(name: string, size: number) {
+    let options = { size };
+    const listeners = new Set<() => void>();
+    return {
+      name,
+      onPointerDown: () => undefined,
+      onPointerMove: () => undefined,
+      onPointerUp: () => undefined,
+      getOptions: () => options,
+      setOptions: (next: { size: number }) => {
+        options = next;
+        listeners.forEach((listener) => listener());
+      },
+      onOptionsChange: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+  }
+
+  it('notifies when the named tool is registered after subscribing', () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    source.subscribe(c.onChange);
+    expect(source.getSnapshot()).toBeNull();
+
+    vp.toolManager.register(createOptionsTool('custom', 4));
+
+    expect(c.calls).toBe(1);
+    expect(source.getSnapshot()).toEqual({ size: 4 });
+  });
+
+  it("follows the newly registered instance's option changes", () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    source.subscribe(c.onChange);
+    const custom = createOptionsTool('custom', 4);
+    vp.toolManager.register(custom);
+
+    custom.setOptions({ size: 6 });
+
+    expect(c.calls).toBe(2);
+    expect(source.getSnapshot()).toEqual({ size: 6 });
+  });
+
+  it('unsubscribe removes both the register and options listener', () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    const off = source.subscribe(c.onChange);
+    const custom = createOptionsTool('custom', 4);
+    vp.toolManager.register(custom);
+    const replacement = createOptionsTool('custom', 6);
+    vp.toolManager.register(replacement);
+    custom.setOptions({ size: 8 });
+    expect(c.calls).toBe(2);
+    off();
+
+    replacement.setOptions({ size: 10 });
+    vp.toolManager.register(createOptionsTool('custom', 12));
+
+    expect(c.calls).toBe(2);
+  });
+
+  it('ignores registrations of other tools', () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    source.subscribe(c.onChange);
+
+    vp.toolManager.register(createOptionsTool('eraser', 4));
+
+    expect(c.calls).toBe(0);
+  });
+
   it('keeps the reference until the tool options change', () => {
     const source = createToolOptionsSource<{ color: string }>(vp, () => 'pencil');
     const c = counter();
