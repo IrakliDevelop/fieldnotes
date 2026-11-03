@@ -138,7 +138,7 @@ describe('ToolManager', () => {
   it('does not call a listener removed by an earlier listener during dispatch', () => {
     const manager = new ToolManager();
     const laterListener = vi.fn();
-    let removeLater = () => undefined;
+    let removeLater: () => void = () => undefined;
 
     manager.register(stubTool('pencil'));
     manager.onChange(() => removeLater());
