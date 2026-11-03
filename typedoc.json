@@ -1,6 +1,11 @@
 {
   "$schema": "https://typedoc.org/schema.json",
   "name": "Field Notes",
+  "navigationLinks": {
+    "Field Notes home": "https://iraklidevelop.github.io/fieldnotes/",
+    "Docs": "https://iraklidevelop.github.io/fieldnotes/docs/",
+    "Playground": "https://iraklidevelop.github.io/fieldnotes/playground/"
+  },
   "entryPointStrategy": "packages",
   "entryPoints": [
     "packages/core",

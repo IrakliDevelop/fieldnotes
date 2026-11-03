@@ -48,6 +48,16 @@ test('menu opens, closes on Escape and links resolve', async ({ page }) => {
   const button = menu.getByRole('button', { name: 'Menu' });
   await button.click();
   await expect(button).toHaveAttribute('aria-expanded', 'true');
+  const links = menu.getByRole('link');
+  await expect(links).toHaveText([
+    'Field Notes home',
+    'Docs',
+    'Dev playground',
+    'API reference',
+    'GitHub',
+  ]);
+  await expect(menu.getByRole('link', { name: 'Field Notes home' })).toHaveAttribute('href', '../');
+  await expect(menu.getByRole('link', { name: 'Docs' })).toHaveAttribute('href', '../docs/');
   await expect(menu.getByRole('link', { name: 'Dev playground' })).toHaveAttribute(
     'href',
     '../dev/',
