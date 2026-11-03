@@ -413,6 +413,22 @@ describe('mountViewport onChange', () => {
 });
 
 describe('mountViewport autoSave', () => {
+  it('a null autosave load preserves an onReady change', async () => {
+    vi.useFakeTimers();
+    const onChange = vi.fn<(state: CanvasState) => void>();
+    mount({
+      autoSave: { adapter: new MemoryAdapter(), key: 'k' },
+      onReady: (vp) => addShape(vp, 'ready'),
+      onChange,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0]?.[0].elements.map((element) => element.id)).toEqual(['ready']);
+  });
+
   it('loads the saved board after onReady and does not report it through onChange', async () => {
     vi.useFakeTimers();
     const adapter = new MemoryAdapter();
