@@ -166,8 +166,6 @@ Embedded components use a **two-mode interaction model**: by default they can be
 
 `CanvasElement` and `CanvasElementProps` are deprecated aliases of `HostElement` and `HostElementProps`; `@fieldnotes/react` 0.16.0 removes them. The `CanvasElement` type from `@fieldnotes/core` (the union of board elements) is unrelated and stays.
 
-The core canvas element type named `CanvasElement` is imported from `@fieldnotes/core`.
-
 ## Undo / Redo
 
 `useHistory` returns reactive undo/redo state and action callbacks:

@@ -58,15 +58,14 @@ Release notes prepared 2026-11-03.
 
 **Changed**
 
-- Update `tool` in the same `onToolChange` call (`onToolChange={setTool}`); an update deferred to a timer or promise lands after the revert.
+- **A `tool` prop now reverts a switch the host does not adopt; hosts that passed `tool` without updating it from `onToolChange` should drop `tool` or adopt the change.** Update `tool` in the same `onToolChange` call (`onToolChange={setTool}`); an update deferred to a timer or promise lands after the revert.
 - Reactive `tools` unregisters names that leave and reconciles by name without swapping a new
   same-name instance.
 - `FieldNotesCanvasRef.viewport` is readonly and live, set before parent effects, and null after
   unmount.
 - The `onToolChange` prop also receives `''` when `tools` removes the active tool and no fallback is registered.
-- `FieldNotesCanvasProps` extends `Omit<HTMLAttributes<HTMLDivElement>, 'autoSave' | 'onChange' | 'children' | 'dangerouslySetInnerHTML'>`, so those native attributes are not available on the root div.
-- `FieldNotesCanvasRef.autoSave`.
-- `FieldNotesCanvasProps` spreads other `div` props on the root div; the DOM `onChange` is unavailable because `onChange` receives the board state.
+- `FieldNotesCanvasProps` extends `Omit<HTMLAttributes<HTMLDivElement>, 'autoSave' | 'onChange' | 'children' | 'dangerouslySetInnerHTML'>` and spreads other `div` props on the root div; the DOM `onChange` is unavailable because `onChange` receives the board state.
+- `FieldNotesCanvasRef` gains a readonly `autoSave`: the live `AutoSave` instance, or `null` without the `autoSave` prop.
 - `useToolOptions` sees a named tool registered later.
 
 **Deprecated**

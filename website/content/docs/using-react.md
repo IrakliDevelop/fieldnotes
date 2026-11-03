@@ -45,7 +45,7 @@ The [`@fieldnotes/react` README](https://github.com/IrakliDevelop/fieldnotes/blo
 
 ## Save the board automatically
 
-`autoSave={{ key: 'board' }}` loads the board saved under that key after `onReady`, then saves 1000ms after each change, to localStorage unless you pass an `adapter`. A saved board replaces `initialData` and anything `onReady` added. [Saving and loading](/docs/saving-and-loading/#save-automatically) lists the options.
+`autoSave={{ key: 'board' }}` loads the board saved under that key after `onReady`, then saves 1000ms after the last change, to localStorage unless you pass an `adapter`. A saved board replaces `initialData` and anything `onReady` added. [Saving and loading](/docs/saving-and-loading/#save-automatically) lists the options.
 
 ::code{example="using-react" region="autosave"}
 
@@ -53,6 +53,8 @@ The [`@fieldnotes/react` README](https://github.com/IrakliDevelop/fieldnotes/blo
 
 `useShortcuts()` returns the current bindings, re-renders when one changes, and gives `rebind`, `disable` and `reset`. A hoisted `shortcuts` prop sets bindings ([Keyboard shortcuts](/docs/tools-and-input/#keyboard-shortcuts)).
 
-`usePresence(client, { identity })` draws other people's cursors and selections and returns them as `peers` ([README](https://github.com/IrakliDevelop/fieldnotes/blob/master/packages/react/README.md#presence)).
-
 ::code{example="using-react" region="shortcuts"}
+
+## Presence
+
+`usePresence(client, { identity })` draws other people's cursors and selections and returns them as `peers` ([README](https://github.com/IrakliDevelop/fieldnotes/blob/master/packages/react/README.md#presence)).

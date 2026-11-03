@@ -119,7 +119,7 @@ npm install @fieldnotes/core @fieldnotes/svelte  # Svelte 5
 npm install @fieldnotes/core @fieldnotes/angular # Angular 20 to 22
 ```
 
-Vue, Svelte and Angular still export the component as `CanvasElement`; `CanvasElement` still works as a deprecated alias; `@fieldnotes/react` 0.16.0 removes it. All three mirror the React package with `FieldNotesCanvas`,
+Vue, Svelte and Angular export the component as `CanvasElement`. React calls it `HostElement`; React's `CanvasElement` still works as a deprecated alias, and `@fieldnotes/react` 0.16.0 removes it. All three mirror the React package with `FieldNotesCanvas`,
 `Minimap`, and the React hooks as composables returning refs in Vue, store helpers in Svelte and
 signal helpers in Angular.
 Vue and Svelte keep the hook names; Angular renames `use` to `inject` (`injectCamera`) and uses
