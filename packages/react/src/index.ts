@@ -6,6 +6,8 @@ export {
   useViewport,
   useActiveTool,
   useCamera,
+  useCameraControls,
+  useShortcuts,
   useToolOptions,
   useLayers,
   useHistory,
@@ -23,6 +25,8 @@ export {
 } from './hooks';
 export type {
   UseLayersResult,
+  UseCameraControlsResult,
+  UseShortcutsResult,
   UseHistoryResult,
   UseSelectionOpsResult,
   UseExportResult,
