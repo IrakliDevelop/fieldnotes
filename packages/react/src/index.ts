@@ -15,8 +15,18 @@ export {
   useSelectionStyleDetails,
   useSelectionOps,
   useElementRects,
+  useExport,
+  useLoad,
+  useTransaction,
+  useElement,
+  useCanvasSize,
 } from './hooks';
-export type { UseLayersResult, UseHistoryResult, UseSelectionOpsResult } from './hooks';
+export type {
+  UseLayersResult,
+  UseHistoryResult,
+  UseSelectionOpsResult,
+  UseExportResult,
+} from './hooks';
 export type {
   CameraState,
   ElementStyle,
