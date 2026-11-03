@@ -423,22 +423,38 @@ describe('createToolOptionsSource', () => {
     expect(source.getSnapshot()).toEqual({ size: 6 });
   });
 
+  it('follows a replacement and detaches the previous instance', () => {
+    const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
+    const c = counter();
+    source.subscribe(c.onChange);
+    const custom = createOptionsTool('custom', 4);
+    vp.toolManager.register(custom);
+    const replacement = createOptionsTool('custom', 6);
+    vp.toolManager.register(replacement);
+
+    custom.setOptions({ size: 8 });
+    expect(c.calls).toBe(2);
+    expect(source.getSnapshot()).toEqual({ size: 6 });
+
+    replacement.setOptions({ size: 10 });
+
+    expect(c.calls).toBe(3);
+    expect(source.getSnapshot()).toEqual({ size: 10 });
+  });
+
   it('unsubscribe removes both the register and options listener', () => {
     const source = createToolOptionsSource<{ size: number }>(vp, () => 'custom');
     const c = counter();
     const off = source.subscribe(c.onChange);
     const custom = createOptionsTool('custom', 4);
     vp.toolManager.register(custom);
-    const replacement = createOptionsTool('custom', 6);
-    vp.toolManager.register(replacement);
-    custom.setOptions({ size: 8 });
-    expect(c.calls).toBe(2);
     off();
 
-    replacement.setOptions({ size: 10 });
+    custom.setOptions({ size: 6 });
     vp.toolManager.register(createOptionsTool('custom', 12));
 
-    expect(c.calls).toBe(2);
+    expect(c.calls).toBe(1);
+    expect(source.getSnapshot()).toEqual({ size: 12 });
   });
 
   it('ignores registrations of other tools', () => {
