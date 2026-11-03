@@ -54,7 +54,7 @@ describe('parseRoadmap', () => {
     );
   });
 
-  it('lists Built in shipping order and the React line as the only Next item', () => {
+  it('keeps Built in shipping order with React parity last and text inside shapes as sole Next item', () => {
     const roadmap = parseRoadmap(
       readFileSync(new URL('../../content/roadmap.md', import.meta.url), 'utf8'),
     );
