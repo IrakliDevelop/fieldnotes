@@ -54,7 +54,7 @@ export interface FieldNotesCanvasProps extends Omit<
   autoSave?: MountAutoSaveOptions;
   /** Reactive shortcut bindings. Hoist the object to avoid rebinding on every render. */
   shortcuts?: ShortcutBindings;
-  /** Reactive activation options. A new object replaces activation and resets pending gestures. */
+  /** Reactive activation options. A new object replaces activation, null disables it, and undefined leaves it unchanged. */
   activation?: ActivationOptions | null;
   /** Receives element activation events. */
   onElementActivate?: (event: ElementActivationEvent) => void;
@@ -118,6 +118,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
     const toolChangeRef = useRef(onToolChange);
     const previousShortcuts = useRef<ShortcutBindings | undefined>(undefined);
     const activationRef = useRef(onElementActivate);
+    const activationDispose = useRef<(() => void) | undefined>(undefined);
     changeRef.current = { onChange, changeDebounceMs };
     toolRef.current = { tool, defaultTool };
     toolChangeRef.current = onToolChange;
@@ -214,8 +215,17 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
 
     useEffect(() => {
       if (!viewport || activation === undefined) return;
-      return viewport.setActivation(activation);
+      const dispose = viewport.setActivation(activation);
+      activationDispose.current?.();
+      activationDispose.current = dispose;
     }, [viewport, activation]);
+
+    useEffect(() => {
+      return () => {
+        activationDispose.current?.();
+        activationDispose.current = undefined;
+      };
+    }, [viewport]);
 
     useEffect(() => {
       if (!viewport) return;

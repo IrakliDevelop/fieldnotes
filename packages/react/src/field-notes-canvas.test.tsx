@@ -132,6 +132,38 @@ describe('FieldNotesCanvas', () => {
     spy.mockRestore();
   });
 
+  it('activation undefined keeps the current registration until unmount', () => {
+    const original = Viewport.prototype.setActivation;
+    const disposed: (ActivationOptions | null)[] = [];
+    const spy = vi.spyOn(Viewport.prototype, 'setActivation').mockImplementation(function (
+      this: Viewport,
+      options,
+    ) {
+      const dispose = original.call(this, options);
+      return () => {
+        disposed.push(options);
+        dispose();
+      };
+    });
+    const single: ActivationOptions = { gesture: 'single' };
+    const { rerender, unmount } = render(<FieldNotesCanvas activation={single} />);
+
+    try {
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(disposed).toEqual([]);
+
+      rerender(<FieldNotesCanvas activation={undefined} />);
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(disposed).toEqual([]);
+
+      unmount();
+      expect(disposed).toEqual([single]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('cleanup uses the returned disposer, not setActivation(null)', () => {
     const original = Viewport.prototype.setActivation;
     const dispose = vi.fn();
