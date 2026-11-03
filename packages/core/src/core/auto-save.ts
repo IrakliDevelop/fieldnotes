@@ -83,6 +83,13 @@ export class AutoSave {
     this.unsubscribers = [];
   }
 
+  /** Runs a pending debounced save now; a no-op when none is pending. */
+  async flush(): Promise<void> {
+    if (this.timerId === null) return;
+    this.cancelPending();
+    await this.save();
+  }
+
   /**
    * Loads the saved state. Returns `null` when nothing is saved OR when the
    * saved data cannot be read (corrupt, or written by a newer version). In the
@@ -120,7 +127,10 @@ export class AutoSave {
 
   private scheduleSave(): void {
     this.cancelPending();
-    this.timerId = setTimeout(() => void this.save(), this.debounceMs);
+    this.timerId = setTimeout(() => {
+      this.timerId = null;
+      void this.save();
+    }, this.debounceMs);
   }
 
   private cancelPending(): void {

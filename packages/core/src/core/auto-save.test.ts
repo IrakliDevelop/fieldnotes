@@ -183,6 +183,79 @@ describe('AutoSave', () => {
     expect(localStorage.getItem('test-save')).toBeNull();
   });
 
+  it('flush saves a pending change without waiting for the debounce', async () => {
+    const adapter = new MemoryAdapter();
+    autoSave = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 1000 });
+    autoSave.start();
+
+    store.add(makeNote('x'));
+    await autoSave.flush();
+
+    const saved = JSON.parse((await adapter.load('k')) ?? 'null') as { elements: unknown[] };
+    expect(saved.elements).toHaveLength(1);
+  });
+
+  it('flush is a no-op when nothing is pending', async () => {
+    const adapter = new MemoryAdapter();
+    autoSave = new AutoSave(store, camera, { adapter, key: 'k' });
+    autoSave.start();
+
+    await autoSave.flush();
+
+    expect(await adapter.load('k')).toBeNull();
+  });
+
+  it('flush takes its snapshot before the adapter write settles', async () => {
+    let resolveSave: (() => void) | undefined;
+    let savedValue: string | undefined;
+    const adapter: StorageAdapter = {
+      load: async () => null,
+      clear: async () => undefined,
+      save: async (_key, value) => {
+        savedValue = value;
+        await new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        });
+      },
+    };
+    autoSave = new AutoSave(store, camera, { adapter, debounceMs: 1000 });
+    autoSave.start();
+
+    store.add(makeNote());
+    const flush = autoSave.flush();
+    store.clear();
+    resolveSave?.();
+    await flush;
+
+    const saved = JSON.parse(savedValue ?? 'null') as { elements: unknown[] };
+    expect(saved.elements).toHaveLength(1);
+  });
+
+  it('flush after stop does not save', async () => {
+    const adapter = new MemoryAdapter();
+    autoSave = new AutoSave(store, camera, { adapter, key: 'k', debounceMs: 1000 });
+    autoSave.start();
+
+    store.add(makeNote());
+    autoSave.stop();
+    await autoSave.flush();
+
+    expect(await adapter.load('k')).toBeNull();
+  });
+
+  it('flush is a no-op after the debounced save already ran', async () => {
+    const adapter = new MemoryAdapter();
+    const save = vi.spyOn(adapter, 'save');
+    autoSave = new AutoSave(store, camera, { adapter, debounceMs: 1000 });
+    autoSave.start();
+
+    store.add(makeNote());
+    await vi.advanceTimersByTimeAsync(1000);
+    await autoSave.flush();
+
+    expect(save).toHaveBeenCalledOnce();
+  });
+
   it('respects custom debounce time', async () => {
     autoSave = new AutoSave(store, camera, {
       key: 'test-save',
