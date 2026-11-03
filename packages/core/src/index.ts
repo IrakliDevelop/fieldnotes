@@ -73,6 +73,7 @@ export {
   createLayersSource,
   createActiveToolSource,
   createPresentationSource,
+  createShortcutsSource,
   createToolOptionsSource,
 } from './canvas/viewport-sources';
 export type {

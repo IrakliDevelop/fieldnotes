@@ -18,6 +18,7 @@ import {
   createSelectionSource,
   createSelectionStyleDetailsSource,
   createSelectionStyleSource,
+  createShortcutsSource,
   createToolOptionsSource,
   createPresentationSource,
 } from './viewport-sources';
@@ -348,6 +349,30 @@ describe('createActiveToolSource', () => {
     const bare = new Viewport(document.createElement('div'), { tools: [] });
     expect(createActiveToolSource(bare).getSnapshot()).toBe('');
     bare.destroy();
+  });
+});
+
+describe('createShortcutsSource', () => {
+  it('returns the same reference until a binding changes', () => {
+    const source = createShortcutsSource(vp);
+    const first = source.getSnapshot();
+
+    expect(source.getSnapshot()).toBe(first);
+    vp.shortcuts.rebind('edit.undo', 'mod+u');
+    const changed = source.getSnapshot();
+
+    expect(changed).not.toBe(first);
+    expect(changed['edit.undo']).toEqual(['mod+u']);
+  });
+
+  it('notifies subscribers on rebind', () => {
+    const source = createShortcutsSource(vp);
+    const changed = counter();
+    source.subscribe(changed.onChange);
+
+    vp.shortcuts.rebind('edit.undo', 'mod+u');
+
+    expect(changed.calls).toBe(1);
   });
 });
 

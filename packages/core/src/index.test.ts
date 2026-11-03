@@ -266,6 +266,7 @@ describe('core public surface', () => {
   });
 
   it('exports the viewport source factories and state types', () => {
+    expect(typeof FN.createShortcutsSource).toBe('function');
     const factories = [
       FN.createCameraSource,
       FN.createElementsSource,
@@ -277,6 +278,7 @@ describe('core public surface', () => {
       FN.createHistorySource,
       FN.createLayersSource,
       FN.createActiveToolSource,
+      FN.createShortcutsSource,
       FN.createToolOptionsSource,
     ];
     for (const factory of factories) expect(factory).toBeTypeOf('function');

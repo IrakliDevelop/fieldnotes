@@ -318,6 +318,38 @@ export function createPresentationSource(vp: Viewport): ViewportSource<Presentat
   };
 }
 
+/** Current bindings per action; changes on any binding change (defaults, rebind, disable, reset). */
+export function createShortcutsSource(
+  vp: Viewport,
+): ViewportSource<Record<string, readonly string[]>> {
+  let cached: Record<string, readonly string[]> = {};
+  return {
+    subscribe: (onChange) => vp.shortcuts.onChange(onChange),
+    getSnapshot() {
+      const next = vp.shortcuts.getBindings();
+      const cachedKeys = Object.keys(cached);
+      const nextKeys = Object.keys(next);
+      if (
+        cachedKeys.length === nextKeys.length &&
+        cachedKeys.every((key) => {
+          const previous = cached[key];
+          const bindings = next[key];
+          return (
+            previous !== undefined &&
+            bindings !== undefined &&
+            previous.length === bindings.length &&
+            previous.every((binding, index) => binding === bindings[index])
+          );
+        })
+      ) {
+        return cached;
+      }
+      cached = next;
+      return cached;
+    },
+  };
+}
+
 function optionsEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const keysA = Object.keys(a);
   const keysB = Object.keys(b);

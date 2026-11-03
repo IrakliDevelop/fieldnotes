@@ -300,6 +300,61 @@ describe('ShortcutMap rebind overrides applied after defaults', () => {
 });
 
 describe('ShortcutMap runtime API', () => {
+  it('onChange fires once after every real binding change', () => {
+    const map = new ShortcutMap();
+    const changed = vi.fn();
+    map.onChange(changed);
+
+    map.setDefault('edit.undo', ['mod+z'], false);
+    expect(changed).toHaveBeenCalledTimes(1);
+    map.rebind('edit.undo', 'mod+u');
+    expect(changed).toHaveBeenCalledTimes(2);
+    map.setDefault('edit.undo', ['mod+q'], false);
+    expect(changed).toHaveBeenCalledTimes(2);
+    map.disable('edit.undo');
+    expect(changed).toHaveBeenCalledTimes(3);
+    map.reset('edit.undo');
+    expect(changed).toHaveBeenCalledTimes(4);
+    map.reset('edit.undo');
+    expect(changed).toHaveBeenCalledTimes(4);
+    map.clearDefault('edit.undo');
+    expect(changed).toHaveBeenCalledTimes(5);
+    map.reset();
+    expect(changed).toHaveBeenCalledTimes(6);
+  });
+
+  it('unsubscribe stops notifications', () => {
+    const map = new ShortcutMap();
+    const changed = vi.fn();
+    const unsubscribe = map.onChange(changed);
+
+    unsubscribe();
+    map.rebind('edit.undo', 'mod+u');
+
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it('a throwing listener does not stop the others', () => {
+    const map = new ShortcutMap();
+    const error = new Error('listener failed');
+    const report = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const changed = vi.fn();
+    map.onChange(() => {
+      throw error;
+    });
+    map.onChange(changed);
+
+    map.rebind('edit.undo', 'mod+u');
+
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledOnce();
+    expect(report).toHaveBeenCalledWith(
+      expect.stringContaining('shortcuts onChange listener failed'),
+      error,
+    );
+    report.mockRestore();
+  });
+
   it('rebind replaces bindings', () => {
     const map = new ShortcutMap();
     seedAllDefaults(map);
