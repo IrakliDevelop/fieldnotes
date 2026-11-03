@@ -429,6 +429,66 @@ describe('FieldNotesCanvas', () => {
     expect(onToolChange.mock.calls).toEqual([['pencil']]);
   });
 
+  it('a switch from a child effect is adopted', async () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onToolChange = vi.fn();
+    function Child() {
+      const viewport = useContext(ViewportContext);
+      useEffect(() => {
+        viewport?.setTool('pencil');
+      }, [viewport]);
+      return null;
+    }
+    function Host() {
+      const [tool, setTool] = useState('select');
+      return (
+        <FieldNotesCanvas
+          tools={[new SelectTool(), new PencilTool()]}
+          tool={tool}
+          onReady={onReady}
+          onToolChange={(name) => {
+            onToolChange(name);
+            setTool(name);
+          }}
+        >
+          <Child />
+        </FieldNotesCanvas>
+      );
+    }
+    render(<Host />);
+    const viewport = viewportAt(onReady, 0);
+    await waitFor(() => {
+      expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+    });
+    expect(onToolChange.mock.calls).toEqual([['pencil']]);
+  });
+
+  it('a switch after a microtask is adopted', async () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const onToolChange = vi.fn();
+    function Host() {
+      const [tool, setTool] = useState('select');
+      return (
+        <FieldNotesCanvas
+          tools={[new SelectTool(), new PencilTool()]}
+          tool={tool}
+          onReady={onReady}
+          onToolChange={(name) => {
+            onToolChange(name);
+            setTool(name);
+          }}
+        />
+      );
+    }
+    render(<Host />);
+    const viewport = viewportAt(onReady, 0);
+    void Promise.resolve().then(() => viewport.setTool('pencil'));
+    await waitFor(() => {
+      expect(viewport.toolManager.activeTool?.name).toBe('pencil');
+    });
+    expect(onToolChange.mock.calls).toEqual([['pencil']]);
+  });
+
   it('a switch made from a timer that the host adopts synchronously', async () => {
     const onReady = vi.fn<(viewport: Viewport) => void>();
     const onToolChange = vi.fn();

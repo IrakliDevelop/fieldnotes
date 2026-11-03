@@ -1,16 +1,14 @@
 import {
   useRef,
   useEffect,
-  useMemo,
   useState,
   forwardRef,
   useImperativeHandle,
-  useSyncExternalStore,
   type ReactNode,
   type CSSProperties,
   type HTMLAttributes,
 } from 'react';
-import { createActiveToolSource, mountViewport } from '@fieldnotes/core';
+import { mountViewport } from '@fieldnotes/core';
 import type {
   Viewport,
   ViewportOptions,
@@ -22,14 +20,8 @@ import type {
   MountAutoSaveOptions,
   MountedViewport,
   ShortcutBindings,
-  ViewportSource,
 } from '@fieldnotes/core';
 import { ViewportContext } from './context';
-
-const INERT: ViewportSource<string> = {
-  subscribe: () => () => undefined,
-  getSnapshot: () => '',
-};
 
 export interface FieldNotesCanvasProps extends Omit<
   HTMLAttributes<HTMLDivElement>,
@@ -112,6 +104,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [viewport, setViewport] = useState<Viewport | null>(null);
+    const [active, setActive] = useState('');
     const mountedRef = useRef<MountedViewport | null>(null);
     const changeRef = useRef({ onChange, changeDebounceMs });
     const toolRef = useRef({ tool, defaultTool });
@@ -123,11 +116,6 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
     toolRef.current = { tool, defaultTool };
     toolChangeRef.current = onToolChange;
     activationRef.current = onElementActivate;
-    const activeSource = useMemo(
-      () => (viewport ? createActiveToolSource(viewport) : INERT),
-      [viewport],
-    );
-    const active = useSyncExternalStore(activeSource.subscribe, activeSource.getSnapshot, () => '');
 
     useImperativeHandle(
       ref,
@@ -159,7 +147,13 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
           return toolRef.current.defaultTool;
         },
         get onToolChange() {
-          return toolChangeRef.current;
+          return (name: string) => {
+            try {
+              toolChangeRef.current?.(name);
+            } finally {
+              setActive(name);
+            }
+          };
         },
         get onChange() {
           return changeRef.current.onChange;
@@ -169,6 +163,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
         },
       });
       mountedRef.current = mounted;
+      setActive(mounted.viewport.toolManager.activeTool?.name ?? '');
       setViewport(mounted.viewport);
 
       return () => {
