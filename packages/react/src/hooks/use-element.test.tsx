@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { createShape } from '@fieldnotes/core';
 import type { ReactNode } from 'react';
+import { renderToString } from 'react-dom/server';
 import { ViewportContext } from '../context';
 import { createTestViewport, destroyTestViewports } from '../test-utils/create-test-viewport';
 import { useElement } from './use-element';
@@ -9,7 +10,7 @@ import { useElement } from './use-element';
 describe('useElement', () => {
   afterEach(destroyTestViewports);
 
-  it('follows its id and ignores unrelated changes', () => {
+  it('follows its id without resubscribing and ignores unrelated changes', () => {
     const viewport = createTestViewport();
     const layerId = viewport.layerManager.activeLayerId;
     const a = {
@@ -25,6 +26,7 @@ describe('useElement', () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ViewportContext.Provider value={viewport}>{children}</ViewportContext.Provider>
     );
+    const onChange = vi.spyOn(viewport.store, 'onChange');
     let renders = 0;
     const initialProps: { id: string | null } = { id: 'a' };
     const { result, rerender } = renderHook(
@@ -35,6 +37,7 @@ describe('useElement', () => {
       { wrapper, initialProps },
     );
     expect(result.current?.id).toBe('a');
+    expect(onChange).toHaveBeenCalledTimes(1);
     const initial = renders;
     act(() => viewport.store.update('b', { position: { x: 30, y: 0 } }));
     expect(renders).toBe(initial);
@@ -43,7 +46,29 @@ describe('useElement', () => {
     expect(result.current?.position.x).toBe(10);
     rerender({ id: 'b' });
     expect(result.current?.id).toBe('b');
+    expect(onChange).toHaveBeenCalledTimes(1);
     rerender({ id: null });
     expect(result.current).toBeNull();
+  });
+
+  it('returns null on the server when the element exists', () => {
+    const viewport = createTestViewport();
+    const layerId = viewport.layerManager.activeLayerId;
+    viewport.store.add({
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId }),
+      id: 'a',
+    });
+
+    function ElementId() {
+      return useElement('a')?.id ?? 'null';
+    }
+
+    expect(
+      renderToString(
+        <ViewportContext.Provider value={viewport}>
+          <ElementId />
+        </ViewportContext.Provider>,
+      ),
+    ).toBe('null');
   });
 });

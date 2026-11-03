@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import type { CanvasState, ExportImageOptions, ExportSvgOptions } from '@fieldnotes/core';
 import { useViewport } from './use-viewport';
 
+/** Export operations returned by useExport. */
 export interface UseExportResult {
   exportState(): CanvasState;
   exportJSON(): string;
