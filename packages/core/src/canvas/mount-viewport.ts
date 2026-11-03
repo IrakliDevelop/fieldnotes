@@ -131,6 +131,7 @@ export function mountViewport(
         try {
           vp.loadState(state);
         } catch (error) {
+          if (destroyed) return;
           if (opts.autoSave?.onError) {
             opts.autoSave.onError(error instanceof Error ? error : new Error(String(error)));
           } else {
@@ -140,6 +141,7 @@ export function mountViewport(
         } finally {
           muted = false;
         }
+        if (destroyed) return;
       }
       autoSave.start();
     });

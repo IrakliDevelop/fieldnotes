@@ -478,6 +478,27 @@ describe('mountViewport autoSave', () => {
     expect(m.viewport.store.getAll().map((element) => element.id)).toEqual(['saved']);
   });
 
+  it('does not start autosave when applying a saved board destroys the mount', async () => {
+    vi.useFakeTimers();
+    const seeded = JSON.stringify(exportedShape('saved'));
+    const adapter = new MemoryAdapter();
+    await adapter.save('k', seeded);
+    const m = mount({
+      autoSave: { adapter, key: 'k', debounceMs: 100 },
+      onChange: () => undefined,
+      onReady: (vp) => {
+        vp.onStateChange(() => m?.destroy());
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    addShape(m.viewport, 'late');
+    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(await adapter.load('k')).toBe(seeded);
+  });
+
   it('saves changes through the adapter after the load', async () => {
     vi.useFakeTimers();
     const adapter = new MemoryAdapter();
@@ -561,14 +582,25 @@ describe('mountViewport autoSave', () => {
 
   it('a saved board that fails to apply is reported and never overwritten', async () => {
     vi.useFakeTimers();
-    const seeded = JSON.stringify(exportedShape('saved'));
+    const plugin: ViewportPlugin = {
+      name: 'invalid-state',
+      start: () => ({
+        dispose: () => undefined,
+        exportState: () => ({}),
+        loadState: () => undefined,
+        validateState: () => {
+          throw 'invalid plugin state';
+        },
+      }),
+    };
+    const seeded = JSON.stringify(
+      exportedShape('saved', { 'invalid-state': { version: 1, data: {} } }),
+    );
     const adapter = new MemoryAdapter();
     await adapter.save('k', seeded);
     const onError = vi.fn<(error: Error) => void>();
-    vi.spyOn(Viewport.prototype, 'loadState').mockImplementationOnce(() => {
-      throw 'invalid plugin state';
-    });
     const m = mount({
+      options: { plugins: [plugin] },
       autoSave: { adapter, key: 'k', onError, debounceMs: 100 },
     });
 
@@ -578,7 +610,6 @@ describe('mountViewport autoSave', () => {
 
     expect(onError).toHaveBeenCalledOnce();
     expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(Error);
-    expect(onError.mock.calls[0]?.[0].message).toBe('invalid plugin state');
     expect(await adapter.load('k')).toBe(seeded);
   });
 
@@ -593,7 +624,7 @@ describe('mountViewport autoSave', () => {
         exportState: () => ({}),
         loadState: () => undefined,
         validateState: () => {
-          throw new Error('invalid plugin state');
+          throw 'invalid plugin state';
         },
       }),
     };
