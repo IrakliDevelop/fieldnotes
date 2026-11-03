@@ -123,7 +123,7 @@ Not all props are reactive — the canvas is stateful. Changing a mount-only pro
 | `snapToGrid` (deprecated)          | Reactive compatibility prop; prefer a domain constraint service.                                                                                                                                                                                                                                                               |
 | Other `div` props                  | Spread on the root div; DOM `onChange` is not available.                                                                                                                                                                                                                                                                       |
 
-A `tool` prop decides the active tool: a switch from the keyboard or the API is reverted unless `onToolChange` updates `tool` in the same call, as `onToolChange={setTool}` does. An update deferred to a timer or a promise lands after the revert. A host that never updates `tool` should pass `defaultTool` instead.
+With a `tool` prop, the prop decides the active tool: a switch from the keyboard or the API is reverted unless `onToolChange` updates `tool` in the same call, as `onToolChange={setTool}` does. An update deferred to a timer or a promise lands after the revert. A host that never updates `tool` should pass `defaultTool` instead.
 
 After `tools` removes a tool, `useToolOptions` for that name keeps returning its last options until the component re-renders, then returns `null`.
 
