@@ -225,7 +225,8 @@ export class CommandPalette implements PaletteApi {
       ),
     ]);
     if (signature === this.rowSignature) return;
-    const scrollActive = this.activeKey !== this.renderedActiveKey;
+    const scrollActive =
+      this.activeKey !== this.renderedActiveKey || signature !== this.rowSignature;
     this.rowSignature = signature;
     this.renderedActiveKey = this.activeKey;
     list.replaceChildren();

@@ -458,6 +458,33 @@ describe('command palette', () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
   });
 
+  it('scrolls an active row that survives a re-filter at a new index', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    cleanup.push(() => {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', descriptor);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    });
+    const { harness, container, palette } = makeDeps();
+    addAction(harness, 'test.q1', 'Q1');
+    addAction(harness, 'test.q2', 'Q2');
+    addAction(harness, 'test.q3', 'Q3');
+
+    palette.open('q');
+    key(input(container), 'ArrowDown');
+    scrollIntoView.mockClear();
+    type(container, 'q2');
+
+    expect(active(container).textContent).toBe('Q2');
+    expect(rows(container)).toHaveLength(1);
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+
   it('scrolls the initial active row again after closing and reopening', () => {
     const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
     const scrollIntoView = vi.fn();
