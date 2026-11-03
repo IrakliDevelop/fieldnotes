@@ -300,6 +300,20 @@ describe('ShortcutMap rebind overrides applied after defaults', () => {
 });
 
 describe('ShortcutMap runtime API', () => {
+  it('same-value rebind keeps the user override when the default changes', () => {
+    const map = new ShortcutMap();
+    const changed = vi.fn();
+    map.onChange(changed);
+
+    map.setDefault('edit.undo', ['mod+z'], false);
+    expect(changed).toHaveBeenCalledTimes(1);
+    map.rebind('edit.undo', 'mod+z');
+    expect(changed).toHaveBeenCalledTimes(1);
+    map.setDefault('edit.undo', ['mod+q'], false);
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(map.getBindings()['edit.undo']).toEqual(['mod+z']);
+  });
+
   it('onChange fires once after every real binding change', () => {
     const map = new ShortcutMap();
     const changed = vi.fn();

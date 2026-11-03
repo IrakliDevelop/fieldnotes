@@ -161,8 +161,8 @@ export class ShortcutMap implements ShortcutsApi {
   rebind(action: string, bindings: string | string[] | null): void {
     const canonical = resolveActionId(action);
     const next = toArray(bindings);
-    if (sameList(this.raw.get(canonical), next)) return;
     this.userOverridden.add(canonical);
+    if (sameList(this.raw.get(canonical), next)) return;
     this.apply(canonical, next);
     this.emitChange();
   }
