@@ -1,12 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { displayName, parseChangelog } from '../src/lib/changelog';
+import { parseRoadmap } from '../src/lib/roadmap';
 import { repoFile } from '../src/lib/versions';
 import { expectNoAxeViolations } from './helpers';
 
 const [newest] = parseChangelog(readFileSync(repoFile('CHANGELOG.md'), 'utf8'));
 if (!newest) throw new Error('CHANGELOG.md has no release');
 const NEWEST = `${displayName(newest)} ${newest.version}`;
+
+const ROADMAP = parseRoadmap(readFileSync(repoFile('website', 'content', 'roadmap.md'), 'utf8'));
+const [oldestBuilt] = ROADMAP.built;
+const newestBuilt = ROADMAP.built.at(-1);
+if (!oldestBuilt || !newestBuilt) throw new Error('roadmap.md has no Built item');
 
 const NOT_BUILT = ['Elbow arrows that route around shapes', 'Text inside shapes'];
 
@@ -17,7 +23,6 @@ const BUILT = [
 ];
 
 const NEXT = [
-  "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
   "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
 ];
 
@@ -72,6 +77,61 @@ test('the roadmap shows its three sections with frames built and the not built l
   }
   await expect(page.getByRole('region', { name: 'Next' }).getByRole('listitem')).toHaveText(NEXT);
   await expect(page.getByRole('region', { name: 'Next' })).not.toContainText(BUILT_FRAMES);
+});
+
+for (const javaScriptEnabled of [true, false]) {
+  test.describe(`roadmap fold with JavaScript ${javaScriptEnabled ? 'on' : 'off'}`, () => {
+    test.use({ javaScriptEnabled });
+
+    test('shows the five newest Built items and opens the earlier ones in place', async ({
+      page,
+    }) => {
+      await page.goto('/roadmap/');
+      const built = page.getByRole('region', { name: 'Built', exact: true });
+      const fold = built.locator('details > summary');
+      await expect(fold).toHaveText(/Show items 1–\d+/, { useInnerText: true });
+      await expect(built.getByText(oldestBuilt, { exact: true })).toBeHidden();
+      await expect(built.getByText(newestBuilt, { exact: true })).toBeVisible();
+      await fold.click();
+      await expect(fold).toHaveText(/Hide items 1–\d+/, { useInnerText: true });
+      await expect(built.getByText(oldestBuilt, { exact: true })).toBeVisible();
+      await fold.click();
+      await expect(built.getByText(oldestBuilt, { exact: true })).toBeHidden();
+    });
+  });
+}
+
+test('the roadmap numbers its sections as one list', async ({ page }) => {
+  await page.goto('/roadmap/');
+  await expect(
+    page.getByRole('region', { name: 'Built', exact: true }).locator('ol').last(),
+  ).toHaveAttribute('start', String(ROADMAP.built.length - 4));
+  await expect(page.getByRole('region', { name: 'Not built yet' }).locator('ol')).toHaveAttribute(
+    'start',
+    String(ROADMAP.built.length + ROADMAP.next.length + 1),
+  );
+});
+
+test('the roadmap map is decorative and drawn from the list', async ({ page }) => {
+  await page.goto('/roadmap/');
+  const map = page.locator('[data-trail-map]');
+  await expect(map).toHaveAttribute('aria-hidden', 'true');
+  const total = ROADMAP.built.length + ROADMAP.next.length + ROADMAP.notBuilt.length;
+  await expect(map.locator('circle')).toHaveCount(total);
+  const unexplored = map.locator('path.unexplored');
+  const unexploredNote = map.locator('text.note.unexplored');
+  await expect(unexplored).toHaveCSS('fill', 'none');
+  await expect(unexplored).toHaveCSS('stroke', 'rgb(95, 101, 108)');
+  await expect(unexplored).toHaveCSS('stroke-dasharray', '2px, 7px');
+  await expect(unexploredNote).toHaveCSS('stroke', 'none');
+  if (test.info().project.name === 'desktop-chrome') await expect(map).toBeVisible();
+  else await expect(map).toBeHidden();
+});
+
+test('the roadmap has no horizontal scroll on a phone', async ({ page }) => {
+  test.skip(test.info().project.name !== 'phone', 'phone width only');
+  await page.goto('/roadmap/');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 
 for (const path of ['/changelog/', '/roadmap/']) {

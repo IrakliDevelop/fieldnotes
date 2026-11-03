@@ -54,7 +54,7 @@ describe('parseRoadmap', () => {
     );
   });
 
-  it('lists clipping, frames, and the performance gate as built', () => {
+  it('lists Built in shipping order and the React line as the only Next item', () => {
     const roadmap = parseRoadmap(
       readFileSync(new URL('../../content/roadmap.md', import.meta.url), 'utf8'),
     );
@@ -65,27 +65,30 @@ describe('parseRoadmap', () => {
     expect(roadmap.built).toContain(
       'A scheduled Chromium performance gate that records 90 render-loop samples on 10,011 elements against a checked-in p95 budget',
     );
-    expect(roadmap.built).toContain('Frames that group and clip elements');
-    expect(roadmap.built).toContain('Presentation mode that steps through frames fullscreen');
-    expect(roadmap.built).toContain('Laser pointer on the L key');
-    expect(roadmap.built).toContain('Command palette on Ctrl or ⌘+K to search and run actions');
-    expect(roadmap.built).toContain(
-      'Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match',
+    const camera = roadmap.built.indexOf(
+      'Camera constraints applied to camera mutations and animations',
     );
-    expect(roadmap.built).toContain(
+    const frames = roadmap.built.indexOf('Frames that group and clip elements');
+    const shortcuts = roadmap.built.indexOf(
       'Shortcuts help on the ? key, generated from the current bindings',
     );
-    expect(roadmap.next).not.toContain(
-      'Parent and child elements with nested rectangular clipping across canvas, DOM, minimap, PNG and SVG export',
-    );
+
+    expect(camera).toBeGreaterThanOrEqual(0);
+    expect(frames).toBeGreaterThanOrEqual(0);
+    expect(shortcuts).toBeGreaterThanOrEqual(0);
+    expect(camera).toBeLessThan(frames);
+    expect(frames).toBeLessThan(shortcuts);
     expect(roadmap.next).toEqual([
-      "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
       "I'm bringing the React bindings up to the core API: hooks and props for autosave, export, camera control, shortcuts and presence.",
     ]);
-    expect(roadmap.next).not.toContain('Frames that group and clip elements');
     expect(roadmap.notBuilt).toEqual([
       'Elbow arrows that route around shapes',
       'Text inside shapes',
     ]);
+    for (const section of [roadmap.built, roadmap.next, roadmap.notBuilt]) {
+      expect(section).not.toContain(
+        "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",
+      );
+    }
   });
 });
