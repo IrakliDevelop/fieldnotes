@@ -372,7 +372,11 @@ describe('command palette', () => {
     addAction(harness, 'test.ping', 'Ping test', ping);
     palette.open('ping');
     key(input(container), 'Enter');
-    expect(ping).toHaveBeenCalledWith(expect.anything(), { source: 'menu', shiftKey: false });
+    expect(ping).toHaveBeenCalledWith(expect.anything(), {
+      source: 'menu',
+      shiftKey: false,
+      repeat: false,
+    });
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(wrapper);
   });
@@ -804,9 +808,17 @@ describe('command palette', () => {
     expect(shortcuts.enabled?.(context)).toBe(true);
     help.isOpen.mockReturnValue(true);
     expect(shortcuts.enabled?.(context)).toBe(false);
-    expect(open.perform(context, { source: 'keyboard', shiftKey: false })).toBeUndefined();
-    expect(shortcuts.perform(context, { source: 'keyboard', shiftKey: false })).toBeUndefined();
+    expect(
+      open.perform(context, { source: 'keyboard', shiftKey: false, repeat: false }),
+    ).toBeUndefined();
+    expect(
+      shortcuts.perform(context, { source: 'keyboard', shiftKey: false, repeat: false }),
+    ).toBeUndefined();
     expect(palette.open).toHaveBeenCalledOnce();
+    expect(help.open).toHaveBeenCalledOnce();
+    expect(shortcuts.perform(context, { source: 'keyboard', shiftKey: false, repeat: true })).toBe(
+      false,
+    );
     expect(help.open).toHaveBeenCalledOnce();
   });
 });

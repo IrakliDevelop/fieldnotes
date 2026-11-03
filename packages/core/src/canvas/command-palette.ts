@@ -510,7 +510,10 @@ export function createPaletteActions(
       shortcut: ['?'],
       allowShift: true,
       enabled: () => !help.isOpen(),
-      perform: () => help.open(),
+      perform: (_context, invocation) => {
+        if (invocation.repeat) return false;
+        help.open();
+      },
     },
   ];
 }

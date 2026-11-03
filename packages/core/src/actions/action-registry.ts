@@ -95,6 +95,7 @@ export class ActionRegistry implements ActionsApi {
     const fullInvocation: ActionInvocation = {
       source: invocation?.source ?? 'api',
       shiftKey: invocation?.shiftKey ?? false,
+      repeat: invocation?.repeat ?? false,
     };
 
     const result = def.perform(ctx, fullInvocation);

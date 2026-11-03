@@ -82,7 +82,7 @@ function makeCtx(overrides?: Partial<ActionContext>): ActionContext {
   };
 }
 
-const defaultInvocation: ActionInvocation = { source: 'keyboard', shiftKey: false };
+const defaultInvocation: ActionInvocation = { source: 'keyboard', shiftKey: false, repeat: false };
 
 function findAction(actions: ActionDefinition[], id: string): ActionDefinition {
   const a = actions.find((d) => d.id === id);
@@ -265,14 +265,14 @@ describe('createBuiltinActions', () => {
 
       // With shiftKey = true
       nudge.mockClear();
-      const result = action.perform(ctx, { source: 'keyboard', shiftKey: true });
+      const result = action.perform(ctx, { source: 'keyboard', shiftKey: true, repeat: false });
       expect(nudge).toHaveBeenCalledWith(dx, dy, true);
       expect(result).toBe(true);
 
       // With shiftKey = false
       nudge.mockReturnValue(false);
       nudge.mockClear();
-      const result2 = action.perform(ctx, { source: 'keyboard', shiftKey: false });
+      const result2 = action.perform(ctx, { source: 'keyboard', shiftKey: false, repeat: false });
       expect(nudge).toHaveBeenCalledWith(dx, dy, false);
       expect(result2).toBe(false);
 

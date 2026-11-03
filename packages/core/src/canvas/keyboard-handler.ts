@@ -104,12 +104,12 @@ export class KeyboardHandler {
 
     const id = this.shortcutMap.match(e);
     if (id !== null) {
-      if (id === 'palette.help' && e.repeat) return;
       const def = this.deps.actions.get(id);
       if (!def) return;
       const enabled = this.deps.actions.isEnabled(id);
       const handled =
-        enabled && this.deps.actions.run(id, { source: 'keyboard', shiftKey: e.shiftKey });
+        enabled &&
+        this.deps.actions.run(id, { source: 'keyboard', shiftKey: e.shiftKey, repeat: e.repeat });
       if (def.preventDefault !== false && (handled || !enabled)) {
         e.preventDefault();
       }
