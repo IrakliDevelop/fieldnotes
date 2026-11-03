@@ -7,7 +7,7 @@ export function CameraBar() {
   const undoBindings = bindings['edit.undo'] ?? [];
 
   return (
-    <div className="toolbar" style={{ top: 168 }}>
+    <div className="toolbar">
       <button onClick={() => fitToContent()}>Fit to content</button>
       <button onClick={() => setZoom(2)}>Zoom 2×</button>
       <button onClick={() => animateTo({ x: 0, y: 0, w: 400, h: 300 })}>Animate to origin</button>

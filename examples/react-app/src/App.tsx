@@ -46,21 +46,23 @@ export function App() {
           onImageError: ({ src }) => window.alert(`Image failed to load: ${src}`),
         }}
       >
-        <Toolbar tool={tool} onSelect={setTool} hasStamp={hasStamp} />
-        <SaveControls />
-        <CameraBar />
-        <Sidebar />
-        <div className="toolbar" style={{ top: 220 }}>
-          <label>
-            <input
-              type="checkbox"
-              checked={hasStamp}
-              onChange={(event) => setHasStamp(event.target.checked)}
-            />
-            Stamp tool
-          </label>
-          <p>Last activated: {lastActivated ?? 'none'}</p>
+        <div className="controls">
+          <Toolbar tool={tool} onSelect={setTool} hasStamp={hasStamp} />
+          <SaveControls />
+          <CameraBar />
+          <div className="toolbar">
+            <label>
+              <input
+                type="checkbox"
+                checked={hasStamp}
+                onChange={(event) => setHasStamp(event.target.checked)}
+              />
+              Stamp tool
+            </label>
+            <p>Last activated: {lastActivated ?? 'none'}</p>
+          </div>
         </div>
+        <Sidebar />
         <HostElement position={HOST_POSITION} size={HOST_SIZE}>
           <Card />
         </HostElement>

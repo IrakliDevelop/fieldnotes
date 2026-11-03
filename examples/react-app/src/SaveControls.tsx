@@ -28,7 +28,7 @@ export function SaveControls() {
   };
 
   return (
-    <div className="toolbar" style={{ top: 64 }}>
+    <div className="toolbar">
       <button onClick={save}>Save</button>
       <button onClick={load}>Load</button>
       <button onClick={exportPng}>Open PNG</button>
