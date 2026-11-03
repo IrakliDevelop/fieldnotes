@@ -231,7 +231,7 @@ describe('mountViewport setTools', () => {
     expect(deactivate).not.toHaveBeenCalled();
   });
 
-  it('setTools reads tool and defaultTool live', () => {
+  it('setTools reads tool live', () => {
     let tool: string | undefined = 'hand';
     const hand = new HandTool();
     const select = new SelectTool();
@@ -244,6 +244,25 @@ describe('mountViewport setTools', () => {
     });
     m.setTool('pencil');
     tool = 'select';
+
+    m.setTools([hand, select]);
+
+    expect(m.viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('setTools reads defaultTool live', () => {
+    let defaultTool: string | undefined = 'hand';
+    const hand = new HandTool();
+    const select = new SelectTool();
+    const pencil = new PencilTool();
+    const m = mount({
+      tools: [hand, select, pencil],
+      get defaultTool() {
+        return defaultTool;
+      },
+    });
+    m.setTool('pencil');
+    defaultTool = 'select';
 
     m.setTools([hand, select]);
 

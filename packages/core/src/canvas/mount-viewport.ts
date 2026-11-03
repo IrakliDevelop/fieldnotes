@@ -49,7 +49,7 @@ export interface MountedViewport {
   setTool(name: string): void;
   /** Registers each tool whose name is not registered yet (append-only). */
   addTools(tools: readonly Tool[]): void;
-  /** Reconciles by name: registers names not registered yet, unregisters this mount's registrations whose name left. */
+  /** Reconciles by name; the first instance stays until that name leaves this mount's tools. */
   setTools(tools: readonly Tool[]): void;
   /** Flushes a pending onChange, unsubscribes, destroys the viewport. Idempotent. */
   destroy(): void;
