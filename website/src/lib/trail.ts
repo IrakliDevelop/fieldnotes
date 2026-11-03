@@ -1,20 +1,16 @@
 import type { Roadmap } from './roadmap';
-
 /** Identifies the roadmap section containing a waypoint. */
 export type WaypointKind = 'built' | 'next' | 'notBuilt';
-
 /** Locates an item on the map paper. */
 export interface Point {
   readonly x: number;
   readonly y: number;
 }
-
 /** Labels a trail position with its list number and section. */
 export interface Waypoint extends Point {
   readonly n: number;
   readonly kind: WaypointKind;
 }
-
 /** Describes the complete deterministic roadmap trail. */
 export interface TrailMap {
   readonly width: number;
@@ -28,57 +24,43 @@ export interface TrailMap {
   readonly terrain: readonly string[];
   readonly hills: readonly string[];
 }
-
 const round = (value: number) => Math.round(value * 10) / 10;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 /** Draws the roadmap as a switchback trail; the same roadmap always gives the same map. */
 export function trailMap(roadmap: Roadmap): TrailMap {
-  const nb = roadmap.built.length;
-  const nn = roadmap.next.length;
-  const nnb = roadmap.notBuilt.length;
+  const [nb, nn, nnb] = [roadmap.built.length, roadmap.next.length, roadmap.notBuilt.length];
   const total = nb + nn + nnb;
-  const width = 460;
-  const height = 120 + 26 * total;
-  const cycles = 2 * Math.round((total - 10) / 20) + 1.3;
-  const slot = 1 / (total + 3);
+  const [width, height] = [460, 120 + 26 * total];
+  const [cycles, slot] = [2 * Math.round((total - 10) / 20) + 1.3, 1 / (total + 3)];
   const point = (t: number): Point => ({
     x: round(230 + 160 * Math.sin(Math.PI * cycles * t) + 3 * Math.sin(61 * t)),
     y: round(70 + t * (height - 152) + 2 * Math.sin(47 * t)),
   });
   const path = (start: number, end: number) =>
     Array.from({ length: 81 }, (_, index) => {
-      const position = point(start + ((end - start) * index) / 80);
-      return `${index === 0 ? 'M' : 'L'}${position.x} ${position.y}`;
+      const { x, y } = point(start + ((end - start) * index) / 80);
+      return `${index === 0 ? 'M' : 'L'}${x} ${y}`;
     }).join('');
   const waypoints: Waypoint[] = [];
   const addWaypoints = (length: number, offset: number, kind: WaypointKind) => {
-    for (let index = 0; index < length; index += 1) {
+    for (let index = 0; index < length; index += 1)
       waypoints.push({ ...point((offset + index) * slot), n: waypoints.length + 1, kind });
-    }
   };
   addWaypoints(nb, 1, 'built');
   addWaypoints(nn, nb + 2, 'next');
   addWaypoints(nnb, nb + nn + 3, 'notBuilt');
   const camp = nn > 0 ? point((nb + 2) * slot) : point(nb * slot);
   const hereX = round(clamp(camp.x - 168, 8, 328));
-  const clear = (y: number) => {
-    const box = { x0: hereX, x1: hereX + 124, y0: y - 25, y1: y + 6 };
-    return (
-      !waypoints.some(
-        (waypoint) =>
-          box.x0 < waypoint.x + 26 &&
-          waypoint.x - 8 < box.x1 &&
-          box.y0 < waypoint.y + 9 &&
-          waypoint.y - 9 < box.y1,
-      ) &&
+  const [x0, x1, y0, y1] = [hereX, hereX + 124, camp.y - 41, camp.y - 10];
+  const hereY = round(
+    !waypoints.some(({ x, y }) => x0 < x + 26 && x - 8 < x1 && y0 < y + 9 && y - 9 < y1) &&
       !Array.from({ length: 241 }, (_, index) => point(index / 240)).some(
-        (sample) =>
-          sample.x >= box.x0 && sample.x <= box.x1 && sample.y >= box.y0 && sample.y <= box.y1,
+        ({ x, y }) => x >= x0 && x <= x1 && y >= y0 && y <= y1,
       )
-    );
-  };
-  const hereY = round(clear(camp.y - 16) ? camp.y - 16 : camp.y + 30);
+      ? camp.y - 16
+      : camp.y + 30,
+  );
   const end = point(1);
   const notes =
     nnb > 0
@@ -87,7 +69,6 @@ export function trailMap(roadmap: Roadmap): TrailMap {
           unexplored: { x: round(clamp(end.x - 112, 8, 356)), y: round(end.y - 18) },
         }
       : { here: { x: hereX, y: hereY } };
-
   return {
     width,
     height,

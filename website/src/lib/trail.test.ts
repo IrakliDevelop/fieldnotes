@@ -100,46 +100,43 @@ describe('trailMap', () => {
     expect(map.hills).toHaveLength(3);
   });
 
-  it.each(counts)(
-    'keeps the notes on the paper, off the waypoints and off the trail: %i built, %i next, %i not built',
-    (nb, nn, nnb) => {
-      const roadmap = {
-        built: Array.from({ length: nb }, String),
-        next: Array.from({ length: nn }, String),
-        notBuilt: Array.from({ length: nnb }, String),
-      };
-      const map = trailMap(roadmap);
-      const samples = Array.from({ length: 241 }, (_, index) =>
-        trailPoint(nb + nn + nnb, index / 240),
-      );
-      const noteBoxes = [{ point: map.notes.here, width: 124, top: 25, bottom: 6 }];
-      if (map.notes.unexplored !== undefined) {
-        noteBoxes.push({ point: map.notes.unexplored, width: 96, top: 15, bottom: 10 });
-      }
+  it.each(counts)('%i built, %i next, %i not built', (nb, nn, nnb) => {
+    const roadmap = {
+      built: Array.from({ length: nb }, String),
+      next: Array.from({ length: nn }, String),
+      notBuilt: Array.from({ length: nnb }, String),
+    };
+    const map = trailMap(roadmap);
+    const samples = Array.from({ length: 241 }, (_, index) =>
+      trailPoint(nb + nn + nnb, index / 240),
+    );
+    const noteBoxes = [{ point: map.notes.here, width: 124, top: 25, bottom: 6 }];
+    if (map.notes.unexplored !== undefined) {
+      noteBoxes.push({ point: map.notes.unexplored, width: 96, top: 15, bottom: 10 });
+    }
 
-      expect(map.notes.unexplored !== undefined).toBe(nnb > 0);
-      for (const note of noteBoxes) {
-        const box = [
-          note.point.x,
-          note.point.y - note.top,
-          note.point.x + note.width,
-          note.point.y + note.bottom,
-        ] as const;
-        expect(box[0]).toBeGreaterThanOrEqual(0);
-        expect(box[2]).toBeLessThanOrEqual(map.width);
-        expect(box[1]).toBeGreaterThanOrEqual(0);
-        expect(box[3]).toBeLessThanOrEqual(map.height);
-        for (const waypoint of map.waypoints) {
-          expect(
-            intersects(box, [waypoint.x - 8, waypoint.y - 9, waypoint.x + 26, waypoint.y + 9]),
-          ).toBe(false);
-        }
-        for (const sample of samples) {
-          expect(
-            sample.x >= box[0] && sample.x <= box[2] && sample.y >= box[1] && sample.y <= box[3],
-          ).toBe(false);
-        }
+    expect(map.notes.unexplored !== undefined).toBe(nnb > 0);
+    for (const note of noteBoxes) {
+      const box = [
+        note.point.x,
+        note.point.y - note.top,
+        note.point.x + note.width,
+        note.point.y + note.bottom,
+      ] as const;
+      expect(box[0]).toBeGreaterThanOrEqual(0);
+      expect(box[2]).toBeLessThanOrEqual(map.width);
+      expect(box[1]).toBeGreaterThanOrEqual(0);
+      expect(box[3]).toBeLessThanOrEqual(map.height);
+      for (const waypoint of map.waypoints) {
+        expect(
+          intersects(box, [waypoint.x - 8, waypoint.y - 9, waypoint.x + 26, waypoint.y + 9]),
+        ).toBe(false);
       }
-    },
-  );
+      for (const sample of samples) {
+        expect(
+          sample.x >= box[0] && sample.x <= box[2] && sample.y >= box[1] && sample.y <= box[3],
+        ).toBe(false);
+      }
+    }
+  });
 });
