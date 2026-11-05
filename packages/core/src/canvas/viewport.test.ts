@@ -1011,7 +1011,7 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('finalizes one active text edit once through the history commit path', async () => {
+    it('finalizes one active text edit once through the history commit path', () => {
       const viewport = new Viewport(container);
       const text = createText({
         position: { x: 0, y: 0 },
@@ -1026,13 +1026,15 @@ describe('Viewport', () => {
           onTextEditStop: (id: string) => void;
         };
         domNodeManager: { getNode: (id: string) => HTMLDivElement | undefined };
-        noteEditor: { stopEditing: (store: unknown) => void };
+        noteEditor: {
+          activateEditing: (node: HTMLDivElement, id: string, store: unknown) => void;
+          stopEditing: (store: unknown) => void;
+        };
       };
       const node = document.createElement('div');
       node.innerHTML = 'before';
       vi.spyOn(privateViewport.domNodeManager, 'getNode').mockReturnValue(node);
-      privateViewport.interactions.startEditingElement(text.id);
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      privateViewport.noteEditor.activateEditing(node, text.id, viewport.store);
       const onStop = vi.spyOn(privateViewport.interactions, 'onTextEditStop');
       node.innerHTML = 'after';
 

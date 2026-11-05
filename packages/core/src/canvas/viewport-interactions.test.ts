@@ -93,31 +93,17 @@ describe('ViewportInteractions', () => {
     };
     const later = { ...actual, id: 'later', index: 'b' };
     for (const element of [host, otherParent, actual, mismatched, later]) store.add(element);
-    const { deps, nodes } = makeDeps(store, {
-      noteEditor: {
-        startEditing: vi.fn(),
-        stopEditing: vi.fn(),
-        isEditingOrPending: () => false,
-      } as never,
-    });
+    const noteEditor = new NoteEditor({ toolbar: false });
+    const startEditing = vi.spyOn(noteEditor, 'startEditing');
+    const { deps, nodes } = makeDeps(store, { noteEditor });
     for (const id of [actual.id, mismatched.id, later.id])
       nodes.set(id, document.createElement('div'));
     const interactions = new ViewportInteractions(deps);
 
     interactions.startEditingElement(mismatched.id);
     interactions.startEditingElement(later.id);
-    expect(deps.noteEditor.startEditing).toHaveBeenNthCalledWith(
-      1,
-      nodes.get(mismatched.id),
-      mismatched.id,
-      store,
-    );
-    expect(deps.noteEditor.startEditing).toHaveBeenNthCalledWith(
-      2,
-      nodes.get(later.id),
-      later.id,
-      store,
-    );
+    expect(startEditing).toHaveBeenNthCalledWith(1, nodes.get(mismatched.id), mismatched.id, store);
+    expect(startEditing).toHaveBeenNthCalledWith(2, nodes.get(later.id), later.id, store);
 
     expect(interactions.editBoundText(actual.id)).toBe(true);
     expect(interactions.editBoundText(mismatched.id)).toBe(false);

@@ -583,9 +583,14 @@ describe('SelectTool', () => {
           ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
           id: 'rectangle',
         };
-        const text = { ...createBoundText(rectangle, { text: 'a b c d e f' }), id: 'text' };
+        const text = {
+          ...createBoundText(rectangle, { text: 'a b c d e f' }),
+          id: 'text',
+          position: { x: 8, y: 16 },
+          size: { w: 84, h: 28 },
+        };
         ctx.store.add(rectangle);
-        ctx.store.add(text);
+        ctx.store.add(text, { origin: 'remote' });
 
         tool.setSelection([rectangle.id]);
         tool.onPointerDown(pt(0, 0), ctx);

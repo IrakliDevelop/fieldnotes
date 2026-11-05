@@ -102,9 +102,13 @@ describe('renderArrow bound curve', () => {
   it('draws a bound text pill without drawing the deprecated label', () => {
     const store = new ElementStore();
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'legacy' });
-    const text = { ...createBoundText(arrow, { text: 'bound' }), size: { w: 60, h: 20 } };
+    const text = {
+      ...createBoundText(arrow, { text: 'bound' }),
+      position: { x: 20, y: -10 },
+      size: { w: 60, h: 20 },
+    };
     store.add(arrow);
-    store.add(text);
+    store.add(text, { origin: 'remote' });
     const laidOut = store.getById(text.id);
     if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
     const ctx = mockCtx();
@@ -126,12 +130,12 @@ describe('renderArrow bound curve', () => {
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
     const text = {
       ...createBoundText(arrow, { text: 'bound' }),
-      position: { x: 20, y: 30 },
+      position: { x: 20, y: -10 },
       size: { w: 60, h: 20 },
       rotation: Math.PI / 6,
     };
     store.add(arrow);
-    store.add(text);
+    store.add(text, { origin: 'remote' });
     const laidOut = store.getById(text.id);
     if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
     laidOut.rotation = Math.PI / 6;
