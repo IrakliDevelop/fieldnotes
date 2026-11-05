@@ -157,6 +157,7 @@ describe('isValidElement', () => {
   it('keeps bound-text fields compatible with the previous text validator', () => {
     const isLegacySize = (value: unknown): boolean => {
       if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+      if (!('w' in value) || !('h' in value)) return false;
       return (
         typeof value.w === 'number' &&
         Number.isFinite(value.w) &&
