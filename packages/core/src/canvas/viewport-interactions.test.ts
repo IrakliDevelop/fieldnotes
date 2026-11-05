@@ -110,6 +110,7 @@ describe('ViewportInteractions', () => {
     expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
 
     expect(interactions.editBoundText(actual.id)).toBe(true);
+    expect(startEditing).toHaveBeenNthCalledWith(3, nodes.get(actual.id), actual.id, store);
     expect(interactions.editBoundText(mismatched.id)).toBe(false);
     expect(interactions.editBoundText(later.id)).toBe(false);
   });
