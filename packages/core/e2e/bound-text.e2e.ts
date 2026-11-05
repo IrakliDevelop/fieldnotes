@@ -819,9 +819,17 @@ test('bends an arrow with bound text at its visible curve midpoint', async ({ ca
   expect(result.hasStroke).toBe(true);
 });
 
-test('Enter edits a selected container while focused toolbar controls stay native', async ({
+test('Enter edits a selected container while focused board controls stay native', async ({
   canvasPage,
 }, testInfo) => {
+  const beforeChange = await canvasPage.page.evaluate(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: { store: { getAll: () => Record<string, unknown>[] } };
+      }
+    ).__fieldnotes_viewport;
+    return vp.store.getAll().map(({ version: _version, ...element }) => element);
+  });
   const point = await addCenteredRectangle(canvasPage, 'enter-host');
   await canvasPage.page.keyboard.press('v');
   await canvasPage.page.mouse.click(point.x, point.y);
@@ -830,14 +838,17 @@ test('Enter edits a selected container while focused toolbar controls stay nativ
   await expect(editor).toBeVisible();
   await canvasPage.page.keyboard.press('Escape');
 
-  const control = canvasPage.page.locator('#toolbar button[data-tool="shape"]');
+  const control = canvasPage.wrapper().locator('button[data-test-id="board-control"]');
   await canvasPage.page.evaluate(() => {
-    const control = document.querySelector<HTMLButtonElement>('#toolbar button[data-tool="shape"]');
-    if (!control) throw new Error('expected shape control');
+    const wrapper = document.querySelector<HTMLDivElement>('#canvas > div');
+    if (!wrapper) throw new Error('expected canvas wrapper');
+    const control = document.createElement('button');
+    control.dataset['testId'] = 'board-control';
     control.dataset['activations'] = '0';
     control.addEventListener('click', () => {
       control.dataset['activations'] = String(Number(control.dataset['activations']) + 1);
     });
+    wrapper.append(control);
   });
   await control.focus();
   await canvasPage.page.keyboard.press('Enter');
@@ -845,13 +856,7 @@ test('Enter edits a selected container while focused toolbar controls stay nativ
   expect(await control.getAttribute('data-activations')).toBe('1');
   expect(
     await canvasPage.page.evaluate(
-      () => document.activeElement === document.querySelector('#toolbar button[data-tool="shape"]'),
-    ),
-  ).toBe(true);
-  await canvasPage.wrapper().focus();
-  expect(
-    await canvasPage.page.evaluate(
-      () => document.activeElement === document.querySelector('#canvas > div'),
+      () => document.activeElement === document.querySelector('[data-test-id="board-control"]'),
     ),
   ).toBe(true);
   const beforeUndo = await canvasPage.page.evaluate(() => {
@@ -859,15 +864,18 @@ test('Enter edits a selected container while focused toolbar controls stay nativ
       window as unknown as {
         __fieldnotes_viewport: {
           history: { undoCount: number };
-          store: { getAll: () => Record<string, unknown>[] };
         };
       }
     ).__fieldnotes_viewport;
     return {
       undoCount: vp.history.undoCount,
-      elements: vp.store.getAll().map(({ version: _version, ...element }) => element),
     };
   });
+  expect(
+    await canvasPage.page.evaluate(
+      () => document.activeElement === document.querySelector('[data-test-id="board-control"]'),
+    ),
+  ).toBe(true);
   await canvasPage.page.keyboard.press(testInfo.project.name === 'ipad' ? 'Meta+z' : 'Control+z');
   await canvasPage.page.waitForFunction(
     (undoCount) =>
@@ -891,7 +899,7 @@ test('Enter edits a selected container while focused toolbar controls stay nativ
     };
   });
   expect(afterUndo.undoCount).toBe(beforeUndo.undoCount - 1);
-  expect(afterUndo.elements).not.toEqual(beforeUndo.elements);
+  expect(afterUndo.elements).toEqual(beforeChange);
 });
 
 test('iPad CDP touch double-tap creates, types, and finishes bound text', async ({
