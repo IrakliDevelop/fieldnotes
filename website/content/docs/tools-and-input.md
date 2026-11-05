@@ -51,13 +51,18 @@ The board reads Pointer Events, so mouse, touch and pen drive the same tools.
 - Pen pressure sets the stroke's width along its length, from 0.4 to 1.8 times the pencil's `width`. Input without pressure counts as pressure 0.5, which draws at 1.1 times `width`.
 - While a pen is down, touches are ignored, so a palm resting on the screen draws nothing.
 
-A double click or double tap edits a note or text. With the select tool, right-click or a long press opens a menu with cut, copy, paste, duplicate, delete, order, rotate and lock. `contextMenu: false` removes it.
+A double click or double tap edits a note, text, or bound text container. Select a note, text,
+rectangle, ellipse, or arrow and press Enter to run `selection.edit-text`. Finish editing with
+Escape, mod+Enter, or a click outside the editor. A rectangle or ellipse grows for its text and cannot resize
+below the text height; it does not shrink automatically. With the select tool, right-click or a
+long press opens a menu with cut, copy, paste, duplicate, delete, order, rotate and lock.
+`contextMenu: false` removes it.
 
 For a board inside a scrolling page, [Boards in a scrolling page](/docs/html-elements/#boards-in-a-scrolling-page) shows `embedded`, which leaves the plain wheel and one-finger swipes to the page.
 
 ## Keyboard shortcuts
 
-Shortcuts work while the board has focus, and a click on the board gives it focus. With `shortcuts: { scope: 'window' }` they work anywhere on the page. Keys typed into an input, a textarea, a select, editable content or a control on a live HTML element never reach the board.
+Shortcuts work while the board has focus, and a click on the board gives it focus. With `shortcuts: { scope: 'window' }` they work anywhere on the page. Keys typed into an input, a textarea, a select, editable content or a control on a live HTML element never reach the board. In both scopes, Enter and Space stay with a focused `BUTTON`, `A[href]`, or `SUMMARY`; other shortcuts still route to the board.
 
 `mod` is Ctrl or ⌘. Each shortcut runs a named action:
 
@@ -107,7 +112,7 @@ On a board that sits in a page, disable `select.cycle` and `select.cycle-reverse
 
 ## Command palette and find on the board
 
-Ctrl/⌘+K opens the command palette. With an empty query, it lists enabled actions and their current keys. Typing filters the actions by name and searches notes, text, arrow labels and frame titles, showing up to 20 board results. Matches ignore case and accents. Elements on hidden layers are skipped.
+Ctrl/⌘+K opens the command palette. With an empty query, it lists enabled actions and their current keys. Typing filters the actions by name and searches notes, text, bound arrow labels and frame titles, showing up to 20 board results. Matches ignore case and accents. Elements on hidden layers are skipped.
 
 Down and Up move through results, and the camera moves to each board result as it becomes active. Enter or a click runs the action or goes to the board result, then closes the palette. Escape or a click outside closes it and does not move the camera back. Camera moves keep to the zoom limits and any `viewport.camera.addConstraint` constraints. The active board result is outlined; after the palette closes the outline holds for 1.5 seconds, then fades. Revealing does not select the element or add an undo step. Opening the palette, searching and revealing write nothing to the element store or the saved board, and send nothing over sync.
 

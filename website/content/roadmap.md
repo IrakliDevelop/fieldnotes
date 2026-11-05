@@ -34,11 +34,12 @@
 - Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match
 - Shortcuts help on the ? key, generated from the current bindings
 - React props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence
+- Text inside shapes and arrow labels as text elements, with wrapping and auto-resize
 
 ## Next
 
-- I'm adding text inside shapes, with wrapping and auto-resize.
+- I'm adding elbow arrows that route around shapes.
 
 ## Not built yet
 
-- Elbow arrows that route around shapes
+- Copy and paste, and drag and drop: text, images and links pasted as elements, files dragged in, and exported images that open again as editable boards

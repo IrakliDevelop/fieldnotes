@@ -611,9 +611,25 @@ viewport.setTool('highlighter');
 
 `ShapeTool` supports a `'line'` shape kind that draws a straight segment between two points. Hold **Shift** while drawing to snap to 45° increments. Lines are hit-tested by proximity to the segment, and `ShapeElement.flip` records which diagonal of the bounding box the line runs along. When a line is selected, it shows two endpoint drag-handles instead of bounding-box resize handles — drag one endpoint to reshape the line while the other stays anchored.
 
-### Arrow Labels
+### Bound text
 
-Arrows support an optional `label` string, rendered as a pill at the curve midpoint. Pass it at creation or double-click an arrow on the canvas to add or edit the label inline.
+Double-click or double-tap a rectangle, ellipse, or arrow to edit its text. Select one and press
+Enter to edit it from the `selection.edit-text` action. Rectangles and ellipses grow for their
+text, do not shrink automatically, and cannot resize below the text's height. Arrow labels are
+text elements positioned at the curve midpoint. Arrows never grow.
+
+`createBoundText(container, options)` creates the text child. `viewport.setBoundText(id, html)`
+creates, updates, or removes one and keeps the text change and any container growth in one undo
+step. `getBoundText` and `isBoundTextContainer` read the relation. The child has `wrap` and
+`autoResize`; wrapping uses the container's text box, and `autoResize` controls whether free text
+shrinks to its content while editing. `measureText` measures text for a host's own layout.
+
+Extensions can return `boundTextLayout` with a text box and optional `grow` function. A host that
+adds a child itself with `store.add` wraps that add in `viewport.transaction` so the add and growth
+remain one undo step. Use `setBoundText` when the built-in relation is enough.
+
+`ArrowElement.label` and the `label` option in `createArrow` are deprecated. Load them as legacy
+data, then save the migrated text element instead.
 
 ```typescript
 createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 }, label: 'depends on' });

@@ -19,6 +19,9 @@ order: 3
 
 `loadState` takes a `CanvasState` object and skips the check, so give it only state your own code exported.
 
+Legacy arrow `label` fields migrate on load into text elements with deterministic bound-text ids.
+The canvas-state version stays at v6.
+
 The board below opens a saved board with two strokes and a note.
 
 ::board{example="saving-and-loading"}

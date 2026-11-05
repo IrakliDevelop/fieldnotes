@@ -41,7 +41,7 @@ describe('core public surface', () => {
       expect(name in FN).toBe(false);
   });
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.105.0');
+    expect(FN.VERSION).toBe('0.106.0');
   });
 
   it('exports text measurement helpers', () => {
@@ -384,9 +384,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.105.0', async () => {
+  it('reports VERSION 0.106.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.105.0');
+    expect(VERSION).toBe('0.106.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

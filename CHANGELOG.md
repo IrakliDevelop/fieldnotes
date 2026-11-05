@@ -6,6 +6,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.106.0 — bound text
+
+Release notes prepared 2026-11-05.
+
+**Added**
+
+- `createBoundText`, `getBoundText`, `isBoundTextContainer`, `BoundTextContainer`,
+  `CreateBoundTextOptions`, `BoundTextLayout`, `Viewport.getBoundText`,
+  `Viewport.setBoundText`, `Viewport.editBoundText`, and `selection.edit-text`.
+- Bound text fields on text elements: `parentId`, `containerId`, `wrap`, and `autoResize`.
+  Extension element definitions can provide `boundTextLayout` with an optional `grow` function.
+  `measureText` is public for host layout.
+
+**Changed**
+
+- Rectangles and ellipses grow for bound text, clamp resizing at the text height, and do not shrink
+  automatically. Arrows never grow. Shape text wraps; `autoResize` controls free-text resizing.
+- Bound-arrow labels use the intrinsic curve midpoint, including the visible label midpoint.
+- Enter and Space stay with a focused button, link, or summary. Other shortcuts still route to the
+  board.
+- Note and text DOM nodes use `border-box`, so a 200px note is 200px wide like its PNG export.
+  Free text shrinks to its content while editing.
+
+**Deprecated**
+
+- `ArrowElement.label` and the `label` option in `createArrow`. Loading a legacy label creates a
+  deterministic bound-text child.
+
+**Compatibility**
+
+- Canvas state stays at v6 and the sync protocol stays at 3. Old peers drop the additive bound-text
+  fields, so they retain the container without its text.
+
+### Sync 0.30.2 — bound text fields
+
+Release notes prepared 2026-11-05.
+
+**Changed**
+
+- Sync validates the additive bound-text fields.
+
+### Sync server 0.30.2 — sync pin
+
+Release notes prepared 2026-11-05.
+
+**Changed**
+
+- The server changes only its `workspace:0.30.2` sync pin.
+
 ### Core 0.105.0 — wrapper helpers
 
 Release notes prepared 2026-11-03.
