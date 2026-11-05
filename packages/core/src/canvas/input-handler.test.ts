@@ -1673,51 +1673,54 @@ describe('InputHandler', () => {
     it.each([
       ['pointerup', pointerUp, 'handlePointerUp'],
       ['pointercancel', pointerCancel, 'handlePointerCancel'],
-    ] as const)('does not commit a transaction the tool replaces on %s', (_name, finish) => {
-      const store = new ElementStore();
-      const stack = new RealHistoryStack();
-      const recorder = new RealHistoryRecorder(store, stack);
-      const tm = new RealToolManager();
-      const replacement = () => {
-        recorder.begin();
-        store.add(createNote({ position: { x: 40, y: 40 } }));
-      };
-      const tool: Tool = {
-        name: 'history-replacement-probe',
-        onPointerDown: () => store.add(createNote({ position: { x: 20, y: 20 } })),
-        onPointerMove: () => undefined,
-        onPointerUp: replacement,
-        onPointerCancel: replacement,
-      };
-      tm.register(tool);
-      tm.setTool(tool.name, stubToolContext());
+    ] as const)(
+      'does not commit a transaction the tool replaces on %s via %s',
+      (_name, finish, _method) => {
+        const store = new ElementStore();
+        const stack = new RealHistoryStack();
+        const recorder = new RealHistoryRecorder(store, stack);
+        const tm = new RealToolManager();
+        const replacement = () => {
+          recorder.begin();
+          store.add(createNote({ position: { x: 40, y: 40 } }));
+        };
+        const tool: Tool = {
+          name: 'history-replacement-probe',
+          onPointerDown: () => store.add(createNote({ position: { x: 20, y: 20 } })),
+          onPointerMove: () => undefined,
+          onPointerUp: replacement,
+          onPointerCancel: replacement,
+        };
+        tm.register(tool);
+        tm.setTool(tool.name, stubToolContext());
 
-      handler = new InputHandler(element, camera, {
-        toolManager: tm,
-        toolContext: stubToolContext(),
-        historyRecorder: recorder,
-        actions: stubActionRegistry(),
-      });
+        handler = new InputHandler(element, camera, {
+          toolManager: tm,
+          toolContext: stubToolContext(),
+          historyRecorder: recorder,
+          actions: stubActionRegistry(),
+        });
 
-      pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
-      finish(element, { pointerId: 1, clientX: 20, clientY: 20 });
+        pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+        finish(element, { pointerId: 1, clientX: 20, clientY: 20 });
 
-      expect(store.count).toBe(2);
-      expect(stack.undoCount).toBe(1);
-      expect(recorder.currentTransactionId).not.toBeNull();
-      recorder.commit();
-      expect(stack.undoCount).toBe(2);
-      recorder.pause();
-      expect(stack.undo(store)).toBe(true);
-      expect(store.count).toBe(1);
-      expect(stack.undo(store)).toBe(true);
-      expect(store.count).toBe(0);
-      expect(stack.redo(store)).toBe(true);
-      expect(store.count).toBe(1);
-      expect(stack.redo(store)).toBe(true);
-      expect(store.count).toBe(2);
-      recorder.resume();
-    });
+        expect(store.count).toBe(2);
+        expect(stack.undoCount).toBe(1);
+        expect(recorder.currentTransactionId).not.toBeNull();
+        recorder.commit();
+        expect(stack.undoCount).toBe(2);
+        recorder.pause();
+        expect(stack.undo(store)).toBe(true);
+        expect(store.count).toBe(1);
+        expect(stack.undo(store)).toBe(true);
+        expect(store.count).toBe(0);
+        expect(stack.redo(store)).toBe(true);
+        expect(store.count).toBe(1);
+        expect(stack.redo(store)).toBe(true);
+        expect(store.count).toBe(2);
+        recorder.resume();
+      },
+    );
 
     it('ignores a synthetic pointerleave after the touch pointer already ended', () => {
       const store = new ElementStore();

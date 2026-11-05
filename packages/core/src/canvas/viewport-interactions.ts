@@ -61,7 +61,8 @@ export class ViewportInteractions {
         : requested;
     if (!container || !isBoundTextContainer(container, this.deps.store.elementRegistry))
       return false;
-    if (container.locked || this.deps.toolContext.isLayerLocked(container.layerId)) return false;
+    const isLayerLocked = this.deps.toolContext.isLayerLocked;
+    if (container.locked || (isLayerLocked && isLayerLocked(container.layerId))) return false;
     const existing = getBoundText(container, this.deps.store);
     if (existing && this.deps.noteEditor.isEditingOrPending(existing.id)) return true;
     this.deps.noteEditor.stopEditing(this.deps.store);
@@ -226,8 +227,9 @@ export class ViewportInteractions {
   };
 
   private accepts(e: PointerEvent): boolean {
+    const acceptsPointer = this.deps.acceptsPointer;
     return (
-      this.deps.acceptsPointer?.(e) !== false && !isLiveControlTarget(e.target, this.deps.wrapper)
+      (!acceptsPointer || acceptsPointer(e)) && !isLiveControlTarget(e.target, this.deps.wrapper)
     );
   }
 

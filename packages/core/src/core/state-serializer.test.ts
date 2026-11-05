@@ -184,19 +184,22 @@ describe('parseState', () => {
 
   it('keeps a non-text element with an unknown containerId field loadable', () => {
     const state = validState();
-    state.elements = [
-      {
-        ...createShape({
-          index: 'a0',
-          position: { x: 0, y: 0 },
-          size: { w: 20, h: 10 },
-          layerId: 'default-layer',
-        }),
-        containerId: '',
-      },
-    ];
+    const serialized = JSON.stringify({
+      ...state,
+      elements: [
+        {
+          ...createShape({
+            index: 'a0',
+            position: { x: 0, y: 0 },
+            size: { w: 20, h: 10 },
+            layerId: 'default-layer',
+          }),
+          containerId: '',
+        },
+      ],
+    });
 
-    expect(parseState(JSON.stringify(state)).elements[0]?.type).toBe('shape');
+    expect(parseState(serialized).elements[0]?.type).toBe('shape');
   });
 
   it('rejects an empty text containerId', () => {

@@ -172,10 +172,14 @@ describe('bound text', () => {
       layoutBoundText(rectangle, empty, { registry, resolveBounds: () => null, remeasure })
         .container,
     ).toBeNull();
-    expect(
-      layoutBoundText(ellipse, tall, { registry, resolveBounds: () => null, remeasure }).container
-        ?.size?.h,
-    ).toBeCloseTo(56.5685424949238);
+    const layout = layoutBoundText(ellipse, tall, {
+      registry,
+      resolveBounds: () => null,
+      remeasure,
+    });
+    if (!layout.container || !('size' in layout.container) || !layout.container.size)
+      throw new Error('expected shape layout');
+    expect(layout.container.size.h).toBeCloseTo(56.5685424949238);
   });
 
   it('lays out eligible arrows at their visible anchor without wrapping or growth', () => {
@@ -201,8 +205,9 @@ describe('bound text', () => {
     expect(isBoundTextContainer(arrow, registry)).toBe(true);
     expect(result.container).toBeNull();
     expect(result.text?.size).toEqual({ w: 24, h: 26.4 });
-    expect(result.text?.position.x).toBeCloseTo(43.00030517578125);
-    expect(result.text?.position.y).toBe(-13.2);
+    if (!result.text?.position) throw new Error('expected text position');
+    expect(result.text.position.x).toBeCloseTo(43.00030517578125);
+    expect(result.text.position.y).toBe(-13.2);
     expect(isBoundTextContainer(createNote({ position: { x: 0, y: 0 } }), registry)).toBe(false);
   });
 

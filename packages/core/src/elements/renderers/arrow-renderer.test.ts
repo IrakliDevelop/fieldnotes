@@ -6,13 +6,16 @@ import { ElementStore } from '../element-store';
 import type { ArrowElement } from '../types';
 
 function mockCtx() {
+  const moveTo = vi.fn<(x: number, y: number) => void>();
+  const lineTo = vi.fn<(x: number, y: number) => void>();
+  const quadraticCurveTo = vi.fn<(cpx: number, cpy: number, x: number, y: number) => void>();
   return {
     save: vi.fn(),
     restore: vi.fn(),
     beginPath: vi.fn(),
-    moveTo: vi.fn(),
-    lineTo: vi.fn(),
-    quadraticCurveTo: vi.fn(),
+    moveTo,
+    lineTo,
+    quadraticCurveTo,
     closePath: vi.fn(),
     stroke: vi.fn(),
     fill: vi.fn(),
@@ -29,7 +32,12 @@ function mockCtx() {
     font: '',
     textAlign: '',
     textBaseline: '',
-  } as unknown as CanvasRenderingContext2D & { setLineDash: ReturnType<typeof vi.fn> };
+  } as unknown as CanvasRenderingContext2D & {
+    setLineDash: ReturnType<typeof vi.fn>;
+    moveTo: typeof moveTo;
+    lineTo: typeof lineTo;
+    quadraticCurveTo: typeof quadraticCurveTo;
+  };
 }
 
 function render(overrides: Partial<ArrowElement>) {
@@ -211,9 +219,13 @@ describe('renderArrow bound curve', () => {
     ]);
     expect(arrowhead).toHaveLength(2);
     for (const [actual, expected] of arrowhead.map((actual, i) => [actual, expectedArrowhead[i]])) {
-      if (!expected) throw new Error('expected arrowhead leg');
-      expect(actual?.[0]).toBeCloseTo(expected[0], 2);
-      expect(actual?.[1]).toBeCloseTo(expected[1], 2);
+      if (!actual || !expected || actual[0] === undefined || actual[1] === undefined)
+        throw new Error('expected arrowhead leg');
+      const [expectedX, expectedY] = expected;
+      if (expectedX === undefined || expectedY === undefined)
+        throw new Error('expected arrowhead leg');
+      expect(actual[0]).toBeCloseTo(expectedX, 2);
+      expect(actual[1]).toBeCloseTo(expectedY, 2);
     }
     expect(ctx.fillText).toHaveBeenCalledWith('label', 200, 80);
   });

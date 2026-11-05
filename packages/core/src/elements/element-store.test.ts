@@ -16,9 +16,28 @@ import type {
   BaseElement,
   ElementTypeDefinition,
   NoteElement,
+  ShapeElement,
   StrokeElement,
   TextElement,
 } from './types';
+
+function shapeOf(store: ElementStore, id: string): ShapeElement {
+  const element = store.getById(id);
+  if (!element || element.type !== 'shape') throw new Error('expected shape element');
+  return element;
+}
+
+function textOf(store: ElementStore, id: string): TextElement {
+  const element = store.getById(id);
+  if (!element || element.type !== 'text') throw new Error('expected text element');
+  return element;
+}
+
+function extensionOf(store: ElementStore, id: string): ExtensionElementEnvelope {
+  const element = store.getById(id);
+  if (!element || element.type !== 'extension') throw new Error('expected extension element');
+  return element;
+}
 
 function fullCanvasDefinition(): ElementTypeDefinition<BaseElement> {
   return {
@@ -213,7 +232,7 @@ describe('ElementStore', () => {
       expect(measure).not.toHaveBeenCalled();
       expect(updates).toHaveBeenCalledTimes(1);
       expect(store.getVersion(text.id)).toBe(0);
-      expect(store.getById(rectangle.id)?.size).toEqual({ w: 100, h: 136 });
+      expect(shapeOf(store, rectangle.id).size).toEqual({ w: 100, h: 136 });
     } finally {
       setTextMeasurer(null);
     }
@@ -241,7 +260,7 @@ describe('ElementStore', () => {
       store.update(rectangle.id, { position: { x: 0, y: 0 } });
 
       expect(measure).not.toHaveBeenCalled();
-      expect(store.getById(text.id)?.size.h).toBe(42);
+      expect(textOf(store, text.id).size.h).toBe(42);
       expect(store.getVersion(text.id)).toBe(0);
       expect(updates).toEqual([rectangle.id]);
     } finally {
@@ -369,12 +388,10 @@ describe('ElementStore', () => {
       );
       const events: string[] = [];
       store.on('update', ({ current }) => {
-        const finalShape = store.getById(shape.id);
-        const finalText = store.getById(text.id);
         const finalArrow = store.getById(arrow.id);
         const finalLabel = store.getById(label.id);
-        expect(finalShape?.size.h).toBe(132);
-        expect(finalText?.size.h).toBe(116);
+        expect(shapeOf(store, shape.id).size.h).toBe(132);
+        expect(textOf(store, text.id).size.h).toBe(116);
         expect(finalArrow?.type === 'arrow' && finalArrow.from).toEqual({ x: 50, y: 66 });
         expect(finalLabel?.position.x).toBeCloseTo(125, 3);
         expect(finalLabel?.position.y).toBeCloseTo(32, 3);
@@ -453,7 +470,7 @@ describe('ElementStore', () => {
       store.update(shape.id, { size: { w: 160, h: 60 } }, { origin });
 
       expect(measure).not.toHaveBeenCalled();
-      expect(store.getById(text.id)?.size).toEqual({ w: 84, h: 42 });
+      expect(textOf(store, text.id).size).toEqual({ w: 84, h: 42 });
     } finally {
       setTextMeasurer(null);
     }
@@ -501,8 +518,8 @@ describe('ElementStore', () => {
 
       store.update(text.id, { position: { x: 1, y: 1 } });
 
-      expect(store.getById(extension.id)?.data['grown']).toBe(grows ? true : undefined);
-      expect(store.getById(text.id)?.size.w).toBe(grows ? 60 : 40);
+      expect(extensionOf(store, extension.id).data['grown']).toBe(grows ? true : undefined);
+      expect(textOf(store, text.id).size.w).toBe(grows ? 60 : 40);
     },
   );
 
@@ -526,7 +543,7 @@ describe('ElementStore', () => {
       store.update(text.id, { text: 'a a a a a' });
 
       expect(grow).toHaveBeenCalledTimes(1);
-      expect(store.getById(text.id)?.size).toEqual({ w: 60, h: 48.8 });
+      expect(textOf(store, text.id).size).toEqual({ w: 60, h: 48.8 });
     } finally {
       setTextMeasurer(null);
     }
@@ -574,8 +591,8 @@ describe('ElementStore', () => {
       ]);
 
       expect(measure).toHaveBeenCalledTimes(1);
-      expect(store.getById(firstText.id)?.size.w).toBe(144);
-      expect(store.getById(secondText.id)?.size.w).toBe(144);
+      expect(textOf(store, firstText.id).size.w).toBe(144);
+      expect(textOf(store, secondText.id).size.w).toBe(144);
     } finally {
       setTextMeasurer(null);
     }

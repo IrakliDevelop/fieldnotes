@@ -199,6 +199,13 @@ interface ShapeInput extends BaseDefaults {
   flip?: boolean;
 }
 
+export function createShape(
+  input: ShapeInput & { shape?: 'rectangle' },
+): ShapeElement & { readonly shape: 'rectangle' };
+export function createShape<T extends ShapeKind>(
+  input: ShapeInput & { shape: T },
+): ShapeElement & { readonly shape: T };
+export function createShape(input: ShapeInput): ShapeElement;
 export function createShape(input: ShapeInput): ShapeElement {
   const result: ShapeElement = {
     id: createId('shape'),

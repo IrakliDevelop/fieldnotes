@@ -1,4 +1,4 @@
-import type { Point } from '../core/types';
+import type { Bounds, Point } from '../core/types';
 import type { ArrowElement, CanvasElement } from './types';
 import type { ElementChangeMeta, ElementStore } from './element-store';
 import { getArrowCurve } from './arrow-geometry';

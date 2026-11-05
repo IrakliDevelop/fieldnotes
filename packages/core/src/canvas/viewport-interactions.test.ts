@@ -12,7 +12,7 @@ import {
   createText,
   createHtmlElement,
 } from '../elements/element-factory';
-import type { ArrowElement, CanvasElement, HtmlElement } from '../elements/types';
+import type { ArrowElement, CanvasElement, HtmlElement, TextElement } from '../elements/types';
 import type { ToolContext } from '../tools/types';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
@@ -23,6 +23,12 @@ function heightOf(element: CanvasElement | undefined): number {
     throw new Error('expected a sized element');
   }
   return element.size.h;
+}
+
+function textOf(store: ElementStore, id: string): TextElement {
+  const element = store.getById(id);
+  if (!element || element.type !== 'text') throw new Error('expected text element');
+  return element;
 }
 
 function nodeWithHeight(h: number): HTMLDivElement {
@@ -50,9 +56,7 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
       getNode: (id: string) => nodes.get(id),
     } as never,
     noteEditor: { startEditing: vi.fn() } as never,
-    arrowLabelEditor: { startEditing: vi.fn() } as never,
     interactMode: { startInteracting: vi.fn(), stopInteracting: vi.fn() } as never,
-    renderer: { setLabelEditingId: vi.fn() } as never,
     recorder: { begin: vi.fn(), commit: vi.fn() } as never,
     toolContext: { camera, store, requestRender: vi.fn(), requestOverlayRender: vi.fn() },
     requestRender: vi.fn(),
@@ -206,7 +210,6 @@ describe('ViewportInteractions', () => {
       const { interactions, deps } = setup(html, arrow);
       doubleTap(interactions, 50, 50);
       expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
-      expect(deps.arrowLabelEditor.startEditing).not.toHaveBeenCalled();
     });
 
     it('does not activate an html element on a hidden layer', () => {
@@ -233,7 +236,6 @@ describe('ViewportInteractions', () => {
       const { interactions, deps } = setup(html, arrow);
       doubleTap(interactions, 50, 50);
       expect(deps.interactMode.startInteracting).not.toHaveBeenCalled();
-      expect(deps.arrowLabelEditor.startEditing).not.toHaveBeenCalled();
     });
 
     it('double-tap on a non-live html element still enters InteractMode', () => {
@@ -328,10 +330,10 @@ describe('ViewportInteractions', () => {
       const interactions = new ViewportInteractions(deps);
 
       interactions.liveFitHeight(text.id);
-      expect(store.getById(text.id)?.size).toEqual({ w: 100, h: 24 });
+      expect(textOf(store, text.id).size).toEqual({ w: 100, h: 24 });
       Object.defineProperty(node, 'scrollHeight', { value: 120, configurable: true });
       interactions.liveFitHeight(text.id);
-      expect(store.getById(text.id)?.size).toEqual({ w: 100, h: 120 });
+      expect(textOf(store, text.id).size).toEqual({ w: 100, h: 120 });
     });
 
     it('shrinks and grows unwrapped text width from its content', () => {
@@ -349,10 +351,10 @@ describe('ViewportInteractions', () => {
       const interactions = new ViewportInteractions(deps);
 
       interactions.liveFitHeight(text.id);
-      expect(store.getById(text.id)?.size).toEqual({ w: 180, h: 40 });
+      expect(textOf(store, text.id).size).toEqual({ w: 180, h: 40 });
       Object.defineProperty(node, 'scrollWidth', { value: 60, configurable: true });
       interactions.liveFitHeight(text.id);
-      expect(store.getById(text.id)?.size).toEqual({ w: 60, h: 40 });
+      expect(textOf(store, text.id).size).toEqual({ w: 60, h: 40 });
     });
 
     it('preserves both dimensions when text autoResize is false', () => {
@@ -368,7 +370,7 @@ describe('ViewportInteractions', () => {
       nodes.set(text.id, nodeWithSize(120, 220));
 
       new ViewportInteractions(deps).liveFitHeight(text.id);
-      expect(store.getById(text.id)?.size).toEqual({ w: 100, h: 40 });
+      expect(textOf(store, text.id).size).toEqual({ w: 100, h: 40 });
     });
 
     it('moves the visible toolbar after each actual text fit', async () => {

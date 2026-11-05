@@ -848,12 +848,8 @@ describe('DomNodeManager', () => {
         getVersion: () => 0,
       });
       const text = {
-        ...createText({
-          id: 'edited-text',
-          text: 'one',
-          position: { x: 0, y: 0 },
-          size: { w: 120, h: 20 },
-        }),
+        ...createText({ text: 'one', position: { x: 0, y: 0 }, size: { w: 120, h: 20 } }),
+        id: 'edited-text',
       };
 
       trackedManager.syncDomNode(text, 0);

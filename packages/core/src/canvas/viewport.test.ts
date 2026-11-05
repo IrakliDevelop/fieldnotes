@@ -791,8 +791,11 @@ describe('Viewport', () => {
         document.elementFromPoint = vi.fn().mockReturnValue(node);
         const editorNode = document.createElement('div');
         vi.spyOn(
-          (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
-            .domNodeManager,
+          (
+            viewport as unknown as {
+              domNodeManager: { getNode: (id: string) => HTMLDivElement | undefined };
+            }
+          ).domNodeManager,
           'getNode',
         ).mockReturnValue(editorNode);
 
@@ -850,7 +853,7 @@ describe('Viewport', () => {
       viewport.store.add(rectangle);
       const textId = viewport.setBoundText(rectangle.id, 'saved label');
       if (!textId) throw new Error('expected bound text');
-      if (input.locked) viewport.store.update(rectangle.id, input);
+      if ('locked' in input && input.locked) viewport.store.update(rectangle.id, input);
       vi.spyOn(
         (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
           .domNodeManager,
@@ -895,10 +898,13 @@ describe('Viewport', () => {
         viewport.history.clear();
         const before = viewport.store.getAll();
         vi.spyOn(
-          (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
-            .domNodeManager,
+          (
+            viewport as unknown as {
+              domNodeManager: { getNode: (id: string) => HTMLDivElement | undefined };
+            }
+          ).domNodeManager,
           'getNode',
-        ).mockReturnValue(undefined);
+        ).mockImplementation(() => undefined);
 
         expect(viewport.editBoundText(rectangle.id)).toBe(false);
         expect(viewport.store.getAll()).toEqual(before);
@@ -990,7 +996,8 @@ describe('Viewport', () => {
       const after = structuredClone(viewport.store.getAll());
       const fittedShape = viewport.store.getById(shape.id);
       const text = viewport.getBoundText(shape.id);
-      expect(fittedShape?.size.h).toBe(72);
+      if (!fittedShape || fittedShape.type !== 'shape') throw new Error('expected fitted shape');
+      expect(fittedShape.size.h).toBe(72);
       expect(text).toMatchObject({ text: 'typed', size: { w: 104, h: 56 } });
       expect(viewport.history.undoCount).toBe(1);
       expect(viewport.undo()).toBe(true);
@@ -5044,7 +5051,9 @@ describe('Viewport live html elements', () => {
     });
     viewport.store.update(text.id, { containerId: parent.id });
     viewport.setParent(text.id, parent.id);
-    expect(viewport.store.getById(text.id)?.containerId).toBe(parent.id);
+    const updatedText = viewport.store.getById(text.id);
+    if (!updatedText || updatedText.type !== 'text') throw new Error('expected text element');
+    expect(updatedText.containerId).toBe(parent.id);
   });
 
   it('rejects parenting a frame before recording history but allows frame children', () => {
