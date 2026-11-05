@@ -136,6 +136,65 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
 }
 
 describe('ElementStore', () => {
+  it('adds oversized bound text without remeasuring or recursively updating it', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const rectangle = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'rectangle',
+      };
+      const text = {
+        ...createBoundText(rectangle, { text: 'big' }),
+        id: 'text',
+        size: { w: 84, h: 120 },
+      };
+      store.add(rectangle);
+      const updates = vi.fn();
+      store.on('update', updates);
+
+      store.add(text);
+
+      expect(measure).not.toHaveBeenCalled();
+      expect(updates).toHaveBeenCalledTimes(1);
+      expect(store.getVersion(text.id)).toBe(0);
+      expect(store.getById(rectangle.id)?.size).toEqual({ w: 100, h: 136 });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('preserves fitted text and skips a no-op derived layout for same geometry', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const rectangle = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'rectangle',
+      };
+      const text = {
+        ...createBoundText(rectangle, { text: 'fitted' }),
+        id: 'text',
+        size: { w: 84, h: 42 },
+      };
+      store.add(rectangle);
+      store.add(text);
+      const updates: string[] = [];
+      store.on('update', ({ current }) => updates.push(current.id));
+
+      store.update(rectangle.id, { position: { x: 0, y: 0 } });
+
+      expect(measure).not.toHaveBeenCalled();
+      expect(store.getById(text.id)?.size.h).toBe(42);
+      expect(store.getVersion(text.id)).toBe(0);
+      expect(updates).toEqual([rectangle.id]);
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
   it('lays out and grows the first local bound text update atomically', () => {
     setTextMeasurer(() => 100);
     try {

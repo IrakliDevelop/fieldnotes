@@ -10,7 +10,12 @@ import {
 } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { findBoundArrows, updateBoundArrow } from './arrow-binding';
-import { findBoundText, isBoundTextContainer, layoutBoundText } from './bound-text';
+import {
+  findBoundText,
+  getBoundTextBox,
+  isBoundTextContainer,
+  layoutBoundText,
+} from './bound-text';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
 import type { CanvasElement, ElementType } from './types';
@@ -44,6 +49,26 @@ function validateExtensionEnvelope(element: CanvasElement, registry: ElementRegi
       `Invalid extension envelope "${element.id}" of type "${element.extensionType}"`,
     );
   }
+}
+
+function sameDerivedValue(a: unknown, b: unknown): boolean {
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < 1e-6;
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) || Array.isArray(b))
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((v, i) => sameDerivedValue(v, b[i]))
+    );
+  const aRecord = a as Record<string, unknown>;
+  const bRecord = b as Record<string, unknown>;
+  const aKeys = Object.keys(aRecord);
+  return (
+    aKeys.length === Object.keys(bRecord).length &&
+    aKeys.every((key) => sameDerivedValue(aRecord[key], bRecord[key]))
+  );
 }
 
 export interface ElementUpdateEvent {
@@ -211,16 +236,14 @@ export class ElementStore {
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
     }
-    let containerId: string | undefined;
-    let containerPatch: Partial<CanvasElement> | null = null;
+    let containerUpdate: { existing: CanvasElement; updated: CanvasElement } | null = null;
     if (
       !isExternalChange(meta) &&
       element.type === 'text' &&
       element.containerId &&
       element.parentId === element.containerId
     ) {
-      containerId = element.containerId;
-      const container = this.elements.get(containerId);
+      const container = this.elements.get(element.containerId);
       if (container && isBoundTextContainer(container, this.registry)) {
         const first = findBoundText(container, [...this.elements.values(), element]);
         if (first?.id === element.id) {
@@ -233,11 +256,27 @@ export class ElementStore {
             remeasure: false,
           });
           if (result.text) element = { ...element, ...result.text };
-          containerPatch = result.container;
+          if (
+            result.container &&
+            !Object.entries(result.container).every(([key, value]) =>
+              sameDerivedValue(container[key as keyof CanvasElement], value),
+            )
+          ) {
+            containerUpdate = {
+              existing: container,
+              updated: this.prepareUpdate(container, result.container, meta),
+            };
+            validateExtensionEnvelope(containerUpdate.updated, this.registry);
+          }
         }
       }
     }
-    if (this.strict(meta) && this.hierarchyKnownValid && !this.elements.has(element.id)) {
+    if (containerUpdate) {
+      const candidate = new Map(this.elements);
+      candidate.set(element.id, element);
+      candidate.set(containerUpdate.updated.id, containerUpdate.updated);
+      this.validateCandidate(candidate, meta);
+    } else if (this.strict(meta) && this.hierarchyKnownValid && !this.elements.has(element.id)) {
       validateAddedElement(element, this.elements, this.registry);
     } else {
       const candidate = new Map(this.elements);
@@ -247,11 +286,17 @@ export class ElementStore {
     this.resetHierarchy();
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
+    if (containerUpdate) this.installUpdate(containerUpdate.existing, containerUpdate.updated);
     this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
     this.bus.emit('add', element, meta);
-    if (containerPatch && containerId) this.update(containerId, containerPatch, meta);
+    if (containerUpdate)
+      this.bus.emit(
+        'update',
+        { previous: containerUpdate.existing, current: containerUpdate.updated },
+        meta,
+      );
   }
 
   update(id: string, partial: Partial<CanvasElement>, meta?: ElementChangeMeta): void {
@@ -402,12 +447,7 @@ export class ElementStore {
         )
           continue;
         const container = candidate.get(element.containerId);
-        if (
-          !container ||
-          !geometry.has(container.id) ||
-          !isBoundTextContainer(container, this.registry)
-        )
-          continue;
+        if (!container || !isBoundTextContainer(container, this.registry)) continue;
         const previous = first.get(container.id);
         if (
           !previous ||
@@ -421,37 +461,42 @@ export class ElementStore {
       const mapped = first.get(container.id);
       if (mapped) return mapped;
       if (!isBoundTextContainer(container, this.registry)) return undefined;
-      return findBoundText(container, [...candidate.values()]);
+      return this.getChildren(container.id).find(
+        (element): element is Extract<CanvasElement, { type: 'text' }> =>
+          element.type === 'text' && element.containerId === container.id,
+      );
     };
     const patch = (id: string, partial: Partial<CanvasElement>) => {
       const current = candidate.get(id);
       if (
         !current ||
-        Object.entries(partial).every(
-          ([key, value]) => current[key as keyof CanvasElement] === value,
+        Object.entries(partial).every(([key, value]) =>
+          sameDerivedValue(current[key as keyof CanvasElement], value),
         )
       )
-        return;
+        return false;
       const item = primary.get(id);
       const updated = { ...(item?.updated ?? current), ...partial } as CanvasElement;
       if (item) item.updated = updated;
       else {
         const existing = this.elements.get(id);
-        if (!existing) return;
+        if (!existing) return false;
         const derived = this.prepareUpdate(existing, partial, meta);
         const next = { existing, updated: derived, partial };
         prepared.push(next);
         primary.set(id, next);
         candidate.set(id, derived);
-        return;
+        return true;
       }
       candidate.set(id, updated);
+      return true;
     };
     const grown = new Set<string>();
     const layout = (
       container: CanvasElement,
       text: Extract<CanvasElement, { type: 'text' }>,
       remeasure: boolean,
+      preserveSize = false,
     ) => {
       if (!isBoundTextContainer(container, this.registry)) return;
       if (primary.has(container.id) && primary.has(text.id)) return;
@@ -464,16 +509,39 @@ export class ElementStore {
         remeasure,
       });
       if (result.container) {
-        patch(container.id, result.container);
-        grown.add(container.id);
+        if (patch(container.id, result.container)) grown.add(container.id);
       }
-      if (result.text) patch(text.id, result.text);
+      if (result.text) {
+        if (preserveSize) {
+          const positioning = { ...result.text };
+          delete positioning.size;
+          patch(text.id, positioning);
+        } else {
+          patch(text.id, result.text);
+        }
+      }
     };
     for (const id of geometry) {
       const container = candidate.get(id);
-      if (!container) continue;
+      const previous = this.elements.get(id);
+      if (
+        !container ||
+        !previous ||
+        !isBoundTextContainer(container, this.registry) ||
+        !isBoundTextContainer(previous, this.registry)
+      )
+        continue;
       const text = firstText(container);
-      if (text) layout(container, text, true);
+      if (!text) continue;
+      const oldWidth = getBoundTextBox(previous, this.registry, (target) => {
+        const element = this.elements.get(target);
+        return element ? getElementBounds(element, this.registry) : null;
+      }).w;
+      const nextWidth = getBoundTextBox(container, this.registry, (target) => {
+        const element = candidate.get(target);
+        return element ? getElementBounds(element, this.registry) : null;
+      }).w;
+      layout(container, text, Math.abs(oldWidth - nextWidth) > 1e-6);
     }
     for (const id of textIds) {
       const text = candidate.get(id);
@@ -486,7 +554,7 @@ export class ElementStore {
         partial !== undefined &&
         !('size' in partial) &&
         ('text' in partial || 'fontSize' in partial || 'wrap' in partial);
-      layout(container, text, remeasure);
+      layout(container, text, remeasure, partial !== undefined && 'size' in partial);
     }
     for (const id of grown) {
       const container = candidate.get(id);
