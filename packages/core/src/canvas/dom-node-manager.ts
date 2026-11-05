@@ -144,7 +144,10 @@ export class DomNodeManager {
       }
     }
 
-    if (node.parentElement !== this.getStratum(zIndex)) {
+    const deferredStratumMove =
+      this.isEditingElement(element.id) &&
+      node.parentElement?.dataset['paintOrder'] !== String(zIndex);
+    if (!deferredStratumMove && node.parentElement !== this.getStratum(zIndex)) {
       const previousStratum = node.parentElement;
       this.getStratum(zIndex).appendChild(node);
       if (previousStratum?.childElementCount === 0) {
@@ -156,7 +159,7 @@ export class DomNodeManager {
 
     if (this.getVersion) {
       this.lastSyncedVersion.set(element.id, this.getVersion(element.id));
-      this.lastSyncedZIndex.set(element.id, zIndex);
+      if (!deferredStratumMove) this.lastSyncedZIndex.set(element.id, zIndex);
       this.lastSyncedOpacity.set(element.id, opacity);
       if (clip !== undefined) this.lastSyncedClip.set(element.id, this.clipKey(element, clip));
     }
@@ -168,7 +171,7 @@ export class DomNodeManager {
       top: `${element.position.y}px`,
       width: size ? `${size.w}px` : 'auto',
       height: size ? `${size.h}px` : 'auto',
-      zIndex: String(zIndex),
+      zIndex: String(this.lastSyncedZIndex.get(element.id) ?? zIndex),
       opacity: String(opacity),
       transform: element.rotation ? `rotate(${element.rotation}rad)` : '',
       transformOrigin: '50% 50%',

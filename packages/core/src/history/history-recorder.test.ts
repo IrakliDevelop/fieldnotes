@@ -15,6 +15,10 @@ function setup() {
   return { store, stack, recorder };
 }
 
+function withoutVersions(elements: readonly { version: number }[]) {
+  return elements.map(({ version: _version, ...element }) => element);
+}
+
 describe('HistoryRecorder', () => {
   it('rolls back an add and remove of the same new element', () => {
     const { store, stack, recorder } = setup();
@@ -186,6 +190,63 @@ describe('HistoryRecorder', () => {
     } finally {
       setTextMeasurer(null);
     }
+  });
+
+  it('undos and redos legacy arrow-label seeding as one exact transaction', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+      id: 'arrow',
+      label: '<b>legacy</b>',
+    };
+    store.add(arrow);
+    stack.clear();
+    const before = structuredClone(store.getAll());
+
+    recorder.run(() => {
+      const text = { ...createBoundText(arrow, { text: arrow.label }), id: 'text' };
+      store.add(text);
+      store.update(arrow.id, { label: undefined });
+    });
+    const after = structuredClone(store.getAll());
+    expect(after).toMatchObject([
+      { id: 'arrow', label: undefined },
+      { id: 'text', text: '<b>legacy</b>' },
+    ]);
+    expect(stack.undoCount).toBe(1);
+    recorder.pause();
+    stack.undo(store);
+    expect(withoutVersions(store.getAll())).toEqual(withoutVersions(before));
+    expect(store.getById(arrow.id)?.version).toBe(3);
+    expect(store.getById('text')).toBeUndefined();
+    stack.redo(store);
+    recorder.resume();
+    expect(withoutVersions(store.getAll())).toEqual(withoutVersions(after));
+    expect(store.getById(arrow.id)?.version).toBe(4);
+  });
+
+  it('undos and redos create, type, and fit as one semantic bound-text edit', () => {
+    const { store, stack, recorder } = setup();
+    const shape = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+      id: 'shape',
+    };
+    store.add(shape);
+    stack.clear();
+    const before = structuredClone(store.getAll());
+    recorder.run(() => {
+      const text = { ...createBoundText(shape), id: 'text' };
+      store.add(text);
+      store.update(text.id, { text: 'typed', size: { w: 84, h: 42 } });
+    });
+    const after = structuredClone(store.getAll());
+    expect(stack.undoCount).toBe(1);
+    recorder.pause();
+    stack.undo(store);
+    expect(withoutVersions(store.getAll())).toEqual(withoutVersions(before));
+    stack.redo(store);
+    recorder.resume();
+    expect(withoutVersions(store.getAll())).toEqual(withoutVersions(after));
   });
 
   it('restores a deleted bound-text subtree without remeasurement', () => {

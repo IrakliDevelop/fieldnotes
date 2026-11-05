@@ -1619,6 +1619,80 @@ describe('InputHandler', () => {
       expect(hr.begin).toHaveBeenCalledOnce();
       expect(hr.commit).toHaveBeenCalledOnce();
     });
+
+    it('does not commit a transaction the tool replaced while finishing a gesture', () => {
+      let transactionId: number | null = null;
+      const recorder = {
+        begin: vi.fn(() => {
+          transactionId = (transactionId ?? 0) + 1;
+        }),
+        commit: vi.fn(() => {
+          transactionId = null;
+        }),
+        get currentTransactionId() {
+          return transactionId;
+        },
+      } as unknown as HistoryRecorder;
+      const tm = {
+        ...stubToolManager(),
+        handlePointerUp: vi.fn(() => recorder.begin()),
+      } as unknown as ToolManager;
+
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        historyRecorder: recorder,
+        actions: stubActionRegistry(),
+      });
+
+      pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+      pointerUp(element, { pointerId: 1, clientX: 20, clientY: 20 });
+
+      expect(recorder.begin).toHaveBeenCalledTimes(2);
+      expect(recorder.commit).not.toHaveBeenCalled();
+      expect(transactionId).toBe(2);
+    });
+
+    it('ignores a synthetic pointerleave after the touch pointer already ended', () => {
+      let transactionId: number | null = null;
+      const recorder = {
+        begin: vi.fn(() => {
+          transactionId = (transactionId ?? 0) + 1;
+        }),
+        commit: vi.fn(() => {
+          transactionId = null;
+        }),
+        get currentTransactionId() {
+          return transactionId;
+        },
+      } as unknown as HistoryRecorder;
+      const tm = {
+        ...stubToolManager(),
+        handlePointerUp: vi.fn(() => recorder.begin()),
+      } as unknown as ToolManager;
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        historyRecorder: recorder,
+        actions: stubActionRegistry(),
+      });
+
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 20,
+        clientY: 20,
+      });
+      pointerUp(element, { pointerId: 1, pointerType: 'touch', clientX: 20, clientY: 20 });
+      element.dispatchEvent(
+        new PointerEvent('pointerleave', { bubbles: true, pointerId: 1, pointerType: 'touch' }),
+      );
+
+      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
+      expect(recorder.commit).not.toHaveBeenCalled();
+      expect(transactionId).toBe(2);
+    });
   });
 
   describe('copy/paste', () => {
@@ -2504,6 +2578,47 @@ describe('InputHandler', () => {
       expect(switchTool).toHaveBeenCalledWith('pencil');
       document.body.removeChild(outside);
     });
+
+    it.each(['focus', 'window'] as const)(
+      'keeps activation keys native on BUTTON, A[href], and SUMMARY in %s scope while routing mod+z',
+      (scope) => {
+        const undo = vi.fn();
+        const tool = { onKeyDown: vi.fn((event: KeyboardEvent) => event.key !== 'z') };
+        handler.destroy();
+        handler = new InputHandler(element, camera, {
+          toolManager: { ...stubToolManager(), activeTool: tool } as unknown as ToolManager,
+          toolContext: stubToolContext(),
+          shortcuts: { scope },
+          historyStack: { undo, redo: vi.fn() } as unknown as HistoryStack,
+          actions: stubActionRegistry(),
+        });
+        const controls = [
+          document.createElement('button'),
+          document.createElement('a'),
+          document.createElement('summary'),
+        ];
+        controls[1]?.setAttribute('href', '#native');
+        const parent = scope === 'window' ? document.body : element;
+        for (const control of controls) parent.appendChild(control);
+
+        for (const control of controls) {
+          control.focus();
+          control.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          );
+          control.dispatchEvent(
+            new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+          );
+          control.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }),
+          );
+        }
+
+        expect(tool.onKeyDown).toHaveBeenCalledTimes(3);
+        expect(undo).toHaveBeenCalledTimes(3);
+        for (const control of controls) control.remove();
+      },
+    );
 
     it('makes the element focusable and focuses it on pointer down', () => {
       expect(element.tabIndex).toBe(0);

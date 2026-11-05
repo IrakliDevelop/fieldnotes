@@ -1377,6 +1377,7 @@ export class Viewport {
   setBoundText(containerId: string, html: string): string | undefined {
     const container = this.store.getById(containerId);
     if (!container || !isBoundTextContainer(container, this.elementRegistry)) return undefined;
+    if (container.locked || this.layerManager.isLayerLocked(container.layerId)) return undefined;
     const existing = getBoundText(container, this.store);
     this.transaction(() => {
       if (isNoteContentEmpty(html)) {

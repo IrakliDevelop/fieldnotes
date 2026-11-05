@@ -85,7 +85,7 @@ export class NoteEditor {
   }
 
   startEditing(node: HTMLDivElement, elementId: string, store: ElementStore): void {
-    if (this.editingId === elementId) return;
+    if (this.isEditingOrPending(elementId)) return;
 
     if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
     if (this.editingId) {

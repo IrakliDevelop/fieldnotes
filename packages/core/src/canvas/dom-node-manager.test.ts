@@ -839,6 +839,45 @@ describe('DomNodeManager', () => {
       expect(node?.style.zIndex).toBe('5');
     });
 
+    it('keeps an edited node focused until its deferred paint-order move can reconcile', () => {
+      let editing = true;
+      const trackedManager = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement: () => editing,
+        getVersion: () => 0,
+      });
+      const text = {
+        ...createText({
+          id: 'edited-text',
+          text: 'one',
+          position: { x: 0, y: 0 },
+          size: { w: 120, h: 20 },
+        }),
+      };
+
+      trackedManager.syncDomNode(text, 0);
+      const node = trackedManager.getNode(text.id);
+      if (!node) throw new Error('expected text node');
+      node.contentEditable = 'true';
+      node.tabIndex = 0;
+      node.focus();
+
+      trackedManager.syncDomNode({ ...text, size: { w: 120, h: 60 } }, 4);
+
+      expect(document.activeElement).toBe(node);
+      expect(node.contentEditable).toBe('true');
+      expect(node.parentElement?.dataset['paintOrder']).toBe('0');
+      expect(node.style.zIndex).toBe('0');
+      expect(domLayer.querySelector('[data-paint-order="4"]')).toBeNull();
+
+      editing = false;
+      trackedManager.syncDomNode({ ...text, size: { w: 120, h: 60 } }, 4);
+
+      expect(node.parentElement?.dataset['paintOrder']).toBe('4');
+      expect(node.style.zIndex).toBe('4');
+    });
+
     it('always syncs first time (no cached version)', () => {
       const trackedManager = new DomNodeManager({
         domLayer,

@@ -781,6 +781,163 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
+    it.each([
+      ['locked container', { locked: true }, false],
+      ['unlocked container', {}, true],
+    ])('redirects a bound child through a %s', (_name, input, expected) => {
+      const viewport = new Viewport(container);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(rectangle);
+      const textId = viewport.setBoundText(rectangle.id, 'saved label');
+      if (!textId) throw new Error('expected bound text');
+      if (input.locked) viewport.store.update(rectangle.id, input);
+      vi.spyOn(
+        (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
+          .domNodeManager,
+        'getNode',
+      ).mockReturnValue(document.createElement('div'));
+
+      expect(viewport.editBoundText(textId)).toBe(expected);
+      viewport.destroy();
+    });
+
+    it('refuses a bound-child redirect through a locked layer', () => {
+      const viewport = new Viewport(container);
+      const layer = viewport.layerManager.createLayer('Locked');
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        layerId: layer.id,
+      });
+      viewport.store.add(rectangle);
+      const textId = viewport.setBoundText(rectangle.id, 'saved label');
+      if (!textId) throw new Error('expected bound text');
+      viewport.layerManager.setLayerLocked(layer.id, true);
+
+      expect(viewport.editBoundText(textId)).toBe(false);
+      expect(viewport.getBoundText(rectangle.id)?.id).toBe(textId);
+      viewport.destroy();
+    });
+
+    it.each(['new bound text', 'existing bound text'] as const)(
+      'leaves %s unchanged when its editor DOM node is missing',
+      (kind) => {
+        const viewport = new Viewport(container);
+        const rectangle = createShape({
+          shape: 'rectangle',
+          position: { x: 0, y: 0 },
+          size: { w: 120, h: 60 },
+          layerId: viewport.layerManager.activeLayerId,
+        });
+        viewport.store.add(rectangle);
+        if (kind === 'existing bound text') viewport.setBoundText(rectangle.id, 'saved');
+        viewport.history.clear();
+        const before = viewport.store.getAll();
+        vi.spyOn(
+          (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
+            .domNodeManager,
+          'getNode',
+        ).mockReturnValue(undefined);
+
+        expect(viewport.editBoundText(rectangle.id)).toBe(false);
+        expect(viewport.store.getAll()).toEqual(before);
+        expect(viewport.history.canUndo).toBe(false);
+        viewport.destroy();
+      },
+    );
+
+    it('refuses setBoundText on a locked container without creating a child', () => {
+      const viewport = new Viewport(container);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        locked: true,
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(rectangle);
+      viewport.history.clear();
+      const before = viewport.store.getAll();
+
+      expect(viewport.setBoundText(rectangle.id, 'must not save')).toBeUndefined();
+      expect(viewport.store.getAll()).toEqual(before);
+      expect(viewport.history.canUndo).toBe(false);
+      viewport.destroy();
+    });
+
+    it('refuses setBoundText on a locked container layer without creating a child', () => {
+      const viewport = new Viewport(container);
+      const layer = viewport.layerManager.createLayer('Locked');
+      viewport.layerManager.setLayerLocked(layer.id, true);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        layerId: layer.id,
+      });
+      viewport.store.add(rectangle);
+      viewport.history.clear();
+      const before = viewport.store.getAll();
+
+      expect(viewport.setBoundText(rectangle.id, 'must not save')).toBeUndefined();
+      expect(viewport.store.getAll()).toEqual(before);
+      expect(viewport.history.canUndo).toBe(false);
+      viewport.destroy();
+    });
+
+    it('creates, updates, and removes public bound text with its returned id', () => {
+      const viewport = new Viewport(container);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 10, y: 20 },
+        size: { w: 120, h: 60 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(rectangle);
+      viewport.history.clear();
+
+      const id = viewport.setBoundText(rectangle.id, 'first');
+      if (!id) throw new Error('expected bound text');
+      expect(viewport.getBoundText(rectangle.id)).toMatchObject({
+        id,
+        containerId: rectangle.id,
+        text: 'first',
+      });
+      expect(viewport.getBoundText(rectangle.id)?.position).toEqual({ x: 18, y: 36 });
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.setBoundText(rectangle.id, 'second')).toBe(id);
+      expect(viewport.getBoundText(rectangle.id)?.text).toBe('second');
+      expect(viewport.history.undoCount).toBe(2);
+      expect(viewport.setBoundText(rectangle.id, '')).toBeUndefined();
+      expect(viewport.getBoundText(rectangle.id)).toBeUndefined();
+      expect(viewport.history.undoCount).toBe(3);
+      expect(viewport.history.canUndo).toBe(true);
+      viewport.destroy();
+    });
+
+    it('refuses public bound text for missing and non-container ids', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.history.clear();
+
+      expect(viewport.setBoundText('missing', 'text')).toBeUndefined();
+      expect(viewport.setBoundText(note.id, 'text')).toBeUndefined();
+      expect(viewport.editBoundText('missing')).toBe(false);
+      expect(viewport.editBoundText(note.id)).toBe(false);
+      expect(viewport.history.canUndo).toBe(false);
+      viewport.destroy();
+    });
+
     it('does not start editing for non-editable element types', () => {
       const viewport = new Viewport(container);
       const stroke = createStroke({
