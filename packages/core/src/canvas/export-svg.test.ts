@@ -20,6 +20,7 @@ import type {
   HtmlElement,
 } from '../elements/types';
 import { createRenderHooks } from './render-hooks';
+import { createBoundText } from '../elements/bound-text';
 
 const HTML_MARKER = 'data-distinctive-html-marker-xyz';
 
@@ -73,6 +74,23 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it('emits a bound arrow text pill and the text in scene order', async () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'legacy' });
+    const text = { ...createBoundText(arrow, { text: 'bound' }), size: { w: 60, h: 20 } };
+    store.add(arrow);
+    store.add(text);
+    const laidOut = store.getById(text.id);
+    if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain(
+      `<rect x="${laidOut.position.x - 4}" y="${laidOut.position.y - 2}" width="68" height="24" rx="4" fill="rgba(255,255,255,0.9)" />`,
+    );
+    expect(svg).not.toContain('legacy');
+  });
+
   it('uses exact frame content bounds and excludes the frame and overlapping roots', async () => {
     const store = new ElementStore();
     const frame = createFrame({

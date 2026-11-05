@@ -10,6 +10,7 @@ import { hitTestStroke } from '../elements/stroke-hit';
 import { lineEndpoints } from '../elements/shape-geometry';
 import type { HandlePosition } from './select-overlay';
 import { getDefaultElementRegistry } from '../elements/default-registry';
+import { getBoundText } from '../elements/bound-text';
 import {
   HANDLE_SIZE,
   HANDLE_HIT_PADDING,
@@ -30,10 +31,16 @@ export function hitTest(
     .queryRect({ x: world.x - r, y: world.y - r, w: r * 2, h: r * 2 })
     .reverse();
   for (const el of candidates) {
-    if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
-    if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
-    if (match && !match(el)) continue;
-    if (isInsideBounds(world, el, ctx)) return el;
+    const boundContainer =
+      el.type === 'text' && el.parentId === el.containerId && el.parentId
+        ? ctx.store.getById(el.parentId)
+        : undefined;
+    const target =
+      boundContainer && getBoundText(boundContainer, ctx.store)?.id === el.id ? boundContainer : el;
+    if (ctx.isLayerVisible && !ctx.isLayerVisible(target.layerId)) continue;
+    if (ctx.isLayerLocked && ctx.isLayerLocked(target.layerId)) continue;
+    if (match && !match(target)) continue;
+    if (isInsideBounds(world, el, ctx)) return target;
   }
   return null;
 }
@@ -221,6 +228,11 @@ export function findElementsInRect(marquee: Bounds, ctx: ToolContext): string[] 
   const candidates = ctx.store.queryRect(marquee);
   const ids: string[] = [];
   for (const el of candidates) {
+    const boundContainer =
+      el.type === 'text' && el.parentId === el.containerId && el.parentId
+        ? ctx.store.getById(el.parentId)
+        : undefined;
+    if (boundContainer && getBoundText(boundContainer, ctx.store)?.id === el.id) continue;
     if (ctx.isLayerVisible && !ctx.isLayerVisible(el.layerId)) continue;
     if (ctx.isLayerLocked && ctx.isLayerLocked(el.layerId)) continue;
     if (

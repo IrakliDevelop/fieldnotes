@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderArrow, getArrowDashPattern } from './arrow-renderer';
 import { createArrow, createShape } from '../element-factory';
+import { createBoundText } from '../bound-text';
 import { ElementStore } from '../element-store';
 import type { ArrowElement } from '../types';
 
@@ -88,6 +89,28 @@ describe('renderArrow — stroke style dashing', () => {
 });
 
 describe('renderArrow bound curve', () => {
+  it('draws a bound text pill without drawing the deprecated label', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'legacy' });
+    const text = { ...createBoundText(arrow, { text: 'bound' }), size: { w: 60, h: 20 } };
+    store.add(arrow);
+    store.add(text);
+    const laidOut = store.getById(text.id);
+    if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
+    const ctx = mockCtx();
+
+    renderArrow(ctx, arrow, store, null);
+
+    expect(ctx.roundRect).toHaveBeenCalledWith(
+      laidOut.position.x - 4,
+      laidOut.position.y - 2,
+      68,
+      24,
+      4,
+    );
+    expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+
   it('draws a bound curve and arrowhead from persisted geometry, not its stale cache', () => {
     const store = new ElementStore();
     const from = createShape({

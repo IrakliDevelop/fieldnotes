@@ -4,6 +4,7 @@ import type { ElementChangeMeta, ElementStore } from './element-store';
 import { getArrowCurve } from './arrow-geometry';
 import { getElementBounds } from './element-bounds';
 import type { ElementRegistry } from './element-registry';
+import { getBoundText } from './bound-text';
 
 const BINDABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape']);
 
@@ -38,6 +39,13 @@ export function findBindTarget(
     h: threshold * 2,
   })) {
     if (!isBindable(el)) continue;
+    if (
+      el.type === 'text' &&
+      el.parentId === el.containerId &&
+      el.parentId &&
+      getBoundText(store.getById(el.parentId) ?? el, store)?.id === el.id
+    )
+      continue;
     if (excludeId && el.id === excludeId) continue;
     if (filter && !filter(el)) continue;
 

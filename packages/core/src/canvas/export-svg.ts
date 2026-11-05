@@ -42,6 +42,7 @@ import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import type { ElementRegistry } from '../elements/element-registry';
 import type { RenderHooks } from './render-hooks';
 import { resolveFrameExport } from './frame-export';
+import { getBoundText } from '../elements/bound-text';
 
 export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
   frameId?: string;
@@ -173,7 +174,10 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
   const p2y = to.y - ARROWHEAD_LENGTH * Math.sin(angle + ARROWHEAD_ANGLE);
   out += `<polygon points="${n(to.x)},${n(to.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${esc(arrow.color)}" />`;
 
-  if (arrow.label && arrow.label.length > 0) {
+  const boundText = getBoundText(arrow, store);
+  if (boundText) {
+    out += `<rect x="${n(boundText.position.x - 4)}" y="${n(boundText.position.y - 2)}" width="${n(boundText.size.w + 8)}" height="${n(boundText.size.h + 4)}" rx="4" fill="rgba(255,255,255,0.9)" />`;
+  } else if (arrow.label && arrow.label.length > 0) {
     const mid = getArrowLabelAnchor(arrow, resolveBounds);
     const approxW = arrow.label.length * ARROW_LABEL_FONT_SIZE * 0.6;
     const padX = 6;

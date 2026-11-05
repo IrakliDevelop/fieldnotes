@@ -2,6 +2,7 @@ import type { ArrowElement, ArrowStrokeStyle } from '../types';
 import type { ElementStore } from '../element-store';
 import { getArrowCurve, getArrowLabelAnchor, getArrowTangentAngle } from '../arrow-geometry';
 import { getElementBounds } from '../element-bounds';
+import { getBoundText } from '../bound-text';
 
 const ARROWHEAD_LENGTH = 12;
 const ARROWHEAD_ANGLE = Math.PI / 6;
@@ -55,15 +56,32 @@ export function renderArrow(
     getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1),
   );
   ctx.restore();
-  renderArrowLabel(ctx, arrow, labelEditingId, resolveBounds);
+  renderArrowLabel(ctx, arrow, store, labelEditingId, resolveBounds);
 }
 
 function renderArrowLabel(
   ctx: CanvasRenderingContext2D,
   arrow: ArrowElement,
+  store: ElementStore | null,
   labelEditingId: string | null,
   resolveBounds: (id: string) => { x: number; y: number; w: number; h: number } | null,
 ): void {
+  const boundText = store && getBoundText(arrow, store);
+  if (boundText) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.beginPath();
+    ctx.roundRect(
+      boundText.position.x - 4,
+      boundText.position.y - 2,
+      boundText.size.w + 8,
+      boundText.size.h + 4,
+      4,
+    );
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
   if (!arrow.label || arrow.label.length === 0) return;
   if (arrow.id === labelEditingId) return;
   const mid = getArrowLabelAnchor(arrow, resolveBounds);

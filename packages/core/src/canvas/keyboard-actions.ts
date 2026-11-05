@@ -10,6 +10,7 @@ import { createId } from '../elements/create-id';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { ElementStore } from '../elements/element-store';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
+import { getBoundText } from '../elements/bound-text';
 import type { RotateDirection } from './selection-rotate';
 
 export interface KeyboardActionsDeps {
@@ -54,7 +55,13 @@ export class KeyboardActions {
         (el) =>
           !el.locked &&
           (ctx.isLayerVisible?.(el.layerId) ?? true) &&
-          !(ctx.isLayerLocked?.(el.layerId) ?? false),
+          !(ctx.isLayerLocked?.(el.layerId) ?? false) &&
+          !(
+            el.type === 'text' &&
+            el.parentId === el.containerId &&
+            el.parentId &&
+            getBoundText(ctx.store.getById(el.parentId) ?? el, ctx.store)?.id === el.id
+          ),
       );
   }
 

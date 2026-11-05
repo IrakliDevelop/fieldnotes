@@ -13,6 +13,7 @@ import {
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
 import { createNote, createStroke, createArrow, createShape } from '../elements/element-factory';
+import { createBoundText } from '../elements/bound-text';
 import { createFrame } from '../elements/frame-element';
 import type { ToolContext } from './types';
 import { ElementRegistry } from '../elements/element-registry';
@@ -45,6 +46,24 @@ describe('rectsOverlap', () => {
 });
 
 describe('isInsideBounds', () => {
+  it('selects a bound text child as its rectangle and excludes it from a marquee', () => {
+    const ctx = makeCtx();
+    const rectangle = createShape({
+      shape: 'rectangle',
+      position: { x: 20, y: 30 },
+      size: { w: 160, h: 100 },
+    });
+    const text = { ...createBoundText(rectangle, { text: 'Bound text' }), size: { w: 80, h: 20 } };
+    ctx.store.add(rectangle);
+    ctx.store.add(text);
+
+    expect(
+      hitTest({ x: text.position.x + text.size.w / 2, y: text.position.y + text.size.h / 2 }, ctx)
+        ?.id,
+    ).toBe(rectangle.id);
+    expect(findElementsInRect({ x: 0, y: 0, w: 240, h: 180 }, ctx)).toEqual([rectangle.id]);
+  });
+
   it('skips a bound arrow inside its source and hits its visible curve', () => {
     const ctx = makeCtx();
     const from = createShape({

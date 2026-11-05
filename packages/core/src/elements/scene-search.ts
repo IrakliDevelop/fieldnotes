@@ -2,6 +2,7 @@ import type { ElementRegistry } from './element-registry';
 import { DEFAULT_NOTE_FONT_SIZE } from './element-factory';
 import { parseStyledRuns } from './note-sanitizer';
 import type { CanvasElement } from './types';
+import { findBoundText } from './bound-text';
 
 interface Entry {
   readonly text: string;
@@ -49,9 +50,15 @@ export class SceneSearch {
     if (!foldedQuery) return [];
 
     const matches: Match[] = [];
+    const arrowsWithBoundText = new Set(
+      elements
+        .filter((element) => element.type === 'arrow')
+        .filter((arrow) => findBoundText(arrow, elements) !== undefined)
+        .map((arrow) => arrow.id),
+    );
     for (const element of elements) {
       if (options.filter && !options.filter(element)) continue;
-      const entry = this.entryFor(element);
+      const entry = this.entryFor(element, arrowsWithBoundText.has(element.id));
       if (!entry) continue;
       const at = entry.folded.indexOf(foldedQuery);
       if (at !== -1) matches.push({ element, entry, at });
@@ -93,7 +100,8 @@ export class SceneSearch {
     });
   }
 
-  private entryFor(element: CanvasElement): Entry | null {
+  private entryFor(element: CanvasElement, suppressArrowLabel: boolean): Entry | null {
+    if (element.type === 'arrow' && suppressArrowLabel) return null;
     if (this.entries.has(element)) return this.entries.get(element) ?? null;
 
     const text = this.extractText(element);

@@ -21,6 +21,8 @@ import {
 import { ElementStore } from './element-store';
 import type { CanvasElement, ExtensionElementEnvelope } from './types';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
+import { createShape } from './element-factory';
+import { createBoundText } from './bound-text';
 
 describe('getElementCenter', () => {
   it('returns center of a note', () => {
@@ -71,6 +73,22 @@ describe('getElementBounds', () => {
 });
 
 describe('findBindTarget', () => {
+  it('skips actual bound text while retaining unrelated text targets', () => {
+    const store = new ElementStore();
+    const rectangle = createShape({
+      shape: 'rectangle',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const bound = { ...createBoundText(rectangle, { text: 'bound' }), size: { w: 60, h: 20 } };
+    const extra = createText({ position: { x: 0, y: 0 }, size: { w: 60, h: 20 } });
+    store.add(rectangle);
+    store.add(bound);
+    store.add(extra);
+
+    expect(findBindTarget({ x: 50, y: 50 }, store, 20)?.id).toBe(rectangle.id);
+  });
+
   it('retains an existing unrotated-bounds target after spatial filtering', () => {
     const store = new ElementStore();
     const note = createNote({
