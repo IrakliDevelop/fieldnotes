@@ -181,6 +181,35 @@ describe('parseState', () => {
     expect(state.elements).toHaveLength(1);
   });
 
+  it('keeps a non-text element with an unknown containerId field loadable', () => {
+    const state = validState();
+    state.elements = [
+      {
+        ...createShape({
+          index: 'a0',
+          position: { x: 0, y: 0 },
+          size: { w: 20, h: 10 },
+          layerId: 'default-layer',
+        }),
+        containerId: '',
+      },
+    ];
+
+    expect(parseState(JSON.stringify(state)).elements[0]?.type).toBe('shape');
+  });
+
+  it('rejects an empty text containerId', () => {
+    const state = validState();
+    const text = createText({
+      index: 'a0',
+      position: { x: 0, y: 0 },
+      layerId: 'default-layer',
+    });
+    state.elements = [{ ...text, containerId: '' }];
+
+    expect(() => parseState(JSON.stringify(state))).toThrow('malformed text data');
+  });
+
   it('retains a valid v6 parent relationship regardless of element order', () => {
     const state = validState();
     const source = createStroke({

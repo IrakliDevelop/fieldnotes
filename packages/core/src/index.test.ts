@@ -22,6 +22,24 @@ import type {
 } from './index';
 
 describe('core public surface', () => {
+  it('exports bound text helpers and types without internal layout helpers', () => {
+    const container: FN.BoundTextContainer | undefined = undefined;
+    const layout: FN.BoundTextLayout<FN.BoundTextContainer> | undefined = undefined;
+    const options: FN.CreateBoundTextOptions = { fontSize: 16 };
+    expect([
+      typeof FN.createBoundText,
+      typeof FN.getBoundText,
+      typeof FN.isBoundTextContainer,
+    ]).toEqual(['function', 'function', 'function']);
+    expect([container, layout, options.fontSize]).toEqual([undefined, undefined, 16]);
+    for (const name of [
+      'findBoundText',
+      'layoutBoundText',
+      'getBoundTextBox',
+      'getBoundTextMinHeight',
+    ])
+      expect(name in FN).toBe(false);
+  });
   it('exports the current version', () => {
     expect(FN.VERSION).toBe('0.105.0');
   });

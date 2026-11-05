@@ -316,7 +316,6 @@ function validateElement(
     typeof el['layerId'] !== 'string' ||
     !isOptional(el['groupId'], isString) ||
     !isOptional(el['parentId'], isString) ||
-    !isOptional(el['containerId'], isNonEmptyString) ||
     !isOptional(el['rotation'], isFiniteNumber)
   ) {
     throw new Error(`Invalid element "${el['id']}": invalid base fields or geometry`);
@@ -465,7 +464,8 @@ function validateTypeFields(
         isString(el['color']) &&
         isEnum(el['textAlign'], ['left', 'center', 'right']) &&
         isOptional(el['wrap'], isBoolean) &&
-        isOptional(el['autoResize'], isBoolean)
+        isOptional(el['autoResize'], isBoolean) &&
+        isOptional(el['containerId'], isNonEmptyString)
       );
     case 'shape':
       return (

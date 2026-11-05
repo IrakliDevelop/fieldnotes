@@ -7,7 +7,7 @@ import type { KeyboardActionsDeps } from './keyboard-actions';
 import { Camera } from './camera';
 import { ElementStore } from '../elements/element-store';
 import { SelectTool } from '../tools/select-tool';
-import { createNote, createArrow } from '../elements/element-factory';
+import { createNote, createArrow, createShape, createText } from '../elements/element-factory';
 import { createId, formatId } from '../elements/create-id';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext } from '../tools/types';
@@ -260,6 +260,36 @@ describe('KeyboardActions.selectAll', () => {
 });
 
 describe('KeyboardActions.duplicate', () => {
+  it('remaps a bound child relation with its container and clears it when cloned alone', () => {
+    const { actions, ctx, tool } = makeActions();
+    const shape = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }),
+      id: 'shape',
+    };
+    const text = {
+      ...createText({ position: { x: 0, y: 0 }, parentId: 'shape' }),
+      id: 'text',
+      containerId: 'shape',
+    };
+    ctx.store.add(shape);
+    ctx.store.add(text);
+    tool.setSelection([shape.id]);
+    actions.duplicate();
+    const clonedShape = ctx.store
+      .getAll()
+      .find((element) => element.type === 'shape' && element.id !== 'shape');
+    const clonedText = ctx.store
+      .getAll()
+      .find((element) => element.type === 'text' && element.id !== 'text');
+    expect(clonedText).toMatchObject({ parentId: clonedShape?.id, containerId: clonedShape?.id });
+    tool.setSelection([text.id]);
+    actions.duplicate();
+    const loneClone = ctx.store
+      .getAll()
+      .find((element) => element.type === 'text' && element.id !== 'text' && !element.parentId);
+    expect(loneClone && 'parentId' in loneClone).toBe(false);
+    expect(loneClone && 'containerId' in loneClone).toBe(false);
+  });
   it('duplicate places clones on top with version 1', () => {
     const { actions, ctx, tool } = makeActions();
     const low = { ...createNote({ position: { x: 0, y: 0 } }), id: 'low', index: 'a0' };

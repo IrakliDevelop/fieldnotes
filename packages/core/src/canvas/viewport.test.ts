@@ -4676,6 +4676,29 @@ describe('Viewport live html elements', () => {
     expect(viewport.history.undoCount).toBe(1);
   });
 
+  it('normalizes a stale text container relation but preserves a matching rebind', () => {
+    const viewport = vp;
+    const parent = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }),
+      id: 'parent',
+    };
+    const text = {
+      ...createText({ position: { x: 0, y: 0 }, parentId: 'parent' }),
+      id: 'text',
+      containerId: 'stale',
+    };
+    viewport.store.add(parent);
+    viewport.store.add(text);
+    viewport.setParent(text.id, parent.id);
+    expect(viewport.store.getById(text.id)).toMatchObject({
+      parentId: 'parent',
+      containerId: undefined,
+    });
+    viewport.store.update(text.id, { containerId: parent.id });
+    viewport.setParent(text.id, parent.id);
+    expect(viewport.store.getById(text.id)?.containerId).toBe(parent.id);
+  });
+
   it('rejects parenting a frame before recording history but allows frame children', () => {
     const viewport = vp;
     const frame = createFrame({
