@@ -9,6 +9,8 @@ import {
   transferStrokeBounds,
 } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
+import { findBoundArrows, updateBoundArrow } from './arrow-binding';
+import { findBoundText, isBoundTextContainer, layoutBoundText } from './bound-text';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
 import type { CanvasElement, ElementType } from './types';
@@ -209,6 +211,32 @@ export class ElementStore {
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
     }
+    let containerId: string | undefined;
+    let containerPatch: Partial<CanvasElement> | null = null;
+    if (
+      !isExternalChange(meta) &&
+      element.type === 'text' &&
+      element.containerId &&
+      element.parentId === element.containerId
+    ) {
+      containerId = element.containerId;
+      const container = this.elements.get(containerId);
+      if (container && isBoundTextContainer(container, this.registry)) {
+        const first = findBoundText(container, [...this.elements.values(), element]);
+        if (first?.id === element.id) {
+          const result = layoutBoundText(container, element, {
+            registry: this.registry,
+            resolveBounds: (id) => {
+              const candidate = id === element.id ? element : this.elements.get(id);
+              return candidate ? getElementBounds(candidate, this.registry) : null;
+            },
+            remeasure: false,
+          });
+          if (result.text) element = { ...element, ...result.text };
+          containerPatch = result.container;
+        }
+      }
+    }
     if (this.strict(meta) && this.hierarchyKnownValid && !this.elements.has(element.id)) {
       validateAddedElement(element, this.elements, this.registry);
     } else {
@@ -223,25 +251,28 @@ export class ElementStore {
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
     this.bus.emit('add', element, meta);
+    if (containerPatch && containerId) this.update(containerId, containerPatch, meta);
   }
 
   update(id: string, partial: Partial<CanvasElement>, meta?: ElementChangeMeta): void {
     this.refreshRegistry();
     const existing = this.elements.get(id);
     if (!existing) return;
-    const updated = this.prepareUpdate(existing, partial, meta);
-    validateExtensionEnvelope(updated, this.registry);
-    const structural = this.isStructural(existing, updated);
+    const prepared = [{ existing, updated: this.prepareUpdate(existing, partial, meta), partial }];
+    this.deriveBoundText(prepared, meta);
+    for (const item of prepared) validateExtensionEnvelope(item.updated, this.registry);
+    const structural = prepared.some((item) => this.isStructural(item.existing, item.updated));
     const validated = this.strict(meta) && (structural || !this.hierarchyKnownValid);
     if (validated) {
       const candidate = new Map(this.elements);
-      candidate.set(id, updated);
+      for (const item of prepared) candidate.set(item.updated.id, item.updated);
       this.validateCandidate(candidate, meta);
     }
-    this.installUpdate(existing, updated);
+    for (const item of prepared) this.installUpdate(item.existing, item.updated);
     if (validated) this.hierarchyKnownValid = true;
     else if (structural) this.hierarchyKnownValid = false;
-    this.bus.emit('update', { previous: existing, current: updated }, meta);
+    for (const item of prepared)
+      this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
   }
 
   /** Applies several element patches atomically. */
@@ -255,15 +286,21 @@ export class ElementStore {
       if (ids.has(update.id)) throw new Error(`Duplicate update id "${update.id}"`);
       ids.add(update.id);
     }
-    const prepared: { existing: CanvasElement; updated: CanvasElement }[] = [];
+    const prepared: {
+      existing: CanvasElement;
+      updated: CanvasElement;
+      partial: Partial<CanvasElement>;
+    }[] = [];
     for (const update of updates) {
       const existing = this.elements.get(update.id);
       if (!existing) continue;
       const updated = this.prepareUpdate(existing, update.partial, meta);
       validateExtensionEnvelope(updated, this.registry);
-      prepared.push({ existing, updated });
+      prepared.push({ existing, updated, partial: update.partial });
     }
     if (prepared.length === 0) return;
+    this.deriveBoundText(prepared, meta);
+    for (const item of prepared) validateExtensionEnvelope(item.updated, this.registry);
     const structural = prepared.some(({ existing, updated }) =>
       this.isStructural(existing, updated),
     );
@@ -321,6 +358,150 @@ export class ElementStore {
     }
 
     return stampDataVersion(updated, this.registry);
+  }
+
+  private deriveBoundText(
+    prepared: {
+      existing: CanvasElement;
+      updated: CanvasElement;
+      partial: Partial<CanvasElement>;
+    }[],
+    meta: ElementChangeMeta | undefined,
+  ): void {
+    if (isExternalChange(meta)) return;
+    const geometry = new Set<string>();
+    const textIds = new Set<string>();
+    for (const item of prepared) {
+      const { partial, updated } = item;
+      if (
+        (updated.type === 'shape' &&
+          ['position', 'size', 'rotation', 'shape'].some((key) => key in partial)) ||
+        (updated.type === 'arrow' &&
+          ['from', 'to', 'bend', 'fromBinding', 'toBinding'].some((key) => key in partial)) ||
+        (updated.type === 'extension' && ['position', 'size', 'data'].some((key) => key in partial))
+      )
+        geometry.add(updated.id);
+      if (
+        updated.type === 'text' &&
+        ['text', 'fontSize', 'wrap', 'size', 'position', 'rotation'].some((key) => key in partial)
+      )
+        textIds.add(updated.id);
+    }
+    if (geometry.size === 0 && textIds.size === 0) return;
+    const candidate = new Map(this.elements);
+    const primary = new Map(prepared.map((item) => [item.updated.id, item]));
+    for (const item of prepared) candidate.set(item.updated.id, item.updated);
+
+    const first = new Map<string, Extract<CanvasElement, { type: 'text' }>>();
+    if (geometry.size > 0) {
+      for (const element of candidate.values()) {
+        if (
+          element.type !== 'text' ||
+          !element.containerId ||
+          element.parentId !== element.containerId
+        )
+          continue;
+        const container = candidate.get(element.containerId);
+        if (
+          !container ||
+          !geometry.has(container.id) ||
+          !isBoundTextContainer(container, this.registry)
+        )
+          continue;
+        const previous = first.get(container.id);
+        if (
+          !previous ||
+          element.index < previous.index ||
+          (element.index === previous.index && element.id < previous.id)
+        )
+          first.set(container.id, element);
+      }
+    }
+    const firstText = (container: CanvasElement) => {
+      const mapped = first.get(container.id);
+      if (mapped) return mapped;
+      if (!isBoundTextContainer(container, this.registry)) return undefined;
+      return findBoundText(container, [...candidate.values()]);
+    };
+    const patch = (id: string, partial: Partial<CanvasElement>) => {
+      const current = candidate.get(id);
+      if (
+        !current ||
+        Object.entries(partial).every(
+          ([key, value]) => current[key as keyof CanvasElement] === value,
+        )
+      )
+        return;
+      const item = primary.get(id);
+      const updated = { ...(item?.updated ?? current), ...partial } as CanvasElement;
+      if (item) item.updated = updated;
+      else {
+        const existing = this.elements.get(id);
+        if (!existing) return;
+        const derived = this.prepareUpdate(existing, partial, meta);
+        const next = { existing, updated: derived, partial };
+        prepared.push(next);
+        primary.set(id, next);
+        candidate.set(id, derived);
+        return;
+      }
+      candidate.set(id, updated);
+    };
+    const grown = new Set<string>();
+    const layout = (
+      container: CanvasElement,
+      text: Extract<CanvasElement, { type: 'text' }>,
+      remeasure: boolean,
+    ) => {
+      if (!isBoundTextContainer(container, this.registry)) return;
+      if (primary.has(container.id) && primary.has(text.id)) return;
+      const result = layoutBoundText(container, text, {
+        registry: this.registry,
+        resolveBounds: (id) => {
+          const element = candidate.get(id);
+          return element ? getElementBounds(element, this.registry) : null;
+        },
+        remeasure,
+      });
+      if (result.container) {
+        patch(container.id, result.container);
+        grown.add(container.id);
+      }
+      if (result.text) patch(text.id, result.text);
+    };
+    for (const id of geometry) {
+      const container = candidate.get(id);
+      if (!container) continue;
+      const text = firstText(container);
+      if (text) layout(container, text, true);
+    }
+    for (const id of textIds) {
+      const text = candidate.get(id);
+      if (text?.type !== 'text' || !text.containerId || text.parentId !== text.containerId)
+        continue;
+      const container = candidate.get(text.containerId);
+      if (!container || firstText(container)?.id !== text.id) continue;
+      const partial = primary.get(id)?.partial;
+      const remeasure =
+        partial !== undefined &&
+        !('size' in partial) &&
+        ('text' in partial || 'fontSize' in partial || 'wrap' in partial);
+      layout(container, text, remeasure);
+    }
+    for (const id of grown) {
+      const container = candidate.get(id);
+      if (!container || container.type === 'arrow') continue;
+      for (const arrow of findBoundArrows(id, this)) {
+        if (primary.has(arrow.id)) continue;
+        const current = candidate.get(arrow.id);
+        if (!current || current.type !== 'arrow') continue;
+        const arrowPatch = updateBoundArrow(current, (target) => candidate.get(target));
+        if (!arrowPatch) continue;
+        patch(arrow.id, arrowPatch);
+        const label = firstText(candidate.get(arrow.id) ?? current);
+        if (label) layout(candidate.get(arrow.id) ?? current, label, false);
+      }
+    }
   }
 
   private isStructural(existing: CanvasElement, updated: CanvasElement): boolean {

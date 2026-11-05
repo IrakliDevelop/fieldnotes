@@ -79,7 +79,7 @@ export function updateArrowsBoundToElements(movedIds: Iterable<string>, store: E
     for (const ba of findBoundArrows(id, store)) {
       if (updated.has(ba.id)) continue;
       updated.add(ba.id);
-      const updates = updateBoundArrow(ba, store);
+      const updates = updateBoundArrow(ba, (id) => store.getById(id));
       if (updates) store.update(ba.id, updates);
     }
   }
@@ -87,14 +87,14 @@ export function updateArrowsBoundToElements(movedIds: Iterable<string>, store: E
 
 export function updateBoundArrow(
   arrow: ArrowElement,
-  store: ElementStore,
+  getElement: (id: string) => CanvasElement | undefined,
 ): Partial<ArrowElement> | null {
   if (!arrow.fromBinding && !arrow.toBinding) return null;
 
   const updates: Partial<ArrowElement> = {};
 
   if (arrow.fromBinding) {
-    const el = store.getById(arrow.fromBinding.elementId);
+    const el = getElement(arrow.fromBinding.elementId);
     if (el) {
       const center = getElementCenter(el);
       updates.from = center;
@@ -103,7 +103,7 @@ export function updateBoundArrow(
   }
 
   if (arrow.toBinding) {
-    const el = store.getById(arrow.toBinding.elementId);
+    const el = getElement(arrow.toBinding.elementId);
     if (el) {
       updates.to = getElementCenter(el);
     }

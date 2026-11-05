@@ -118,26 +118,28 @@ export function layoutBoundText(
   options: {
     readonly registry: ElementRegistry;
     readonly resolveBounds: (id: string) => Bounds | null;
-    readonly remeasure: (text: string, fontSize: number, width: number | null) => Bounds;
+    readonly remeasure: boolean;
   },
 ): { text: Partial<TextElement> | null; container: Partial<BoundTextContainer> | null } {
   let current = container;
   let box = getBoundTextBox(current, options.registry, options.resolveBounds);
   let measured: Bounds;
   if (current.type === 'arrow') {
-    measured = options.remeasure(text.text, text.fontSize, null);
+    measured = options.remeasure
+      ? { x: 0, y: 0, ...measureText(text.text, text.fontSize, null) }
+      : { x: 0, y: 0, ...text.size };
   } else {
-    const currentBox = getBoundTextBox(container, options.registry, options.resolveBounds);
     measured =
-      Math.abs(currentBox.w - box.w) < 1e-6
+      options.remeasure === false
         ? { x: 0, y: 0, w: box.w, h: text.size.h }
-        : options.remeasure(text.text, text.fontSize, box.w);
+        : { x: 0, y: 0, ...measureText(text.text, text.fontSize, box.w) };
   }
   const width = current.type === 'arrow' ? Math.max(24, measured.w) : box.w;
   const height = measured.h;
   let containerPatch: Partial<BoundTextContainer> | null = null;
   if (!isNoteContentEmpty(text.text) && current.type === 'shape') {
-    const minHeight = getBoundTextMinHeight(current, text, options.registry, box.w);
+    const minHeight =
+      current.shape === 'ellipse' ? height * Math.SQRT2 : height + BOUND_TEXT_PADDING * 2;
     const delta = Math.max(0, minHeight - current.size.h);
     if (delta > 1e-6) {
       const rotation = current.rotation ?? 0;
@@ -166,7 +168,7 @@ export function layoutBoundText(
         current = grown;
         box = grownBox;
         if (Math.abs(box.w - width) > 1e-6)
-          measured = options.remeasure(text.text, text.fontSize, box.w);
+          measured = { x: 0, y: 0, ...measureText(text.text, text.fontSize, box.w) };
       }
     }
   }

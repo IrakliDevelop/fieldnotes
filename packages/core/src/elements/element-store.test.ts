@@ -6,7 +6,9 @@ import { getElementBounds } from './element-bounds';
 import { ElementRegistry } from './element-registry';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
-import { createStroke, createArrow } from './element-factory';
+import { createStroke, createArrow, createShape } from './element-factory';
+import { createBoundText } from './bound-text';
+import { setTextMeasurer } from './text-measure';
 import { createFrame } from './frame-element';
 import type {
   CanvasElement,
@@ -134,6 +136,37 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
 }
 
 describe('ElementStore', () => {
+  it('lays out and grows the first local bound text update atomically', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const store = new ElementStore();
+      const rectangle = {
+        ...createShape({ position: { x: 10, y: 20 }, size: { w: 100, h: 60 } }),
+        id: 'rectangle',
+        rotation: Math.PI / 2,
+      };
+      const text = { ...createBoundText(rectangle), id: 'text' };
+      store.add(rectangle);
+      store.add(text);
+      const update = vi.fn();
+      store.on('update', update);
+
+      store.update(text.id, { text: 'a a a a a' });
+
+      const laidOutText = store.getById(text.id);
+      expect(laidOutText).toMatchObject({ size: { w: 84, h: 116 }, rotation: Math.PI / 2 });
+      expect(laidOutText?.position).toMatchObject({ x: -18 });
+      expect(laidOutText?.position.y).toBeCloseTo(-8);
+      const grownRectangle = store.getById(rectangle.id);
+      expect(grownRectangle).toMatchObject({ size: { w: 100, h: 132 } });
+      expect(grownRectangle?.position.x).toBeCloseTo(-26);
+      expect(grownRectangle?.position.y).toBeCloseTo(-16);
+      expect(update).toHaveBeenCalledTimes(2);
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
   it('rebuilds clip projection after local and inherited registry registration changes', () => {
     const parentRegistry = new ElementRegistry();
     const registry = new ElementRegistry(parentRegistry);

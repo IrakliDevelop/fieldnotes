@@ -208,7 +208,7 @@ describe('updateBoundArrow', () => {
     });
     store.add(note);
     store.add(arrow);
-    const updates = updateBoundArrow(arrow, store);
+    const updates = updateBoundArrow(arrow, (id) => store.getById(id));
     expect(updates).not.toBeNull();
     expect(updates?.from).toEqual({ x: 200, y: 150 });
     expect(updates?.to).toBeUndefined();
@@ -218,7 +218,7 @@ describe('updateBoundArrow', () => {
     const store = new ElementStore();
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
     store.add(arrow);
-    expect(updateBoundArrow(arrow, store)).toBeNull();
+    expect(updateBoundArrow(arrow, (id) => store.getById(id))).toBeNull();
   });
 });
 

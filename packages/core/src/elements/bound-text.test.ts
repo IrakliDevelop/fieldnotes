@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { createArrow, createNote, createShape, createText } from './element-factory';
 import { ElementStore } from './element-store';
 import { getBoundText, getBoundTextBox, isBoundTextContainer, layoutBoundText } from './bound-text';
 import { ElementRegistry } from './element-registry';
+import { setTextMeasurer } from './text-measure';
 import type { ExtensionElementEnvelope, ElementTypeDefinition } from './types';
 
 function extension(id: string): ExtensionElementEnvelope {
@@ -37,6 +38,7 @@ function boundRegistry(
 }
 
 describe('bound text', () => {
+  afterEach(() => setTextMeasurer(null));
   it('finds a text child whose advisory container matches its parent', () => {
     const store = new ElementStore();
     const rectangle = {
@@ -106,7 +108,7 @@ describe('bound text', () => {
     const result = layoutBoundText(rectangle, text, {
       registry,
       resolveBounds: () => null,
-      remeasure: () => ({ x: 0, y: 0, w: 84, h: 40 }),
+      remeasure: false,
     });
 
     expect(result.container).toMatchObject({ size: { w: 100, h: 44 } });
@@ -130,7 +132,7 @@ describe('bound text', () => {
       text: 'tall',
       size: { w: 56.5685424949238, h: 40 },
     });
-    const remeasure = () => ({ x: 0, y: 0, w: 64, h: 40 });
+    const remeasure = false;
 
     expect(
       layoutBoundText(rectangle, short, { registry, resolveBounds: () => null, remeasure })
@@ -147,6 +149,7 @@ describe('bound text', () => {
   });
 
   it('lays out eligible arrows at their visible anchor without wrapping or growth', () => {
+    setTextMeasurer(() => 2);
     const registry = new ElementRegistry();
     const arrow = createArrow({
       from: { x: 0, y: 0 },
@@ -162,14 +165,14 @@ describe('bound text', () => {
     const result = layoutBoundText(arrow, text, {
       registry,
       resolveBounds: () => ({ x: -10, y: -10, w: 20, h: 20 }),
-      remeasure: () => ({ x: 0, y: 0, w: 12, h: 18 }),
+      remeasure: true,
     });
 
     expect(isBoundTextContainer(arrow, registry)).toBe(true);
     expect(result.container).toBeNull();
-    expect(result.text?.size).toEqual({ w: 24, h: 18 });
+    expect(result.text?.size).toEqual({ w: 24, h: 26.4 });
     expect(result.text?.position.x).toBeCloseTo(43.00030517578125);
-    expect(result.text?.position.y).toBe(-9);
+    expect(result.text?.position.y).toBe(-13.2);
     expect(isBoundTextContainer(createNote({ position: { x: 0, y: 0 } }), registry)).toBe(false);
   });
 
@@ -218,11 +221,11 @@ describe('bound text', () => {
       layoutBoundText(extension('plain'), text, {
         registry: noGrow,
         resolveBounds: () => null,
-        remeasure: () => ({ x: 0, y: 0, w: 40, h: 20 }),
+        remeasure: false,
       }),
     ).toMatchObject({ container: null, text: { size: { w: 40, h: 20 } } });
 
-    let measures = 0;
+    setTextMeasurer(() => 10);
     const registry = boundRegistry((element) => ({
       box: { x: 0, y: 0, w: element.id === 'grown' ? 60 : 40, h: element.id === 'grown' ? 30 : 10 },
       grow: (current) => ({ ...current, id: 'grown' }),
@@ -230,14 +233,10 @@ describe('bound text', () => {
     const result = layoutBoundText(extension('start'), text, {
       registry,
       resolveBounds: () => null,
-      remeasure: (_content, _fontSize, width) => {
-        measures += 1;
-        return { x: 0, y: 0, w: width ?? 0, h: 20 };
-      },
+      remeasure: false,
     });
     expect(result.container?.id).toBe('grown');
-    expect(result.text?.size).toEqual({ w: 60, h: 20 });
-    expect(measures).toBe(1);
+    expect(result.text?.size).toEqual({ w: 60, h: 26.4 });
   });
 
   it('does not accept a shrinking extension grow result', () => {
@@ -249,7 +248,7 @@ describe('bound text', () => {
     const result = layoutBoundText(extension('full'), text, {
       registry,
       resolveBounds: () => null,
-      remeasure: () => ({ x: 0, y: 0, w: 40, h: 20 }),
+      remeasure: false,
     });
 
     expect(result.container).toBeNull();
