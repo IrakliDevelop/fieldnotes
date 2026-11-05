@@ -182,6 +182,7 @@ test('types bound content centered in the container content box', async ({
         ) => { position: { x: number; y: number }; size: { w: number; h: number } } | undefined;
         getAll: () => {
           containerId?: string;
+          id: string;
           position: { x: number; y: number };
           size: { w: number; h: number };
         }[];
@@ -202,7 +203,20 @@ test('types bound content centered in the container content box', async ({
 test('undos and redos one typed bound-text edit and abandons an empty edit without history', async ({
   canvasPage,
 }, testInfo) => {
-  const editor = await openEditor(canvasPage, 'history-host', testInfo.project.name === 'ipad');
+  const snapshot = () =>
+    canvasPage.page.evaluate(() => {
+      const vp = (
+        window as unknown as {
+          __fieldnotes_viewport: { store: { getAll: () => Record<string, unknown>[] } };
+        }
+      ).__fieldnotes_viewport;
+      return vp.store.getAll().map(({ version: _version, ...element }) => element);
+    });
+  const point = await addCenteredRectangle(canvasPage, 'history-host');
+  const before = await snapshot();
+  await activateEditor(canvasPage, point, testInfo.project.name === 'ipad');
+  const editor = canvasPage.wrapper().locator('[data-element-id][contenteditable="true"]');
+  await expect(editor).toBeVisible();
   await editor.fill('history text');
   await canvasPage.page.keyboard.press('Escape');
   await canvasPage.page.waitForFunction(() =>
@@ -216,10 +230,11 @@ test('undos and redos one typed bound-text edit and abandons an empty edit witho
       .getAll()
       .some((element) => element.containerId === 'history-host' && element.text === 'history text'),
   );
-  const canUndo = await canvasPage.page.evaluate(
+  const after = await snapshot();
+  const undoCount = await canvasPage.page.evaluate(
     () =>
-      (window as unknown as { __fieldnotes_viewport: { history: { canUndo: boolean } } })
-        .__fieldnotes_viewport.history.canUndo,
+      (window as unknown as { __fieldnotes_viewport: { history: { undoCount: number } } })
+        .__fieldnotes_viewport.history.undoCount,
   );
   await canvasPage.page.evaluate(() =>
     (
@@ -234,6 +249,14 @@ test('undos and redos one typed bound-text edit and abandons an empty edit witho
     ).__fieldnotes_viewport.store.getAll();
     return !elements.some((element) => element.containerId === 'history-host');
   });
+  expect(await snapshot()).toEqual(before);
+  expect(
+    await canvasPage.page.evaluate(
+      () =>
+        (window as unknown as { __fieldnotes_viewport: { history: { undoCount: number } } })
+          .__fieldnotes_viewport.history.undoCount,
+    ),
+  ).toBe(undoCount - 1);
   await canvasPage.page.evaluate(() =>
     (
       window as unknown as { __fieldnotes_viewport: { redo: () => boolean } }
@@ -251,7 +274,17 @@ test('undos and redos one typed bound-text edit and abandons an empty edit witho
       (element) => element.containerId === 'history-host' && element.text === 'history text',
     );
   });
-  const empty = await openEditor(canvasPage, 'empty-host', testInfo.project.name === 'ipad');
+  expect(await snapshot()).toEqual(after);
+  const emptyPoint = await addCenteredRectangle(canvasPage, 'empty-host');
+  const beforeEmpty = await snapshot();
+  const undoBeforeEmpty = await canvasPage.page.evaluate(
+    () =>
+      (window as unknown as { __fieldnotes_viewport: { history: { undoCount: number } } })
+        .__fieldnotes_viewport.history.undoCount,
+  );
+  await activateEditor(canvasPage, emptyPoint, testInfo.project.name === 'ipad');
+  const empty = canvasPage.wrapper().locator('[data-element-id][contenteditable="true"]');
+  await expect(empty).toBeVisible();
   await canvasPage.page.keyboard.press('Escape');
   await canvasPage.page.waitForFunction(
     () =>
@@ -263,13 +296,14 @@ test('undos and redos one typed bound-text edit and abandons an empty edit witho
         .getAll()
         .some((element) => element.containerId === 'empty-host'),
   );
+  expect(await snapshot()).toEqual(beforeEmpty);
   expect(
     await canvasPage.page.evaluate(
       () =>
-        (window as unknown as { __fieldnotes_viewport: { history: { canUndo: boolean } } })
-          .__fieldnotes_viewport.history.canUndo,
+        (window as unknown as { __fieldnotes_viewport: { history: { undoCount: number } } })
+          .__fieldnotes_viewport.history.undoCount,
     ),
-  ).toBe(canUndo);
+  ).toBe(undoBeforeEmpty);
   await expect(empty).toHaveCount(0);
 });
 
@@ -509,8 +543,12 @@ test('recenters bound text after host move and clamps a resize at its text floor
     moved.host.position.y + moved.host.size.h / 2,
     6,
   );
-  expect(result.host.size.w).toBeGreaterThan(1);
-  expect(result.host.size.h).toBeGreaterThan(1);
+  const rectanglePadding = 8;
+  const minimumHeight = result.clampedText.size.h + rectanglePadding * 2;
+  expect(result.host.size.w).toBe(20);
+  expect(result.host.size.h).toBeCloseTo(minimumHeight, 6);
+  expect(result.host.position.x).toBeCloseTo(moved.host.position.x, 6);
+  expect(result.host.position.y).toBeCloseTo(moved.host.position.y, 6);
   expect(result.clampedText.position.x + result.clampedText.size.w / 2).toBeCloseTo(
     result.host.position.x + result.host.size.w / 2,
     6,
@@ -542,6 +580,34 @@ test('bends an arrow with bound text at its visible curve midpoint', async ({ ca
     const from = { x: center.x - 200, y: center.y };
     const to = { x: center.x + 200, y: center.y };
     vp.store.add({
+      id: 'bend-from',
+      type: 'shape',
+      shape: 'rectangle',
+      position: { x: center.x - 240, y: center.y - 50 },
+      size: { w: 80, h: 100 },
+      strokeColor: '#000000',
+      strokeWidth: 2,
+      fillColor: 'none',
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: vp.layerManager.activeLayerId,
+    });
+    vp.store.add({
+      id: 'bend-to',
+      type: 'shape',
+      shape: 'rectangle',
+      position: { x: center.x + 160, y: center.y - 50 },
+      size: { w: 80, h: 100 },
+      strokeColor: '#000000',
+      strokeWidth: 2,
+      fillColor: 'none',
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: vp.layerManager.activeLayerId,
+    });
+    vp.store.add({
       id: 'bend-arrow',
       type: 'arrow',
       position: from,
@@ -554,6 +620,8 @@ test('bends an arrow with bound text at its visible curve midpoint', async ({ ca
       version: 1,
       locked: false,
       layerId: vp.layerManager.activeLayerId,
+      fromBinding: { elementId: 'bend-from', focus: 0, gap: 0 },
+      toBinding: { elementId: 'bend-to', focus: 0, gap: 0 },
     });
     vp.requestRender();
     return {
@@ -565,7 +633,11 @@ test('bends an arrow with bound text at its visible curve midpoint', async ({ ca
     const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
       store: { getById: (id: string) => unknown };
     };
-    return vp.store.getById('bend-arrow') !== undefined;
+    return (
+      vp.store.getById('bend-arrow') !== undefined &&
+      vp.store.getById('bend-from') !== undefined &&
+      vp.store.getById('bend-to') !== undefined
+    );
   });
   await canvasPage.page.mouse.dblclick(box.x + arrow.editPoint.x, box.y + arrow.editPoint.y);
   const editor = wrapper.locator('[data-element-id][contenteditable="true"]');
@@ -643,7 +715,9 @@ test('bends an arrow with bound text at its visible curve midpoint', async ({ ca
     };
     const arrow = vp.store.getById('bend-arrow');
     const label = vp.store.getAll().find((element) => element.containerId === 'bend-arrow');
-    if (!arrow || !label) throw new Error('expected bent arrow and label');
+    const fromShape = vp.store.getAll().find((element) => element.id === 'bend-from');
+    const toShape = vp.store.getAll().find((element) => element.id === 'bend-to');
+    if (!arrow || !label || !fromShape || !toShape) throw new Error('expected bound bent arrow');
     const control = {
       x:
         (arrow.from.x + arrow.to.x) / 2 -
@@ -663,8 +737,47 @@ test('bends an arrow with bound text at its visible curve midpoint', async ({ ca
         y: mt * mt * arrow.from.y + 2 * mt * t * control.y + t * t * arrow.to.y,
       };
     };
-    const t0 = arrow.fromBinding ? 0 : 0;
-    const t1 = arrow.toBinding ? 1 : 1;
+    const isOutsideBoundShapes = (p: { x: number; y: number }) => {
+      const inside = (shape: {
+        position: { x: number; y: number };
+        size: { w: number; h: number };
+      }) =>
+        p.x >= shape.position.x &&
+        p.x <= shape.position.x + shape.size.w &&
+        p.y >= shape.position.y &&
+        p.y <= shape.position.y + shape.size.h;
+      return !inside(fromShape) && !inside(toShape);
+    };
+    let firstVisible = 1;
+    for (let i = 1; i <= 128; i++) {
+      if (isOutsideBoundShapes(point(i / 128))) {
+        firstVisible = i;
+        break;
+      }
+    }
+    let t0Low = (firstVisible - 1) / 128;
+    let t0High = firstVisible / 128;
+    for (let i = 0; i < 24; i++) {
+      const mid = (t0Low + t0High) / 2;
+      if (isOutsideBoundShapes(point(mid))) t0High = mid;
+      else t0Low = mid;
+    }
+    let lastVisible = 127;
+    for (let i = 127; i >= 0; i--) {
+      if (isOutsideBoundShapes(point(i / 128))) {
+        lastVisible = i;
+        break;
+      }
+    }
+    let t1Low = lastVisible / 128;
+    let t1High = (lastVisible + 1) / 128;
+    for (let i = 0; i < 24; i++) {
+      const mid = (t1Low + t1High) / 2;
+      if (isOutsideBoundShapes(point(mid))) t1Low = mid;
+      else t1High = mid;
+    }
+    const t0 = t0High;
+    const t1 = t1Low;
     const intrinsicMidpoint = point(0.5);
     const visibleMidpoint = point((t0 + t1) / 2);
     const sample = vp.camera.worldToScreen(point(t0 + 0.2 * (t1 - t0)));
@@ -690,11 +803,16 @@ test('bends an arrow with bound text at its visible curve midpoint', async ({ ca
         y: label.position.y + label.size.h / 2,
       },
       visibleMidpoint,
+      t0,
+      t1,
       hasStroke,
     };
   });
   expect(result.handle.x).toBeCloseTo(handle.x, 0);
   expect(result.handle.y).toBeCloseTo(handle.y + 90, 0);
+  expect(result.t0).toBeGreaterThan(0);
+  expect(result.t1).toBeLessThan(1);
+  expect(result.t1).toBeGreaterThan(result.t0);
   expect(result.label.x).toBeCloseTo(result.visibleMidpoint.x, 0);
   expect(result.label.y).toBeCloseTo(result.visibleMidpoint.y, 0);
   expect(result.hasStroke).toBe(true);
@@ -711,23 +829,57 @@ test('Enter edits a selected container while focused toolbar controls stay nativ
   await expect(editor).toBeVisible();
   await canvasPage.page.keyboard.press('Escape');
 
-  const undo = await canvasPage.page.evaluate(() => {
-    const vp = (window as unknown as { __fieldnotes_viewport: { undo: () => boolean } })
-      .__fieldnotes_viewport;
-    let calls = 0;
-    const original = vp.undo.bind(vp);
-    vp.undo = () => {
-      calls += 1;
-      return original();
-    };
-    return calls;
-  });
-  expect(undo).toBe(0);
   const control = canvasPage.page.locator('#toolbar button[data-tool="shape"]');
+  await canvasPage.page.evaluate(() => {
+    const control = document.querySelector<HTMLButtonElement>('#toolbar button[data-tool="shape"]');
+    if (!control) throw new Error('expected shape control');
+    control.dataset['activations'] = '0';
+    control.addEventListener('click', () => {
+      control.dataset['activations'] = String(Number(control.dataset['activations']) + 1);
+    });
+  });
   await control.focus();
   await canvasPage.page.keyboard.press('Enter');
   await expect(editor).toHaveCount(0);
+  expect(await control.getAttribute('data-activations')).toBe('1');
+  const beforeUndo = await canvasPage.page.evaluate(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          history: { undoCount: number };
+          store: { getAll: () => Record<string, unknown>[] };
+        };
+      }
+    ).__fieldnotes_viewport;
+    return {
+      undoCount: vp.history.undoCount,
+      elements: vp.store.getAll().map(({ version: _version, ...element }) => element),
+    };
+  });
   await canvasPage.page.keyboard.press(testInfo.project.name === 'ipad' ? 'Meta+z' : 'Control+z');
+  await canvasPage.page.waitForFunction(
+    (undoCount) =>
+      (window as unknown as { __fieldnotes_viewport: { history: { undoCount: number } } })
+        .__fieldnotes_viewport.history.undoCount ===
+      undoCount - 1,
+    beforeUndo.undoCount,
+  );
+  const afterUndo = await canvasPage.page.evaluate(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          history: { undoCount: number };
+          store: { getAll: () => Record<string, unknown>[] };
+        };
+      }
+    ).__fieldnotes_viewport;
+    return {
+      undoCount: vp.history.undoCount,
+      elements: vp.store.getAll().map(({ version: _version, ...element }) => element),
+    };
+  });
+  expect(afterUndo.undoCount).toBe(beforeUndo.undoCount - 1);
+  expect(afterUndo.elements).not.toEqual(beforeUndo.elements);
 });
 
 test('iPad CDP touch double-tap creates, types, and finishes bound text', async ({

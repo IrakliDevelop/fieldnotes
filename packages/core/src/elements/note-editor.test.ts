@@ -214,13 +214,22 @@ describe('NoteEditor', () => {
     const note = createNote({ position: { x: 0, y: 0 } });
     store.add(note);
     const abandon = vi.fn();
+    const begin = vi.fn();
+    const commit = vi.fn();
     editor.setOnAbandon(abandon);
+    editor.setHistoryHooks(begin, commit);
+    const firstNode = makeNode();
+    const replacementNode = makeNode();
 
-    editor.startEditing(makeNode(), note.id, store);
-    editor.startEditing(makeNode(), note.id, store);
+    editor.startEditing(firstNode, note.id, store);
+    editor.startEditing(replacementNode, note.id, store);
     await flushRAF();
 
     expect(editor.editingElementId).toBe(note.id);
+    expect(firstNode.contentEditable).toBe('true');
+    expect(replacementNode.contentEditable).not.toBe('true');
+    expect(begin).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
     expect(abandon).not.toHaveBeenCalled();
   });
 
@@ -306,19 +315,31 @@ describe('NoteEditor', () => {
     editor.stopEditing(store);
   });
 
-  it('skips if already editing same element', async () => {
+  it('keeps the active node and history session when asked to edit it again', async () => {
     const editor = new NoteEditor();
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 } });
     store.add(note);
     const node = makeNode();
+    const replacementNode = makeNode();
+    const begin = vi.fn();
+    const commit = vi.fn();
+    const updates = vi.fn();
+    store.on('update', updates);
+    editor.setHistoryHooks(begin, commit);
 
     editor.startEditing(node, note.id, store);
     await flushRAF();
     expect(editor.isEditing).toBe(true);
 
-    editor.startEditing(node, note.id, store);
+    editor.startEditing(replacementNode, note.id, store);
     expect(editor.isEditing).toBe(true);
+    expect(node.contentEditable).toBe('true');
+    expect(replacementNode.contentEditable).not.toBe('true');
+    expect(begin).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+    expect(updates).not.toHaveBeenCalled();
+    editor.stopEditing(store);
   });
 
   it('stops propagation of pointerdown while editing', async () => {

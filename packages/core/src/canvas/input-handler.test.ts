@@ -1326,9 +1326,25 @@ describe('InputHandler', () => {
 
   describe('lifecycle', () => {
     it('stops handling events after destroy', () => {
+      const tm = stubToolManager();
+      const recorder = fakeRecorder() as unknown as HistoryRecorder;
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        historyRecorder: recorder,
+        actions: stubActionRegistry(),
+      });
       handler.destroy();
       wheel(element, { deltaY: -100, clientX: 0, clientY: 0 });
+      pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+      window.dispatchEvent(new Event('blur'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       expect(camera.zoom).toBe(1);
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+      expect(recorder.begin).not.toHaveBeenCalled();
+      expect(recorder.commit).not.toHaveBeenCalled();
     });
   });
 
@@ -1620,24 +1636,12 @@ describe('InputHandler', () => {
       expect(hr.commit).toHaveBeenCalledOnce();
     });
 
-    it('does not commit a transaction the tool replaced while finishing a gesture', () => {
-      let transactionId: number | null = null;
-      const recorder = {
-        begin: vi.fn(() => {
-          transactionId = (transactionId ?? 0) + 1;
-        }),
-        commit: vi.fn(() => {
-          transactionId = null;
-        }),
-        get currentTransactionId() {
-          return transactionId;
-        },
-      } as unknown as HistoryRecorder;
-      const tm = {
-        ...stubToolManager(),
-        handlePointerUp: vi.fn(() => recorder.begin()),
-      } as unknown as ToolManager;
-
+    it.each([
+      ['pointerup', pointerUp, 'handlePointerUp'],
+      ['pointercancel', pointerCancel, 'handlePointerCancel'],
+    ] as const)('commits its matching gesture transaction on %s', (_name, finish, handlerName) => {
+      const recorder = fakeRecorder() as unknown as HistoryRecorder;
+      const tm = stubToolManager();
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: stubToolContext(),
@@ -1646,12 +1650,51 @@ describe('InputHandler', () => {
       });
 
       pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
-      pointerUp(element, { pointerId: 1, clientX: 20, clientY: 20 });
+      finish(element, { pointerId: 1, clientX: 20, clientY: 20 });
 
-      expect(recorder.begin).toHaveBeenCalledTimes(2);
-      expect(recorder.commit).not.toHaveBeenCalled();
-      expect(transactionId).toBe(2);
+      expect(tm[handlerName]).toHaveBeenCalledOnce();
+      expect(recorder.begin).toHaveBeenCalledOnce();
+      expect(recorder.commit).toHaveBeenCalledOnce();
     });
+
+    it.each([
+      ['pointerup', pointerUp, 'handlePointerUp'],
+      ['pointercancel', pointerCancel, 'handlePointerCancel'],
+    ] as const)(
+      'does not commit a transaction the tool replaces on %s',
+      (_name, finish, handlerName) => {
+        let transactionId: number | null = null;
+        const recorder = {
+          begin: vi.fn(() => {
+            transactionId = (transactionId ?? 0) + 1;
+          }),
+          commit: vi.fn(() => {
+            transactionId = null;
+          }),
+          get currentTransactionId() {
+            return transactionId;
+          },
+        } as unknown as HistoryRecorder;
+        const tm = {
+          ...stubToolManager(),
+          [handlerName]: vi.fn(() => recorder.begin()),
+        } as unknown as ToolManager;
+
+        handler = new InputHandler(element, camera, {
+          toolManager: tm,
+          toolContext: stubToolContext(),
+          historyRecorder: recorder,
+          actions: stubActionRegistry(),
+        });
+
+        pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+        finish(element, { pointerId: 1, clientX: 20, clientY: 20 });
+
+        expect(recorder.begin).toHaveBeenCalledTimes(2);
+        expect(recorder.commit).not.toHaveBeenCalled();
+        expect(transactionId).toBe(2);
+      },
+    );
 
     it('ignores a synthetic pointerleave after the touch pointer already ended', () => {
       let transactionId: number | null = null;

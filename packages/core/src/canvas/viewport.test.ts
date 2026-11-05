@@ -126,6 +126,44 @@ describe('Viewport', () => {
     viewport.destroy();
   });
 
+  it('ignores wrapper, window, document, and queued-frame work after destruction', async () => {
+    const viewport = new Viewport(container);
+    const note = createNote({
+      position: { x: 0, y: 0 },
+      layerId: viewport.layerManager.activeLayerId,
+    });
+    viewport.store.add(note);
+    viewport.history.clear();
+    const wrapper = wrapperOf(container);
+    const before = structuredClone(viewport.store.getAll());
+    viewport.destroy();
+
+    wrapper.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        pointerId: 1,
+        button: 0,
+        clientX: 20,
+        clientY: 20,
+      }),
+    );
+    wrapper.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId: 1,
+        button: 0,
+        clientX: 20,
+        clientY: 20,
+      }),
+    );
+    window.dispatchEvent(new Event('blur'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    expect(viewport.store.getAll()).toEqual(before);
+    expect(viewport.history.undoCount).toBe(0);
+  });
+
   it('creates a wrapper with canvas, paint-stack, and DOM overlay layers', () => {
     const viewport = new Viewport(container);
     const wrapper = wrapperOf(container);
@@ -848,9 +886,95 @@ describe('Viewport', () => {
         expect(viewport.editBoundText(rectangle.id)).toBe(false);
         expect(viewport.store.getAll()).toEqual(before);
         expect(viewport.history.canUndo).toBe(false);
+        expect(viewport.historyRecorder.currentTransactionId).toBeNull();
+        const unrelated = createNote({ position: { x: 10, y: 20 } });
+        viewport.store.add(unrelated);
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(unrelated.id)).toBeUndefined();
         viewport.destroy();
       },
     );
+
+    it('undoes and redoes legacy arrow-label seeding through the editor session', async () => {
+      const viewport = new Viewport(container);
+      const arrow = {
+        ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+        id: 'legacy-arrow',
+        label: '<b>legacy</b>',
+      };
+      viewport.store.add(arrow);
+      viewport.history.clear();
+      const before = structuredClone(viewport.store.getAll());
+      const node = document.createElement('div');
+      node.innerHTML = '&lt;b&gt;legacy&lt;/b&gt;';
+      vi.spyOn(
+        (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
+          .domNodeManager,
+        'getNode',
+      ).mockReturnValue(node);
+
+      expect(viewport.editBoundText(arrow.id)).toBe(true);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const after = structuredClone(viewport.store.getAll());
+      expect(after).toMatchObject([
+        { id: arrow.id, label: undefined },
+        { containerId: arrow.id, text: '&lt;b&gt;legacy&lt;/b&gt;' },
+      ]);
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
+        before.map(({ version: _version, ...element }) => element),
+      );
+      expect(viewport.store.getById(arrow.id)?.version).toBeGreaterThan(1);
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
+        after.map(({ version: _version, ...element }) => element),
+      );
+      viewport.destroy();
+    });
+
+    it('undos and redoes create, type, and live fit through the editor session', async () => {
+      const viewport = new Viewport(container);
+      const shape = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 40 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(shape);
+      viewport.history.clear();
+      const before = structuredClone(viewport.store.getAll());
+      const node = document.createElement('div');
+      Object.defineProperty(node, 'scrollHeight', { configurable: true, value: 56 });
+      vi.spyOn(
+        (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
+          .domNodeManager,
+        'getNode',
+      ).mockReturnValue(node);
+
+      expect(viewport.editBoundText(shape.id)).toBe(true);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      node.textContent = 'typed';
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const after = structuredClone(viewport.store.getAll());
+      const fittedShape = viewport.store.getById(shape.id);
+      const text = viewport.getBoundText(shape.id);
+      expect(fittedShape?.size.h).toBe(72);
+      expect(text).toMatchObject({ text: 'typed', size: { w: 104, h: 56 } });
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
+        before.map(({ version: _version, ...element }) => element),
+      );
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
+        after.map(({ version: _version, ...element }) => element),
+      );
+      viewport.destroy();
+    });
 
     it('refuses setBoundText on a locked container without creating a child', () => {
       const viewport = new Viewport(container);
