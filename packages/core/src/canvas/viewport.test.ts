@@ -1022,10 +1022,8 @@ describe('Viewport', () => {
       viewport.history.clear();
       const privateViewport = viewport as unknown as {
         interactions: {
-          startEditingElement: (id: string) => void;
           onTextEditStop: (id: string) => void;
         };
-        domNodeManager: { getNode: (id: string) => HTMLDivElement | undefined };
         noteEditor: {
           activateEditing: (node: HTMLDivElement, id: string, store: unknown) => void;
           stopEditing: (store: unknown) => void;
@@ -1033,7 +1031,6 @@ describe('Viewport', () => {
       };
       const node = document.createElement('div');
       node.innerHTML = 'before';
-      vi.spyOn(privateViewport.domNodeManager, 'getNode').mockReturnValue(node);
       privateViewport.noteEditor.activateEditing(node, text.id, viewport.store);
       const onStop = vi.spyOn(privateViewport.interactions, 'onTextEditStop');
       node.innerHTML = 'after';

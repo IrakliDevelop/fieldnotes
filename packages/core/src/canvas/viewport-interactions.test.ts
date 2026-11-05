@@ -94,7 +94,10 @@ describe('ViewportInteractions', () => {
     const later = { ...actual, id: 'later', index: 'b' };
     for (const element of [host, otherParent, actual, mismatched, later]) store.add(element);
     const noteEditor = new NoteEditor({ toolbar: false });
-    const startEditing = vi.spyOn(noteEditor, 'startEditing');
+    const startEditing = vi.spyOn(noteEditor, 'startEditing').mockImplementation(() => undefined);
+    vi.spyOn(noteEditor, 'stopEditing').mockImplementation(() => undefined);
+    vi.spyOn(noteEditor, 'isEditingOrPending').mockReturnValue(false);
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame');
     const { deps, nodes } = makeDeps(store, { noteEditor });
     for (const id of [actual.id, mismatched.id, later.id])
       nodes.set(id, document.createElement('div'));
@@ -104,6 +107,7 @@ describe('ViewportInteractions', () => {
     interactions.startEditingElement(later.id);
     expect(startEditing).toHaveBeenNthCalledWith(1, nodes.get(mismatched.id), mismatched.id, store);
     expect(startEditing).toHaveBeenNthCalledWith(2, nodes.get(later.id), later.id, store);
+    expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
 
     expect(interactions.editBoundText(actual.id)).toBe(true);
     expect(interactions.editBoundText(mismatched.id)).toBe(false);
