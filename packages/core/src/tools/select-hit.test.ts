@@ -45,6 +45,34 @@ describe('rectsOverlap', () => {
 });
 
 describe('isInsideBounds', () => {
+  it('skips a bound arrow inside its source and hits its visible curve', () => {
+    const ctx = makeCtx();
+    const from = createShape({
+      shape: 'rectangle',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const to = createShape({
+      shape: 'rectangle',
+      position: { x: 300, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 60,
+      fromBinding: { elementId: from.id },
+      toBinding: { elementId: to.id },
+    });
+    arrow.cachedControlPoint = { x: 200, y: -200 };
+    ctx.store.add(from);
+    ctx.store.add(to);
+    ctx.store.add(arrow);
+
+    expect(hitTest({ x: 80, y: 60.8 }, ctx)?.id).toBe(from.id);
+    expect(hitTest({ x: 140, y: 75.2 }, ctx)?.id).toBe(arrow.id);
+  });
+
   it('falls through a clipped top candidate to the lower visible element', () => {
     const ctx = makeCtx();
     const lower = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, index: 'a' });

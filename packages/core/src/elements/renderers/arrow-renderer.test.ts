@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { renderArrow, getArrowDashPattern } from './arrow-renderer';
 import { createArrow, createShape } from '../element-factory';
 import { ElementStore } from '../element-store';
-import { getArrowControlPoint, getArrowMidpoint } from '../arrow-geometry';
 import type { ArrowElement } from '../types';
 
 function mockCtx() {
@@ -89,7 +88,7 @@ describe('renderArrow — stroke style dashing', () => {
 });
 
 describe('renderArrow bound curve', () => {
-  it('draws the trimmed intrinsic quadratic and anchors its label on that curve', () => {
+  it('draws a bound curve and arrowhead from persisted geometry, not its stale cache', () => {
     const store = new ElementStore();
     const from = createShape({
       shape: 'rectangle',
@@ -128,7 +127,7 @@ describe('renderArrow bound curve', () => {
       to: { x: toX, y: toY },
     };
 
-    const intrinsicControl = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
+    const intrinsicControl = { x: 200, y: 110 };
     const t0 = 1 / 6;
     const t1 = 5 / 6;
     const pointAt = (t: number) => {
@@ -154,7 +153,19 @@ describe('renderArrow bound curve', () => {
     }
     expect(drawn.from.x).toBeCloseTo(100, 0);
     expect(drawn.to.x).toBeCloseTo(300, 0);
-    expect(getArrowMidpoint(arrow.from, arrow.to, arrow.bend).y).toBeCloseTo(80, 2);
+    const tangent = { x: 300, y: -80 };
+    const angle = Math.atan2(tangent.y, tangent.x);
+    const arrowhead = ctx.lineTo.mock.calls.slice(-2);
+    const expectedArrowhead = [angle - Math.PI / 6, angle + Math.PI / 6].map((legAngle) => [
+      drawn.to.x - 12 * Math.cos(legAngle),
+      drawn.to.y - 12 * Math.sin(legAngle),
+    ]);
+    expect(arrowhead).toHaveLength(2);
+    for (const [actual, expected] of arrowhead.map((actual, i) => [actual, expectedArrowhead[i]])) {
+      if (!expected) throw new Error('expected arrowhead leg');
+      expect(actual?.[0]).toBeCloseTo(expected[0], 2);
+      expect(actual?.[1]).toBeCloseTo(expected[1], 2);
+    }
     expect(ctx.fillText).toHaveBeenCalledWith('label', 200, 80);
   });
 });

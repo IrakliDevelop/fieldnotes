@@ -192,6 +192,36 @@ describe('ViewportInteractions', () => {
       expect(interactions.findArrowAt({ x: 50, y: 80 })).toBeUndefined();
     });
 
+    it('skips the hidden bound curve and finds its visible segment', () => {
+      const store = new ElementStore();
+      const from = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+      });
+      const to = createShape({
+        shape: 'rectangle',
+        position: { x: 300, y: 0 },
+        size: { w: 100, h: 100 },
+      });
+      const arrow = createArrow({
+        from: { x: 50, y: 50 },
+        to: { x: 350, y: 50 },
+        bend: 60,
+        fromBinding: { elementId: from.id },
+        toBinding: { elementId: to.id },
+      });
+      arrow.cachedControlPoint = { x: 200, y: -200 };
+      store.add(from);
+      store.add(to);
+      store.add(arrow);
+      const { deps } = makeDeps(store);
+      const interactions = new ViewportInteractions(deps) as unknown as Priv;
+
+      expect(interactions.findArrowAt({ x: 80, y: 60.8 })).toBeUndefined();
+      expect(interactions.findArrowAt({ x: 140, y: 75.2 })?.id).toBe(arrow.id);
+    });
+
     it('finds an arrow within the screen-pixel tolerance when zoomed out', () => {
       const store = new ElementStore();
       const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
