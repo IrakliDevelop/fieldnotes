@@ -8,6 +8,7 @@ export type TextMeasurer = (text: string, font: string) => number;
 const CACHE_SIZE = 512;
 const PAD = 2;
 const LINE_HEIGHT = 1.4;
+const BASE_FONT_SENTINEL = -1;
 let textMeasurer: TextMeasurer | null = null;
 let canvasContext: CanvasRenderingContext2D | null | undefined;
 const parsedRuns = new Map<string, StyledRun[]>();
@@ -41,7 +42,7 @@ export function measureText(
 
 function getRuns(html: string, fontSize: number): StyledRun[] {
   const cached = parsedRuns.get(html);
-  if (cached) return cached;
+  if (cached) return withBaseFontSize(cached, fontSize);
   const runs =
     typeof DOMParser === 'undefined'
       ? [
@@ -51,12 +52,16 @@ function getRuns(html: string, fontSize: number): StyledRun[] {
             italic: false,
             underline: false,
             strikethrough: false,
-            fontSize,
+            fontSize: BASE_FONT_SENTINEL,
           },
         ]
-      : parseStyledRuns(html, fontSize);
+      : parseStyledRuns(html, BASE_FONT_SENTINEL);
   cache(parsedRuns, html, runs);
-  return runs;
+  return withBaseFontSize(runs, fontSize);
+}
+
+function withBaseFontSize(runs: StyledRun[], fontSize: number): StyledRun[] {
+  return runs.map((run) => (run.fontSize === BASE_FONT_SENTINEL ? { ...run, fontSize } : run));
 }
 
 function measure(text: string, font: string): number {
@@ -72,7 +77,7 @@ function measure(text: string, font: string): number {
     canvasContext.font = font;
     return canvasContext.measureText(text).width;
   }
-  const fontSize = Number.parseFloat(font) || 16;
+  const fontSize = Number(/(\d+(?:\.\d+)?)px/.exec(font)?.[1]) || 16;
   return text.length * fontSize * 0.6;
 }
 

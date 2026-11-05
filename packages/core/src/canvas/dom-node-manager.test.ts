@@ -326,6 +326,23 @@ describe('DomNodeManager', () => {
       expect(node?.style.whiteSpace).toBe('pre');
       expect(node?.style.wordWrap).toBe('normal');
     });
+
+    it('sets unwrapped styles while an initial text node is editing', () => {
+      isEditingElement.mockReturnValue(true);
+      const text = {
+        ...createText({
+          position: { x: 0, y: 0 },
+          size: { w: 200, h: 50 },
+          text: 'Title',
+        }),
+        wrap: false,
+      };
+      manager.syncDomNode(text);
+
+      const node = manager.getNode(text.id);
+      expect(node?.style.whiteSpace).toBe('pre');
+      expect(node?.style.wordWrap).toBe('normal');
+    });
   });
 
   describe('renderDomContent — html', () => {

@@ -21,7 +21,7 @@ describe('measureText', () => {
     expect(measure).toHaveBeenCalledTimes(1);
   });
 
-  it('evicts both FIFO caches after 512 entries', () => {
+  it('evicts the FIFO size cache after 512 entries', () => {
     const measure = vi.fn(suiteMeasurer);
     setTextMeasurer(measure);
     for (let i = 0; i <= 512; i++) measureText(`item-${i}`, 16, null);
@@ -40,5 +40,58 @@ describe('measureText', () => {
 
     expect(first).toHaveBeenCalledTimes(1);
     expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the requested base font size when cached HTML is measured again', () => {
+    setTextMeasurer((text, font) => text.length * Number(/(\d+)px/.exec(font)?.[1]));
+
+    expect(measureText('xx', 16, null)).toEqual({ w: 36, h: 26.4 });
+    expect(measureText('xx', 32, null)).toEqual({ w: 68, h: 48.8 });
+  });
+
+  it('keeps positive inline font sizes absolute', () => {
+    setTextMeasurer((text, font) => text.length * Number(/(\d+)px/.exec(font)?.[1]));
+
+    expect(measureText('<span style="font-size: 20px">x</span>', 16, null)).toEqual({
+      w: 24,
+      h: 32,
+    });
+    expect(measureText('<span style="font-size: 20px">x</span>', 32, null)).toEqual({
+      w: 24,
+      h: 32,
+    });
+  });
+
+  it('uses the run font size in the no-canvas fallback', () => {
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    setTextMeasurer(null);
+
+    expect(measureText('abc', 30, null)).toEqual({ w: 58, h: 46 });
+
+    getContext.mockRestore();
+  });
+
+  it('measures empty content as one requested-size line', () => {
+    setTextMeasurer(suiteMeasurer);
+
+    expect(measureText('', 30, null)).toEqual({ w: 4, h: 46 });
+  });
+
+  it('reuses, evicts, and clears parsed HTML separately from sizes', () => {
+    const parse = vi.spyOn(DOMParser.prototype, 'parseFromString');
+    setTextMeasurer(suiteMeasurer);
+    measureText('repeat', 16, null);
+    measureText('repeat', 32, null);
+    measureText('repeat', 16, 40);
+    expect(parse).toHaveBeenCalledTimes(1);
+
+    for (let i = 0; i <= 512; i++) measureText(`html-${i}`, 16, null);
+    measureText('repeat', 16, null);
+    expect(parse).toHaveBeenCalledTimes(515);
+
+    setTextMeasurer(suiteMeasurer);
+    measureText('repeat', 16, null);
+    expect(parse).toHaveBeenCalledTimes(516);
+    parse.mockRestore();
   });
 });

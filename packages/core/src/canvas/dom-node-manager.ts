@@ -400,7 +400,7 @@ export class DomNodeManager {
           overflow: 'visible',
           cursor: 'default',
           userSelect: 'none',
-          wordWrap: 'break-word',
+          wordWrap: element.wrap === false ? 'normal' : 'break-word',
           whiteSpace: element.wrap === false ? 'pre' : 'normal',
           boxSizing: 'border-box',
           lineHeight: '1.4',
