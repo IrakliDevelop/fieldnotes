@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, expectTypeOf } from 'vitest';
 import * as FN from './index';
 import type {
   ActionsApi,
@@ -22,6 +22,26 @@ import type {
 } from './index';
 
 describe('core public surface', () => {
+  it('keeps bound-text-compatible shape factory results literal', () => {
+    const rectangle = FN.createShape({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } });
+    const ellipse = FN.createShape({
+      position: { x: 0, y: 0 },
+      size: { w: 80, h: 48 },
+      shape: 'ellipse',
+    });
+    const line = FN.createShape({
+      position: { x: 0, y: 0 },
+      size: { w: 80, h: 48 },
+      shape: 'line',
+    });
+
+    expectTypeOf(rectangle).toMatchTypeOf<FN.BoundTextContainer>();
+    expectTypeOf(ellipse).toMatchTypeOf<FN.BoundTextContainer>();
+    expectTypeOf(line).not.toMatchTypeOf<FN.BoundTextContainer>();
+    expect(FN.createBoundText(rectangle).containerId).toBe(rectangle.id);
+    expect(FN.createBoundText(ellipse).containerId).toBe(ellipse.id);
+  });
+
   it('exports bound text helpers and types without internal layout helpers', () => {
     const container: FN.BoundTextContainer | undefined = undefined;
     const layout: FN.BoundTextLayout<FN.BoundTextContainer> | undefined = undefined;
