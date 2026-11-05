@@ -108,6 +108,20 @@ export class ElementRegistry {
       },
       clipBounds: def.clipBounds ? (el) => def.clipBounds?.(def.unwrap(el)) ?? null : undefined,
       searchText: def.searchText ? (el) => def.searchText?.(def.unwrap(el)) ?? null : undefined,
+      boundTextLayout: def.boundTextLayout
+        ? (el) => {
+            const layout = def.boundTextLayout?.(def.unwrap(el));
+            if (!layout) return null;
+            const grow = layout.grow;
+            return {
+              box: layout.box,
+              grow: grow
+                ? (envelope, boxHeight) =>
+                    rewrapPreservingData(el, grow(def.unwrap(envelope), boxHeight))
+                : undefined,
+            };
+          }
+        : undefined,
       hitTest: def.hitTest
         ? (el, point) => {
             const fn = def.hitTest;

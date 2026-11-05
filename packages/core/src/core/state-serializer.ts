@@ -316,6 +316,7 @@ function validateElement(
     typeof el['layerId'] !== 'string' ||
     !isOptional(el['groupId'], isString) ||
     !isOptional(el['parentId'], isString) ||
+    !isOptional(el['containerId'], isNonEmptyString) ||
     !isOptional(el['rotation'], isFiniteNumber)
   ) {
     throw new Error(`Invalid element "${el['id']}": invalid base fields or geometry`);
@@ -559,6 +560,10 @@ function isFiniteNumber(value: unknown): value is number {
 
 function isString(value: unknown): value is string {
   return typeof value === 'string';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.length > 0;
 }
 
 function isBoolean(value: unknown): value is boolean {

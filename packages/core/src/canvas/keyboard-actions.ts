@@ -344,6 +344,11 @@ export class KeyboardActions {
         if (parentId) clone.parentId = parentId;
         else delete clone.parentId;
       }
+      if (clone.type === 'text' && clone.containerId) {
+        const containerId = idMap.get(clone.containerId);
+        if (containerId) clone.containerId = containerId;
+        else delete clone.containerId;
+      }
       if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
       clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 

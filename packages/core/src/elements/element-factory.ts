@@ -84,6 +84,9 @@ interface TextInput extends BaseDefaults {
   fontSize?: number;
   color?: string;
   textAlign?: 'left' | 'center' | 'right';
+  wrap?: boolean;
+  autoResize?: boolean;
+  containerId?: string;
 }
 
 export function createStroke(input: StrokeInput): StrokeElement {
@@ -215,21 +218,22 @@ export function createShape(input: ShapeInput): ShapeElement {
 }
 
 export function createText(input: TextInput): TextElement {
-  return addParent<TextElement>(
-    {
-      id: createId('text'),
-      type: 'text',
-      position: input.position,
-      index: input.index ?? '',
-      version: input.version ?? 1,
-      locked: input.locked ?? false,
-      layerId: input.layerId ?? '',
-      size: input.size ?? { w: 200, h: 28 },
-      text: sanitizeNoteHtml(input.text ?? ''),
-      fontSize: input.fontSize ?? 16,
-      color: input.color ?? '#1a1a1a',
-      textAlign: input.textAlign ?? 'left',
-    },
-    input.parentId,
-  );
+  const result: TextElement = {
+    id: createId('text'),
+    type: 'text',
+    position: input.position,
+    index: input.index ?? '',
+    version: input.version ?? 1,
+    locked: input.locked ?? false,
+    layerId: input.layerId ?? '',
+    size: input.size ?? { w: 200, h: 28 },
+    text: sanitizeNoteHtml(input.text ?? ''),
+    fontSize: input.fontSize ?? 16,
+    color: input.color ?? '#1a1a1a',
+    textAlign: input.textAlign ?? 'left',
+  };
+  if (input.wrap !== undefined) result.wrap = input.wrap;
+  if (input.autoResize !== undefined) result.autoResize = input.autoResize;
+  if (input.containerId !== undefined) result.containerId = input.containerId;
+  return addParent(result, input.parentId);
 }

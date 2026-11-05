@@ -1184,7 +1184,12 @@ export class Viewport {
     this.transaction(() => {
       const child = this.store.getById(childId);
       if (!child || child.parentId === (parentId ?? undefined)) return;
-      this.store.update(childId, { parentId: parentId ?? undefined });
+      this.store.update(childId, {
+        parentId: parentId ?? undefined,
+        ...(child.type === 'text' && child.containerId !== (parentId ?? undefined)
+          ? { containerId: undefined }
+          : {}),
+      });
       this.requestRender();
     });
   }

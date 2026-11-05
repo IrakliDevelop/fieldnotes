@@ -107,6 +107,8 @@ export interface TextElement extends BaseElement {
   wrap?: boolean;
   /** Whether text changes the element size; absent means true. */
   autoResize?: boolean;
+  /** Advisory container relation; meaningful only when it matches parentId. */
+  containerId?: string;
 }
 
 export type ShapeKind = 'rectangle' | 'ellipse' | 'line';
@@ -192,6 +194,8 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   clipBounds?(el: T): Bounds | null;
   /** Text the board search matches; absent or `null` means not searchable. */
   searchText?(el: T): string | null;
+  /** Supplies the text layout box for an extension that accepts bound text. */
+  boundTextLayout?(el: T): BoundTextLayout<T> | null;
   hitTest?(el: T, point: Point): boolean;
   interaction?: ElementInteractionAdapter<T>;
   /** `'canvas'` and `'hybrid'` draw with `render` on the canvas; `'none'` is treated the same
@@ -236,6 +240,7 @@ export interface ElementTypeAdapter {
   bounds(el: ExtensionElementEnvelope): Bounds | null;
   clipBounds?(el: ExtensionElementEnvelope): Bounds | null;
   searchText?(el: ExtensionElementEnvelope): string | null;
+  boundTextLayout?(el: ExtensionElementEnvelope): BoundTextLayout<ExtensionElementEnvelope> | null;
   hitTest?(el: ExtensionElementEnvelope, point: Point): boolean;
   hitTestHandle?(
     el: ExtensionElementEnvelope,
@@ -271,6 +276,12 @@ export interface ElementTypeAdapter {
     el: ExtensionElementEnvelope,
     idMap: ReadonlyMap<string, string>,
   ): ExtensionElementEnvelope;
+}
+
+/** Layout supplied by a container that accepts a bound text child. */
+export interface BoundTextLayout<T> {
+  readonly box: Bounds;
+  readonly grow?: (el: T, boxHeight: number) => T;
 }
 
 export interface ElementTypeKey<T extends BaseElement> {

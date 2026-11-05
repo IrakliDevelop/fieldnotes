@@ -65,7 +65,11 @@ export function moveHierarchyToLayer(
         id: element.id,
         partial:
           element.id === root.id && element.parentId && !closureIds.has(element.parentId)
-            ? { layerId, parentId: undefined }
+            ? {
+                layerId,
+                parentId: undefined,
+                ...(element.type === 'text' ? { containerId: undefined } : {}),
+              }
             : { layerId },
       },
     ];
