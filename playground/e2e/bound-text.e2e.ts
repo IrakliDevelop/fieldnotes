@@ -99,7 +99,8 @@ async function isSaved(page: Page, expected: BoundTextState): Promise<boolean> {
           get.onerror = () => reject(get.error);
           get.onsuccess = () => {
             db.close();
-            if (typeof get.result !== 'string' || !expectedState.text) return resolve(false);
+            const expectedText = expectedState.text;
+            if (typeof get.result !== 'string' || !expectedText) return resolve(false);
             const board: unknown = JSON.parse(get.result);
             if (
               !board ||
@@ -133,20 +134,20 @@ async function isSaved(page: Page, expected: BoundTextState): Promise<boolean> {
                 'type' in element &&
                 element.type === 'text' &&
                 'text' in element &&
-                element.text === expectedState.text.text &&
+                element.text === expectedText.text &&
                 'parentId' in element &&
-                element.parentId === expectedState.text.parentId &&
+                element.parentId === expectedText.parentId &&
                 'containerId' in element &&
-                element.containerId === expectedState.text.containerId &&
+                element.containerId === expectedText.containerId &&
                 'position' in element &&
                 element.position &&
                 typeof element.position === 'object' &&
                 'x' in element.position &&
                 typeof element.position.x === 'number' &&
-                element.position.x === expectedState.text.position.x &&
+                element.position.x === expectedText.position.x &&
                 'y' in element.position &&
                 typeof element.position.y === 'number' &&
-                element.position.y === expectedState.text.position.y,
+                element.position.y === expectedText.position.y,
             );
             resolve(ellipse !== undefined && text !== undefined);
           };
