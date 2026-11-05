@@ -297,6 +297,27 @@ describe('updateArrowsBoundToElements', () => {
 });
 
 describe('unbindArrowsFrom', () => {
+  it('releases a bent arrow at its intrinsic curve edge after removal', () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 60,
+      fromBinding: { elementId: note.id },
+    });
+    store.add(note);
+    store.add(arrow);
+    store.remove(note.id);
+
+    unbindArrowsFrom(store, note, undefined, store.elementRegistry);
+
+    const updated = store.getById(arrow.id);
+    if (!updated || updated.type !== 'arrow') throw new Error('expected arrow');
+    expect(updated.from.x).toBeCloseTo(100, 2);
+    expect(updated.from.y).toBeCloseTo(66.667, 2);
+  });
+
   it('detaches arrows from a removed element to its edge and forwards the change meta', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });

@@ -109,6 +109,7 @@ describe('renderArrow bound curve', () => {
       fromBinding: { elementId: from.id },
       toBinding: { elementId: to.id },
     });
+    arrow.cachedControlPoint = { x: 200, y: -200 };
     store.add(from);
     store.add(to);
     store.add(arrow);
