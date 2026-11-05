@@ -17,6 +17,7 @@ import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 import { ElementRegistry } from '../elements/element-registry';
 import { expandToGroups } from '../elements/group';
+import { createBoundText } from '../elements/bound-text';
 import type {
   BaseElement,
   CanvasElement,
@@ -128,6 +129,32 @@ describe('KeyboardActions.selectAll', () => {
     actions.selectAll();
 
     expect([...tool.selectedIds].sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('excludes only the first actual bound text child', () => {
+    const { actions, ctx, tool } = makeActions();
+    const shape = createShape({
+      shape: 'rectangle',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 80 },
+    });
+    const bound = {
+      ...createBoundText(shape, { text: 'bound', index: 'a0' }),
+      size: { w: 40, h: 20 },
+    };
+    const extra = {
+      ...createBoundText(shape, { text: 'extra', index: 'a1' }),
+      size: { w: 40, h: 20 },
+    };
+    const ordinary = createText({ position: { x: 150, y: 0 }, size: { w: 40, h: 20 } });
+    ctx.store.add(shape);
+    ctx.store.add(bound);
+    ctx.store.add(extra);
+    ctx.store.add(ordinary);
+
+    actions.selectAll();
+
+    expect([...tool.selectedIds].sort()).toEqual([shape.id, extra.id, ordinary.id].sort());
   });
 
   it('excludes locked elements, hidden layers, and locked layers', () => {

@@ -9,7 +9,9 @@ import {
   createText,
   createHtmlElement,
   createStroke,
+  createShape,
 } from '../elements/element-factory';
+import { createBoundText } from '../elements/bound-text';
 
 describe('DomNodeManager', () => {
   it('maps world clip corners into unrotated and inverse-rotated local polygons', () => {
@@ -253,6 +255,22 @@ describe('DomNodeManager', () => {
   });
 
   describe('renderDomContent — text', () => {
+    it('keeps a bound text node centered and rotated on creation and sync', () => {
+      const shape = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 80 },
+      });
+      const text = { ...createBoundText(shape, { text: 'bound' }), rotation: Math.PI / 6 };
+      manager.syncDomNode(text);
+      const node = manager.getNode(text.id);
+      expect(node?.style.textAlign).toBe('center');
+      expect(node?.style.transform).toBe('rotate(0.5235987755982988rad)');
+      manager.syncDomNode({ ...text, rotation: Math.PI / 3 });
+      expect(node?.style.textAlign).toBe('center');
+      expect(node?.style.transform).toBe('rotate(1.0471975511965976rad)');
+    });
+
     it('applies text styling on first render', () => {
       const text = createText({
         position: { x: 0, y: 0 },

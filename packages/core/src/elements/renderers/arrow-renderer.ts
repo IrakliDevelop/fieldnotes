@@ -70,6 +70,14 @@ function renderArrowLabel(
   if (boundText) {
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    const angle = boundText.rotation ?? 0;
+    if (angle) {
+      const x = boundText.position.x + boundText.size.w / 2;
+      const y = boundText.position.y + boundText.size.h / 2;
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.translate(-x, -y);
+    }
     ctx.beginPath();
     ctx.roundRect(
       boundText.position.x - 4,

@@ -176,7 +176,10 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
 
   const boundText = getBoundText(arrow, store);
   if (boundText) {
-    out += `<rect x="${n(boundText.position.x - 4)}" y="${n(boundText.position.y - 2)}" width="${n(boundText.size.w + 8)}" height="${n(boundText.size.h + 4)}" rx="4" fill="rgba(255,255,255,0.9)" />`;
+    out += withRotationSvg(
+      boundText,
+      `<rect x="${n(boundText.position.x - 4)}" y="${n(boundText.position.y - 2)}" width="${n(boundText.size.w + 8)}" height="${n(boundText.size.h + 4)}" rx="4" fill="rgba(255,255,255,0.9)" />`,
+    );
   } else if (arrow.label && arrow.label.length > 0) {
     const mid = getArrowLabelAnchor(arrow, resolveBounds);
     const approxW = arrow.label.length * ARROW_LABEL_FONT_SIZE * 0.6;

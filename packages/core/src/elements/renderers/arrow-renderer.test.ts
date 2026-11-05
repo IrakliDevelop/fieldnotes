@@ -20,6 +20,8 @@ function mockCtx() {
     measureText: vi.fn().mockReturnValue({ width: 40 }),
     fillText: vi.fn(),
     roundRect: vi.fn(),
+    translate: vi.fn(),
+    rotate: vi.fn(),
     strokeStyle: '',
     fillStyle: '',
     lineWidth: 0,
@@ -109,6 +111,30 @@ describe('renderArrow bound curve', () => {
       4,
     );
     expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+
+  it('rotates a bound text pill around the text-box center', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const text = {
+      ...createBoundText(arrow, { text: 'bound' }),
+      position: { x: 20, y: 30 },
+      size: { w: 60, h: 20 },
+      rotation: Math.PI / 6,
+    };
+    store.add(arrow);
+    store.add(text);
+    const laidOut = store.getById(text.id);
+    if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
+    laidOut.rotation = Math.PI / 6;
+    const ctx = mockCtx();
+
+    renderArrow(ctx, arrow, store, null);
+
+    expect(ctx.translate).toHaveBeenCalledWith(50, 0);
+    expect(ctx.rotate).toHaveBeenCalledWith(Math.PI / 6);
+    expect(ctx.translate).toHaveBeenCalledWith(-50, -0);
+    expect(ctx.roundRect).toHaveBeenCalledWith(16, -12, 68, 24, 4);
   });
 
   it('draws a bound curve and arrowhead from persisted geometry, not its stale cache', () => {

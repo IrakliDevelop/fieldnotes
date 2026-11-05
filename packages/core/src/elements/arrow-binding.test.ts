@@ -73,20 +73,53 @@ describe('getElementBounds', () => {
 });
 
 describe('findBindTarget', () => {
-  it('skips actual bound text while retaining unrelated text targets', () => {
+  it('skips actual bound text when it is the only nearby bind target', () => {
     const store = new ElementStore();
     const rectangle = createShape({
       shape: 'rectangle',
-      position: { x: 0, y: 0 },
+      position: { x: 200, y: 200 },
       size: { w: 100, h: 100 },
     });
     const bound = { ...createBoundText(rectangle, { text: 'bound' }), size: { w: 60, h: 20 } };
-    const extra = createText({ position: { x: 0, y: 0 }, size: { w: 60, h: 20 } });
     store.add(rectangle);
     store.add(bound);
-    store.add(extra);
+    store.update(bound.id, { position: { x: 0, y: 0 }, size: { w: 60, h: 20 } });
 
-    expect(findBindTarget({ x: 50, y: 50 }, store, 20)?.id).toBe(rectangle.id);
+    expect(findBindTarget({ x: 30, y: 10 }, store, 20)).toBeNull();
+  });
+
+  it('retains ordinary, mismatched, and later matching text bind targets', () => {
+    const store = new ElementStore();
+    const rectangle = createShape({
+      shape: 'rectangle',
+      position: { x: 200, y: 200 },
+      size: { w: 100, h: 100 },
+    });
+    const first = {
+      ...createBoundText(rectangle, { text: 'first', index: 'a0' }),
+      size: { w: 60, h: 20 },
+    };
+    const mismatched = createText({
+      position: { x: 100, y: 0 },
+      size: { w: 20, h: 20 },
+      parentId: rectangle.id,
+    });
+    const later = {
+      ...createBoundText(rectangle, { text: 'later', index: 'a1' }),
+      position: { x: 200, y: 0 },
+      size: { w: 20, h: 20 },
+    };
+    const ordinary = createText({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } });
+    store.add(rectangle);
+    store.add(first);
+    store.add(mismatched);
+    store.add(later);
+    store.add(ordinary);
+    store.update(first.id, { position: { x: 300, y: 300 } });
+
+    expect(findBindTarget({ x: 10, y: 10 }, store, 20)?.id).toBe(ordinary.id);
+    expect(findBindTarget({ x: 110, y: 10 }, store, 20)?.id).toBe(mismatched.id);
+    expect(findBindTarget({ x: 210, y: 10 }, store, 20)?.id).toBe(later.id);
   });
 
   it('retains an existing unrotated-bounds target after spatial filtering', () => {

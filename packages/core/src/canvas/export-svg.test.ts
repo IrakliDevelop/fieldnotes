@@ -91,6 +91,28 @@ describe('exportSvg', () => {
     expect(svg).not.toContain('legacy');
   });
 
+  it('rotates a bound arrow text pill around the text-box center', async () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const text = {
+      ...createBoundText(arrow, { text: 'bound' }),
+      position: { x: 20, y: 30 },
+      size: { w: 60, h: 20 },
+      rotation: Math.PI / 6,
+    };
+    store.add(arrow);
+    store.add(text);
+    const laidOut = store.getById(text.id);
+    if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
+    laidOut.rotation = Math.PI / 6;
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain(
+      '<g transform="rotate(30 50 0)"><rect x="16" y="-12" width="68" height="24" rx="4" fill="rgba(255,255,255,0.9)" /></g>',
+    );
+  });
+
   it('uses exact frame content bounds and excludes the frame and overlapping roots', async () => {
     const store = new ElementStore();
     const frame = createFrame({
