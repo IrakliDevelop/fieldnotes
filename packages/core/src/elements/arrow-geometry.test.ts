@@ -5,6 +5,7 @@ import {
   getBendFromPoint,
   getArrowTangentAngle,
   getArrowCurve,
+  getArrowLabelAnchor,
   isNearBezier,
   getArrowBounds,
 } from './arrow-geometry';
@@ -55,6 +56,20 @@ describe('getArrowMidpoint', () => {
 });
 
 describe('getArrowCurve', () => {
+  it('derives visible geometry from persisted endpoints and bend, not cached control', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 0 },
+      bend: 20,
+    });
+    arrow.cachedControlPoint = { x: 90, y: -40 };
+    const curve = getArrowCurve(arrow, () => null);
+    const label = getArrowLabelAnchor(arrow, () => null);
+
+    expect(curve.control).toEqual({ x: 50, y: 20 });
+    expect(label).toEqual({ x: 50, y: 10 });
+  });
+
   it('trims a bent curve at bound edges with a de Casteljau control point', () => {
     const arrow = createArrow({
       from: { x: 50, y: 50 },
@@ -73,11 +88,48 @@ describe('getArrowCurve', () => {
     expect(curve.control.y).toBeCloseTo(93.333, 2);
   });
 
-  it('keeps unbound and never-leaving curves intrinsic', () => {
-    const arrow = createArrow({ from: { x: 50, y: 50 }, to: { x: 60, y: 50 }, bend: 0 });
+  it('keeps a bound curve that never leaves its source intrinsic', () => {
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 60, y: 50 },
+      bend: 0,
+      fromBinding: { elementId: 'source' },
+    });
     const curve = getArrowCurve(arrow, () => ({ x: 0, y: 0, w: 100, h: 100 }));
 
     expect(curve).toMatchObject({ from: arrow.from, to: arrow.to, t0: 0, t1: 1 });
+  });
+
+  it('keeps overlapping source and end bounds intrinsic', () => {
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 0,
+      fromBinding: { elementId: 'source' },
+      toBinding: { elementId: 'end' },
+    });
+    const curve = getArrowCurve(arrow, (id) =>
+      id === 'source' ? { x: 0, y: 0, w: 270, h: 100 } : { x: 150, y: 0, w: 250, h: 100 },
+    );
+
+    expect(curve).toMatchObject({ from: arrow.from, to: arrow.to, t0: 0, t1: 1 });
+  });
+
+  it('treats a bound edge endpoint as inside before trimming a straight arrow', () => {
+    const arrow = createArrow({
+      from: { x: 100, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 0,
+      fromBinding: { elementId: 'source' },
+      toBinding: { elementId: 'end' },
+    });
+    const curve = getArrowCurve(arrow, (id) =>
+      id === 'source' ? { x: 0, y: 0, w: 100, h: 100 } : { x: 300, y: 0, w: 100, h: 100 },
+    );
+
+    expect(curve.t0).toBeGreaterThan(0);
+    expect(curve.from.x).toBeCloseTo(100, 2);
+    expect(curve.to.x).toBeCloseTo(300, 2);
   });
 });
 

@@ -369,7 +369,7 @@ describe('ElementRenderer', () => {
       expect(ctx.quadraticCurveTo).toHaveBeenCalled();
     });
 
-    it('uses cached control point when available', () => {
+    it('ignores a stale cached control point', () => {
       const renderer = new ElementRenderer();
       const ctx = mockCtx();
       renderer.renderCanvasElement(
@@ -380,7 +380,12 @@ describe('ElementRenderer', () => {
         }),
       );
 
-      expect(ctx.quadraticCurveTo).toHaveBeenCalledWith(50, -20, 100, 100);
+      expect(ctx.quadraticCurveTo).toHaveBeenCalledWith(
+        49.64644660940672,
+        50.35355339059328,
+        100,
+        100,
+      );
     });
 
     it('renders solid when fromBinding is set (dashing decoupled from binding)', () => {

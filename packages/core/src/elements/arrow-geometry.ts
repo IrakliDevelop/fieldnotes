@@ -43,8 +43,7 @@ export function getArrowCurve(
   arrow: ArrowElement,
   resolveBounds: (id: string) => Bounds | null,
 ): ArrowCurve {
-  const control =
-    arrow.cachedControlPoint ?? getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
+  const control = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
   const fromBounds = arrow.fromBinding ? resolveBounds(arrow.fromBinding.elementId) : null;
   const toBounds = arrow.toBinding ? resolveBounds(arrow.toBinding.elementId) : null;
   const t0 = fromBounds ? getExitT(arrow.from, control, arrow.to, fromBounds, true) : 0;
