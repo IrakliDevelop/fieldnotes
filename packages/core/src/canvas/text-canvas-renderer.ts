@@ -9,6 +9,7 @@ export function renderTextOnCanvas(ctx: CanvasRenderingContext2D, text: TextElem
   renderStyledRuns(ctx, runs, text.position.x + pad, text.position.y + pad, text.size.w - pad * 2, {
     align: text.textAlign,
     lineHeight: 1.4,
+    wrap: text.wrap !== false,
   });
   ctx.restore();
 }

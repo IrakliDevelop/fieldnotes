@@ -617,6 +617,23 @@ describe('parseState', () => {
     expect(parseState(JSON.stringify(data)).elements).toHaveLength(7);
   });
 
+  it('round-trips boolean text wrapping fields and rejects other values', () => {
+    const data = validState();
+    const text = createText({ index: 'a0', position: { x: 0, y: 0 }, layerId: 'default-layer' });
+    data.elements = [{ ...text, wrap: false, autoResize: false }];
+
+    expect(parseState(JSON.stringify(data)).elements[0]).toMatchObject({
+      wrap: false,
+      autoResize: false,
+    });
+    expect(() =>
+      parseState(JSON.stringify(data).replace('"wrap":false', '"wrap":"false"')),
+    ).toThrow('malformed text data');
+    expect(() =>
+      parseState(JSON.stringify(data).replace('"autoResize":false', '"autoResize":"false"')),
+    ).toThrow('malformed text data');
+  });
+
   it.each([
     ['stroke', 'points'],
     ['note', 'size'],

@@ -462,7 +462,9 @@ function validateTypeFields(
         isString(el['text']) &&
         isFiniteNumber(el['fontSize']) &&
         isString(el['color']) &&
-        isEnum(el['textAlign'], ['left', 'center', 'right'])
+        isEnum(el['textAlign'], ['left', 'center', 'right']) &&
+        isOptional(el['wrap'], isBoolean) &&
+        isOptional(el['autoResize'], isBoolean)
       );
     case 'shape':
       return (

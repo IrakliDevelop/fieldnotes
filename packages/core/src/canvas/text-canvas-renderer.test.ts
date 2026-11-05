@@ -158,4 +158,19 @@ describe('renderTextOnCanvas', () => {
     // line 2 y = startY(2) + fontSize(16) * 1.4 = 2 + 22.4.
     expect(calls[1]?.y).toBeCloseTo(2 + 16 * 1.4);
   });
+
+  it('keeps centered unwrapped text coordinates finite', () => {
+    const { ctx, calls } = deterministicCtx();
+    const text = createText({
+      position: { x: 0, y: 0 },
+      size: { w: 60, h: 28 },
+      text: 'aa bb cc',
+      textAlign: 'center',
+      wrap: false,
+    });
+
+    renderTextOnCanvas(ctx, text);
+
+    expect(calls.every((call) => Number.isFinite(call.x))).toBe(true);
+  });
 });

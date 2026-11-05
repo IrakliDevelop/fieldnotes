@@ -331,6 +331,7 @@ export class DomNodeManager {
           cursor: 'default',
           userSelect: 'none',
           wordWrap: 'break-word',
+          boxSizing: 'border-box',
         });
         node.innerHTML = element.text || '';
 
@@ -400,6 +401,8 @@ export class DomNodeManager {
           cursor: 'default',
           userSelect: 'none',
           wordWrap: 'break-word',
+          whiteSpace: element.wrap === false ? 'pre' : 'normal',
+          boxSizing: 'border-box',
           lineHeight: '1.4',
         });
         node.innerHTML = element.text || '';
@@ -424,6 +427,8 @@ export class DomNodeManager {
           fontSize: `${element.fontSize}px`,
           color: element.color,
           textAlign: element.textAlign,
+          wordWrap: element.wrap === false ? 'normal' : 'break-word',
+          whiteSpace: element.wrap === false ? 'pre' : 'normal',
         });
       }
     }

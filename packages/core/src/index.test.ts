@@ -26,6 +26,11 @@ describe('core public surface', () => {
     expect(FN.VERSION).toBe('0.105.0');
   });
 
+  it('exports text measurement helpers', () => {
+    expect(typeof FN.measureText).toBe('function');
+    expect(typeof FN.setTextMeasurer).toBe('function');
+  });
+
   it('exports mount autosave options and no autosave without the option', () => {
     const options: MountAutoSaveOptions = { key: 'x' };
     const mounted = FN.mountViewport(document.createElement('div'), { autoSave: undefined });

@@ -136,6 +136,7 @@ describe('DomNodeManager', () => {
       expect(node?.textContent).toBe('Hello');
       expect(node?.style.backgroundColor).toBe('rgb(255, 235, 59)');
       expect(node?.style.color).toBe('rgb(51, 51, 51)');
+      expect(node?.style.boxSizing).toBe('border-box');
     });
 
     it('updates text when not editing', () => {
@@ -267,6 +268,7 @@ describe('DomNodeManager', () => {
       expect(node?.style.fontSize).toBe('24px');
       expect(node?.style.color).toBe('rgb(0, 0, 0)');
       expect(node?.style.textAlign).toBe('center');
+      expect(node?.style.boxSizing).toBe('border-box');
     });
 
     it('renders rich HTML formatting instead of literal tags', () => {
@@ -314,6 +316,15 @@ describe('DomNodeManager', () => {
       const node = manager.getNode(text.id);
       expect(node?.style.fontSize).toBe('32px');
       expect(node?.style.color).toBe('rgb(255, 0, 0)');
+    });
+
+    it('updates wrapping styles when wrap changes', () => {
+      const text = createText({ position: { x: 0, y: 0 }, size: { w: 200, h: 50 }, text: 'Title' });
+      manager.syncDomNode(text);
+      manager.syncDomNode({ ...text, wrap: false });
+      const node = manager.getNode(text.id);
+      expect(node?.style.whiteSpace).toBe('pre');
+      expect(node?.style.wordWrap).toBe('normal');
     });
   });
 

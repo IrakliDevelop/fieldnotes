@@ -103,6 +103,10 @@ export interface TextElement extends BaseElement {
   fontSize: number;
   color: string;
   textAlign: 'left' | 'center' | 'right';
+  /** Whether text wraps at the element width; absent means true. */
+  wrap?: boolean;
+  /** Whether text changes the element size; absent means true. */
+  autoResize?: boolean;
 }
 
 export type ShapeKind = 'rectangle' | 'ellipse' | 'line';
