@@ -10,7 +10,8 @@ import type { HistoryRecorder } from '../history/history-recorder';
 import type { ArrowElement } from '../elements/types';
 import type { ToolContext } from '../tools/types';
 import { DoubleTapDetector } from './double-tap-detector';
-import { isNearBezier } from '../elements/arrow-geometry';
+import { isNearArrowCurve } from '../elements/arrow-geometry';
+import { getElementBounds } from '../elements/element-bounds';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import { hitTest } from '../tools/select-hit';
 import { isLiveControlTarget } from './live-control';
@@ -172,7 +173,13 @@ export class ViewportInteractions {
       })
       .reverse();
     for (const el of candidates) {
-      if (el.type === 'arrow' && isNearBezier(world, el.from, el.to, el.bend, tolerance)) {
+      if (
+        el.type === 'arrow' &&
+        isNearArrowCurve(world, el, tolerance, (id) => {
+          const bound = this.deps.store.getById(id);
+          return bound ? getElementBounds(bound) : null;
+        })
+      ) {
         return el;
       }
     }

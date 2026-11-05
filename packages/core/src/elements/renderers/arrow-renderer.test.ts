@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderArrow, getArrowDashPattern } from './arrow-renderer';
-import { createArrow } from '../element-factory';
+import { createArrow, createShape } from '../element-factory';
+import { ElementStore } from '../element-store';
+import { getArrowControlPoint, getArrowMidpoint } from '../arrow-geometry';
 import type { ArrowElement } from '../types';
 
 function mockCtx() {
@@ -83,5 +85,75 @@ describe('renderArrow — stroke style dashing', () => {
   it('dashes a bound arrow only when its strokeStyle says so', () => {
     const ctx = render({ fromBinding: { elementId: 'note-1' }, strokeStyle: 'dashed' });
     expect(ctx.setLineDash).toHaveBeenCalledWith([8, 4]);
+  });
+});
+
+describe('renderArrow bound curve', () => {
+  it('draws the trimmed intrinsic quadratic and anchors its label on that curve', () => {
+    const store = new ElementStore();
+    const from = createShape({
+      shape: 'rectangle',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const to = createShape({
+      shape: 'rectangle',
+      position: { x: 300, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 60,
+      label: 'label',
+      fromBinding: { elementId: from.id },
+      toBinding: { elementId: to.id },
+    });
+    store.add(from);
+    store.add(to);
+    store.add(arrow);
+
+    const ctx = mockCtx();
+    renderArrow(ctx, arrow, store, null);
+
+    const move = ctx.moveTo.mock.calls[0];
+    const curve = ctx.quadraticCurveTo.mock.calls[0];
+    if (!move || !curve) throw new Error('expected quadratic path');
+    const [fromX, fromY] = move as [number, number];
+    const [controlX, controlY, toX, toY] = curve as [number, number, number, number];
+    const drawn = {
+      from: { x: fromX, y: fromY },
+      control: { x: controlX, y: controlY },
+      to: { x: toX, y: toY },
+    };
+
+    const intrinsicControl = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
+    const t0 = 1 / 6;
+    const t1 = 5 / 6;
+    const pointAt = (t: number) => {
+      const mt = 1 - t;
+      return {
+        x: mt * mt * arrow.from.x + 2 * mt * t * intrinsicControl.x + t * t * arrow.to.x,
+        y: mt * mt * arrow.from.y + 2 * mt * t * intrinsicControl.y + t * t * arrow.to.y,
+      };
+    };
+    const drawnAt = (s: number) => {
+      const mt = 1 - s;
+      return {
+        x: mt * mt * drawn.from.x + 2 * mt * s * drawn.control.x + s * s * drawn.to.x,
+        y: mt * mt * drawn.from.y + 2 * mt * s * drawn.control.y + s * s * drawn.to.y,
+      };
+    };
+
+    for (const s of [0, 0.5, 1]) {
+      const expected = pointAt(t0 + s * (t1 - t0));
+      const actual = drawnAt(s);
+      expect(actual.x).toBeCloseTo(expected.x, 2);
+      expect(actual.y).toBeCloseTo(expected.y, 2);
+    }
+    expect(drawn.from.x).toBeCloseTo(100, 0);
+    expect(drawn.to.x).toBeCloseTo(300, 0);
+    expect(getArrowMidpoint(arrow.from, arrow.to, arrow.bend).y).toBeCloseTo(80, 2);
+    expect(ctx.fillText).toHaveBeenCalledWith('label', 200, 80);
   });
 });

@@ -12,9 +12,12 @@ import type { ElementStore } from '../elements/element-store';
 import type { LayerManager } from '../layers/layer-manager';
 import { getStrokeRenderData } from '../elements/stroke-cache';
 import { lineEndpoints } from '../elements/shape-geometry';
-import { getArrowControlPoint, getArrowMidpoint } from '../elements/arrow-geometry';
-import { getArrowRenderGeometry } from '../elements/arrow-render-cache';
-import { getVisualEndpoints, getArrowDashPattern } from '../elements/renderers/arrow-renderer';
+import {
+  getArrowCurve,
+  getArrowLabelAnchor,
+  getArrowTangentAngle,
+} from '../elements/arrow-geometry';
+import { getArrowDashPattern } from '../elements/renderers/arrow-renderer';
 import { getElementBounds } from '../elements/element-bounds';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { renderTextOnCanvas } from './text-canvas-renderer';
@@ -145,15 +148,16 @@ function emitShape(shape: ShapeElement): string {
 }
 
 function emitArrow(arrow: ArrowElement, store: ElementStore): string {
-  const geometry = getArrowRenderGeometry(arrow);
-  // Bound arrows store from/to at the bound element's CENTER; the canvas renderer
-  // snaps them to the element EDGE at draw time. Mirror that for PNG/canvas parity.
-  const { visualFrom: from, visualTo: to } = getVisualEndpoints(arrow, geometry, store);
+  const resolveBounds = (id: string) => {
+    const element = store.getById(id);
+    return element ? getElementBounds(element) : null;
+  };
+  const curve = getArrowCurve(arrow, resolveBounds);
+  const { from, to } = curve;
 
   let d: string;
   if (arrow.bend !== 0) {
-    const cp = geometry.controlPoint ?? getArrowControlPoint(from, to, arrow.bend);
-    d = `M${n(from.x)} ${n(from.y)} Q${n(cp.x)} ${n(cp.y)} ${n(to.x)} ${n(to.y)}`;
+    d = `M${n(from.x)} ${n(from.y)} Q${n(curve.control.x)} ${n(curve.control.y)} ${n(to.x)} ${n(to.y)}`;
   } else {
     d = `M${n(from.x)} ${n(from.y)} L${n(to.x)} ${n(to.y)}`;
   }
@@ -162,8 +166,7 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
   const dash = pattern.length > 0 ? ` stroke-dasharray="${pattern.join(' ')}"` : '';
   let out = `<path d="${d}" fill="none" stroke="${esc(arrow.color)}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
 
-  // Arrowhead — mirror arrow-renderer's polygon math (tip at the visual endpoint).
-  const angle = geometry.tangentEnd;
+  const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1);
   const p1x = to.x - ARROWHEAD_LENGTH * Math.cos(angle - ARROWHEAD_ANGLE);
   const p1y = to.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);
   const p2x = to.x - ARROWHEAD_LENGTH * Math.cos(angle + ARROWHEAD_ANGLE);
@@ -171,8 +174,7 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
   out += `<polygon points="${n(to.x)},${n(to.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${esc(arrow.color)}" />`;
 
   if (arrow.label && arrow.label.length > 0) {
-    // Canvas renderer places the label at the raw-endpoint midpoint, not the visual one.
-    const mid = getArrowMidpoint(arrow.from, arrow.to, arrow.bend);
+    const mid = getArrowLabelAnchor(arrow, resolveBounds);
     const approxW = arrow.label.length * ARROW_LABEL_FONT_SIZE * 0.6;
     const padX = 6;
     const padY = 4;

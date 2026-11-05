@@ -1186,8 +1186,10 @@ describe('exportSvg', () => {
     const path = svg.match(/<path d="M[^"]*L([\d.]+) ([\d.]+)"/);
     const arrowhead = svg.match(/<polygon points="([\d.]+),([\d.]+)/);
 
-    expect(path?.slice(1)).toEqual(['400', '200']);
-    expect(arrowhead?.slice(1)).toEqual(['400', '200']);
+    expect(Number(path?.[1])).toBeCloseTo(400, 2);
+    expect(Number(path?.[2])).toBeCloseTo(200, 2);
+    expect(Number(arrowhead?.[1])).toBeCloseTo(400, 2);
+    expect(Number(arrowhead?.[2])).toBeCloseTo(200, 2);
     expect(svg).not.toContain('#ff00ff');
   });
 

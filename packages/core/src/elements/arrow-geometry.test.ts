@@ -4,9 +4,11 @@ import {
   getArrowMidpoint,
   getBendFromPoint,
   getArrowTangentAngle,
+  getArrowCurve,
   isNearBezier,
   getArrowBounds,
 } from './arrow-geometry';
+import { createArrow } from './element-factory';
 
 describe('getArrowControlPoint', () => {
   it('returns midpoint when bend is 0', () => {
@@ -49,6 +51,33 @@ describe('getArrowMidpoint', () => {
     const mid = getArrowMidpoint({ x: 0, y: 0 }, { x: 100, y: 0 }, 50);
     expect(mid.x).toBeCloseTo(50);
     expect(mid.y).toBeCloseTo(25);
+  });
+});
+
+describe('getArrowCurve', () => {
+  it('trims a bent curve at bound edges with a de Casteljau control point', () => {
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 60,
+      fromBinding: { elementId: 'from' },
+      toBinding: { elementId: 'to' },
+    });
+    const curve = getArrowCurve(arrow, (id) =>
+      id === 'from' ? { x: 0, y: 0, w: 100, h: 100 } : { x: 300, y: 0, w: 100, h: 100 },
+    );
+
+    expect(curve.from.x).toBeCloseTo(100, 2);
+    expect(curve.to.x).toBeCloseTo(300, 2);
+    expect(curve.control.x).toBeCloseTo(200, 2);
+    expect(curve.control.y).toBeCloseTo(93.333, 2);
+  });
+
+  it('keeps unbound and never-leaving curves intrinsic', () => {
+    const arrow = createArrow({ from: { x: 50, y: 50 }, to: { x: 60, y: 50 }, bend: 0 });
+    const curve = getArrowCurve(arrow, () => ({ x: 0, y: 0, w: 100, h: 100 }));
+
+    expect(curve).toMatchObject({ from: arrow.from, to: arrow.to, t0: 0, t1: 1 });
   });
 });
 

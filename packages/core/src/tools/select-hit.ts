@@ -3,7 +3,7 @@ import { normalizeConstraintStep } from '../core/constraint-service';
 import type { ToolContext } from './types';
 import { distSqToSegment, rotatePoint, rotatedAABB } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
-import { isNearBezier } from '../elements/arrow-geometry';
+import { isNearArrowCurve } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
 import { hasSize } from '../elements/element-size';
 import { hitTestStroke } from '../elements/stroke-hit';
@@ -88,7 +88,10 @@ export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContex
   }
 
   if (el.type === 'arrow') {
-    return isNearBezier(point, el.from, el.to, el.bend, tolerance);
+    return isNearArrowCurve(point, el, tolerance, (id) => {
+      const bound = ctx?.store.getById(id);
+      return bound ? getElementBounds(bound) : null;
+    });
   }
 
   return false;

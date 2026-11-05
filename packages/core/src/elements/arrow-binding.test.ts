@@ -1,14 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   getElementCenter,
-  getEdgeIntersection,
   findBindTarget,
   findBoundArrows,
   updateBoundArrow,
   updateArrowsBoundToElements,
   clearStaleBindings,
   isBindable,
-  unbindArrow,
   unbindArrowsFrom,
 } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
@@ -69,40 +67,6 @@ describe('getElementBounds', () => {
     expect(bounds.y).toBe(0);
     expect(bounds.w).toBe(10);
     expect(bounds.h).toBe(20);
-  });
-});
-
-describe('getEdgeIntersection', () => {
-  const bounds = { x: 0, y: 0, w: 100, h: 100 };
-
-  it('returns right edge intersection for point to the right', () => {
-    const result = getEdgeIntersection(bounds, { x: 200, y: 50 });
-    expect(result.x).toBeCloseTo(100);
-    expect(result.y).toBeCloseTo(50);
-  });
-
-  it('returns left edge intersection for point to the left', () => {
-    const result = getEdgeIntersection(bounds, { x: -100, y: 50 });
-    expect(result.x).toBeCloseTo(0);
-    expect(result.y).toBeCloseTo(50);
-  });
-
-  it('returns top edge intersection for point above', () => {
-    const result = getEdgeIntersection(bounds, { x: 50, y: -100 });
-    expect(result.x).toBeCloseTo(50);
-    expect(result.y).toBeCloseTo(0);
-  });
-
-  it('returns bottom edge intersection for point below', () => {
-    const result = getEdgeIntersection(bounds, { x: 50, y: 200 });
-    expect(result.x).toBeCloseTo(50);
-    expect(result.y).toBeCloseTo(100);
-  });
-
-  it('returns correct intersection for diagonal', () => {
-    const result = getEdgeIntersection(bounds, { x: 200, y: 200 });
-    expect(result.x).toBeCloseTo(100);
-    expect(result.y).toBeCloseTo(100);
   });
 });
 
@@ -304,40 +268,6 @@ describe('isBindable', () => {
   });
 });
 
-describe('unbindArrow', () => {
-  it('clears fromBinding and rewrites from to edge point', () => {
-    const store = new ElementStore();
-    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
-    const arrow = createArrow({
-      from: { x: 50, y: 50 },
-      to: { x: 300, y: 50 },
-      fromBinding: { elementId: note.id },
-    });
-    store.add(note);
-    store.add(arrow);
-    const updates = unbindArrow(arrow, store);
-    expect(updates.fromBinding).toBeUndefined();
-    expect(updates.from).toBeDefined();
-    expect(updates.from?.x).toBeCloseTo(100); // right edge
-  });
-
-  it('clears toBinding and rewrites to to edge point', () => {
-    const store = new ElementStore();
-    const note = createNote({ position: { x: 200, y: 0 }, size: { w: 100, h: 100 } });
-    const arrow = createArrow({
-      from: { x: 0, y: 50 },
-      to: { x: 250, y: 50 },
-      toBinding: { elementId: note.id },
-    });
-    store.add(note);
-    store.add(arrow);
-    const updates = unbindArrow(arrow, store);
-    expect(updates.toBinding).toBeUndefined();
-    expect(updates.to).toBeDefined();
-    expect(updates.to?.x).toBeCloseTo(200); // left edge
-  });
-});
-
 describe('updateArrowsBoundToElements', () => {
   it('re-anchors arrows bound to a moved element and ignores arrow ids', () => {
     const store = new ElementStore();
@@ -385,7 +315,9 @@ describe('unbindArrowsFrom', () => {
 
     const updated = store.getById(arrow.id);
     expect(updated?.type === 'arrow' && updated.fromBinding).toBeUndefined();
-    expect(updated?.position).toEqual({ x: 100, y: 50 });
+    if (!updated || updated.type !== 'arrow') throw new Error('expected arrow');
+    expect(updated.position.x).toBeCloseTo(100, 2);
+    expect(updated.position.y).toBeCloseTo(50, 2);
     expect(metas).toEqual([{ origin: 'remote' }]);
   });
 
@@ -413,6 +345,8 @@ describe('unbindArrowsFrom', () => {
     unbindArrowsFrom(store, box, undefined, registry);
 
     const updated = store.getById(arrow.id);
-    expect(updated?.type === 'arrow' && updated.to).toEqual({ x: 100, y: 110 });
+    if (!updated || updated.type !== 'arrow') throw new Error('expected arrow');
+    expect(updated.to.x).toBeCloseTo(100, 2);
+    expect(updated.to.y).toBeCloseTo(110, 2);
   });
 });
