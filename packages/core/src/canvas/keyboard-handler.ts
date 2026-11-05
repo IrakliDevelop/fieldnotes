@@ -91,7 +91,7 @@ export class KeyboardHandler {
     const el = e.target;
     if (!(el instanceof Element)) return false;
     const control = el.closest('button, a[href], summary');
-    return control !== null && this.deps.element.contains(control);
+    return control !== null;
   }
 
   onKeyDown = (e: KeyboardEvent): void => {

@@ -39,6 +39,7 @@ export class ViewportInteractions {
   private readonly doubleTapDetector = new DoubleTapDetector();
   private tapDownX = 0;
   private tapDownY = 0;
+  private createdEdit: { id: string; transactionId: number } | null = null;
 
   constructor(private readonly deps: ViewportInteractionsDeps) {}
 
@@ -60,14 +61,17 @@ export class ViewportInteractions {
     const existing = getBoundText(container, this.deps.store);
     if (existing && this.deps.noteEditor.isEditingOrPending(existing.id)) return true;
     this.deps.noteEditor.stopEditing(this.deps.store);
-    this.deps.recorder.begin();
     if (existing) {
-      this.openEditor(existing.id);
-      return true;
+      return this.openEditor(existing.id);
     }
+    this.deps.recorder.begin();
     const text = createBoundText(container, {
       text: container.type === 'arrow' ? container.label : undefined,
     });
+    const transactionId = this.deps.recorder.currentTransactionId;
+    if (transactionId === null)
+      throw new Error('bound text creation requires a history transaction');
+    this.createdEdit = { id: text.id, transactionId };
     this.deps.store.add(text);
     if (container.type === 'arrow' && container.label)
       this.deps.store.update(container.id, { label: undefined });
@@ -77,6 +81,7 @@ export class ViewportInteractions {
     if (!this.openEditor(text.id)) {
       this.deps.store.remove(text.id);
       if (!this.deps.recorder.rollbackIfOnly(text.id)) this.deps.recorder.commit();
+      this.createdEdit = null;
       return false;
     }
     return true;
@@ -240,13 +245,20 @@ export class ViewportInteractions {
     return hit && isBoundTextContainer(hit, this.deps.store.elementRegistry) ? hit : undefined;
   }
 
-  beginEditHistory(_id: string): void {
-    if (this.deps.recorder.currentTransactionId === null) this.deps.recorder.begin();
+  beginEditHistory(id: string): void {
+    if (
+      this.createdEdit?.id === id &&
+      this.createdEdit.transactionId === this.deps.recorder.currentTransactionId
+    ) {
+      return;
+    }
+    this.deps.recorder.begin();
   }
 
   commitEditHistory(id: string): void {
     this.onTextEditStop(id);
     if (!this.deps.recorder.rollbackIfOnly(id)) this.deps.recorder.commit();
+    if (this.createdEdit?.id === id) this.createdEdit = null;
   }
 
   onDragOver = (e: DragEvent): void => {
