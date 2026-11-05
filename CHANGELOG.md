@@ -14,10 +14,10 @@ Release notes prepared 2026-11-05.
 
 - `createBoundText`, `getBoundText`, `isBoundTextContainer`, `BoundTextContainer`,
   `CreateBoundTextOptions`, `BoundTextLayout`, `Viewport.getBoundText`,
-  `Viewport.setBoundText`, `Viewport.editBoundText`, and `selection.edit-text`.
+  `Viewport.setBoundText`, `Viewport.editBoundText`, `measureText`, `setTextMeasurer`,
+  `TextMeasurer`, and `selection.edit-text`.
 - Bound text fields on text elements: `parentId`, `containerId`, `wrap`, and `autoResize`.
   Extension element definitions can provide `boundTextLayout` with an optional `grow` function.
-  `measureText` is public for host layout.
 
 **Changed**
 
@@ -36,8 +36,10 @@ Release notes prepared 2026-11-05.
 
 **Compatibility**
 
-- Canvas state stays at v6 and the sync protocol stays at 3. Old peers drop the additive bound-text
-  fields, so they retain the container without its text.
+- Canvas state stays at v6 and the sync protocol stays at 3. Old validators accept the additive
+  fields. Old clients render the bound child as ordinary free text because they do not interpret
+  `containerId`; they can also show the legacy arrow pill while it remains. New clients use the
+  bound child and suppress the legacy fallback when that child exists.
 
 ### Sync 0.30.2 — bound text fields
 

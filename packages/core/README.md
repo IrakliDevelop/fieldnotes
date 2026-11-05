@@ -632,7 +632,9 @@ remain one undo step. Use `setBoundText` when the built-in relation is enough.
 data, then save the migrated text element instead.
 
 ```typescript
-createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 }, label: 'depends on' });
+const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
+viewport.store.add(arrow);
+viewport.setBoundText(arrow.id, 'depends on');
 new NoteTool({ backgroundColor: '#fff9c4', size: { w: 200, h: 150 } });
 new ImageTool({ size: { w: 400, h: 300 } });
 ```
