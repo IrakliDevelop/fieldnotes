@@ -804,10 +804,17 @@ describe('exportImage bound arrow labels', () => {
     expect(vi.mocked(ctx.roundRect).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(ctx.fillText).mock.invocationCallOrder[0] ?? Infinity,
     );
+    recorder.restore();
+
+    const legacyRecorder = recordExportCanvases();
     const legacy = new ElementStore();
     legacy.add(createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'legacy' }));
     await expect(exportImage(legacy, {})).resolves.toBeInstanceOf(Blob);
-    recorder.restore();
+    const legacyCtx = legacyRecorder.canvases[0]?.ctx;
+    if (!legacyCtx) throw new Error('Missing legacy export canvas');
+    expect(legacyCtx.roundRect).toHaveBeenCalledWith(24, -11, 52, 22, 4);
+    expect(legacyCtx.fillText).toHaveBeenCalledWith('legacy', 50, 0);
+    legacyRecorder.restore();
   });
 });
 

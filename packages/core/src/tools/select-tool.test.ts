@@ -14,6 +14,7 @@ import {
   createStroke,
   createImage,
   createShape,
+  createText,
 } from '../elements/element-factory';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { rotatePoint } from '../core/geometry';
@@ -36,6 +37,8 @@ import { createFrame } from '../elements/frame-element';
 import { getOverlayLayout } from './select-overlay';
 import { createBoundText } from '../elements/bound-text';
 import { setTextMeasurer } from '../elements/text-measure';
+import { KeyboardActions } from '../canvas/keyboard-actions';
+import type { ToolManager } from './tool-manager';
 
 function makeSnapProxy(
   gridSize: number,
@@ -116,6 +119,57 @@ function shiftPt(x: number, y: number): PointerState {
 describe('SelectTool', () => {
   it('has name "select"', () => {
     expect(new SelectTool().name).toBe('select');
+  });
+
+  it('cycles past only the actual first bound text child', () => {
+    const tool = new SelectTool();
+    const ctx = makeCtx();
+    tool.onActivate(ctx);
+    const manager = { activeTool: tool } as unknown as ToolManager;
+    const actions = new KeyboardActions({
+      getToolManager: () => manager,
+      getToolContext: () => ctx,
+      getHistoryRecorder: () => null,
+      getHistoryStack: () => null,
+      isToolActive: () => false,
+    });
+    const container = {
+      ...createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 80 },
+      }),
+      id: 'container',
+      index: 'a0',
+    };
+    const bound = { ...createBoundText(container), id: 'bound', index: 'a1' };
+    const ordinary = {
+      ...createText({ position: { x: 120, y: 0 } }),
+      id: 'ordinary',
+      index: 'a2',
+    };
+    const mismatched = {
+      ...createText({
+        position: { x: 240, y: 0 },
+        parentId: container.id,
+        containerId: 'different-container',
+      }),
+      id: 'mismatched',
+      index: 'a3',
+    };
+    const extra = { ...createBoundText(container), id: 'extra', index: 'a4' };
+    for (const element of [container, bound, ordinary, mismatched, extra]) ctx.store.add(element);
+
+    const selections: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      actions.cycleSelection(1);
+      selections.push(...tool.selectedIds);
+    }
+
+    expect(selections).not.toContain(bound.id);
+    expect([...selections].sort()).toEqual(
+      [container.id, ordinary.id, mismatched.id, extra.id].sort(),
+    );
   });
 
   describe('click to select', () => {
