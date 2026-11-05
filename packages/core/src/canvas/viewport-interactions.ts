@@ -47,8 +47,11 @@ export class ViewportInteractions {
     const element = this.deps.store.getById(id);
     if (!element || (element.type !== 'note' && element.type !== 'text')) return;
     if (element.type === 'text' && element.containerId) {
-      this.editBoundText(element.containerId);
-      return;
+      const container = this.deps.store.getById(element.containerId);
+      if (container && getBoundText(container, this.deps.store)?.id === element.id) {
+        this.editBoundText(container.id);
+        return;
+      }
     }
     this.openEditor(id);
   }
@@ -60,6 +63,8 @@ export class ViewportInteractions {
         ? this.deps.store.getById(requested.containerId)
         : requested;
     if (!container || !isBoundTextContainer(container, this.deps.store.elementRegistry))
+      return false;
+    if (requested?.type === 'text' && getBoundText(container, this.deps.store)?.id !== requested.id)
       return false;
     const isLayerLocked = this.deps.toolContext.isLayerLocked;
     if (container.locked || (isLayerLocked && isLayerLocked(container.layerId))) return false;

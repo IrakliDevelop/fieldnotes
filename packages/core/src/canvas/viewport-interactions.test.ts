@@ -71,6 +71,59 @@ interface Priv {
 }
 
 describe('ViewportInteractions', () => {
+  it('edits advisory mismatches and later siblings as ordinary text', () => {
+    const store = new ElementStore();
+    const host = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+      id: 'host',
+    };
+    const otherParent = {
+      ...createShape({ position: { x: 200, y: 0 }, size: { w: 100, h: 60 } }),
+      id: 'other',
+    };
+    const actual = {
+      ...createText({ position: { x: 0, y: 0 }, parentId: host.id, index: 'a' }),
+      id: 'actual',
+      containerId: host.id,
+    };
+    const mismatched = {
+      ...createText({ position: { x: 0, y: 0 }, parentId: otherParent.id, index: 'b' }),
+      id: 'mismatched',
+      containerId: host.id,
+    };
+    const later = { ...actual, id: 'later', index: 'b' };
+    for (const element of [host, otherParent, actual, mismatched, later]) store.add(element);
+    const { deps, nodes } = makeDeps(store, {
+      noteEditor: {
+        startEditing: vi.fn(),
+        stopEditing: vi.fn(),
+        isEditingOrPending: () => false,
+      } as never,
+    });
+    for (const id of [actual.id, mismatched.id, later.id])
+      nodes.set(id, document.createElement('div'));
+    const interactions = new ViewportInteractions(deps);
+
+    interactions.startEditingElement(mismatched.id);
+    interactions.startEditingElement(later.id);
+    expect(deps.noteEditor.startEditing).toHaveBeenNthCalledWith(
+      1,
+      nodes.get(mismatched.id),
+      mismatched.id,
+      store,
+    );
+    expect(deps.noteEditor.startEditing).toHaveBeenNthCalledWith(
+      2,
+      nodes.get(later.id),
+      later.id,
+      store,
+    );
+
+    expect(interactions.editBoundText(actual.id)).toBe(true);
+    expect(interactions.editBoundText(mismatched.id)).toBe(false);
+    expect(interactions.editBoundText(later.id)).toBe(false);
+  });
+
   describe('bound text locks', () => {
     it.each([
       ['container lock', { locked: true }],

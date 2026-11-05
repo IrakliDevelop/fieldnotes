@@ -253,7 +253,7 @@ export class ElementStore {
               const candidate = id === element.id ? element : this.elements.get(id);
               return candidate ? getElementBounds(candidate, this.registry) : null;
             },
-            remeasure: false,
+            remeasure: true,
           });
           if (result.text) element = { ...element, ...result.text };
           if (

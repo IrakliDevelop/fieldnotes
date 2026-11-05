@@ -234,6 +234,28 @@ describe('bound text', () => {
     expect(getBoundText(rectangle, store)?.id).toBe('aaa');
   });
 
+  it('reads the first direct bound-text child without scanning the scene', () => {
+    const store = new ElementStore();
+    const rectangle = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+      id: 'rect',
+    };
+    const first = {
+      ...createText({ position: { x: 0, y: 0 }, parentId: rectangle.id, index: 'a' }),
+      id: 'first',
+      containerId: rectangle.id,
+    };
+    const later = { ...first, id: 'later', index: 'b' };
+    store.add(createNote({ position: { x: 200, y: 0 }, index: 'a0' }));
+    store.add(rectangle);
+    store.add(later);
+    store.add(first);
+    const getAll = vi.spyOn(store, 'getAll');
+
+    expect(getBoundText(rectangle, store)?.id).toBe(first.id);
+    expect(getAll).not.toHaveBeenCalled();
+  });
+
   it('rejects an extension whose layout hook returns null and floors extension box width', () => {
     const nullRegistry = boundRegistry(() => null);
     expect(isBoundTextContainer(extension('null'), nullRegistry)).toBe(false);

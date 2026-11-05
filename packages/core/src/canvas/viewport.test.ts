@@ -1011,6 +1011,39 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
+    it('finalizes one active text edit once through the history commit path', async () => {
+      const viewport = new Viewport(container);
+      const text = createText({
+        position: { x: 0, y: 0 },
+        text: 'before',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(text);
+      viewport.history.clear();
+      const privateViewport = viewport as unknown as {
+        interactions: {
+          startEditingElement: (id: string) => void;
+          onTextEditStop: (id: string) => void;
+        };
+        domNodeManager: { getNode: (id: string) => HTMLDivElement | undefined };
+        noteEditor: { stopEditing: (store: unknown) => void };
+      };
+      const node = document.createElement('div');
+      node.innerHTML = 'before';
+      vi.spyOn(privateViewport.domNodeManager, 'getNode').mockReturnValue(node);
+      privateViewport.interactions.startEditingElement(text.id);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const onStop = vi.spyOn(privateViewport.interactions, 'onTextEditStop');
+      node.innerHTML = 'after';
+
+      privateViewport.noteEditor.stopEditing(viewport.store);
+
+      expect(onStop).toHaveBeenCalledTimes(1);
+      expect(onStop).toHaveBeenCalledWith(text.id);
+      expect(viewport.history.undoCount).toBe(1);
+      viewport.destroy();
+    });
+
     it('refuses setBoundText on a locked container without creating a child', () => {
       const viewport = new Viewport(container);
       const rectangle = createShape({
@@ -1068,7 +1101,7 @@ describe('Viewport', () => {
         containerId: rectangle.id,
         text: 'first',
       });
-      expect(viewport.getBoundText(rectangle.id)?.position).toEqual({ x: 18, y: 36 });
+      expect(viewport.getBoundText(rectangle.id)?.position).toEqual({ x: 18, y: 36.8 });
       expect(viewport.history.undoCount).toBe(1);
       expect(viewport.setBoundText(rectangle.id, 'second')).toBe(id);
       expect(viewport.getBoundText(rectangle.id)?.text).toBe('second');

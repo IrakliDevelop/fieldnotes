@@ -209,19 +209,18 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
 }
 
 describe('ElementStore', () => {
-  it('adds oversized bound text without remeasuring or recursively updating it', () => {
+  it('measures and grows the first local bound text child immediately', () => {
     const measure = vi.fn(() => 100);
     setTextMeasurer(measure);
     try {
       const store = new ElementStore();
       const rectangle = {
-        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 28 } }),
         id: 'rectangle',
       };
       const text = {
-        ...createBoundText(rectangle, { text: 'big' }),
+        ...createBoundText(rectangle, { text: 'one two three four' }),
         id: 'text',
-        size: { w: 84, h: 120 },
       };
       store.add(rectangle);
       const updates = vi.fn();
@@ -229,10 +228,32 @@ describe('ElementStore', () => {
 
       store.add(text);
 
-      expect(measure).not.toHaveBeenCalled();
+      const measuredText = textOf(store, text.id);
+      const grownRectangle = shapeOf(store, rectangle.id);
+      expect(measure).toHaveBeenCalled();
+      expect(measuredText.size.h).toBeGreaterThan(28);
+      expect(grownRectangle.size.h).toBe(measuredText.size.h + 16);
+      expect(measuredText.position.x + measuredText.size.w / 2).toBe(
+        grownRectangle.position.x + grownRectangle.size.w / 2,
+      );
+      expect(measuredText.position.y + measuredText.size.h / 2).toBe(
+        grownRectangle.position.y + grownRectangle.size.h / 2,
+      );
       expect(updates).toHaveBeenCalledTimes(1);
       expect(store.getVersion(text.id)).toBe(0);
-      expect(shapeOf(store, rectangle.id).size).toEqual({ w: 100, h: 136 });
+
+      const arrow = { ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }), id: 'a' };
+      const geometry = { from: arrow.from, to: arrow.to, bend: arrow.bend };
+      const label = { ...createBoundText(arrow, { text: 'label' }), id: 'label' };
+      store.add(arrow);
+      store.add(label);
+
+      const measuredLabel = textOf(store, label.id);
+      expect(measuredLabel.size.w).toBe(104);
+      expect(measuredLabel.size.h).toBeCloseTo(23.6);
+      expect(measuredLabel.position.x).toBe(-2);
+      expect(measuredLabel.position.y).toBeCloseTo(-11.8);
+      expect(store.getById(arrow.id)).toMatchObject(geometry);
     } finally {
       setTextMeasurer(null);
     }
@@ -250,10 +271,11 @@ describe('ElementStore', () => {
       const text = {
         ...createBoundText(rectangle, { text: 'fitted' }),
         id: 'text',
+        position: { x: 8, y: 9 },
         size: { w: 84, h: 42 },
       };
       store.add(rectangle);
-      store.add(text);
+      store.add(text, { origin: 'remote' });
       const updates: string[] = [];
       store.on('update', ({ current }) => updates.push(current.id));
 
@@ -279,7 +301,7 @@ describe('ElementStore', () => {
       };
       const text = { ...createBoundText(rectangle), id: 'text' };
       store.add(rectangle);
-      store.add(text);
+      store.add(text, { origin: 'remote' });
       const update = vi.fn();
       store.on('update', update);
 
@@ -318,7 +340,7 @@ describe('ElementStore', () => {
         size: { w: 84, h: 42 },
       };
       store.add(shape);
-      store.add(text);
+      store.add(text, { origin: 'remote' });
       measure.mockClear();
 
       store.update(shape.id, partial);
@@ -382,7 +404,10 @@ describe('ElementStore', () => {
         id: 'label',
         size: { w: 50, h: 20 },
       };
-      for (const element of [shape, text, arrow, label]) store.add(element);
+      store.add(shape);
+      store.add(text, { origin: 'remote' });
+      store.add(arrow);
+      store.add(label, { origin: 'remote' });
       const versions = new Map(
         [shape, text, arrow, label].map((element) => [element.id, store.getVersion(element.id)]),
       );
@@ -424,7 +449,7 @@ describe('ElementStore', () => {
         size: { w: 84, h: 42 },
       };
       store.add(shape);
-      store.add(text);
+      store.add(text, { origin: 'remote' });
       measure.mockClear();
       const events: string[] = [];
       store.on('update', ({ current }) => events.push(current.id));
@@ -464,7 +489,7 @@ describe('ElementStore', () => {
         size: { w: 84, h: 42 },
       };
       store.add(shape);
-      store.add(text);
+      store.add(text, { origin: 'remote' });
       measure.mockClear();
 
       store.update(shape.id, { size: { w: 160, h: 60 } }, { origin });

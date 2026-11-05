@@ -320,7 +320,6 @@ export class Viewport {
       toolbar: options.toolbar,
       placeholder: options.placeholder,
     });
-    this.noteEditor.setOnStop((id) => this.interactions.onTextEditStop(id));
     this.noteEditor.setOnInput((id) => this.interactions.liveFitHeight(id));
     this.noteEditor.setOnAbandon((id) => this.interactions.commitEditHistory(id));
     this.noteEditor.setHistoryHooks(

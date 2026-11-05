@@ -43,7 +43,14 @@ export function getBoundText(
   store: ElementStore,
 ): TextElement | undefined {
   if (!isBoundTextContainer(container, store.elementRegistry)) return undefined;
-  return findBoundText(container, store.getAll());
+  return store
+    .getChildren(container.id)
+    .find(
+      (element): element is TextElement =>
+        element.type === 'text' &&
+        element.parentId === container.id &&
+        element.containerId === container.id,
+    );
 }
 
 export function findBoundText(
