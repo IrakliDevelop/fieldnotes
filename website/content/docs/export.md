@@ -45,7 +45,6 @@ embedded as data URLs; one that can't be loaded keeps its original URL. An empty
 ## What an export includes
 
 - Elements on visible layers, at each layer's opacity. Elements on hidden layers are left out.
-- Bound text as text in PNG and SVG, positioned with its container.
 - Drawing that plugins register for exports, such as the fog on a [tabletop map](/docs/tabletop-maps/).
 - Images from another origin, fetched with anonymous CORS. An image that fails to load, or takes longer than `imageTimeoutMs` (default 10 seconds), is left out of a PNG, and `onAssetError` receives its id, URL and reason.
 - An explicit `background`, caller `filter`, HTML renderers or painters, image diagnostics, registry

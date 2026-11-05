@@ -613,10 +613,7 @@ viewport.setTool('highlighter');
 
 ### Bound text
 
-Double-click or double-tap a rectangle, ellipse, or arrow to edit its text. Select one and press
-Enter to edit it from the `selection.edit-text` action. Rectangles and ellipses grow for their
-text, do not shrink automatically, and cannot resize below the text's height. Arrow labels are
-text elements positioned at the curve midpoint. Arrows never grow.
+Double-click or double-tap a rectangle, ellipse, or arrow to edit its text. Select one and press Enter to run the `selection.edit-text` action. See [Tools and input](../../website/content/docs/tools-and-input.md) for the full interaction rules. Rectangles and ellipses grow for their text, do not shrink automatically, and cannot resize below the text's height. Arrow labels are text elements positioned at the curve midpoint. Arrows never grow.
 
 `createBoundText(container, options)` creates the text child. `viewport.setBoundText(id, html)`
 creates, updates, or removes one and keeps the text change and any container growth in one undo
@@ -624,9 +621,7 @@ step. `getBoundText` and `isBoundTextContainer` read the relation. The child has
 `autoResize`; wrapping uses the container's text box, and `autoResize` controls whether free text
 shrinks to its content while editing. `measureText` measures text for a host's own layout.
 
-Extensions can return `boundTextLayout` with a text box and optional `grow` function. A host that
-adds a child itself with `store.add` wraps that add in `viewport.transaction` so the add and growth
-remain one undo step. Use `setBoundText` when the built-in relation is enough.
+Extensions can return `boundTextLayout` with a text box and optional `grow` function. When adding the child with `store.add`, wrap the call in `viewport.transaction` so adding the child and growing its container are one undo step. Use `setBoundText` when the built-in relation is enough.
 
 `ArrowElement.label` and the `label` option in `createArrow` are deprecated. Load them as legacy
 data, then save the migrated text element instead.
