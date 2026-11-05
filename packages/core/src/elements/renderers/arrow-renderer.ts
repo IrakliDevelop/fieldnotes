@@ -23,7 +23,6 @@ export function renderArrow(
   ctx: CanvasRenderingContext2D,
   arrow: ArrowElement,
   store: ElementStore | null,
-  labelEditingId: string | null,
 ): void {
   const resolveBounds = (id: string) => {
     const element = store?.getById(id);
@@ -56,14 +55,13 @@ export function renderArrow(
     getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1),
   );
   ctx.restore();
-  renderArrowLabel(ctx, arrow, store, labelEditingId, resolveBounds);
+  renderArrowLabel(ctx, arrow, store, resolveBounds);
 }
 
 function renderArrowLabel(
   ctx: CanvasRenderingContext2D,
   arrow: ArrowElement,
   store: ElementStore | null,
-  labelEditingId: string | null,
   resolveBounds: (id: string) => { x: number; y: number; w: number; h: number } | null,
 ): void {
   const boundText = store && getBoundText(arrow, store);
@@ -91,7 +89,6 @@ function renderArrowLabel(
     return;
   }
   if (!arrow.label || arrow.label.length === 0) return;
-  if (arrow.id === labelEditingId) return;
   const mid = getArrowLabelAnchor(arrow, resolveBounds);
   ctx.save();
   ctx.font = `${ARROW_LABEL_FONT_SIZE}px system-ui, sans-serif`;

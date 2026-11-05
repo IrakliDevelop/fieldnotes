@@ -16,6 +16,27 @@ function setup() {
 }
 
 describe('HistoryRecorder', () => {
+  it('rolls back an add and remove of the same new element', () => {
+    const { store, stack, recorder } = setup();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    recorder.begin();
+    store.add(note);
+    store.remove(note.id);
+    expect(recorder.rollbackIfOnly(note.id)).toBe(true);
+    expect(stack.canUndo).toBe(false);
+  });
+
+  it('keeps a mixed transaction when rolling back one element is unsafe', () => {
+    const { store, recorder } = setup();
+    const first = createNote({ position: { x: 0, y: 0 } });
+    const second = createNote({ position: { x: 10, y: 0 } });
+    recorder.begin();
+    store.add(first);
+    store.remove(first.id);
+    store.add(second);
+    expect(recorder.rollbackIfOnly(first.id)).toBe(false);
+    recorder.commit();
+  });
   it('records add operations', () => {
     const { store, stack } = setup();
     const note = createNote({ position: { x: 0, y: 0 } });

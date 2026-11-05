@@ -153,13 +153,13 @@ describe('Integration: live html elements', () => {
       return live;
     }
 
-    it('Delete on a focused live button does not delete the selection', () => {
+    it('Delete on a focused live button still deletes the selection', () => {
       const { id, button } = addSelectedLive();
       button.focus();
 
       press(button, 'Delete');
 
-      expect(vp.store.getById(id)).toBeDefined();
+      expect(vp.store.getById(id)).toBeUndefined();
     });
 
     it('Space on a focused live button does not set the pan flag', () => {

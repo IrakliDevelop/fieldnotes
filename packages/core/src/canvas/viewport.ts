@@ -20,7 +20,6 @@ import { createWrapper, createCanvas, createDomLayer, createPaintStack } from '.
 import { HybridRenderSurface } from './hybrid-render-surface';
 import { unbindArrowsFrom } from '../elements/arrow-binding';
 import { getElementsBoundingBox } from '../elements/bounds';
-import { ArrowLabelEditor } from '../elements/arrow-label-editor';
 import { DEFAULT_SELECTION_COLOR } from '../tools/selection-color';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
@@ -30,6 +29,8 @@ import { hitTest, hitTestResizeHandle, hitTestRotateHandle } from '../tools/sele
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
+import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
+import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import {
   exportState as exportCanvasState,
   parseState,
@@ -199,7 +200,6 @@ export class Viewport {
   private readonly background: Background;
   private readonly renderer: ElementRenderer;
   private readonly noteEditor: NoteEditor;
-  private readonly arrowLabelEditor: ArrowLabelEditor;
   readonly historyRecorder: HistoryRecorder;
   private transactionDepth = 0;
   private readonly selectionOps: SelectionOps;
@@ -322,10 +322,10 @@ export class Viewport {
     });
     this.noteEditor.setOnStop((id) => this.interactions.onTextEditStop(id));
     this.noteEditor.setOnInput((id) => this.interactions.liveFitHeight(id));
-    this.arrowLabelEditor = new ArrowLabelEditor(options.selectionColor ?? DEFAULT_SELECTION_COLOR);
+    this.noteEditor.setOnAbandon((id) => this.interactions.commitEditHistory(id));
     this.noteEditor.setHistoryHooks(
-      () => this.historyRecorder.begin(),
-      () => this.historyRecorder.commit(),
+      (id) => this.interactions.beginEditHistory(id),
+      (id) => this.interactions.commitEditHistory(id),
     );
     this.onHtmlElementMount = options.onHtmlElementMount;
     this.dropHandler = options.onDrop;
@@ -466,7 +466,38 @@ export class Viewport {
     const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
       (action) => this.actionRegistry.register(action),
     );
-    this.disposers.push(...unregisterPresentationActions, () => this.presentationMode.destroy());
+    const unregisterEditText = this.actionRegistry.register({
+      id: 'selection.edit-text',
+      label: 'Edit text',
+      keywords: ['text', 'label', 'edit'],
+      shortcut: ['enter'],
+      menu: { group: 'clipboard', order: 5 },
+      enabled: (ctx) => {
+        if (ctx.selectedIds.length !== 1) return false;
+        const id = ctx.selectedIds[0];
+        const element = id ? this.store.getById(id) : undefined;
+        return !!(
+          element &&
+          !element.locked &&
+          !this.layerManager.isLayerLocked(element.layerId) &&
+          (element.type === 'note' ||
+            element.type === 'text' ||
+            isBoundTextContainer(element, this.elementRegistry))
+        );
+      },
+      perform: (ctx) => {
+        const id = ctx.selectedIds[0];
+        if (!id) return false;
+        const element = this.store.getById(id);
+        if (!element) return false;
+        return isBoundTextContainer(element, this.elementRegistry)
+          ? this.interactions.editBoundText(id)
+          : (this.interactions.startEditingElement(id), true);
+      },
+    });
+    this.disposers.push(...unregisterPresentationActions, unregisterEditText, () =>
+      this.presentationMode.destroy(),
+    );
     if (options.embedded) {
       // After InputHandler, whose touch-action: none this overrides.
       const embeddedMode = new EmbeddedMode({
@@ -697,9 +728,7 @@ export class Viewport {
       renderLoop: this.renderLoop,
       domNodeManager: this.domNodeManager,
       noteEditor: this.noteEditor,
-      arrowLabelEditor: this.arrowLabelEditor,
       interactMode: this.interactMode,
-      renderer: this.renderer,
       recorder: this.historyRecorder,
       toolContext: this.toolContext,
       requestRender: () => this.requestRender(),
@@ -711,7 +740,6 @@ export class Viewport {
     this.disposers.push(
       () => {
         this.noteEditor.destroy(this.store);
-        this.arrowLabelEditor.cancel();
       },
       () => {
         this.activation?.dispose();
@@ -1339,6 +1367,35 @@ export class Viewport {
     this.getSelectTool()?.setSelection([shape.id]);
     this.requestRender();
     return shape.id;
+  }
+
+  getBoundText(containerId: string) {
+    const container = this.store.getById(containerId);
+    return container ? getBoundText(container, this.store) : undefined;
+  }
+
+  setBoundText(containerId: string, html: string): string | undefined {
+    const container = this.store.getById(containerId);
+    if (!container || !isBoundTextContainer(container, this.elementRegistry)) return undefined;
+    const existing = getBoundText(container, this.store);
+    this.transaction(() => {
+      if (isNoteContentEmpty(html)) {
+        if (existing) this.store.remove(existing.id);
+        return;
+      }
+      if (existing) {
+        this.store.update(existing.id, { text: html });
+      } else {
+        const text = createBoundText(container, { text: html });
+        this.store.add(text);
+      }
+    });
+    this.requestRender();
+    return getBoundText(container, this.store)?.id;
+  }
+
+  editBoundText(containerId: string): boolean {
+    return this.interactions.editBoundText(containerId);
   }
 
   private centeredPosition(size: { w: number; h: number }): { x: number; y: number } {

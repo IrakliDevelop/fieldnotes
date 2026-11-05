@@ -544,15 +544,6 @@ describe('ElementRenderer', () => {
       renderer.renderCanvasElement(ctx, arrow);
       expect(ctx.fillText).not.toHaveBeenCalled();
     });
-
-    it('suppresses the label for the arrow being edited', () => {
-      const renderer = new ElementRenderer();
-      const ctx = mockCtx();
-      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'hi' });
-      renderer.setLabelEditingId(arrow.id);
-      renderer.renderCanvasElement(ctx, arrow);
-      expect(ctx.fillText).not.toHaveBeenCalled();
-    });
   });
 
   describe('renderShape', () => {

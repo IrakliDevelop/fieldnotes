@@ -44,8 +44,9 @@ export class NoteEditor {
   private pendingEditId: string | null = null;
   private onStopCallback: ((elementId: string) => void) | null = null;
   private onInputCallback: ((elementId: string) => void) | null = null;
-  private beginHistory: (() => void) | null = null;
-  private commitHistory: (() => void) | null = null;
+  private beginHistory: ((id: string) => void) | null = null;
+  private commitHistory: ((id: string) => void) | null = null;
+  private onAbandonCallback: ((id: string) => void) | null = null;
   private toolbar: NoteToolbar | null;
   private readonly placeholder: string;
 
@@ -62,6 +63,10 @@ export class NoteEditor {
     return this.editingId;
   }
 
+  isEditingOrPending(elementId: string): boolean {
+    return this.editingId === elementId || this.pendingEditId === elementId;
+  }
+
   setOnStop(callback: (elementId: string) => void): void {
     this.onStopCallback = callback;
   }
@@ -70,14 +75,19 @@ export class NoteEditor {
     this.onInputCallback = callback;
   }
 
-  setHistoryHooks(begin: () => void, commit: () => void): void {
+  setHistoryHooks(begin: (id: string) => void, commit: (id: string) => void): void {
     this.beginHistory = begin;
     this.commitHistory = commit;
+  }
+
+  setOnAbandon(callback: (id: string) => void): void {
+    this.onAbandonCallback = callback;
   }
 
   startEditing(node: HTMLDivElement, elementId: string, store: ElementStore): void {
     if (this.editingId === elementId) return;
 
+    if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
     if (this.editingId) {
       this.stopEditing(store);
     }
@@ -92,6 +102,7 @@ export class NoteEditor {
   }
 
   stopEditing(store: ElementStore): void {
+    if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
     this.pendingEditId = null;
 
     if (!this.editingId || !this.editingNode) return;
@@ -133,7 +144,7 @@ export class NoteEditor {
     if (this.editingId && this.onStopCallback) {
       this.onStopCallback(this.editingId);
     }
-    this.commitHistory?.();
+    this.commitHistory?.(this.editingId);
 
     this.editingId = null;
     this.editingNode = null;
@@ -144,6 +155,7 @@ export class NoteEditor {
   }
 
   destroy(store: ElementStore): void {
+    if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
     this.pendingEditId = null;
     if (this.isEditing) {
       this.stopEditing(store);
@@ -159,7 +171,7 @@ export class NoteEditor {
   private activateEditing(node: HTMLDivElement, elementId: string, store: ElementStore): void {
     this.editingId = elementId;
     this.editingNode = node;
-    this.beginHistory?.();
+    this.beginHistory?.(elementId);
 
     node.contentEditable = 'true';
     Object.assign(node.style, {
@@ -203,7 +215,7 @@ export class NoteEditor {
           return;
         }
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) {
         node.blur();
       }
       e.stopPropagation();

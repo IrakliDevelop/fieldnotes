@@ -5,7 +5,6 @@ import { ShortcutMap } from './shortcut-map';
 import type { KeyboardActions } from './keyboard-actions';
 import type { ActionRegistry } from '../actions/action-registry';
 import { createBuiltinActions } from '../actions/builtin-actions';
-import { isLiveControlTarget } from './live-control';
 
 export interface KeyboardHandlerDeps {
   element: HTMLElement;
@@ -84,12 +83,20 @@ export class KeyboardHandler {
     if (el?.isContentEditable) return false;
     const tag = el?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
-    if (isLiveControlTarget(target, this.deps.element)) return false;
     return this.isInScope();
+  }
+
+  private isControlActivation(e: KeyboardEvent): boolean {
+    if (e.key !== 'Enter' && e.key !== ' ') return false;
+    const el = e.target;
+    if (!(el instanceof Element)) return false;
+    const control = el.closest('button, a[href], summary');
+    return control !== null && this.deps.element.contains(control);
   }
 
   onKeyDown = (e: KeyboardEvent): void => {
     if (!this.shouldHandle(e.target)) return;
+    if (this.isControlActivation(e)) return;
 
     if (e.key === ' ') {
       this.deps.setSpaceHeld(true);

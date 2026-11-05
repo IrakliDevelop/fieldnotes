@@ -21,7 +21,6 @@ export class ElementRenderer {
   private onImageLoad: ((src: string) => void) | null = null;
   private onImageError: ((src: string, cause?: unknown) => void) | null = null;
   private camera: Camera | null = null;
-  private labelEditingId: string | null = null;
   private htmlPainters: HtmlPainterRegistry | null = null;
   private expectedCanvasTypes: ReadonlySet<string> | undefined;
   private renderTarget: HtmlRenderTarget = 'screen';
@@ -78,10 +77,6 @@ export class ElementRenderer {
     adapter.render(ctx, el, allElements, worldBounds);
   }
 
-  setLabelEditingId(id: string | null): void {
-    this.labelEditingId = id;
-  }
-
   /** Registry of canvas-backed html painters, plus any types declared canvas-routed
    *  before a painter is registered (`expectedCanvasTypes`). Null clears routing back
    *  to legacy DOM-only behavior. */
@@ -127,7 +122,7 @@ export class ElementRenderer {
         break;
       }
       case 'arrow':
-        renderArrow(ctx, element, this.store, this.labelEditingId);
+        renderArrow(ctx, element, this.store);
         break;
       case 'shape': {
         const b = getElementBounds(element);

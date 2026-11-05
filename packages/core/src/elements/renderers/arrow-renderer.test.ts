@@ -38,7 +38,7 @@ function render(overrides: Partial<ArrowElement>) {
     ...overrides,
   };
   const ctx = mockCtx();
-  renderArrow(ctx, arrow, null, null);
+  renderArrow(ctx, arrow, null);
   return ctx;
 }
 
@@ -101,7 +101,7 @@ describe('renderArrow bound curve', () => {
     if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
     const ctx = mockCtx();
 
-    renderArrow(ctx, arrow, store, null);
+    renderArrow(ctx, arrow, store);
 
     expect(ctx.roundRect).toHaveBeenCalledWith(
       laidOut.position.x - 4,
@@ -129,7 +129,7 @@ describe('renderArrow bound curve', () => {
     laidOut.rotation = Math.PI / 6;
     const ctx = mockCtx();
 
-    renderArrow(ctx, arrow, store, null);
+    renderArrow(ctx, arrow, store);
 
     expect(ctx.translate).toHaveBeenCalledWith(50, 0);
     expect(ctx.rotate).toHaveBeenCalledWith(Math.PI / 6);
@@ -163,7 +163,7 @@ describe('renderArrow bound curve', () => {
     store.add(arrow);
 
     const ctx = mockCtx();
-    renderArrow(ctx, arrow, store, null);
+    renderArrow(ctx, arrow, store);
 
     const move = ctx.moveTo.mock.calls[0];
     const curve = ctx.quadraticCurveTo.mock.calls[0];

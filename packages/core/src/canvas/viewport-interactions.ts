@@ -1,8 +1,6 @@
 import type { Camera } from './camera';
 import type { ElementStore } from '../elements/element-store';
-import type { ElementRenderer } from '../elements/element-renderer';
 import type { NoteEditor } from '../elements/note-editor';
-import type { ArrowLabelEditor } from '../elements/arrow-label-editor';
 import type { InteractMode } from './interact-mode';
 import type { DomNodeManager } from './dom-node-manager';
 import type { RenderLoop } from './render-loop';
@@ -15,6 +13,7 @@ import { getElementBounds } from '../elements/element-bounds';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import { hitTest } from '../tools/select-hit';
 import { isLiveControlTarget } from './live-control';
+import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
 
 /** Screen pixels; converted to world units per zoom at the call site. */
 const ARROW_HIT_THRESHOLD_PX = 10;
@@ -27,9 +26,7 @@ export interface ViewportInteractionsDeps {
   renderLoop: RenderLoop;
   domNodeManager: DomNodeManager;
   noteEditor: NoteEditor;
-  arrowLabelEditor: ArrowLabelEditor;
   interactMode: InteractMode;
-  renderer: ElementRenderer;
   recorder: HistoryRecorder;
   toolContext: ToolContext;
   requestRender: () => void;
@@ -48,23 +45,75 @@ export class ViewportInteractions {
   startEditingElement(id: string): void {
     const element = this.deps.store.getById(id);
     if (!element || (element.type !== 'note' && element.type !== 'text')) return;
+    if (element.type === 'text' && element.containerId) {
+      this.editBoundText(element.containerId);
+      return;
+    }
+    this.openEditor(id);
+  }
+
+  editBoundText(containerId: string): boolean {
+    const container = this.deps.store.getById(containerId);
+    if (!container || !isBoundTextContainer(container, this.deps.store.elementRegistry))
+      return false;
+    if (container.locked || this.deps.toolContext.isLayerLocked(container.layerId)) return false;
+    const existing = getBoundText(container, this.deps.store);
+    if (existing && this.deps.noteEditor.isEditingOrPending(existing.id)) return true;
+    this.deps.noteEditor.stopEditing(this.deps.store);
+    this.deps.recorder.begin();
+    if (existing) {
+      this.openEditor(existing.id);
+      return true;
+    }
+    const text = createBoundText(container, {
+      text: container.type === 'arrow' ? container.label : undefined,
+    });
+    this.deps.store.add(text);
+    if (container.type === 'arrow' && container.label)
+      this.deps.store.update(container.id, { label: undefined });
+    this.deps.requestRender();
+    this.deps.renderLoop.flush();
+    this.deps.domNodeManager.syncDomNode(text);
+    if (!this.openEditor(text.id)) {
+      this.deps.store.remove(text.id);
+      if (!this.deps.recorder.rollbackIfOnly(text.id)) this.deps.recorder.commit();
+      return false;
+    }
+    return true;
+  }
+
+  private openEditor(id: string): boolean {
+    const element = this.deps.store.getById(id);
+    if (!element || (element.type !== 'note' && element.type !== 'text')) return false;
 
     this.deps.renderLoop.flush();
 
     const node = this.deps.domNodeManager.getNode(id);
     if (node) {
       this.deps.noteEditor.startEditing(node, id, this.deps.store);
+      return true;
     }
+    return false;
   }
 
   liveFitHeight(elementId: string): void {
     const element = this.deps.store.getById(elementId);
     if (!element || (element.type !== 'note' && element.type !== 'text')) return;
+    if (element.type === 'text' && element.autoResize === false) return;
     const node = this.deps.domNodeManager.getNode(elementId);
     if (!node) return;
-    const measured = node.scrollHeight;
-    if (measured > 0 && measured !== element.size.h) {
-      this.deps.store.update(elementId, { size: { w: element.size.w, h: measured } });
+    const previousHeight = node.style.height;
+    const previousWidth = node.style.width;
+    node.style.height = 'auto';
+    if (element.type === 'text' && element.wrap === false) node.style.width = 'auto';
+    const height = node.scrollHeight;
+    const width =
+      element.type === 'text' && element.wrap === false ? node.scrollWidth : element.size.w;
+    node.style.height = previousHeight;
+    node.style.width = previousWidth;
+    if (height > 0 && (height !== element.size.h || width !== element.size.w)) {
+      this.deps.store.update(elementId, { size: { w: width, h: height } });
+      this.deps.noteEditor.updateToolbarPosition?.();
     }
   }
 
@@ -94,6 +143,11 @@ export class ViewportInteractions {
     }
 
     if (element.type !== 'text') return;
+
+    if (element.containerId && isNoteContentEmpty(element.text)) {
+      this.deps.store.remove(elementId);
+      return;
+    }
 
     if (!element.text || element.text.trim() === '') {
       this.deps.store.remove(elementId);
@@ -150,10 +204,8 @@ export class ViewportInteractions {
       return;
     }
 
-    const arrow = this.findArrowAt(world);
-    if (arrow) {
-      this.startArrowLabelEdit(arrow);
-    }
+    const boundHit = this.findBoundTextContainerAt(world);
+    if (boundHit) this.editBoundText(boundHit.id);
   };
 
   private accepts(e: PointerEvent): boolean {
@@ -164,14 +216,7 @@ export class ViewportInteractions {
 
   findArrowAt(world: { x: number; y: number }): ArrowElement | undefined {
     const tolerance = ARROW_HIT_THRESHOLD_PX / this.deps.camera.zoom;
-    const candidates = this.deps.store
-      .queryRect({
-        x: world.x - tolerance,
-        y: world.y - tolerance,
-        w: tolerance * 2,
-        h: tolerance * 2,
-      })
-      .reverse();
+    const candidates = [...this.deps.store.getAll()].reverse();
     for (const el of candidates) {
       if (
         el.type === 'arrow' &&
@@ -186,20 +231,22 @@ export class ViewportInteractions {
     return undefined;
   }
 
-  startArrowLabelEdit(arrow: ArrowElement): void {
-    this.deps.arrowLabelEditor.startEditing({
-      arrow,
-      layer: this.deps.domLayer,
-      store: this.deps.store,
-      recorder: this.deps.recorder,
-      onDone: () => {
-        this.deps.renderer.setLabelEditingId(null);
-        this.deps.requestRender();
-      },
-    });
-    // Set AFTER startEditing: starting a new edit cleans up any prior session, whose onDone
-    // synchronously clears the editing id — so claim suppression for this arrow last.
-    this.deps.renderer.setLabelEditingId(arrow.id);
+  private findBoundTextContainerAt(world: { x: number; y: number }) {
+    const hit = hitTest(
+      world,
+      { ...this.deps.toolContext, isLayerLocked: () => false },
+      (element) => isBoundTextContainer(element, this.deps.store.elementRegistry),
+    );
+    return hit && isBoundTextContainer(hit, this.deps.store.elementRegistry) ? hit : undefined;
+  }
+
+  beginEditHistory(_id: string): void {
+    if (this.deps.recorder.currentTransactionId === null) this.deps.recorder.begin();
+  }
+
+  commitEditHistory(id: string): void {
+    this.onTextEditStop(id);
+    if (!this.deps.recorder.rollbackIfOnly(id)) this.deps.recorder.commit();
   }
 
   onDragOver = (e: DragEvent): void => {

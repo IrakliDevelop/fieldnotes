@@ -717,6 +717,46 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
+    it('abandons an empty pen double-tap bound text without an undo entry', async () => {
+      const viewport = new Viewport(container);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(rectangle);
+      const unchangedRectangle = viewport.store.getById(rectangle.id);
+      viewport.history.clear();
+      const wrapper = wrapperOf(container);
+      const node = document.createElement('div');
+      wrapper.appendChild(node);
+      document.elementFromPoint = vi.fn().mockReturnValue(node);
+      const editorNode = document.createElement('div');
+      vi.spyOn(
+        (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
+          .domNodeManager,
+        'getNode',
+      ).mockReturnValue(editorNode);
+
+      for (let tap = 0; tap < 2; tap += 1) {
+        pointerDown(wrapper, 60, 30, { pointerType: 'pen' });
+        pointerUp(wrapper, 60, 30, { pointerType: 'pen' });
+      }
+      await new Promise(requestAnimationFrame);
+
+      const text = viewport.getBoundText(rectangle.id);
+      expect(text).toBeDefined();
+      const editor = (
+        viewport as unknown as { noteEditor: { stopEditing: (store: unknown) => void } }
+      ).noteEditor;
+      editor.stopEditing(viewport.store);
+      expect(viewport.getBoundText(rectangle.id)).toBeUndefined();
+      expect(viewport.store.getById(rectangle.id)).toEqual(unchangedRectangle);
+      expect(viewport.history.canUndo).toBe(false);
+      viewport.destroy();
+    });
+
     it('does not start editing for non-editable element types', () => {
       const viewport = new Viewport(container);
       const stroke = createStroke({
@@ -2579,33 +2619,6 @@ describe('Viewport', () => {
       expect(priv.findArrowAt({ x: 50, y: 80 })).toBeUndefined();
       viewport.destroy();
     });
-
-    it('startArrowLabelEdit opens an input in the dom layer and sets the renderer editing id', () => {
-      const viewport = new Viewport(container);
-      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
-      viewport.store.add(arrow);
-      const priv = (
-        viewport as unknown as { interactions: { startArrowLabelEdit: (a: typeof arrow) => void } }
-      ).interactions;
-      priv.startArrowLabelEdit(arrow);
-      expect(viewport.domLayer.querySelector('input')).not.toBeNull();
-      viewport.destroy();
-    });
-
-    it.each([
-      [undefined, 'rgb(33, 150, 243)'],
-      ['#B8322A', 'rgb(184, 50, 42)'],
-    ])('borders the label input in selectionColor %s', (selectionColor, expected) => {
-      const viewport = new Viewport(container, { selectionColor });
-      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
-      viewport.store.add(arrow);
-      const priv = (
-        viewport as unknown as { interactions: { startArrowLabelEdit: (a: typeof arrow) => void } }
-      ).interactions;
-      priv.startArrowLabelEdit(arrow);
-      expect(viewport.domLayer.querySelector('input')?.style.borderColor).toBe(expected);
-      viewport.destroy();
-    });
   });
 
   describe('fitNoteHeight (auto-grow)', () => {
@@ -2719,9 +2732,11 @@ describe('Viewport', () => {
         (a) =>
           !a.id.startsWith('tool.') &&
           !a.id.startsWith('presentation.') &&
-          !a.id.startsWith('palette.'),
+          !a.id.startsWith('palette.') &&
+          a.id !== 'selection.edit-text',
       );
       expect(builtins).toHaveLength(31);
+      expect(list.some((action) => action.id === 'selection.edit-text')).toBe(true);
       expect(list.filter((a) => a.id.startsWith('presentation.')).map((a) => a.id)).toEqual([
         'presentation.start',
         'presentation.exit',
@@ -2832,6 +2847,7 @@ describe('Viewport', () => {
       viewport.runAction('edit.copy');
       viewport.openContextMenu({ x: 5, y: 5 });
       expect(menuEntries()).toEqual([
+        'Edit text',
         'Cut',
         'Copy',
         'Paste',
@@ -2905,10 +2921,10 @@ describe('Viewport', () => {
       select([a.id]);
       const runSpy = vi.spyOn(viewport.actions, 'run');
       viewport.openContextMenu({ x: 5, y: 5 });
-      // Click the first button (Cut)
+      // Click the first button (Edit text)
       const firstButton = document.querySelector('.fieldnotes-context-menu-item') as HTMLElement;
       firstButton.click();
-      expect(runSpy).toHaveBeenCalledWith('edit.cut', { source: 'menu' });
+      expect(runSpy).toHaveBeenCalledWith('selection.edit-text', { source: 'menu' });
       runSpy.mockRestore();
       viewport.destroy();
     });
