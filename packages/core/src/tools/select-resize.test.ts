@@ -33,9 +33,47 @@ describe('computeResize', () => {
     const patch = computeResize(note, 'se', { x: 0, y: 0 }, { x: 300, y: 200 }, 0, false);
     expect(patch.size).toEqual({ w: MIN_ELEMENT_SIZE, h: MIN_ELEMENT_SIZE });
   });
+
+  it('clamps a narrowed nw resize to its rewrapped height without moving the bottom corner', () => {
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } });
+    const minHeight = (width: number) => (width === 60 ? 120 : MIN_ELEMENT_SIZE);
+
+    const patch = computeResize(note, 'nw', { x: 40, y: 40 }, { x: 0, y: 0 }, 0, false, minHeight);
+
+    expect(patch).toEqual({ position: { x: 40, y: -60 }, size: { w: 60, h: 120 } });
+  });
 });
 
 describe('computeRotatedResize', () => {
+  it('clamps a narrowed nw resize and preserves its rotated opposite corner', () => {
+    const angle = Math.PI / 4;
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } });
+    const oldCenter = { x: 50, y: 30 };
+    const anchor = rotatePoint({ x: 100, y: 60 }, oldCenter, angle);
+    const patch = computeRotatedResize(
+      note,
+      'nw',
+      angle,
+      { x: 40 / Math.SQRT2, y: 40 / Math.SQRT2 },
+      { x: 0, y: 0 },
+      0,
+      false,
+      (width) => (width === 60 ? 120 : MIN_ELEMENT_SIZE),
+    );
+    const center = {
+      x: patch.position.x + patch.size.w / 2,
+      y: patch.position.y + patch.size.h / 2,
+    };
+    const after = rotatePoint(
+      { x: patch.position.x + patch.size.w, y: patch.position.y + patch.size.h },
+      center,
+      angle,
+    );
+
+    expect(patch.size).toEqual({ w: 60, h: 120 });
+    expect(after.x).toBeCloseTo(anchor.x);
+    expect(after.y).toBeCloseTo(anchor.y);
+  });
   for (const handle of ['nw', 'ne', 'sw', 'se'] as const) {
     it(`keeps the opposite corner fixed in world space (${handle})`, () => {
       const angle = Math.PI / 6; // 30°

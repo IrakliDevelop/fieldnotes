@@ -1,7 +1,13 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createArrow, createNote, createShape, createText } from './element-factory';
 import { ElementStore } from './element-store';
-import { getBoundText, getBoundTextBox, isBoundTextContainer, layoutBoundText } from './bound-text';
+import {
+  getBoundText,
+  getBoundTextBox,
+  getBoundTextMinHeight,
+  isBoundTextContainer,
+  layoutBoundText,
+} from './bound-text';
 import { ElementRegistry } from './element-registry';
 import { setTextMeasurer } from './text-measure';
 import type { ExtensionElementEnvelope, ElementTypeDefinition } from './types';
@@ -94,6 +100,30 @@ describe('bound text', () => {
     expect(box.y).toBeCloseTo(28.786796564403573);
     expect(box.w).toBeCloseTo(70.71067811865476);
     expect(box.h).toBeCloseTo(42.42640687119285);
+  });
+
+  it('measures a resize candidate at its padded inner width', () => {
+    setTextMeasurer(() => 20);
+    const registry = new ElementRegistry();
+    const rectangle = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } });
+    const text = createText({
+      position: { x: 0, y: 0 },
+      text: 'a b c d e f',
+      size: { w: 84, h: 40 },
+    });
+
+    expect(getBoundTextMinHeight(rectangle, text, registry, 60)).toBeCloseTo(154.4);
+  });
+
+  it('keeps a fitted height without measuring when the candidate inner width is unchanged', () => {
+    const measure = vi.fn(() => 20);
+    setTextMeasurer(measure);
+    const registry = new ElementRegistry();
+    const rectangle = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } });
+    const text = createText({ position: { x: 0, y: 0 }, size: { w: 84, h: 44 } });
+
+    expect(getBoundTextMinHeight(rectangle, text, registry, 100)).toBe(60);
+    expect(measure).not.toHaveBeenCalled();
   });
 
   it('grows a rotated rectangle without shrinking it', () => {

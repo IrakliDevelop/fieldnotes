@@ -102,10 +102,16 @@ export function getBoundTextMinHeight(
   candidateWidth: number,
 ): number {
   const currentWidth = getBoundTextBox(container, registry, () => null).w;
+  if (container.type === 'arrow' || !container.size) return text.size.h;
+  const candidate = {
+    ...container,
+    size: { ...container.size, w: candidateWidth },
+  };
+  const candidateInnerWidth = getBoundTextBox(candidate, registry, () => null).w;
   const height =
-    Math.abs(currentWidth - candidateWidth) < 1e-6
+    Math.abs(currentWidth - candidateInnerWidth) < 1e-6
       ? text.size.h
-      : measureText(text.text, text.fontSize, candidateWidth).h;
+      : measureText(text.text, text.fontSize, candidateInnerWidth).h;
   if (container.type === 'shape') {
     return container.shape === 'ellipse' ? height * Math.SQRT2 : height + BOUND_TEXT_PADDING * 2;
   }
