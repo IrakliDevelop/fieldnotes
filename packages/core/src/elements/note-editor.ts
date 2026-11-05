@@ -217,6 +217,7 @@ export class NoteEditor {
       }
       if (e.key === 'Escape' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) {
         node.blur();
+        if (this.editingId) this.stopEditing(store);
       }
       e.stopPropagation();
     };

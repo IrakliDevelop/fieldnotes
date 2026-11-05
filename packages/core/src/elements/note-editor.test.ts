@@ -15,6 +15,37 @@ function flushRAF(): Promise<void> {
 }
 
 describe('NoteEditor', () => {
+  it('passes the edited id to history hooks and commits on mod+Enter', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, text: 'text' });
+    store.add(note);
+    const begin = vi.fn();
+    const commit = vi.fn();
+    editor.setHistoryHooks(begin, commit);
+    const node = makeNode('text');
+    document.body.appendChild(node);
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+    node.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
+    );
+    expect(begin).toHaveBeenCalledWith(note.id);
+    expect(commit).toHaveBeenCalledWith(note.id);
+    node.remove();
+  });
+
+  it('reports a pending edit abandoned by stopEditing', () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const abandon = vi.fn();
+    editor.setOnAbandon(abandon);
+    editor.startEditing(makeNode(), note.id, store);
+    editor.stopEditing(store);
+    expect(abandon).toHaveBeenCalledWith(note.id);
+  });
   afterEach(() => {
     document.querySelectorAll('[data-note-toolbar]').forEach((el) => el.remove());
   });
