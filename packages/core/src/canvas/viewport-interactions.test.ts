@@ -60,6 +60,36 @@ interface Priv {
 }
 
 describe('ViewportInteractions', () => {
+  describe('bound text locks', () => {
+    it.each([
+      ['container lock', { locked: true }],
+      ['layer lock', { layerId: 'locked' }],
+    ])('refuses a %s without creating text or starting an editor', (_name, input) => {
+      const store = new ElementStore();
+      const container = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 60 },
+        ...input,
+      });
+      store.add(container);
+      const before = store.getAll();
+      const { deps } = makeDeps(store, {
+        toolContext: {
+          camera: { zoom: 1, screenToWorld: (p: { x: number; y: number }) => p } as never,
+          store,
+          requestRender: vi.fn(),
+          requestOverlayRender: vi.fn(),
+          isLayerLocked: (id) => id === 'locked',
+        },
+      });
+
+      expect(new ViewportInteractions(deps).editBoundText(container.id)).toBe(false);
+      expect(store.getAll()).toEqual(before);
+      expect(deps.noteEditor.startEditing).not.toHaveBeenCalled();
+    });
+  });
+
   describe('onDoubleTap html activation', () => {
     const originalElementFromPoint = document.elementFromPoint;
 

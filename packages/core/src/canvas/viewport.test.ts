@@ -717,7 +717,50 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('abandons an empty pen double-tap bound text without an undo entry', async () => {
+    it.each(['mouse', 'touch', 'pen'] as const)(
+      'abandons an empty %s double-tap bound text without an undo entry',
+      async (pointerType) => {
+        const viewport = new Viewport(container);
+        const rectangle = createShape({
+          shape: 'rectangle',
+          position: { x: 0, y: 0 },
+          size: { w: 120, h: 60 },
+          layerId: viewport.layerManager.activeLayerId,
+        });
+        viewport.store.add(rectangle);
+        const unchangedRectangle = viewport.store.getById(rectangle.id);
+        viewport.history.clear();
+        const wrapper = wrapperOf(container);
+        const node = document.createElement('div');
+        wrapper.appendChild(node);
+        document.elementFromPoint = vi.fn().mockReturnValue(node);
+        const editorNode = document.createElement('div');
+        vi.spyOn(
+          (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
+            .domNodeManager,
+          'getNode',
+        ).mockReturnValue(editorNode);
+
+        for (let tap = 0; tap < 2; tap += 1) {
+          pointerDown(wrapper, 60, 30, { pointerType });
+          pointerUp(wrapper, 60, 30, { pointerType });
+        }
+        await new Promise(requestAnimationFrame);
+
+        const text = viewport.getBoundText(rectangle.id);
+        expect(text).toBeDefined();
+        const editor = (
+          viewport as unknown as { noteEditor: { stopEditing: (store: unknown) => void } }
+        ).noteEditor;
+        editor.stopEditing(viewport.store);
+        expect(viewport.getBoundText(rectangle.id)).toBeUndefined();
+        expect(viewport.store.getById(rectangle.id)).toEqual(unchangedRectangle);
+        expect(viewport.history.canUndo).toBe(false);
+        viewport.destroy();
+      },
+    );
+
+    it('redirects editBoundText from a bound child id to its unlocked container', () => {
       const viewport = new Viewport(container);
       const rectangle = createShape({
         shape: 'rectangle',
@@ -726,34 +769,15 @@ describe('Viewport', () => {
         layerId: viewport.layerManager.activeLayerId,
       });
       viewport.store.add(rectangle);
-      const unchangedRectangle = viewport.store.getById(rectangle.id);
-      viewport.history.clear();
-      const wrapper = wrapperOf(container);
-      const node = document.createElement('div');
-      wrapper.appendChild(node);
-      document.elementFromPoint = vi.fn().mockReturnValue(node);
-      const editorNode = document.createElement('div');
+      const textId = viewport.setBoundText(rectangle.id, 'saved label');
+      if (!textId) throw new Error('expected bound text');
       vi.spyOn(
         (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
           .domNodeManager,
         'getNode',
-      ).mockReturnValue(editorNode);
+      ).mockReturnValue(document.createElement('div'));
 
-      for (let tap = 0; tap < 2; tap += 1) {
-        pointerDown(wrapper, 60, 30, { pointerType: 'pen' });
-        pointerUp(wrapper, 60, 30, { pointerType: 'pen' });
-      }
-      await new Promise(requestAnimationFrame);
-
-      const text = viewport.getBoundText(rectangle.id);
-      expect(text).toBeDefined();
-      const editor = (
-        viewport as unknown as { noteEditor: { stopEditing: (store: unknown) => void } }
-      ).noteEditor;
-      editor.stopEditing(viewport.store);
-      expect(viewport.getBoundText(rectangle.id)).toBeUndefined();
-      expect(viewport.store.getById(rectangle.id)).toEqual(unchangedRectangle);
-      expect(viewport.history.canUndo).toBe(false);
+      expect(viewport.editBoundText(textId)).toBe(true);
       viewport.destroy();
     });
 

@@ -54,7 +54,11 @@ export class ViewportInteractions {
   }
 
   editBoundText(containerId: string): boolean {
-    const container = this.deps.store.getById(containerId);
+    const requested = this.deps.store.getById(containerId);
+    const container =
+      requested?.type === 'text' && requested.containerId
+        ? this.deps.store.getById(requested.containerId)
+        : requested;
     if (!container || !isBoundTextContainer(container, this.deps.store.elementRegistry))
       return false;
     if (container.locked || this.deps.toolContext.isLayerLocked(container.layerId)) return false;
