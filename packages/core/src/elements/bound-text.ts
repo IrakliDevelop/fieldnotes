@@ -10,8 +10,10 @@ import type { ArrowElement, CanvasElement, ShapeElement, TextElement } from './t
 export const BOUND_TEXT_PADDING = 8;
 
 /** An element which may own one advisory bound text child. */
+type BoundTextShape = ShapeElement & { readonly shape: 'rectangle' | 'ellipse' };
+
 export type BoundTextContainer =
-  ShapeElement | ArrowElement | Extract<CanvasElement, { type: 'extension' }>;
+  BoundTextShape | ArrowElement | Extract<CanvasElement, { type: 'extension' }>;
 
 /** Options for creating an advisory bound text child. */
 export interface CreateBoundTextOptions {
@@ -29,11 +31,10 @@ export function isBoundTextContainer(
   registry: ElementRegistry,
 ): element is BoundTextContainer {
   if (element.type === 'arrow') return true;
-  if (element.type === 'shape') return element.shape !== 'line';
-  return (
-    element.type === 'extension' &&
-    registry.getAdapter(element.extensionType)?.boundTextLayout !== undefined
-  );
+  if (element.type === 'shape') return element.shape === 'rectangle' || element.shape === 'ellipse';
+  if (element.type !== 'extension') return false;
+  const layout = registry.getAdapter(element.extensionType)?.boundTextLayout?.(element);
+  return layout !== null && layout !== undefined;
 }
 
 /** Returns the first valid advisory bound text child of a container. */
@@ -59,20 +60,25 @@ export function findBoundText(
     .sort((a, b) => a.index.localeCompare(b.index) || a.id.localeCompare(b.id))[0];
 }
 
-function shapeBox(shape: ShapeElement): Bounds {
+function withMinimumWidth(box: Bounds): Bounds {
+  if (box.w >= 16) return box;
+  return { ...box, x: box.x - (16 - box.w) / 2, w: 16 };
+}
+
+function shapeBox(shape: BoundTextShape): Bounds {
   const { x, y } = shape.position;
   if (shape.shape === 'rectangle') {
-    return {
+    return withMinimumWidth({
       x: x + BOUND_TEXT_PADDING,
       y: y + BOUND_TEXT_PADDING,
-      w: Math.max(16, shape.size.w - BOUND_TEXT_PADDING * 2),
+      w: shape.size.w - BOUND_TEXT_PADDING * 2,
       h: Math.max(0, shape.size.h - BOUND_TEXT_PADDING * 2),
-    };
+    });
   }
   const factor = Math.SQRT1_2;
-  const w = Math.max(16, shape.size.w * factor);
+  const w = shape.size.w * factor;
   const h = shape.size.h * factor;
-  return { x: x + (shape.size.w - w) / 2, y: y + (shape.size.h - h) / 2, w, h };
+  return withMinimumWidth({ x: x + (shape.size.w - w) / 2, y: y + (shape.size.h - h) / 2, w, h });
 }
 
 export function getBoundTextBox(
@@ -86,7 +92,7 @@ export function getBoundTextBox(
     return { x: point.x, y: point.y, w: 0, h: 0 };
   }
   const box = registry.getAdapter(container.extensionType)?.boundTextLayout?.(container)?.box;
-  return box ?? { x: container.position.x, y: container.position.y, w: 16, h: 0 };
+  return withMinimumWidth(box ?? { x: container.position.x, y: container.position.y, w: 16, h: 0 });
 }
 
 export function getBoundTextMinHeight(
@@ -137,7 +143,7 @@ export function layoutBoundText(
       const rotation = current.rotation ?? 0;
       const offsetX = (-Math.sin(rotation) * delta) / 2;
       const offsetY = ((Math.cos(rotation) - 1) * delta) / 2;
-      const grownShape: ShapeElement = {
+      const grownShape = {
         ...current,
         size: { w: current.size.w, h: current.size.h + delta },
         position: { x: current.position.x + offsetX, y: current.position.y + offsetY },
@@ -146,15 +152,22 @@ export function layoutBoundText(
       current = grownShape;
       box = getBoundTextBox(current, options.registry, options.resolveBounds);
     }
-  } else if (!isNoteContentEmpty(text.text) && current.type === 'extension') {
+  } else if (
+    !isNoteContentEmpty(text.text) &&
+    current.type === 'extension' &&
+    height > box.h + 1e-6
+  ) {
     const layout = options.registry.getAdapter(current.extensionType)?.boundTextLayout?.(current);
     const grown = layout?.grow?.(current, height);
     if (grown && grown !== current) {
-      containerPatch = grown;
-      current = grown;
-      box = getBoundTextBox(current, options.registry, options.resolveBounds);
-      if (Math.abs(box.w - width) > 1e-6)
-        measured = options.remeasure(text.text, text.fontSize, box.w);
+      const grownBox = getBoundTextBox(grown, options.registry, options.resolveBounds);
+      if (grownBox.h >= box.h) {
+        containerPatch = grown;
+        current = grown;
+        box = grownBox;
+        if (Math.abs(box.w - width) > 1e-6)
+          measured = options.remeasure(text.text, text.fontSize, box.w);
+      }
     }
   }
   const nextWidth = current.type === 'arrow' ? width : box.w;

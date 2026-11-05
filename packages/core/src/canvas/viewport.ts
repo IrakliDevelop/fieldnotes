@@ -1183,12 +1183,12 @@ export class Viewport {
   setParent(childId: string, parentId: string | null): void {
     this.transaction(() => {
       const child = this.store.getById(childId);
-      if (!child || child.parentId === (parentId ?? undefined)) return;
+      const nextParent = parentId ?? undefined;
+      const clearContainer = child?.type === 'text' && child.containerId !== nextParent;
+      if (!child || (child.parentId === nextParent && !clearContainer)) return;
       this.store.update(childId, {
-        parentId: parentId ?? undefined,
-        ...(child.type === 'text' && child.containerId !== (parentId ?? undefined)
-          ? { containerId: undefined }
-          : {}),
+        parentId: nextParent,
+        ...(clearContainer ? { containerId: undefined } : {}),
       });
       this.requestRender();
     });

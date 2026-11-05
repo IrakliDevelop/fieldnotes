@@ -117,7 +117,7 @@ export class ElementRegistry {
               box: layout.box,
               grow: grow
                 ? (envelope, boxHeight) =>
-                    rewrapPreservingData(el, grow(def.unwrap(envelope), boxHeight))
+                    rewrapPreservingData(envelope, grow(def.unwrap(envelope), boxHeight))
                 : undefined,
             };
           }

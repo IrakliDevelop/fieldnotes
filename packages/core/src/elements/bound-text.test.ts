@@ -3,6 +3,38 @@ import { createShape, createText } from './element-factory';
 import { ElementStore } from './element-store';
 import { getBoundText, getBoundTextBox, isBoundTextContainer, layoutBoundText } from './bound-text';
 import { ElementRegistry } from './element-registry';
+import type { ExtensionElementEnvelope, ElementTypeDefinition } from './types';
+
+function extension(id: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:bound',
+    position: { x: 0, y: 0 },
+    index: 'a',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: {},
+  };
+}
+
+function boundRegistry(
+  boundTextLayout: ElementTypeDefinition<ExtensionElementEnvelope>['boundTextLayout'],
+): ElementRegistry {
+  const registry = new ElementRegistry();
+  registry.register({
+    type: 'test:bound',
+    legacyTypes: [],
+    decodeLegacy: () => extension('legacy'),
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => element,
+    bounds: () => null,
+    boundTextLayout,
+  });
+  return registry;
+}
 
 describe('bound text', () => {
   it('finds a text child whose advisory container matches its parent', () => {
@@ -102,5 +134,33 @@ describe('bound text', () => {
 
     expect(isBoundTextContainer(line, store.elementRegistry)).toBe(false);
     expect(getBoundText(rectangle, store)?.id).toBe('first');
+  });
+
+  it('rejects an extension whose layout hook returns null and floors extension box width', () => {
+    const nullRegistry = boundRegistry(() => null);
+    expect(isBoundTextContainer(extension('null'), nullRegistry)).toBe(false);
+
+    const registry = boundRegistry(() => ({ box: { x: 20, y: 10, w: 8, h: 30 } }));
+    expect(getBoundTextBox(extension('small'), registry, () => null)).toEqual({
+      x: 16,
+      y: 10,
+      w: 16,
+      h: 30,
+    });
+  });
+
+  it('does not accept a shrinking extension grow result', () => {
+    const registry = boundRegistry((element) => ({
+      box: { x: 0, y: 0, w: 40, h: element.id === 'shrink' ? 5 : 10 },
+      grow: (current) => ({ ...current, id: 'shrink' }),
+    }));
+    const text = createText({ position: { x: 0, y: 0 }, text: 'text', size: { w: 40, h: 20 } });
+    const result = layoutBoundText(extension('full'), text, {
+      registry,
+      resolveBounds: () => null,
+      remeasure: () => ({ x: 0, y: 0, w: 40, h: 20 }),
+    });
+
+    expect(result.container).toBeNull();
   });
 });
