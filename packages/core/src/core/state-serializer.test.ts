@@ -210,6 +210,178 @@ describe('parseState', () => {
     expect(() => parseState(JSON.stringify(state))).toThrow('malformed text data');
   });
 
+  it('round-trips a v6 rectangle and its matching bound text relation', () => {
+    const rectangle = {
+      id: 'rectangle-1',
+      type: 'shape' as const,
+      position: { x: 10, y: 20 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: 'default-layer',
+      shape: 'rectangle' as const,
+      size: { w: 160, h: 80 },
+      strokeColor: '#000000',
+      strokeWidth: 2,
+      fillColor: 'none',
+    };
+    const text = {
+      id: 'text-1',
+      type: 'text' as const,
+      position: { x: 18, y: 28 },
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: 'default-layer',
+      parentId: 'rectangle-1',
+      containerId: 'rectangle-1',
+      size: { w: 144, h: 32 },
+      text: 'Bound text',
+      fontSize: 16,
+      color: '#1a1a1a',
+      textAlign: 'center' as const,
+      wrap: true,
+      autoResize: true,
+    };
+    const state: CanvasState = {
+      version: 6,
+      camera: makeCamera(),
+      elements: [rectangle, text],
+      layers: [
+        {
+          id: 'default-layer',
+          name: 'Layer 1',
+          visible: true,
+          locked: false,
+          order: 0,
+          opacity: 1,
+        },
+      ],
+    };
+
+    const parsed = parseState(JSON.stringify(state));
+    const restored = parseState(
+      JSON.stringify(exportState(parsed.elements, parsed.camera, parsed.layers)),
+    );
+
+    expect(restored.version).toBe(6);
+    expect(restored.elements).toEqual([rectangle, text]);
+  });
+
+  it('preserves a mismatched v6 text containerId as an advisory relation', () => {
+    const state: CanvasState = {
+      version: 6,
+      camera: makeCamera(),
+      elements: [
+        {
+          id: 'rectangle-1',
+          type: 'shape',
+          position: { x: 10, y: 20 },
+          index: 'a0',
+          version: 1,
+          locked: false,
+          layerId: 'default-layer',
+          shape: 'rectangle',
+          size: { w: 160, h: 80 },
+          strokeColor: '#000000',
+          strokeWidth: 2,
+          fillColor: 'none',
+        },
+        {
+          id: 'text-1',
+          type: 'text',
+          position: { x: 18, y: 28 },
+          index: 'a1',
+          version: 1,
+          locked: false,
+          layerId: 'default-layer',
+          parentId: 'rectangle-1',
+          containerId: 'another-container',
+          size: { w: 144, h: 32 },
+          text: 'Ordinary child',
+          fontSize: 16,
+          color: '#1a1a1a',
+          textAlign: 'center',
+          wrap: true,
+          autoResize: true,
+        },
+      ],
+      layers: [
+        {
+          id: 'default-layer',
+          name: 'Layer 1',
+          visible: true,
+          locked: false,
+          order: 0,
+          opacity: 1,
+        },
+      ],
+    };
+
+    const parsed = parseState(JSON.stringify(state));
+
+    expect(parsed.elements[1]).toMatchObject({
+      id: 'text-1',
+      parentId: 'rectangle-1',
+      containerId: 'another-container',
+    });
+  });
+
+  it('preserves text with an unregistered extension parent', () => {
+    const state: CanvasState = {
+      version: 6,
+      camera: makeCamera(),
+      elements: [
+        {
+          id: 'plugin-container-1',
+          type: 'extension',
+          extensionType: 'plugin:container',
+          position: { x: 10, y: 20 },
+          index: 'a0',
+          version: 1,
+          locked: false,
+          layerId: 'default-layer',
+          data: { title: 'Plugin container' },
+          size: { w: 160, h: 80 },
+        },
+        {
+          id: 'text-1',
+          type: 'text',
+          position: { x: 18, y: 28 },
+          index: 'a1',
+          version: 1,
+          locked: false,
+          layerId: 'default-layer',
+          parentId: 'plugin-container-1',
+          containerId: 'plugin-container-1',
+          size: { w: 144, h: 32 },
+          text: 'Plugin child',
+          fontSize: 16,
+          color: '#1a1a1a',
+          textAlign: 'center',
+          wrap: true,
+          autoResize: true,
+        },
+      ],
+      layers: [
+        {
+          id: 'default-layer',
+          name: 'Layer 1',
+          visible: true,
+          locked: false,
+          order: 0,
+          opacity: 1,
+        },
+      ],
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const parsed = parseState(JSON.stringify(state), new ElementRegistry());
+
+    expect(parsed.elements).toEqual(state.elements);
+    warn.mockRestore();
+  });
+
   it('retains a valid v6 parent relationship regardless of element order', () => {
     const state = validState();
     const source = createStroke({
