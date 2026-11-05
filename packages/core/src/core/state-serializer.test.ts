@@ -28,6 +28,9 @@ import { Viewport } from '../canvas/viewport';
 import { SelectTool } from '../tools/select-tool';
 import { getDefaultElementRegistry, setDefaultElementRegistry } from '../elements/default-registry';
 import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
+import { getArrowLabelAnchor } from '../elements/arrow-geometry';
+import { getElementBounds } from '../elements/element-bounds';
+import { setTextMeasurer } from '../elements/text-measure';
 
 interface LegacyMarker extends BaseElement {
   type: 'marker';
@@ -886,7 +889,7 @@ describe('parseState', () => {
     expect(() => parseState(JSON.stringify(data))).toThrow(`malformed ${type} data`);
   });
 
-  it('preserves an arrow label across an export → parse round-trip', () => {
+  it('migrates an exported arrow label into bound text', () => {
     const arrow = createArrow({
       index: 'a0',
       from: { x: 0, y: 0 },
@@ -896,7 +899,12 @@ describe('parseState', () => {
     const json = JSON.stringify(exportState([arrow], makeCamera()));
     const restored = parseState(json);
     const a = restored.elements.find((e) => e.type === 'arrow');
-    expect((a as { label?: string }).label).toBe('flows to');
+    expect(a).not.toHaveProperty('label');
+    expect(restored.elements.find((element) => element.id === `${arrow.id}_label`)).toMatchObject({
+      parentId: arrow.id,
+      containerId: arrow.id,
+      text: 'flows to',
+    });
   });
 
   it('preserves stroke blendMode across an export → parse round-trip', () => {
@@ -1678,6 +1686,131 @@ describe('persisted state v5', () => {
     store.loadSnapshot(state.elements);
     return store.getAll().map((el) => el.id);
   }
+
+  function labelState(version: number) {
+    const base = {
+      position: { x: 0, y: 0 },
+      locked: false,
+      layerId: 'L1',
+    };
+    const left = {
+      ...base,
+      id: 'left',
+      type: 'shape' as const,
+      index: 'a0',
+      version: 1,
+      shape: 'rectangle' as const,
+      size: { w: 80, h: 60 },
+      strokeColor: '#000000',
+      strokeWidth: 2,
+      fillColor: 'none',
+      ...(version < 5 ? { zIndex: 0 } : {}),
+    };
+    const right = {
+      ...left,
+      id: 'right',
+      position: { x: 220, y: 80 },
+      index: 'a1',
+      ...(version < 5 ? { zIndex: 1 } : {}),
+    };
+    const arrow = {
+      ...base,
+      id: 'arrow',
+      type: 'arrow' as const,
+      index: 'a2',
+      version: 7,
+      from: { x: 40, y: 30 },
+      to: { x: 260, y: 110 },
+      bend: 70,
+      color: '#000000',
+      width: 2,
+      fromBinding: { elementId: left.id },
+      toBinding: { elementId: right.id },
+      label: 'a<b',
+      ...(version < 5 ? { zIndex: 2 } : {}),
+    };
+    return { version, camera: makeCamera(), elements: [left, right, arrow], layers };
+  }
+
+  it.each([1, 2, 3, 4, 5, 6] as const)(
+    'migrates a v%s bent arrow label into deterministic bound text',
+    (version) => {
+      setTextMeasurer((text) => text.length * 10);
+      try {
+        const parsed = parseState(JSON.stringify(labelState(version)));
+        const arrow = parsed.elements.find((element) => element.id === 'arrow');
+        const label = parsed.elements.find((element) => element.id === 'arrow_label');
+
+        expect(arrow).toMatchObject({ type: 'arrow', version: 7 });
+        expect(arrow).not.toHaveProperty('label');
+        expect(label).toMatchObject({
+          id: 'arrow_label',
+          type: 'text',
+          parentId: 'arrow',
+          containerId: 'arrow',
+          layerId: 'L1',
+          index: 'a0',
+          version: 1,
+          locked: false,
+          text: 'a&lt;b',
+          fontSize: 14,
+          color: '#1a1a1a',
+          textAlign: 'center',
+          wrap: false,
+          size: { w: 34, h: 23.599999999999998 },
+        });
+        if (!arrow || arrow.type !== 'arrow' || !label || label.type !== 'text') {
+          throw new Error('Expected migrated arrow label');
+        }
+        const byId = new Map(parsed.elements.map((element) => [element.id, element]));
+        const anchor = getArrowLabelAnchor(arrow, (id) => {
+          const element = byId.get(id);
+          return element ? getElementBounds(element) : null;
+        });
+        expect(label.position).toEqual({ x: anchor.x - 17, y: anchor.y - 11.799999999999999 });
+        expect(
+          parseState(JSON.stringify(exportState(parsed.elements, parsed.camera, parsed.layers))),
+        ).toEqual(parsed);
+      } finally {
+        setTextMeasurer(null);
+      }
+    },
+  );
+
+  it.each([
+    ['an overlong arrow id', 'a'.repeat(251), undefined],
+    ['a deterministic child id collision', 'arrow', { id: 'arrow_label' }],
+    [
+      'an existing bound text child',
+      'arrow',
+      { id: 'existing', parentId: 'arrow', containerId: 'arrow' },
+    ],
+  ])('keeps the legacy fallback for %s', (_name, id, child) => {
+    const arrow = {
+      ...createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 40, y: 0 },
+        layerId: 'L1',
+        label: 'legacy',
+      }),
+      id,
+    };
+    const elements: CanvasElement[] = [arrow];
+    if (child) {
+      elements.push({
+        ...createText({ index: 'a1', position: { x: 0, y: 0 }, layerId: 'L1' }),
+        ...child,
+      });
+    }
+    const parsed = parseState(
+      JSON.stringify({ version: 6, camera: makeCamera(), elements, layers: [layers[0]] }),
+    );
+    expect(parsed.elements.find((element) => element.id === id)).toMatchObject({ label: 'legacy' });
+    expect(parsed.elements.filter((element) => element.id === `${id}_label`)).toHaveLength(
+      child?.id === `${id}_label` ? 1 : 0,
+    );
+  });
 
   const v4Elements = () => [
     legacyNote('e1', 'L1', 2),

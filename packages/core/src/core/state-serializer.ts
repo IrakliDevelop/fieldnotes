@@ -12,6 +12,9 @@ import type { PersistedPluginState } from './plugin-state-manager';
 import { isValidIndexKey } from './fractional-index';
 import { assignLegacyOrder } from './legacy-order';
 import { validateHierarchy } from '../elements/element-hierarchy';
+import { getArrowLabelAnchor } from '../elements/arrow-geometry';
+import { getElementBounds } from '../elements/element-bounds';
+import { measureText } from '../elements/text-measure';
 
 export interface CanvasState {
   version: 6;
@@ -124,17 +127,76 @@ export function migrateState(
     const adapter = registry.getAdapter(el['extensionType']);
     elements[i] = migrateEnvelope(el as unknown as ExtensionElementEnvelope, adapter);
   }
-  if (state.version === CANVAS_STATE_VERSION) return state;
-  const legacy = state as LegacyCanvasState;
-  for (const element of legacy.elements) {
-    if (isRecord(element)) delete element['parentId'];
+  if (state.version < CANVAS_STATE_VERSION) {
+    const legacy = state as LegacyCanvasState;
+    for (const element of legacy.elements) {
+      if (isRecord(element)) delete element['parentId'];
+    }
+    convertLegacyToEnvelopes(legacy.elements, registry);
+    for (const migrator of legacyStateMigrators) {
+      migrator(legacy);
+    }
+    (legacy as { version: number }).version = CANVAS_STATE_VERSION;
   }
-  convertLegacyToEnvelopes(legacy.elements, registry);
-  for (const migrator of legacyStateMigrators) {
-    migrator(legacy);
+  const current = state as CanvasState;
+  migrateArrowLabels(current.elements, registry);
+  return current;
+}
+
+function migrateArrowLabels(elements: CanvasElement[], registry: ElementRegistry): void {
+  const ids = new Set(elements.map((element) => element.id));
+  const boundTextIds = new Set(
+    elements.flatMap((element) =>
+      element.type === 'text' && element.parentId === element.containerId && element.parentId
+        ? [element.parentId]
+        : [],
+    ),
+  );
+  const resolveBounds = (id: string) => {
+    const element = elements.find((candidate) => candidate.id === id);
+    return element ? getElementBounds(element, registry) : null;
+  };
+
+  for (const arrow of elements) {
+    if (
+      arrow.type !== 'arrow' ||
+      !arrow.label ||
+      arrow.id.length > 250 ||
+      boundTextIds.has(arrow.id) ||
+      ids.has(`${arrow.id}_label`)
+    ) {
+      continue;
+    }
+    const text = escapeHtml(arrow.label);
+    const size = measureText(text, 14, null);
+    const anchor = getArrowLabelAnchor(arrow, resolveBounds);
+    elements.push({
+      id: `${arrow.id}_label`,
+      type: 'text',
+      position: { x: anchor.x - size.w / 2, y: anchor.y - size.h / 2 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: arrow.layerId,
+      parentId: arrow.id,
+      containerId: arrow.id,
+      size,
+      text,
+      fontSize: 14,
+      color: '#1a1a1a',
+      textAlign: 'center',
+      wrap: false,
+    });
+    delete arrow.label;
   }
-  (legacy as { version: number }).version = CANVAS_STATE_VERSION;
-  return legacy as unknown as CanvasState;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>]/g, (character) => {
+    if (character === '&') return '&amp;';
+    if (character === '<') return '&lt;';
+    return '&gt;';
+  });
 }
 
 export function convertLegacyToEnvelopes(elements: unknown[], registry: ElementRegistry): void {

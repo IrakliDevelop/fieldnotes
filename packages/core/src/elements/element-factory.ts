@@ -56,6 +56,7 @@ interface ArrowInput extends BaseDefaults {
   width?: number;
   fromBinding?: Binding;
   toBinding?: Binding;
+  /** @deprecated Migrated to a bound `TextElement` on load. */
   label?: string;
   strokeStyle?: ArrowStrokeStyle;
 }

@@ -58,7 +58,7 @@ export interface ArrowElement extends BaseElement {
   toBinding?: Binding;
   /** Derived from from/to/bend. Redundant in serialized state — safe to omit. */
   cachedControlPoint?: Point;
-  /** Optional text rendered at the curve midpoint. */
+  /** @deprecated Migrated to a bound `TextElement` on load. */
   label?: string;
   /** Line dash appearance. Absent = solid. Decoupled from binding. */
   strokeStyle?: ArrowStrokeStyle;
