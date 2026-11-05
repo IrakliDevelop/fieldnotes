@@ -6,7 +6,7 @@ import { Camera } from './camera';
 import { InputHandler } from './input-handler';
 import type { InputHandlerOptions } from './input-handler';
 import type { ToolManager } from '../tools/tool-manager';
-import type { ToolContext } from '../tools/types';
+import type { Tool, ToolContext } from '../tools/types';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder as RealHistoryRecorder } from '../history/history-recorder';
@@ -1637,11 +1637,22 @@ describe('InputHandler', () => {
     });
 
     it.each([
-      ['pointerup', pointerUp, 'handlePointerUp'],
-      ['pointercancel', pointerCancel, 'handlePointerCancel'],
-    ] as const)('commits its matching gesture transaction on %s', (_name, finish, handlerName) => {
-      const recorder = fakeRecorder() as unknown as HistoryRecorder;
-      const tm = stubToolManager();
+      ['pointerup', pointerUp],
+      ['pointercancel', pointerCancel],
+    ] as const)('commits one real gesture mutation on %s', (_name, finish) => {
+      const store = new ElementStore();
+      const stack = new RealHistoryStack();
+      const recorder = new RealHistoryRecorder(store, stack);
+      const tm = new RealToolManager();
+      const tool: Tool = {
+        name: 'history-probe',
+        onPointerDown: () => store.add(createNote({ position: { x: 20, y: 20 } })),
+        onPointerMove: () => undefined,
+        onPointerUp: () => undefined,
+        onPointerCancel: () => undefined,
+      };
+      tm.register(tool);
+      tm.setTool(tool.name, stubToolContext());
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: stubToolContext(),
@@ -1652,67 +1663,79 @@ describe('InputHandler', () => {
       pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
       finish(element, { pointerId: 1, clientX: 20, clientY: 20 });
 
-      expect(tm[handlerName]).toHaveBeenCalledOnce();
-      expect(recorder.begin).toHaveBeenCalledOnce();
-      expect(recorder.commit).toHaveBeenCalledOnce();
+      expect(store.count).toBe(1);
+      expect(stack.undoCount).toBe(1);
+      expect(recorder.currentTransactionId).toBeNull();
+      expect(stack.undo(store)).toBe(true);
+      expect(store.count).toBe(0);
     });
 
     it.each([
       ['pointerup', pointerUp, 'handlePointerUp'],
       ['pointercancel', pointerCancel, 'handlePointerCancel'],
-    ] as const)(
-      'does not commit a transaction the tool replaces on %s',
-      (_name, finish, handlerName) => {
-        let transactionId: number | null = null;
-        const recorder = {
-          begin: vi.fn(() => {
-            transactionId = (transactionId ?? 0) + 1;
-          }),
-          commit: vi.fn(() => {
-            transactionId = null;
-          }),
-          get currentTransactionId() {
-            return transactionId;
-          },
-        } as unknown as HistoryRecorder;
-        const tm = {
-          ...stubToolManager(),
-          [handlerName]: vi.fn(() => recorder.begin()),
-        } as unknown as ToolManager;
+    ] as const)('does not commit a transaction the tool replaces on %s', (_name, finish) => {
+      const store = new ElementStore();
+      const stack = new RealHistoryStack();
+      const recorder = new RealHistoryRecorder(store, stack);
+      const tm = new RealToolManager();
+      const replacement = () => {
+        recorder.begin();
+        store.add(createNote({ position: { x: 40, y: 40 } }));
+      };
+      const tool: Tool = {
+        name: 'history-replacement-probe',
+        onPointerDown: () => store.add(createNote({ position: { x: 20, y: 20 } })),
+        onPointerMove: () => undefined,
+        onPointerUp: replacement,
+        onPointerCancel: replacement,
+      };
+      tm.register(tool);
+      tm.setTool(tool.name, stubToolContext());
 
-        handler = new InputHandler(element, camera, {
-          toolManager: tm,
-          toolContext: stubToolContext(),
-          historyRecorder: recorder,
-          actions: stubActionRegistry(),
-        });
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        historyRecorder: recorder,
+        actions: stubActionRegistry(),
+      });
 
-        pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
-        finish(element, { pointerId: 1, clientX: 20, clientY: 20 });
+      pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+      finish(element, { pointerId: 1, clientX: 20, clientY: 20 });
 
-        expect(recorder.begin).toHaveBeenCalledTimes(2);
-        expect(recorder.commit).not.toHaveBeenCalled();
-        expect(transactionId).toBe(2);
-      },
-    );
+      expect(store.count).toBe(2);
+      expect(stack.undoCount).toBe(1);
+      expect(recorder.currentTransactionId).not.toBeNull();
+      recorder.commit();
+      expect(stack.undoCount).toBe(2);
+      recorder.pause();
+      expect(stack.undo(store)).toBe(true);
+      expect(store.count).toBe(1);
+      expect(stack.undo(store)).toBe(true);
+      expect(store.count).toBe(0);
+      expect(stack.redo(store)).toBe(true);
+      expect(store.count).toBe(1);
+      expect(stack.redo(store)).toBe(true);
+      expect(store.count).toBe(2);
+      recorder.resume();
+    });
 
     it('ignores a synthetic pointerleave after the touch pointer already ended', () => {
-      let transactionId: number | null = null;
-      const recorder = {
-        begin: vi.fn(() => {
-          transactionId = (transactionId ?? 0) + 1;
-        }),
-        commit: vi.fn(() => {
-          transactionId = null;
-        }),
-        get currentTransactionId() {
-          return transactionId;
+      const store = new ElementStore();
+      const stack = new RealHistoryStack();
+      const recorder = new RealHistoryRecorder(store, stack);
+      const tm = new RealToolManager();
+      const tool: Tool = {
+        name: 'deferred-touch-history-probe',
+        onPointerDown: () => store.add(createNote({ position: { x: 20, y: 20 } })),
+        onPointerMove: () => undefined,
+        onPointerUp: () => {
+          recorder.begin();
+          store.add(createNote({ position: { x: 40, y: 40 } }));
         },
-      } as unknown as HistoryRecorder;
-      const tm = {
-        ...stubToolManager(),
-        handlePointerUp: vi.fn(() => recorder.begin()),
-      } as unknown as ToolManager;
+        onPointerCancel: () => undefined,
+      };
+      tm.register(tool);
+      tm.setTool(tool.name, stubToolContext());
       handler = new InputHandler(element, camera, {
         toolManager: tm,
         toolContext: stubToolContext(),
@@ -1732,9 +1755,11 @@ describe('InputHandler', () => {
         new PointerEvent('pointerleave', { bubbles: true, pointerId: 1, pointerType: 'touch' }),
       );
 
-      expect(tm.handlePointerUp).toHaveBeenCalledOnce();
-      expect(recorder.commit).not.toHaveBeenCalled();
-      expect(transactionId).toBe(2);
+      expect(store.count).toBe(2);
+      expect(stack.undoCount).toBe(1);
+      expect(recorder.currentTransactionId).not.toBeNull();
+      recorder.commit();
+      expect(stack.undoCount).toBe(2);
     });
   });
 

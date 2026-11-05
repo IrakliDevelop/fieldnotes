@@ -70,7 +70,15 @@ export class ViewportInteractions {
     }
     this.deps.recorder.begin();
     const text = createBoundText(container, {
-      text: container.type === 'arrow' ? container.label : undefined,
+      text:
+        container.type === 'arrow'
+          ? (container.label ?? '')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;')
+          : undefined,
     });
     const transactionId = this.deps.recorder.currentTransactionId;
     if (transactionId === null)

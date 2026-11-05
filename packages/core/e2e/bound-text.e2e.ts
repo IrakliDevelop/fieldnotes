@@ -708,6 +708,7 @@ test('bends an arrow with bound text at its visible curve midpoint', async ({ ca
           | undefined;
         getAll: () => {
           containerId?: string;
+          id: string;
           position: { x: number; y: number };
           size: { w: number; h: number };
         }[];
@@ -842,6 +843,17 @@ test('Enter edits a selected container while focused toolbar controls stay nativ
   await canvasPage.page.keyboard.press('Enter');
   await expect(editor).toHaveCount(0);
   expect(await control.getAttribute('data-activations')).toBe('1');
+  expect(
+    await canvasPage.page.evaluate(
+      () => document.activeElement === document.querySelector('#toolbar button[data-tool="shape"]'),
+    ),
+  ).toBe(true);
+  await canvasPage.wrapper().focus();
+  expect(
+    await canvasPage.page.evaluate(
+      () => document.activeElement === document.querySelector('#canvas > div'),
+    ),
+  ).toBe(true);
   const beforeUndo = await canvasPage.page.evaluate(() => {
     const vp = (
       window as unknown as {

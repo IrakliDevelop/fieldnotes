@@ -126,17 +126,27 @@ describe('Viewport', () => {
     viewport.destroy();
   });
 
-  it('ignores wrapper, window, document, and queued-frame work after destruction', async () => {
-    const viewport = new Viewport(container);
+  it('ignores wrapper, window, document, queued-frame, and window shortcut work after destruction', async () => {
+    const viewport = new Viewport(container, { tools: 'default', shortcuts: { scope: 'window' } });
     const note = createNote({
       position: { x: 0, y: 0 },
       layerId: viewport.layerManager.activeLayerId,
     });
     viewport.store.add(note);
+    const select = viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([note.id]);
     viewport.history.clear();
     const wrapper = wrapperOf(container);
-    const before = structuredClone(viewport.store.getAll());
     viewport.destroy();
+    const before = {
+      actionEnabled: viewport.actions.isEnabled('edit.delete'),
+      editing: wrapper.querySelector('[contenteditable="true"]') !== null,
+      history: { undo: viewport.history.undoCount, redo: viewport.history.redoCount },
+      selectedIds: viewport.getSelectedIds(),
+      store: structuredClone(viewport.store.getAll()),
+      tool: viewport.toolManager.activeTool?.name,
+    };
 
     wrapper.dispatchEvent(
       new PointerEvent('pointerdown', {
@@ -158,10 +168,17 @@ describe('Viewport', () => {
     );
     window.dispatchEvent(new Event('blur'));
     document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
-    expect(viewport.store.getAll()).toEqual(before);
-    expect(viewport.history.undoCount).toBe(0);
+    expect({
+      actionEnabled: viewport.actions.isEnabled('edit.delete'),
+      editing: wrapper.querySelector('[contenteditable="true"]') !== null,
+      history: { undo: viewport.history.undoCount, redo: viewport.history.redoCount },
+      selectedIds: viewport.getSelectedIds(),
+      store: viewport.store.getAll(),
+      tool: viewport.toolManager.activeTool?.name,
+    }).toEqual(before);
   });
 
   it('creates a wrapper with canvas, paint-stack, and DOM overlay layers', () => {
@@ -896,7 +913,7 @@ describe('Viewport', () => {
       },
     );
 
-    it('undoes and redoes legacy arrow-label seeding through the editor session', async () => {
+    it('edits legacy arrow-label plain text through the rendered editor node', async () => {
       const viewport = new Viewport(container);
       const arrow = {
         ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
@@ -906,31 +923,45 @@ describe('Viewport', () => {
       viewport.store.add(arrow);
       viewport.history.clear();
       const before = structuredClone(viewport.store.getAll());
-      const node = document.createElement('div');
-      node.innerHTML = '&lt;b&gt;legacy&lt;/b&gt;';
-      vi.spyOn(
-        (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
-          .domNodeManager,
-        'getNode',
-      ).mockReturnValue(node);
 
       expect(viewport.editBoundText(arrow.id)).toBe(true);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const node = Array.from(container.querySelectorAll<HTMLDivElement>('[data-element-id]')).find(
+        (candidate) => candidate.dataset['elementId'] !== arrow.id,
+      );
+      if (!node) throw new Error('expected rendered bound text editor');
+      expect(node.innerHTML).toBe('&lt;b&gt;legacy&lt;/b&gt;');
+      expect(node.textContent).toBe('<b>legacy</b>');
+      const seededArrow = viewport.store.getById(arrow.id);
+      const seededText = viewport.getBoundText(arrow.id);
+      expect(seededArrow?.version).toBeGreaterThan(arrow.version);
+      expect(seededText?.version).toBeGreaterThan(0);
+      node.textContent = '<i>edited</i>';
+      node.dispatchEvent(new Event('input', { bubbles: true }));
       node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       const after = structuredClone(viewport.store.getAll());
       expect(after).toMatchObject([
         { id: arrow.id, label: undefined },
-        { containerId: arrow.id, text: '&lt;b&gt;legacy&lt;/b&gt;' },
+        { containerId: arrow.id, text: '&lt;i&gt;edited&lt;/i&gt;' },
       ]);
+      const editedArrow = viewport.store.getById(arrow.id);
+      const editedText = viewport.getBoundText(arrow.id);
+      expect(editedArrow?.version).toBe(seededArrow?.version);
+      expect(editedText?.version).toBeGreaterThan(seededText?.version ?? 0);
       expect(viewport.history.undoCount).toBe(1);
       expect(viewport.undo()).toBe(true);
       expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
         before.map(({ version: _version, ...element }) => element),
       );
-      expect(viewport.store.getById(arrow.id)?.version).toBeGreaterThan(1);
+      const undoneArrow = viewport.store.getById(arrow.id);
+      expect(undoneArrow?.version).toBeGreaterThan(editedArrow?.version ?? 0);
       expect(viewport.redo()).toBe(true);
       expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
         after.map(({ version: _version, ...element }) => element),
+      );
+      expect(viewport.store.getById(arrow.id)?.version).toBeGreaterThan(undoneArrow?.version ?? 0);
+      expect(viewport.getBoundText(arrow.id)?.version).toBeGreaterThanOrEqual(
+        editedText?.version ?? 0,
       );
       viewport.destroy();
     });
@@ -946,16 +977,13 @@ describe('Viewport', () => {
       viewport.store.add(shape);
       viewport.history.clear();
       const before = structuredClone(viewport.store.getAll());
-      const node = document.createElement('div');
-      Object.defineProperty(node, 'scrollHeight', { configurable: true, value: 56 });
-      vi.spyOn(
-        (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
-          .domNodeManager,
-        'getNode',
-      ).mockReturnValue(node);
-
       expect(viewport.editBoundText(shape.id)).toBe(true);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const node = Array.from(container.querySelectorAll<HTMLDivElement>('[data-element-id]')).find(
+        (candidate) => candidate.dataset['elementId'] !== shape.id,
+      );
+      if (!node) throw new Error('expected rendered bound text editor');
+      Object.defineProperty(node, 'scrollHeight', { configurable: true, value: 56 });
       node.textContent = 'typed';
       node.dispatchEvent(new Event('input', { bubbles: true }));
       node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

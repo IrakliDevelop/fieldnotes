@@ -220,6 +220,12 @@ describe('NoteEditor', () => {
     editor.setHistoryHooks(begin, commit);
     const firstNode = makeNode();
     const replacementNode = makeNode();
+    const added = vi.fn();
+    const removed = vi.fn();
+    const updated = vi.fn();
+    store.on('add', added);
+    store.on('remove', removed);
+    store.on('update', updated);
 
     editor.startEditing(firstNode, note.id, store);
     editor.startEditing(replacementNode, note.id, store);
@@ -231,6 +237,9 @@ describe('NoteEditor', () => {
     expect(begin).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
     expect(abandon).not.toHaveBeenCalled();
+    expect(added).not.toHaveBeenCalled();
+    expect(removed).not.toHaveBeenCalled();
+    expect(updated).not.toHaveBeenCalled();
   });
 
   it('abandons one pending session before activating its replacement', async () => {
@@ -324,9 +333,15 @@ describe('NoteEditor', () => {
     const replacementNode = makeNode();
     const begin = vi.fn();
     const commit = vi.fn();
+    const abandon = vi.fn();
+    const added = vi.fn();
+    const removed = vi.fn();
     const updates = vi.fn();
+    store.on('add', added);
+    store.on('remove', removed);
     store.on('update', updates);
     editor.setHistoryHooks(begin, commit);
+    editor.setOnAbandon(abandon);
 
     editor.startEditing(node, note.id, store);
     await flushRAF();
@@ -338,6 +353,9 @@ describe('NoteEditor', () => {
     expect(replacementNode.contentEditable).not.toBe('true');
     expect(begin).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
+    expect(abandon).not.toHaveBeenCalled();
+    expect(added).not.toHaveBeenCalled();
+    expect(removed).not.toHaveBeenCalled();
     expect(updates).not.toHaveBeenCalled();
     editor.stopEditing(store);
   });
