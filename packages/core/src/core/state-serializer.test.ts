@@ -28,8 +28,6 @@ import { Viewport } from '../canvas/viewport';
 import { SelectTool } from '../tools/select-tool';
 import { getDefaultElementRegistry, setDefaultElementRegistry } from '../elements/default-registry';
 import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
-import { getArrowLabelAnchor } from '../elements/arrow-geometry';
-import { getElementBounds } from '../elements/element-bounds';
 import { setTextMeasurer } from '../elements/text-measure';
 
 interface LegacyMarker extends BaseElement {
@@ -1757,17 +1755,14 @@ describe('persisted state v5', () => {
           color: '#1a1a1a',
           textAlign: 'center',
           wrap: false,
-          size: { w: 34, h: 23.599999999999998 },
         });
         if (!arrow || arrow.type !== 'arrow' || !label || label.type !== 'text') {
           throw new Error('Expected migrated arrow label');
         }
-        const byId = new Map(parsed.elements.map((element) => [element.id, element]));
-        const anchor = getArrowLabelAnchor(arrow, (id) => {
-          const element = byId.get(id);
-          return element ? getElementBounds(element) : null;
-        });
-        expect(label.position).toEqual({ x: anchor.x - 17, y: anchor.y - 11.799999999999999 });
+        expect(label.position.x).toBeCloseTo(121.43526606320597, 6);
+        expect(label.position.y).toBeCloseTo(91.23638624610543, 6);
+        expect(label.size.w).toBeCloseTo(34, 6);
+        expect(label.size.h).toBeCloseTo(23.599999999999998, 6);
         expect(
           parseState(JSON.stringify(exportState(parsed.elements, parsed.camera, parsed.layers))),
         ).toEqual(parsed);

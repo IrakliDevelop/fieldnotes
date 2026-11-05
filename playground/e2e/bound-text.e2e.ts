@@ -3,7 +3,14 @@ import type { Page } from '@playwright/test';
 
 interface BoundTextState {
   ellipse: { id: string; position: { x: number; y: number } };
-  text: { text: string; position: { x: number; y: number } } | undefined;
+  text:
+    | {
+        text: string;
+        parentId: string | undefined;
+        containerId: string | undefined;
+        position: { x: number; y: number };
+      }
+    | undefined;
   sampleText: string[];
 }
 
@@ -34,7 +41,15 @@ async function state(page: Page, ellipseId?: string): Promise<BoundTextState> {
     );
     return {
       ellipse: { id: ellipse.id, position: ellipse.position },
-      text: text && text.type === 'text' ? { text: text.text, position: text.position } : undefined,
+      text:
+        text && text.type === 'text'
+          ? {
+              text: text.text,
+              parentId: text.parentId,
+              containerId: text.containerId,
+              position: text.position,
+            }
+          : undefined,
       sampleText: elements
         .filter((element) => element.type === 'text')
         .map((element) => element.text),
@@ -69,9 +84,9 @@ async function touchDrag(
   await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
-async function isSaved(page: Page, id: string): Promise<boolean> {
+async function isSaved(page: Page, expected: BoundTextState): Promise<boolean> {
   return page.evaluate(
-    (elementId) =>
+    (expectedState) =>
       new Promise<boolean>((resolve, reject) => {
         const request = indexedDB.open('fieldnotes-playground');
         request.onerror = () => reject(request.error);
@@ -84,11 +99,45 @@ async function isSaved(page: Page, id: string): Promise<boolean> {
           get.onerror = () => reject(get.error);
           get.onsuccess = () => {
             db.close();
-            resolve(typeof get.result === 'string' && get.result.includes(elementId));
+            if (typeof get.result !== 'string' || !expectedState.text) return resolve(false);
+            const board: unknown = JSON.parse(get.result);
+            if (
+              !board ||
+              typeof board !== 'object' ||
+              !('elements' in board) ||
+              !Array.isArray(board.elements)
+            ) {
+              return resolve(false);
+            }
+            const ellipse = board.elements.find(
+              (element) =>
+                element &&
+                typeof element === 'object' &&
+                'id' in element &&
+                element.id === expectedState.ellipse.id &&
+                'position' in element &&
+                JSON.stringify(element.position) === JSON.stringify(expectedState.ellipse.position),
+            );
+            const text = board.elements.find(
+              (element) =>
+                element &&
+                typeof element === 'object' &&
+                'type' in element &&
+                element.type === 'text' &&
+                'text' in element &&
+                element.text === expectedState.text.text &&
+                'parentId' in element &&
+                element.parentId === expectedState.text.parentId &&
+                'containerId' in element &&
+                element.containerId === expectedState.text.containerId &&
+                'position' in element &&
+                JSON.stringify(element.position) === JSON.stringify(expectedState.text.position),
+            );
+            resolve(ellipse !== undefined && text !== undefined);
           };
         };
       }),
-    id,
+    expected,
   );
 }
 
@@ -131,15 +180,13 @@ test('whiteboard bound text edits, moves, and persists', async ({ page }, testIn
   expect(moved.text.position.y - before.text.position.y).toBeCloseTo(
     moved.ellipse.position.y - before.ellipse.position.y,
   );
-  await expect.poll(() => isSaved(page, before.ellipse.id)).toBe(true);
+  await expect.poll(() => isSaved(page, moved)).toBe(true);
   await page.reload();
   await page.waitForFunction(() => window.__playground?.sceneId === 'whiteboard');
   await page.waitForFunction(
     (id) => window.__playground.viewport.store.getById(id) !== undefined,
     before.ellipse.id,
   );
-  await expect
-    .poll(() => state(page, before.ellipse.id))
-    .toMatchObject({ text: { text: 'Ellipse' } });
+  await expect.poll(() => state(page, before.ellipse.id)).toEqual(moved);
   expect(errors).toEqual([]);
 });
