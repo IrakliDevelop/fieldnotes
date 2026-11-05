@@ -125,6 +125,66 @@ describe('isValidElement', () => {
   });
 
   it.each([
+    ['containerId is not a string', { containerId: 7 }, false],
+    ['containerId is empty', { containerId: '' }, false],
+    [
+      'containerId exceeds the id limit',
+      { containerId: 'c'.repeat(SYNC_LIMITS.maxIdLength + 1) },
+      false,
+    ],
+    ['wrap is not a boolean', { wrap: 'yes' }, false],
+    ['autoResize is not a boolean', { autoResize: 1 }, false],
+    [
+      'bound-text fields are valid',
+      { containerId: 'shape_1', wrap: false, autoResize: true },
+      true,
+    ],
+  ])('text %s', (_name, fields, expected) => {
+    expect(
+      isValidElement({ ...createText({ index: 'a0', position: { x: 0, y: 0 } }), ...fields }),
+    ).toBe(expected);
+  });
+
+  it('keeps text containerId within the 256-character element limit', () => {
+    expect(
+      elementWithinLimits(
+        { ...createText({ index: 'a0', position: { x: 0, y: 0 } }), containerId: 'c'.repeat(257) },
+        SYNC_LIMITS,
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps bound-text fields compatible with the previous text validator', () => {
+    const isLegacySize = (value: unknown): boolean => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+      return (
+        typeof value.w === 'number' &&
+        Number.isFinite(value.w) &&
+        typeof value.h === 'number' &&
+        Number.isFinite(value.h)
+      );
+    };
+    const legacyTextCase = (element: Record<string, unknown>): boolean =>
+      isLegacySize(element['size']) &&
+      typeof element['text'] === 'string' &&
+      typeof element['fontSize'] === 'number' &&
+      Number.isFinite(element['fontSize']) &&
+      typeof element['color'] === 'string' &&
+      (element['textAlign'] === 'left' ||
+        element['textAlign'] === 'center' ||
+        element['textAlign'] === 'right');
+
+    expect(
+      legacyTextCase({
+        ...createText({ index: 'a0', position: { x: 0, y: 0 } }),
+        containerId: 'shape_1',
+        wrap: false,
+        autoResize: true,
+      }),
+    ).toBe(true);
+  });
+
+  it.each([
     [undefined, true],
     [2, true],
     [0, false],
