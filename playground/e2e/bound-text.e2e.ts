@@ -109,16 +109,24 @@ async function isSaved(page: Page, expected: BoundTextState): Promise<boolean> {
             ) {
               return resolve(false);
             }
-            const ellipse = board.elements.find(
+            const elements: unknown[] = board.elements;
+            const ellipse = elements.find(
               (element) =>
                 element &&
                 typeof element === 'object' &&
                 'id' in element &&
                 element.id === expectedState.ellipse.id &&
                 'position' in element &&
-                JSON.stringify(element.position) === JSON.stringify(expectedState.ellipse.position),
+                element.position &&
+                typeof element.position === 'object' &&
+                'x' in element.position &&
+                typeof element.position.x === 'number' &&
+                element.position.x === expectedState.ellipse.position.x &&
+                'y' in element.position &&
+                typeof element.position.y === 'number' &&
+                element.position.y === expectedState.ellipse.position.y,
             );
-            const text = board.elements.find(
+            const text = elements.find(
               (element) =>
                 element &&
                 typeof element === 'object' &&
@@ -131,7 +139,14 @@ async function isSaved(page: Page, expected: BoundTextState): Promise<boolean> {
                 'containerId' in element &&
                 element.containerId === expectedState.text.containerId &&
                 'position' in element &&
-                JSON.stringify(element.position) === JSON.stringify(expectedState.text.position),
+                element.position &&
+                typeof element.position === 'object' &&
+                'x' in element.position &&
+                typeof element.position.x === 'number' &&
+                element.position.x === expectedState.text.position.x &&
+                'y' in element.position &&
+                typeof element.position.y === 'number' &&
+                element.position.y === expectedState.text.position.y,
             );
             resolve(ellipse !== undefined && text !== undefined);
           };
