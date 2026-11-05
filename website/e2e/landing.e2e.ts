@@ -64,7 +64,9 @@ test.describe('landing without JavaScript', () => {
     ).toHaveAttribute('href', 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE');
 
     const notBuilt = page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem');
-    await expect(notBuilt).toHaveText(['Elbow arrows that route around shapes']);
+    await expect(notBuilt).toHaveText([
+      'Copy and paste, and drag and drop: text, images and links pasted as elements, files dragged in, and exported images that open again as editable boards',
+    ]);
 
     const packages = page.getByRole('contentinfo').getByRole('row');
     await expect(packages.getByRole('link')).toHaveText([
