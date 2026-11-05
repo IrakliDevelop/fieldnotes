@@ -167,7 +167,11 @@ function migrateArrowLabels(elements: CanvasElement[], registry: ElementRegistry
     ) {
       continue;
     }
-    const text = escapeHtml(arrow.label);
+    const text = arrow.label.replace(/[&<>]/g, (character) => {
+      if (character === '&') return '&amp;';
+      if (character === '<') return '&lt;';
+      return '&gt;';
+    });
     const size = measureText(text, 14, null);
     const anchor = getArrowLabelAnchor(arrow, resolveBounds);
     elements.push({
@@ -189,14 +193,6 @@ function migrateArrowLabels(elements: CanvasElement[], registry: ElementRegistry
     });
     delete arrow.label;
   }
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>]/g, (character) => {
-    if (character === '&') return '&amp;';
-    if (character === '<') return '&lt;';
-    return '&gt;';
-  });
 }
 
 export function convertLegacyToEnvelopes(elements: unknown[], registry: ElementRegistry): void {

@@ -3254,7 +3254,6 @@ describe('Viewport', () => {
       select([a.id]);
       const runSpy = vi.spyOn(viewport.actions, 'run');
       viewport.openContextMenu({ x: 5, y: 5 });
-      // Click the first button (Edit text)
       const firstButton = document.querySelector('.fieldnotes-context-menu-item') as HTMLElement;
       firstButton.click();
       expect(runSpy).toHaveBeenCalledWith('selection.edit-text', { source: 'menu' });
