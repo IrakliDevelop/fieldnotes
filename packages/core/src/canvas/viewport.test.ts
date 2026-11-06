@@ -172,10 +172,9 @@ describe('Viewport', () => {
       expect(versions).toEqual([undone?.version, redone?.version]);
       expect(viewport.undo()).toBe(true);
       expect(viewport.setBoundText(rectangle.id, 'one two three')).toBeDefined();
+      const resizedRectangle = viewport.store.getById(rectangle.id);
       expect(
-        viewport.store.getById(rectangle.id)?.type === 'shape'
-          ? viewport.store.getById(rectangle.id)?.size.h
-          : undefined,
+        resizedRectangle?.type === 'shape' ? resizedRectangle.size.h : undefined,
       ).toBeGreaterThan(30);
       viewport.destroy();
     } finally {
@@ -201,11 +200,11 @@ describe('Viewport', () => {
       const laidOutText = viewport.store.getById(text.id);
 
       expect(viewport.undo()).toBe(true);
-      expect(
-        viewport.store.getById(host.id)?.type === 'shape'
-          ? viewport.store.getById(host.id)?.size
-          : undefined,
-      ).toEqual({ w: 100, h: 30 });
+      const restoredHost = viewport.store.getById(host.id);
+      expect(restoredHost?.type === 'shape' ? restoredHost.size : undefined).toEqual({
+        w: 100,
+        h: 30,
+      });
       expect(viewport.store.getById(text.id)).toBeUndefined();
       expect(viewport.redo()).toBe(true);
       expect({ ...viewport.store.getById(host.id), version: 0, editor: undefined }).toEqual({

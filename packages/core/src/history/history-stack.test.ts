@@ -189,13 +189,14 @@ describe('HistoryStack', () => {
       });
 
       expect(stack.undo(store)).toBe(true);
-      expect(
-        store.getById(host.id)?.type === 'shape' ? store.getById(host.id)?.size : undefined,
-      ).toEqual({ w: 100, h: 30 });
+      const restoredHost = store.getById(host.id);
+      expect(restoredHost?.type === 'shape' ? restoredHost.size : undefined).toEqual({
+        w: 100,
+        h: 30,
+      });
       store.update(child.id, { text: 'four five six' });
-      expect(
-        store.getById(host.id)?.type === 'shape' ? store.getById(host.id)?.size.h : undefined,
-      ).toBeGreaterThan(30);
+      const resizedHost = store.getById(host.id);
+      expect(resizedHost?.type === 'shape' ? resizedHost.size.h : undefined).toBeGreaterThan(30);
     } finally {
       setTextMeasurer(null);
     }
@@ -221,9 +222,8 @@ describe('HistoryStack', () => {
 
       expect(() => stack.undo(store)).toThrow('failed replay');
       store.add(createBoundText(host, { text: 'one two three' }));
-      expect(
-        store.getById(host.id)?.type === 'shape' ? store.getById(host.id)?.size.h : undefined,
-      ).toBeGreaterThan(30);
+      const resizedHost = store.getById(host.id);
+      expect(resizedHost?.type === 'shape' ? resizedHost.size.h : undefined).toBeGreaterThan(30);
     } finally {
       setTextMeasurer(null);
     }
