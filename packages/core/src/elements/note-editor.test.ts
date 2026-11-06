@@ -648,5 +648,29 @@ describe('NoteEditor', () => {
 
       expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
     });
+
+    it('releases focus from the node when no target can take it', async () => {
+      await startFocused();
+      target.removeAttribute('tabindex');
+      expect(document.activeElement).toBe(node);
+
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      expect(document.activeElement).not.toBe(node);
+      expect(node.contains(document.activeElement)).toBe(false);
+    });
+
+    it('returns focus to the target when the edit stops while the toolbar has focus', async () => {
+      const { editor, store } = await startFocused();
+      const button = document.querySelector<HTMLButtonElement>('[data-note-toolbar] button');
+      if (!button) throw new Error('toolbar button not found');
+      button.focus();
+      expect(document.activeElement).toBe(button);
+      expect(editor.isEditing).toBe(true);
+
+      editor.stopEditing(store);
+
+      expect(document.activeElement).toBe(target);
+    });
   });
 });

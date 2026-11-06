@@ -70,6 +70,7 @@ test.describe('notes editing', () => {
 
     await expect.poll(undoCount).toBe(before - 1);
     const notes = (await canvasPage.getElementsByType('note')) as { text: string }[];
+    expect(notes).toHaveLength(1);
     expect(notes[0]?.text ?? '').not.toContain('Hello');
   });
 });

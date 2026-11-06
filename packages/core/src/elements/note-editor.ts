@@ -101,9 +101,9 @@ export class NoteEditor {
 
     if (!this.editingId || !this.editingNode) return;
 
+    const node = this.editingNode;
     const active = document.activeElement;
-    const hadFocus =
-      this.editingNode.contains(active) || !!this.toolbar?.getElement()?.contains(active);
+    const hadFocus = node.contains(active) || !!this.toolbar?.getElement()?.contains(active);
 
     if (this.blurHandler) {
       this.editingNode.removeEventListener('blur', this.blurHandler);
@@ -150,7 +150,9 @@ export class NoteEditor {
     this.keyHandler = null;
     this.pointerHandler = null;
     this.inputHandler = null;
-    if (hadFocus) this.focusReturnTarget?.focus({ preventScroll: true });
+    if (!hadFocus) return;
+    this.focusReturnTarget?.focus({ preventScroll: true });
+    if (node.contains(document.activeElement)) node.blur();
   }
 
   destroy(store: ElementStore): void {
