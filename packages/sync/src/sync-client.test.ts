@@ -26,6 +26,8 @@ import type { FogMetaRecord, FogSnapshot, LayerRecord, SyncCapabilities, SyncOp 
 import type { SyncTransport } from './sync-transport';
 import { createExtensionKind } from './sync-plugin';
 import { createCurrentCapabilities } from './capabilities';
+import { HistoryRecorder } from '../../core/src/history/history-recorder';
+import { HistoryStack } from '../../core/src/history/history-stack';
 
 interface BusEndpoint extends SyncTransport {
   sent: string[];
@@ -358,6 +360,28 @@ describe('SyncClient', () => {
     if (remote?.type === 'note') {
       expect(remote.backgroundColor).toBe('#bbbbbb');
     }
+  });
+
+  it('publishes a newer local undo to the connected peer', () => {
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(storeA, stack);
+    const note = createNote({ index: 'a0', position: { x: 0, y: 0 } });
+    recorder.pause();
+    storeA.add(note);
+    recorder.resume();
+    recorder.begin();
+    storeA.update(note.id, { position: { x: 50, y: 50 } });
+    recorder.commit();
+    const beforeUndo = storeA.getById(note.id)?.version;
+
+    expect(storeB.getById(note.id)?.position).toEqual({ x: 50, y: 50 });
+    recorder.pause();
+    expect(stack.undo(storeA)).toBe(true);
+    recorder.resume();
+
+    expect(storeA.getById(note.id)?.version).toBeGreaterThan(beforeUndo ?? 0);
+    expect(storeB.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
+    expect(storeB.getById(note.id)?.version).toBe(storeA.getById(note.id)?.version);
   });
 
   it('keeps negotiated template envelopes on the wire and at runtime', () => {
@@ -965,9 +989,7 @@ describe('SyncClient snapshot-on-join', () => {
     if (!resp) throw new Error('expected a snapshot response');
     expect(resp.to).toBe('X');
     expect(resp.elements).toHaveLength(2);
-    expect(resp.elements).toEqual(
-      storeA.snapshot().map((element) => ({ ...element, editor: 'A' })),
-    );
+    expect(resp.elements).toEqual(storeA.snapshot());
   });
 });
 

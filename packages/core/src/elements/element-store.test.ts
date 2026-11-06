@@ -2541,12 +2541,12 @@ describe('ElementStore order keys and versions', () => {
     expect(store.getById('n')?.version).toBe(6);
   });
 
-  it('history replay restores recorded versions', () => {
+  it('history replay advances local versions and clears editor', () => {
     const store = new ElementStore();
     const stack = new HistoryStack();
     const recorder = new HistoryRecorder(store, stack);
     recorder.pause();
-    store.add(makeNote({ id: 'n', index: 'a0', version: 1 }));
+    store.add(makeNote({ id: 'n', index: 'a0', version: 1, editor: 'A' }));
     recorder.resume();
     recorder.begin();
     store.update('n', { position: { x: 10, y: 0 } });
@@ -2554,10 +2554,11 @@ describe('ElementStore order keys and versions', () => {
     expect(store.getById('n')?.version).toBe(2);
     recorder.pause();
     stack.undo(store);
-    expect(store.getById('n')?.version).toBe(1);
+    expect(store.getById('n')?.version).toBe(3);
     expect(store.getById('n')?.position).toEqual({ x: 0, y: 0 });
+    expect(store.getById('n')).not.toHaveProperty('editor');
     stack.redo(store);
-    expect(store.getById('n')?.version).toBe(2);
+    expect(store.getById('n')?.version).toBe(4);
     expect(store.getById('n')?.position).toEqual({ x: 10, y: 0 });
   });
 

@@ -2,7 +2,7 @@ export interface EventMeta {
   origin?: string;
 }
 
-/** True for non-local changes: history replay keeps recorded versions, while replication may publish it. */
+/** True for changes applied from outside this client: not recorded to history, versions taken as given. */
 export function isExternalChange(meta: EventMeta | undefined): boolean {
   return meta?.origin !== undefined && meta.origin !== 'local';
 }

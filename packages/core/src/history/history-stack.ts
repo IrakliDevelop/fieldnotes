@@ -1,4 +1,4 @@
-import type { ElementStore } from '../elements/element-store';
+import { replayWithoutDerivation, type ElementStore } from '../elements/element-store';
 import { EventBus } from '../core/event-bus';
 import type { Command } from './types';
 
@@ -54,7 +54,7 @@ export class HistoryStack {
     const command = this.undoStack.pop();
     if (!command) return false;
 
-    command.undo(store);
+    replayWithoutDerivation(store, () => command.undo(store));
     this.redoStack.push(command);
     this.notifyChange();
     return true;
@@ -64,7 +64,7 @@ export class HistoryStack {
     const command = this.redoStack.pop();
     if (!command) return false;
 
-    command.execute(store);
+    replayWithoutDerivation(store, () => command.execute(store));
     this.undoStack.push(command);
     this.notifyChange();
     return true;

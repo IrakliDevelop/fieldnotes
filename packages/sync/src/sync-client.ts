@@ -162,12 +162,6 @@ export interface SyncClientOptions {
 /** A queued local element op: an upsert reads the element from the store at flush time. */
 type QueuedOp = { kind: 'upsert'; id: string } | Extract<BatchOp, { kind: 'remove' }>;
 
-interface EffectiveRevision {
-  readonly version: number;
-  readonly editor: string;
-  readonly history: boolean;
-}
-
 type LocalOp =
   | { kind: 'upsert'; element: CanvasElement }
   | Extract<BatchOp, { kind: 'remove' }>
@@ -194,7 +188,7 @@ function isTransientHtml(el: { readonly type: string; readonly transient?: boole
 const HUB_FROM = 'hub';
 
 function isExternal(origin: string | undefined): boolean {
-  return origin !== undefined && origin !== 'local' && origin !== 'history';
+  return origin !== undefined && origin !== 'local';
 }
 
 function randomId(): string {
@@ -232,8 +226,8 @@ export class SyncClient {
   /** Local Date.now() at which each tombstone was recorded; the wire shape stays unchanged. */
   private readonly tombstoneTimes = new Map<string, number>();
   private readonly tombstoneRetentionMs: number;
-  /** Non-transient effective revisions, kept so clear can tombstone dropped elements. */
-  private readonly liveRevisions = new Map<string, EffectiveRevision>();
+  /** Non-transient store versions, kept so a clear can tombstone elements the store already dropped. */
+  private readonly liveVersions = new Map<string, number>();
   /** A hub computes its own clear tombstones; peers need ours. */
   private peerIsHub = false;
   private readonly presenceHandlers = new Set<(from: string, data: unknown) => void>();
@@ -285,26 +279,30 @@ export class SyncClient {
     // A reconcile-first client resumes an already-synced store, so its first
     // snapshot IS a resync: shield local ops made before it arrives.
     if (this.joined) this.resyncPending = true;
-    for (const element of this.store.getAll()) this.seedLive(element);
+    this.liveVersions.clear();
+    for (const element of this.store.getAll()) this.trackLive(element);
     this.unsubscribers = [
       this.store.on('add', (el, meta) => {
-        this.trackLive(el, meta.origin);
+        this.trackLive(el);
         this.onLocal({ kind: 'upsert', element: el }, meta.origin);
       }),
       this.store.on('update', ({ current }, meta) => {
-        this.trackLive(current, meta.origin);
+        this.trackLive(current);
         this.onLocal({ kind: 'upsert', element: current }, meta.origin);
       }),
       this.store.on('remove', (el, meta) => {
-        const remove = this.reserveRemove(el, meta.origin);
+        this.liveVersions.delete(el.id);
         this.hubKnownIds.delete(el.id);
-        this.onLocal(remove, meta.origin);
+        this.onLocal(
+          { kind: 'remove', id: el.id, version: el.version + 1, editor: this.clientId },
+          meta.origin,
+        );
       }),
       this.store.on('clear', (_data, meta) => this.onStoreCleared(meta.origin)),
       this.store.on('batch', (_data, meta) => {
         this.onStoreCleared(meta.origin);
         for (const element of this.store.snapshot()) {
-          this.trackLive(element, meta.origin);
+          this.trackLive(element);
           this.onLocal({ kind: 'upsert', element }, meta.origin);
         }
       }),
@@ -508,7 +506,7 @@ export class SyncClient {
           const element = this.store.getById(entry.id);
           // Gone at flush: a remote remove, clear or correction deleted it and wins.
           if (!element || isTransientHtml(element)) continue;
-          op = { kind: 'upsert', element: this.stampAudience(this.projectElement(element)) };
+          op = { kind: 'upsert', element: this.stampAudience(this.stampVersion(element)) };
         }
         if (isWithinSyncLimits({ from: this.clientId, op })) ops.push(op);
         else globalThis.reportError?.(new SyncLimitError(entry.id, violatedLimit(op)));
@@ -668,77 +666,18 @@ export class SyncClient {
     return audience === undefined ? element : { ...element, audience };
   }
 
-  private seedLive(element: CanvasElement): void {
-    if (isTransientHtml(element) || this.liveRevisions.has(element.id)) return;
-    this.liveRevisions.set(element.id, {
-      version: element.version,
-      editor: element.editor ?? this.clientId,
-      history: false,
-    });
-  }
-
-  private trackLive(element: CanvasElement, origin: string | undefined): void {
-    if (isTransientHtml(element)) return;
-    if (isExternal(origin)) {
-      this.liveRevisions.set(element.id, {
-        version: element.version,
-        editor: element.editor ?? this.clientId,
-        history: false,
-      });
-      return;
-    }
-    const previous = this.liveRevisions.get(element.id);
-    const tombstone = this.tombstones.get(element.id);
-    const version = Math.max(
-      element.version,
-      previous === undefined ? Number.NEGATIVE_INFINITY : previous.version + 1,
-      tombstone === undefined ? Number.NEGATIVE_INFINITY : tombstone.version + 1,
-    );
-    const history = origin === 'history';
-    this.liveRevisions.set(element.id, { version, editor: this.clientId, history });
-    this.deleteTombstone(element.id);
-    if (!history && version !== element.version) {
-      this.store.update(element.id, { version }, { origin: REMOTE_ORIGIN });
-    }
-  }
-
-  private reserveRemove(
-    element: CanvasElement,
-    origin: string | undefined,
-  ): Extract<BatchOp, { kind: 'remove' }> {
-    const previous = this.liveRevisions.get(element.id);
-    const tombstone = this.tombstones.get(element.id);
-    this.liveRevisions.delete(element.id);
-    if (isExternal(origin)) {
-      return {
-        kind: 'remove',
-        id: element.id,
-        version: element.version + 1,
-        editor: this.clientId,
-      };
-    }
-    const version =
-      Math.max(
-        element.version,
-        previous?.version ?? Number.NEGATIVE_INFINITY,
-        tombstone?.version ?? Number.NEGATIVE_INFINITY,
-      ) + 1;
-    return { kind: 'remove', id: element.id, version, editor: this.clientId };
+  private trackLive(element: CanvasElement): void {
+    if (!isTransientHtml(element)) this.liveVersions.set(element.id, element.version);
   }
 
   /** The store is already empty here, so tombstones come from the last seen live versions. */
   private onStoreCleared(origin: string | undefined): void {
-    const live = [...this.liveRevisions];
-    this.liveRevisions.clear();
+    const live = [...this.liveVersions];
+    this.liveVersions.clear();
     for (const [id] of live) this.hubKnownIds.delete(id);
     if (isExternal(origin)) return;
-    const tombstones = live.map(([id, revision]) => {
-      const existing = this.tombstones.get(id);
-      const tombstone = {
-        id,
-        version: Math.max(revision.version, existing?.version ?? Number.NEGATIVE_INFINITY) + 1,
-        editor: this.clientId,
-      };
+    const tombstones = live.map(([id, version]) => {
+      const tombstone = { id, version: version + 1, editor: this.clientId };
       this.recordTombstone(tombstone);
       return tombstone;
     });
@@ -766,22 +705,23 @@ export class SyncClient {
     }
   }
 
-  /** The effective revision represents the content peers last accepted from this client. */
+  /** A local edit not yet echoed has no editor; it competes as this peer's. */
   private localVersion(id: string): { version: number; editor: string } | undefined {
-    const revision = this.liveRevisions.get(id);
-    return revision && { version: revision.version, editor: revision.editor };
+    const element = this.store.getById(id);
+    return element && { version: element.version, editor: element.editor ?? this.clientId };
   }
 
-  private projectElement(element: CanvasElement): SyncElement {
-    const revision = this.liveRevisions.get(element.id);
-    if (!revision) return { ...element, editor: this.clientId };
-    return { ...element, version: revision.version, editor: revision.editor };
-  }
-
-  private projectSnapshotElement(element: CanvasElement): CanvasElement {
-    const revision = this.liveRevisions.get(element.id);
-    if (!revision) return element;
-    return { ...element, version: revision.version, editor: revision.editor };
+  /** Lifts a resurrected element above its tombstone; the editor is never written back. */
+  private stampVersion(element: CanvasElement): SyncElement {
+    const tombstone = this.tombstones.get(element.id);
+    this.deleteTombstone(element.id);
+    let version = element.version;
+    if (tombstone && tombstone.version >= version) {
+      version = tombstone.version + 1;
+      // Fires inside the store's add emission; the remote origin keeps it out of history.
+      this.store.update(element.id, { version }, { origin: REMOTE_ORIGIN });
+    }
+    return { ...element, version, editor: this.clientId };
   }
 
   private onLocal(op: LocalOp, origin: string | undefined): void {
@@ -789,12 +729,6 @@ export class SyncClient {
     // Transient elements belong to the embedding host, not the document: the hub must never
     // learn about them. Removes need no guard — the hub never knew the element existed.
     if (op.kind === 'upsert' && isTransientHtml(op.element)) return;
-    if (op.kind === 'upsert') {
-      const revision = this.liveRevisions.get(op.element.id);
-      if (revision && revision.editor !== this.clientId) {
-        this.liveRevisions.set(op.element.id, { ...revision, editor: this.clientId });
-      }
-    }
     if (op.kind === 'remove') {
       this.recordTombstone({ id: op.id, version: op.version, editor: op.editor });
     }
@@ -861,10 +795,7 @@ export class SyncClient {
     const op = env.op;
     if (op.kind === 'request-snapshot') {
       this.pruneTombstones();
-      const elements = this.store
-        .snapshot()
-        .filter((el) => !isTransientHtml(el))
-        .map((el) => this.projectSnapshotElement(el));
+      const elements = this.store.snapshot().filter((el) => !isTransientHtml(el));
       const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to: env.from, elements };
       if (this.layerLedger) snapshotOp['layers'] = this.layerLedger.records();
       if (this.tombstones.size > 0) snapshotOp['tombstones'] = [...this.tombstones.values()];
@@ -1061,7 +992,7 @@ export class SyncClient {
         tombstone !== undefined &&
         (touched
           ? isNewerVersion(tombstone, this.localVersion(local.id))
-          : tombstone.version >= (this.localVersion(local.id)?.version ?? local.version));
+          : tombstone.version >= local.version);
       if (superseded) {
         this.store.remove(local.id, { origin: REMOTE_ORIGIN });
         continue;
@@ -1086,8 +1017,7 @@ export class SyncClient {
       const local = this.store.getById(el.id);
       // A touched local edit is already sent, so it keeps the live tie-break; otherwise ties go to the room.
       const touched = this.touchedDuringResync.has(el.id);
-      const localRevision = this.localVersion(el.id);
-      if (!touched && localRevision && localRevision.version > el.version) {
+      if (!touched && local && local.version > el.version) {
         newer.push(el.id);
         continue;
       }

@@ -80,8 +80,7 @@ export interface ElementChangeMeta {
   /**
    * Identifies what caused the change. `undefined` or `'local'` = a local change (recorded to undo
    * history and observed as local). Any other value (e.g. `'remote'`) marks an externally-applied
-   * change: it is NOT recorded to undo history. `'history'` is reserved local replay and replication
-   * layers publish it; `'remote'`, `'host'`, and other external origins remain non-local.
+   * change: it is NOT recorded to undo history, and is tagged so observers can avoid re-broadcasting it.
    * `'host'` is reserved for host-owned elements driven by the embedding application; like `'remote'`
    * it is external, so it neither creates an undo step nor is re-broadcast.
    */
@@ -95,6 +94,19 @@ interface ElementStoreEvents {
   clear: null;
   /** Atomic replacement completed; inspect the store for its final contents. */
   batch: null;
+}
+
+const replayingStores = new WeakSet<ElementStore>();
+
+/** Runs command replay without bound-text derivation for this store. */
+export function replayWithoutDerivation<T>(store: ElementStore, run: () => T): T {
+  const alreadyReplaying = replayingStores.has(store);
+  if (!alreadyReplaying) replayingStores.add(store);
+  try {
+    return run();
+  } finally {
+    if (!alreadyReplaying) replayingStores.delete(store);
+  }
 }
 
 export class ElementStore {
@@ -242,6 +254,7 @@ export class ElementStore {
     const getCandidate = (id: string): CanvasElement | undefined =>
       overlay.get(id) ?? this.elements.get(id);
     if (
+      !replayingStores.has(this) &&
       !isExternalChange(meta) &&
       element.type === 'text' &&
       element.containerId &&
@@ -406,7 +419,7 @@ export class ElementStore {
       type: existing.type,
     } as CanvasElement;
 
-    // Local edits advance versions; external/history writes preserve recorded versions.
+    // Local edits (including undo/redo) always move forward; remote ones carry the accepted version.
     if (!isExternalChange(meta)) {
       updated.version = existing.version + 1;
       delete updated.editor;
@@ -481,7 +494,7 @@ export class ElementStore {
     }[],
     meta: ElementChangeMeta | undefined,
   ): void {
-    if (isExternalChange(meta)) return;
+    if (replayingStores.has(this) || isExternalChange(meta)) return;
     const geometry = new Set<string>();
     const textIds = new Set<string>();
     for (const item of prepared) {

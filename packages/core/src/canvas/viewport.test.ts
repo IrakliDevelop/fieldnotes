@@ -37,6 +37,7 @@ import { LaserTool } from '../tools/laser-tool';
 import { FIXED_HELP_ROWS } from './palette-model';
 import { setTextMeasurer } from '../elements/text-measure';
 import { ElementRegistry } from '../elements/element-registry';
+import { createBoundText } from '../elements/bound-text';
 
 function arrowAnchor(from: { x: number; y: number }, to: { x: number; y: number }, bend: number) {
   const dx = to.x - from.x;
@@ -130,6 +131,15 @@ describe('Viewport', () => {
       if (!id) throw new Error('expected bound text');
       const grown = viewport.store.getById(rectangle.id);
       const text = viewport.store.getById(id);
+      const versions: number[] = [];
+      const origins: (string | undefined)[] = [];
+      viewport.store.on('update', ({ current }, meta) => {
+        if (current.id === rectangle.id) {
+          versions.push(current.version);
+          origins.push(meta.origin);
+        }
+      });
+      const beforeUndoVersion = grown?.version;
 
       expect(viewport.undo()).toBe(true);
       const restoredRectangle = viewport.store.getById(rectangle.id);
@@ -138,9 +148,73 @@ describe('Viewport', () => {
         h: 30,
       });
       expect(viewport.store.getById(id)).toBeUndefined();
+      const undone = viewport.store.getById(rectangle.id);
+      expect(undone?.version).toBeGreaterThan(beforeUndoVersion ?? 0);
+      expect(undone).not.toHaveProperty('editor');
       expect(viewport.redo()).toBe(true);
-      expect(viewport.store.getById(rectangle.id)).toEqual(grown);
-      expect(viewport.store.getById(id)).toEqual(text);
+      const redone = viewport.store.getById(rectangle.id);
+      expect(redone?.version).toBeGreaterThan(undone?.version ?? 0);
+      expect(redone).not.toHaveProperty('editor');
+      expect({ ...redone, version: 0, editor: undefined }).toEqual({
+        ...grown,
+        version: 0,
+        editor: undefined,
+      });
+      expect({ ...viewport.store.getById(id), version: 0, editor: undefined }).toEqual({
+        ...text,
+        version: 0,
+        editor: undefined,
+      });
+      expect(origins).toEqual([undefined, undefined]);
+      expect(versions).toEqual([undone?.version, redone?.version]);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.setBoundText(rectangle.id, 'one two three')).toBeDefined();
+      expect(
+        viewport.store.getById(rectangle.id)?.type === 'shape'
+          ? viewport.store.getById(rectangle.id)?.size.h
+          : undefined,
+      ).toBeGreaterThan(30);
+      viewport.destroy();
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('replays direct bound-text adds without deriving new geometry', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const viewport = new Viewport(container);
+      const host = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 30 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const text = createBoundText(host, { text: 'one two three' });
+      viewport.store.add(host);
+      viewport.history.clear();
+      viewport.transaction(() => viewport.store.add(text));
+      const grown = viewport.store.getById(host.id);
+      const laidOutText = viewport.store.getById(text.id);
+
+      expect(viewport.undo()).toBe(true);
+      expect(
+        viewport.store.getById(host.id)?.type === 'shape'
+          ? viewport.store.getById(host.id)?.size
+          : undefined,
+      ).toEqual({ w: 100, h: 30 });
+      expect(viewport.store.getById(text.id)).toBeUndefined();
+      expect(viewport.redo()).toBe(true);
+      expect({ ...viewport.store.getById(host.id), version: 0, editor: undefined }).toEqual({
+        ...grown,
+        version: 0,
+        editor: undefined,
+      });
+      expect({ ...viewport.store.getById(text.id), version: 0, editor: undefined }).toEqual({
+        ...laidOutText,
+        version: 0,
+        editor: undefined,
+      });
       viewport.destroy();
     } finally {
       setTextMeasurer(null);
@@ -196,9 +270,13 @@ describe('Viewport', () => {
     expect(viewport.store.getById(arrow.id)).toMatchObject({ label: undefined });
     expect(viewport.history.undoCount).toBe(1);
     expect(viewport.undo()).toBe(true);
-    expect(viewport.store.getAll()).toEqual(before);
+    expect(
+      viewport.store.getAll().map(({ version: _version, editor: _editor, ...element }) => element),
+    ).toEqual(before.map(({ version: _version, editor: _editor, ...element }) => element));
     expect(viewport.redo()).toBe(true);
-    expect(viewport.store.getAll()).toEqual(after);
+    expect(
+      viewport.store.getAll().map(({ version: _version, editor: _editor, ...element }) => element),
+    ).toEqual(after.map(({ version: _version, editor: _editor, ...element }) => element));
     viewport.destroy();
   });
 
@@ -1103,13 +1181,12 @@ describe('Viewport', () => {
         before.map(({ version: _version, ...element }) => element),
       );
       const undoneArrow = viewport.store.getById(arrow.id);
-      expect(undoneArrow?.version).toBe(arrow.version);
+      expect(undoneArrow?.version).toBeGreaterThan(editedArrow?.version ?? 0);
       expect(viewport.redo()).toBe(true);
       expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
         after.map(({ version: _version, ...element }) => element),
       );
-      expect(viewport.store.getById(arrow.id)?.version).toBe(editedArrow?.version);
-      expect(viewport.getBoundText(arrow.id)?.version).toBe(editedText?.version);
+      expect(viewport.store.getById(arrow.id)?.version).toBeGreaterThan(undoneArrow?.version ?? 0);
       viewport.destroy();
     });
 

@@ -2,8 +2,6 @@ import type { CanvasElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import type { Command } from './types';
 
-const HISTORY_META = { origin: 'history' };
-
 export class AddElementCommand implements Command {
   private readonly element: CanvasElement;
 
@@ -12,11 +10,11 @@ export class AddElementCommand implements Command {
   }
 
   execute(store: ElementStore): void {
-    store.add(this.element, HISTORY_META);
+    store.add(this.element);
   }
 
   undo(store: ElementStore): void {
-    store.remove(this.element.id, HISTORY_META);
+    store.remove(this.element.id);
   }
 }
 
@@ -28,11 +26,11 @@ export class RemoveElementCommand implements Command {
   }
 
   execute(store: ElementStore): void {
-    store.remove(this.element.id, HISTORY_META);
+    store.remove(this.element.id);
   }
 
   undo(store: ElementStore): void {
-    store.add(this.element, HISTORY_META);
+    store.add(this.element);
   }
 }
 
@@ -44,11 +42,11 @@ export class UpdateElementCommand implements Command {
   ) {}
 
   execute(store: ElementStore): void {
-    store.update(this.id, diffPatch(this.previous, this.current), HISTORY_META);
+    store.update(this.id, diffPatch(this.previous, this.current));
   }
 
   undo(store: ElementStore): void {
-    store.update(this.id, diffPatch(this.current, this.previous), HISTORY_META);
+    store.update(this.id, diffPatch(this.current, this.previous));
   }
 }
 
@@ -69,7 +67,6 @@ export class UpdateElementsCommand implements Command {
         id: current.id,
         partial: diffPatch(previous, current),
       })),
-      HISTORY_META,
     );
   }
 
@@ -79,7 +76,6 @@ export class UpdateElementsCommand implements Command {
         id: previous.id,
         partial: diffPatch(current, previous),
       })),
-      HISTORY_META,
     );
   }
 }
