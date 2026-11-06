@@ -217,8 +217,7 @@ export class MinimapController {
     this.canvas.height = Math.max(1, Math.round(this.height * dpr));
   }
 
-  // Single source for both mapping bounds and rendering: layer-visible elements
-  // except bound text, which is represented by its container.
+  // Single source for both mapping bounds and rendering: layer-visible elements.
   // Full-canvas extensions return null bounds through their registered adapter.
   private sceneElements(): CanvasElement[] {
     return this.viewport.store

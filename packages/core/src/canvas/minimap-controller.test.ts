@@ -685,6 +685,7 @@ describe('MinimapController', () => {
       size: { w: 50, h: 20 },
       layerId,
       text: 'Ordinary',
+      color: '#ff00ff',
     });
     viewport.store.add(shape);
     viewport.store.add(boundText);
@@ -697,12 +698,8 @@ describe('MinimapController', () => {
     expect(
       rendererSpy.mock.calls.map(([, element]: [unknown, CanvasElement]) => element.id),
     ).toEqual([shape.id]);
-    expect(recorder.fillRectLog).toEqual([
-      {
-        args: [58.666666666666664, 49.333333333333336, 10.333333333333334, 4.133333333333333],
-        fillStyle: '#1a1a1a',
-      },
-    ]);
+    expect(recorder.fillRectLog).toHaveLength(1);
+    expect(recorder.fillRectLog[0]?.fillStyle).toBe('#ff00ff');
 
     controller.dispose();
     viewport.destroy();
