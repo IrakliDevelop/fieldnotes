@@ -1795,17 +1795,18 @@ describe('persisted state v5', () => {
   });
 
   it('uses one lookup map while resolving several migrated arrow bindings', () => {
-    const target = createShape({
+    const target = {
+      ...createShape({
+        index: 'a0',
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        layerId: 'L1',
+      }),
       id: 'target',
-      index: 'a0',
-      shape: 'rectangle',
-      position: { x: 0, y: 0 },
-      size: { w: 100, h: 100 },
-      layerId: 'L1',
-    });
-    const arrows = ['one', 'two', 'three'].map((id, index) =>
-      createArrow({
-        id,
+    };
+    const arrows = ['one', 'two', 'three'].map((id, index) => ({
+      ...createArrow({
         index: `a${index + 1}`,
         from: { x: 0, y: 0 },
         to: { x: 100, y: 0 },
@@ -1813,7 +1814,8 @@ describe('persisted state v5', () => {
         fromBinding: { elementId: target.id },
         label: id,
       }),
-    );
+      id,
+    }));
     const elements = [target, ...arrows];
     const find = vi.spyOn(elements, 'find');
     const migrated = migrateState({

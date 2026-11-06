@@ -237,7 +237,8 @@ describe('ElementStore', () => {
     const events: string[] = [];
     store.on('add', ({ id }) => {
       expect(shapeOf(store, shape.id).size).toEqual({ w: 100, h: 132 });
-      expect(store.getById(arrow.id)?.type === 'arrow' && store.getById(arrow.id)?.from).toEqual({
+      const currentArrow = store.getById(arrow.id);
+      expect(currentArrow?.type === 'arrow' ? currentArrow.from : undefined).toEqual({
         x: 50,
         y: 66,
       });
@@ -247,7 +248,8 @@ describe('ElementStore', () => {
     });
     store.on('update', ({ current }) => {
       expect(shapeOf(store, shape.id).size).toEqual({ w: 100, h: 132 });
-      expect(store.getById(arrow.id)?.type === 'arrow' && store.getById(arrow.id)?.from).toEqual({
+      const currentArrow = store.getById(arrow.id);
+      expect(currentArrow?.type === 'arrow' ? currentArrow.from : undefined).toEqual({
         x: 50,
         y: 66,
       });

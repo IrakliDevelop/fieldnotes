@@ -91,7 +91,9 @@ describe('ViewportInteractions', () => {
 
     expect(new ViewportInteractions(deps).editBoundText(shape.id)).toBe(true);
 
-    const text = store.getAll().find((element) => element.containerId === shape.id);
+    const text = store
+      .getAll()
+      .find((element) => element.type === 'text' && element.containerId === shape.id);
     if (!text || text.type !== 'text') throw new Error('expected bound text');
     expect(sync).toHaveBeenCalledWith(text);
     expect(sync.mock.calls[0]?.[0]).toBe(text);

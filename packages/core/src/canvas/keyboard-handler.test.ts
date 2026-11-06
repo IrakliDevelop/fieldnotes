@@ -3,6 +3,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActionRegistry } from '../actions/action-registry';
+import type { ActionContext } from '../actions/types';
 import { Camera } from './camera';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
@@ -19,7 +20,11 @@ function setup(scope: 'focus' | 'window') {
   const element = document.createElement('div');
   element.tabIndex = 0;
   document.body.append(element);
-  const actions = new ActionRegistry(() => ({}));
+  const actions = new ActionRegistry((): ActionContext => ({
+    viewport: null as unknown as ActionContext['viewport'],
+    store: null as unknown as ActionContext['store'],
+    selectedIds: [],
+  }));
   const calls = vi.fn();
   for (const [id, shortcut] of [
     ['test.enter', 'enter'],
@@ -28,8 +33,8 @@ function setup(scope: 'focus' | 'window') {
     ['test.nudge-right', 'arrowright'],
     ['test.undo', 'mod+z'],
     ['test.tool', 'f'],
-  ]) {
-    actions.register({ id, shortcut: [shortcut], perform: calls });
+  ] as const) {
+    actions.register({ id, label: id, shortcut: [shortcut], perform: calls });
   }
   const abort = new AbortController();
   abortControllers.add(abort);

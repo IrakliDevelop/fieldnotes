@@ -2031,12 +2031,16 @@ describe('KeyboardActions extension cloneRemap', () => {
     actions.duplicate();
     const duplicate = tool.selectedIds[0];
     if (!duplicate) throw new Error('expected duplicate');
-    expect(ctx.store.getChildren(duplicate)[0]?.size).toEqual({ w: 184, h: 30 });
+    const duplicateText = ctx.store
+      .getChildren(duplicate)
+      .find((element) => element.type === 'text');
+    expect(duplicateText?.size).toEqual({ w: 184, h: 30 });
     tool.setSelection([shape.id]);
     actions.copy();
     actions.paste();
     const pasted = tool.selectedIds[0];
     if (!pasted) throw new Error('expected paste');
-    expect(ctx.store.getChildren(pasted)[0]?.size).toEqual({ w: 184, h: 30 });
+    const pastedText = ctx.store.getChildren(pasted).find((element) => element.type === 'text');
+    expect(pastedText?.size).toEqual({ w: 184, h: 30 });
   });
 });

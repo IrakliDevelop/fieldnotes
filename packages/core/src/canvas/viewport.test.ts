@@ -117,7 +117,11 @@ describe('Viewport', () => {
       const text = viewport.store.getById(id);
 
       expect(viewport.undo()).toBe(true);
-      expect(viewport.store.getById(rectangle.id)?.size).toEqual({ w: 100, h: 30 });
+      const restoredRectangle = viewport.store.getById(rectangle.id);
+      expect(restoredRectangle?.type === 'shape' ? restoredRectangle.size : undefined).toEqual({
+        w: 100,
+        h: 30,
+      });
       expect(viewport.store.getById(id)).toBeUndefined();
       expect(viewport.redo()).toBe(true);
       expect(viewport.store.getById(rectangle.id)).toEqual(grown);
