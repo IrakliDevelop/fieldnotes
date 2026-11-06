@@ -604,19 +604,19 @@ export class ElementStore {
       )
         return false;
       const item = primary.get(id);
-      const updated = { ...(item?.updated ?? current), ...partial } as CanvasElement;
-      if (item) item.updated = updated;
-      else {
-        const existing = this.elements.get(id);
-        if (!existing) return false;
-        const derived = this.prepareUpdate(existing, partial, meta);
-        const next = { existing, updated: derived, partial };
-        prepared.push(next);
-        primary.set(id, next);
-        candidate.set(id, derived);
+      if (item) {
+        item.partial = { ...item.partial, ...partial };
+        item.updated = this.prepareUpdate(item.existing, item.partial, meta);
+        candidate.set(id, item.updated);
         return true;
       }
-      candidate.set(id, updated);
+      const existing = this.elements.get(id);
+      if (!existing) return false;
+      const derived = this.prepareUpdate(existing, partial, meta);
+      const next = { existing, updated: derived, partial };
+      prepared.push(next);
+      primary.set(id, next);
+      candidate.set(id, derived);
       return true;
     };
     const grown = new Set<string>();
