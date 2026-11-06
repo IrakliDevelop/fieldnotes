@@ -7,7 +7,11 @@ import { Camera } from './camera';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
 
+const abortControllers = new Set<AbortController>();
+
 afterEach(() => {
+  for (const abort of abortControllers) abort.abort();
+  abortControllers.clear();
   document.body.replaceChildren();
 });
 
@@ -28,6 +32,7 @@ function setup(scope: 'focus' | 'window') {
     actions.register({ id, shortcut: [shortcut], perform: calls });
   }
   const abort = new AbortController();
+  abortControllers.add(abort);
   new KeyboardHandler({
     element,
     camera: new Camera(),

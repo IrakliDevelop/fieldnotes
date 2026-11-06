@@ -197,8 +197,10 @@ describe('Integration: live html elements', () => {
       const { content } = addSelectedLive();
       const video = document.createElement('video');
       video.controls = true;
+      video.tabIndex = 0;
       content.append(video);
       video.focus();
+      expect(document.activeElement).toBe(video);
 
       press(video, ' ');
       dispatch(wrapper, 'pointerdown', 600, 400);
