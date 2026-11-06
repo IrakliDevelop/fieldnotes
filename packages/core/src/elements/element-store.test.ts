@@ -831,6 +831,35 @@ describe('ElementStore', () => {
     }
   });
 
+  it('does not rescan prepared batches for each unbound geometry update', () => {
+    const store = new ElementStore();
+    const batchSize = 64;
+    const shapes = Array.from({ length: batchSize }, (_, index) => ({
+      ...createShape({ position: { x: index, y: 0 }, size: { w: 100, h: 60 } }),
+      id: `shape-${index}`,
+    }));
+    for (const shape of shapes) store.add(shape);
+    const find = vi.spyOn(Array.prototype, 'find');
+    const some = vi.spyOn(Array.prototype, 'some');
+    try {
+      find.mockClear();
+      some.mockClear();
+
+      store.updateMany(
+        shapes.map((shape) => ({
+          id: shape.id,
+          partial: { position: { x: shape.position.x + 1, y: shape.position.y + 1 } },
+        })),
+      );
+
+      expect(find).toHaveBeenCalledTimes(batchSize);
+      expect(some.mock.calls.length).toBeLessThanOrEqual(2 * batchSize + 2);
+    } finally {
+      find.mockRestore();
+      some.mockRestore();
+    }
+  });
+
   it('rebuilds clip projection after local and inherited registry registration changes', () => {
     const parentRegistry = new ElementRegistry();
     const registry = new ElementRegistry(parentRegistry);
