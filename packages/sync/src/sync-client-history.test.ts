@@ -129,6 +129,9 @@ describe('SyncClient history replay', () => {
     expect(a.viewport.redo()).toBe(true);
     outbound.push(lastData(a));
     deliver(a, b, 'A');
+    expect(a.viewport.store.getById('x')).toMatchObject({ version: 2, fillColor: '#222222' });
+    expect(b.viewport.store.getById('x')).toMatchObject({ fillColor: '#222222' });
+    expect(a.viewport.history).toMatchObject({ undoCount: 1, redoCount: 0 });
     expect(a.viewport.undo()).toBe(true);
     outbound.push(lastData(a));
     deliver(a, b, 'A');
@@ -151,15 +154,23 @@ describe('SyncClient history replay', () => {
     a.viewport.transaction(() => a.viewport.store.add(shape(1, '#111111')));
     const outbound = [lastData(a)];
     deliver(a, b, 'A');
+    expect(a.viewport.store.getById('x')).toMatchObject({ version: 1, fillColor: '#111111' });
+    expect(b.viewport.store.getById('x')).toMatchObject({ fillColor: '#111111' });
     a.viewport.undo();
     outbound.push(lastData(a));
     deliver(a, b, 'A');
+    expect(a.viewport.store.getById('x')).toBeUndefined();
+    expect(b.viewport.store.getById('x')).toBeUndefined();
     a.viewport.redo();
     outbound.push(lastData(a));
     deliver(a, b, 'A');
+    expect(a.viewport.store.getById('x')).toMatchObject({ version: 1, fillColor: '#111111' });
+    expect(b.viewport.store.getById('x')).toMatchObject({ fillColor: '#111111' });
     a.viewport.undo();
     outbound.push(lastData(a));
     deliver(a, b, 'A');
+    expect(a.viewport.store.getById('x')).toBeUndefined();
+    expect(b.viewport.store.getById('x')).toBeUndefined();
 
     expect(outbound).toMatchObject([
       { kind: 'upsert', element: { version: 1, editor: 'A' } },
@@ -167,10 +178,6 @@ describe('SyncClient history replay', () => {
       { kind: 'upsert', element: { version: 3, editor: 'A' } },
       { kind: 'remove', version: 4, editor: 'A' },
     ]);
-    expect(a.viewport.store.getById('x')).toBeUndefined();
-    expect(b.viewport.store.getById('x')).toBeUndefined();
-    a.viewport.redo();
-    expect(a.viewport.store.getById('x')).toMatchObject({ version: 1 });
   });
 
   it('replays viewport deletes above the accepted revision and converges with a peer', () => {
@@ -183,16 +190,23 @@ describe('SyncClient history replay', () => {
     a.viewport.transaction(() => a.viewport.store.remove('x'));
     const outbound = [lastData(a)];
     deliver(a, b, 'A');
+    expect(a.viewport.store.getById('x')).toBeUndefined();
+    expect(b.viewport.store.getById('x')).toBeUndefined();
     a.viewport.undo();
     outbound.push(lastData(a));
     deliver(a, b, 'A');
-    expect(a.viewport.store.getById('x')).toMatchObject({ version: 9 });
+    expect(a.viewport.store.getById('x')).toMatchObject({ version: 9, fillColor: '#111111' });
+    expect(b.viewport.store.getById('x')).toMatchObject({ fillColor: '#111111' });
     a.viewport.redo();
     outbound.push(lastData(a));
     deliver(a, b, 'A');
+    expect(a.viewport.store.getById('x')).toBeUndefined();
+    expect(b.viewport.store.getById('x')).toBeUndefined();
     a.viewport.undo();
     outbound.push(lastData(a));
     deliver(a, b, 'A');
+    expect(a.viewport.store.getById('x')).toMatchObject({ version: 9, fillColor: '#111111' });
+    expect(b.viewport.store.getById('x')).toMatchObject({ fillColor: '#111111' });
 
     expect(outbound).toMatchObject([
       { kind: 'remove', version: 10, editor: 'A' },
@@ -241,6 +255,7 @@ describe('SyncClient history replay', () => {
     expect(a.sent.find((op) => op.kind === 'snapshot')).toMatchObject({
       elements: [{ version: 3, editor: 'A' }],
     });
+    expect(a.viewport.store.getById('x')).toMatchObject({ version: 1, fillColor: '#111111' });
     a.sent.length = 0;
     a.viewport.transaction(() => a.viewport.store.update('x', { fillColor: '#444444' }));
     expect(lastData(a)).toMatchObject({ kind: 'upsert', element: { version: 4, editor: 'A' } });
