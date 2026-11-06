@@ -29,7 +29,7 @@ export function measureText(
 ): { w: number; h: number } {
   const key = `${fontSize}\u0000${maxWidth}\u0000${html}`;
   const cached = sizes.get(key);
-  if (cached) return cached;
+  if (cached) return { ...cached };
   const runs = getRuns(html, fontSize);
   const contentWidth = maxWidth === null ? Infinity : Math.max(0, maxWidth - TEXT_PADDING * 2);
   const layout = layoutStyledRuns(measure, runs, contentWidth, LINE_HEIGHT);
@@ -38,7 +38,7 @@ export function measureText(
     h: (runs.length ? layout.height : fontSize * LINE_HEIGHT) + TEXT_PADDING * 2,
   };
   cache(sizes, key, size);
-  return size;
+  return { ...size };
 }
 
 function getRuns(html: string, fontSize: number): StyledRun[] {

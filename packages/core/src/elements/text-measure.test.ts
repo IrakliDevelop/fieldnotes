@@ -8,6 +8,19 @@ afterEach(() => {
 });
 
 describe('measureText', () => {
+  it('keeps cached measurements isolated from callers', () => {
+    setTextMeasurer(suiteMeasurer);
+
+    const first = measureText('hello', 16, null);
+    first.w = 0;
+    const second = measureText('hello', 16, null);
+    expect(second).toEqual({ w: 54, h: 26.4 });
+    expect(second).not.toBe(first);
+
+    second.h = 0;
+    expect(measureText('hello', 16, null)).toEqual({ w: 54, h: 26.4 });
+  });
+
   it('wraps a constrained box at its padded content width', () => {
     setTextMeasurer(suiteMeasurer);
 
