@@ -613,7 +613,7 @@ viewport.setTool('highlighter');
 
 ### Bound text
 
-Double-click or double-tap a rectangle, ellipse, or arrow to edit its text. Select one and press Enter to run the `selection.edit-text` action. See [Tools and input](../../website/content/docs/tools-and-input.md) for the full interaction rules. Rectangles and ellipses grow for their text, do not shrink automatically, and cannot resize below the text's height. Arrow labels are text elements positioned at the curve midpoint. Arrows never grow.
+Double-click or double-tap a rectangle, ellipse, or arrow to edit its text. Select one and press Enter to run the `selection.edit-text` action. See [Tools and input](https://iraklidevelop.github.io/fieldnotes/docs/tools-and-input/#mouse-touch-and-pen) for the full interaction rules. Rectangles and ellipses grow for their text, do not shrink automatically, and cannot resize below the text's height. Arrow labels are text elements positioned at the curve midpoint. Arrows never grow.
 
 `createBoundText(container, options)` creates the text child. `viewport.setBoundText(id, html)`
 creates, updates, or removes one and keeps the text change and any container growth in one undo
@@ -621,10 +621,11 @@ step. `getBoundText` and `isBoundTextContainer` read the relation. The child has
 `autoResize`; wrapping uses the container's text box, and `autoResize` controls whether free text
 shrinks to its content while editing. `measureText` measures text for a host's own layout.
 
-Extensions can return `boundTextLayout` with a text box and optional `grow` function. When adding the child with `store.add`, wrap the call in `viewport.transaction` so adding the child and growing its container are one undo step. Use `setBoundText` when the built-in relation is enough.
+An extension element definition can implement `boundTextLayout(el)`, returning the text `box` and an optional `grow(el, height)` that returns the element grown to fit. `setBoundText` adds the child and any growth as one undo step; if you add the child with `store.add` instead, wrap the call in `viewport.transaction`.
 
-`ArrowElement.label` and the `label` option in `createArrow` are deprecated. Load them as legacy
-data, then save the migrated text element instead.
+`ArrowElement.label` and the `label` option of `createArrow` are deprecated; use `setBoundText`.
+Loading a board turns each `label` into a text element on its arrow, and the next save stores that
+element instead.
 
 ```typescript
 const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });

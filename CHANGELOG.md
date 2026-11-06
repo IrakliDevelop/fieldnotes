@@ -16,18 +16,24 @@ Release notes prepared 2026-11-05.
   `CreateBoundTextOptions`, `BoundTextLayout`, `Viewport.getBoundText`,
   `Viewport.setBoundText`, `Viewport.editBoundText`, `measureText`, `setTextMeasurer`,
   `TextMeasurer`, and `selection.edit-text`.
-- Bound text fields on text elements: `parentId`, `containerId`, `wrap`, and `autoResize`.
+- Text element fields `containerId`, `wrap` and `autoResize`.
   Extension element definitions can provide `boundTextLayout` with an optional `grow` function.
 
 **Changed**
 
 - Rectangles and ellipses grow for bound text, clamp resizing at the text height, and do not shrink
   automatically. Arrows never grow. Shape text wraps; `autoResize` controls free-text resizing.
-- Bound-arrow labels use the intrinsic curve midpoint, including the visible label midpoint.
 - Enter and Space stay with a focused button, link, or summary. Other shortcuts still route to the
   board.
 - Note and text DOM nodes use `border-box`, so a 200px note is 200px wide like its PNG export.
   Free text shrinks to its content while editing.
+
+**Fixed**
+
+- Opening or editing a resized note keeps its chosen height.
+- Rectangles and ellipses grow while their bound text is typed rather than waiting for commit.
+- The minimap no longer paints bound text as a dark block over its container.
+- A bent arrow bound to shapes draws its curve, label and bend handle on the same path; before, the label and handle sat off the drawn curve.
 
 **Deprecated**
 
@@ -55,7 +61,7 @@ Release notes prepared 2026-11-05.
 
 **Changed**
 
-- The server changes only its `workspace:0.30.2` sync pin.
+- Depends on `@fieldnotes/sync` 0.30.2. No other changes.
 
 ### Core 0.105.0 — wrapper helpers
 

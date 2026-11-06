@@ -19,8 +19,9 @@ order: 3
 
 `loadState` takes a `CanvasState` object and skips the check, so give it only state your own code exported.
 
-Legacy arrow `label` fields migrate on load into text elements with deterministic bound-text ids.
-The canvas-state version stays at v6.
+Loading a board turns each arrow's `label` into a text element on that arrow, with the id `<arrow
+id>_label`, so every client that loads the board creates the same element. Saves keep format version
+6, so older versions of `@fieldnotes/core` can still load them.
 
 The board below opens a saved board with two strokes and a note.
 

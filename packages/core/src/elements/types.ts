@@ -58,7 +58,7 @@ export interface ArrowElement extends BaseElement {
   toBinding?: Binding;
   /** Derived from from/to/bend. Redundant in serialized state — safe to omit. */
   cachedControlPoint?: Point;
-  /** @deprecated Migrated to a bound `TextElement` on load. */
+  /** @deprecated Use `viewport.setBoundText`. Loading a board moves the label into a bound `TextElement`. */
   label?: string;
   /** Line dash appearance. Absent = solid. Decoupled from binding. */
   strokeStyle?: ArrowStrokeStyle;
@@ -107,7 +107,7 @@ export interface TextElement extends BaseElement {
   wrap?: boolean;
   /** Whether text changes the element size; absent means true. */
   autoResize?: boolean;
-  /** Advisory container relation; meaningful only when it matches parentId. */
+  /** Id of the container this text is bound to; ignored unless it equals `parentId`. */
   containerId?: string;
 }
 

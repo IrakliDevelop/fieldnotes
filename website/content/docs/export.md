@@ -36,11 +36,10 @@ nothing behind the elements.
 
 ::code{example="export" region="svg"}
 
-Strokes, shapes and arrows become SVG paths and shapes. Text and bound text export as SVG text,
-positioned with their container. Notes and HTML elements are embedded as PNG pictures at
-`rasterScale` (default 2), so their words can't be selected or searched in the file. Images are
-embedded as data URLs; one that can't be loaded keeps its original URL. An empty board gives a 0 by
-0 SVG.
+Strokes, shapes and arrows become SVG paths and shapes. Text elements (including the text in a
+shape or on an arrow), notes and HTML elements are embedded as PNG pictures at `rasterScale`
+(default 2), so their words can't be selected or searched in the file. Images are embedded as data
+URLs; one that can't be loaded keeps its original URL. An empty board gives a 0 by 0 SVG.
 
 ## What an export includes
 

@@ -11,13 +11,13 @@ import type { ArrowElement, CanvasElement, ShapeElement, TextElement } from './t
 
 export const BOUND_TEXT_PADDING = 8;
 
-/** An element which may own one advisory bound text child. */
 type BoundTextShape = ShapeElement & { readonly shape: 'rectangle' | 'ellipse' };
 
+/** An element that can hold bound text: an arrow, a rectangle, an ellipse, or an extension whose definition returns a `boundTextLayout`. */
 export type BoundTextContainer =
   BoundTextShape | ArrowElement | Extract<CanvasElement, { type: 'extension' }>;
 
-/** Options for creating an advisory bound text child. */
+/** Options for `createBoundText`; `layerId` defaults to the container's layer. */
 export interface CreateBoundTextOptions {
   readonly text?: string;
   readonly fontSize?: number;
@@ -27,7 +27,7 @@ export interface CreateBoundTextOptions {
   readonly version?: number;
 }
 
-/** Returns whether an element supports an advisory bound text child. */
+/** Returns whether an element can hold bound text: an arrow, a rectangle, an ellipse, or an extension whose `boundTextLayout` returns a layout. */
 export function isBoundTextContainer(
   element: CanvasElement,
   registry: ElementRegistry,
@@ -39,7 +39,7 @@ export function isBoundTextContainer(
   return layout !== null && layout !== undefined;
 }
 
-/** Returns the first valid advisory bound text child of a container. */
+/** Returns the container's bound text element, or `undefined` when it has none. */
 export function getBoundText(
   container: CanvasElement,
   store: ElementStore,
@@ -203,7 +203,7 @@ export function layoutBoundText(
   return { text: textPatch, container: containerPatch };
 }
 
-/** Creates a text child with an advisory relation to a supported container. */
+/** Creates a text element bound to `container`, centred in a shape or at an arrow's midpoint. Add it with `store.add` inside `viewport.transaction`, or call `viewport.setBoundText` instead. */
 export function createBoundText(
   container: BoundTextContainer,
   options: CreateBoundTextOptions = {},
