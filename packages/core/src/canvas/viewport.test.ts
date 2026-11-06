@@ -1026,6 +1026,15 @@ describe('Viewport', () => {
       });
       shape.rotation = Math.PI / 4;
       viewport.store.add(shape);
+      const boundArrow = createArrow({
+        from: { x: 60, y: 20 },
+        to: { x: 300, y: 20 },
+        fromBinding: { elementId: shape.id },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(boundArrow);
+      if (!viewport.setBoundText(boundArrow.id, 'route'))
+        throw new Error('expected bound arrow text');
       viewport.history.clear();
       const before = structuredClone(viewport.store.getAll());
       const angle = shape.rotation;
@@ -1059,6 +1068,23 @@ describe('Viewport', () => {
       expect(topMidpoint(liveShape).x).toBeCloseTo(fixedTop.x, 6);
       expect(topMidpoint(liveShape).y).toBeCloseTo(fixedTop.y, 6);
       expect(viewport.getBoundText(shape.id)?.text).toBe('typed');
+      const liveArrow = viewport.store.getById(boundArrow.id);
+      const liveArrowText = viewport.getBoundText(boundArrow.id);
+      if (!liveArrow || liveArrow.type !== 'arrow' || !liveArrowText)
+        throw new Error('expected reanchored arrow and label');
+      const hostCenter = {
+        x: liveShape.position.x + liveShape.size.w / 2,
+        y: liveShape.position.y + liveShape.size.h / 2,
+      };
+      expect(liveArrow.from).toEqual(hostCenter);
+      const exitT =
+        (liveShape.position.x + liveShape.size.w - hostCenter.x) / (liveArrow.to.x - hostCenter.x);
+      const visibleAnchor = {
+        x: hostCenter.x + (liveArrow.to.x - hostCenter.x) * ((exitT + 1) / 2),
+        y: hostCenter.y + (liveArrow.to.y - hostCenter.y) * ((exitT + 1) / 2),
+      };
+      expect(liveArrowText.position.x + liveArrowText.size.w / 2).toBeCloseTo(visibleAnchor.x, 3);
+      expect(liveArrowText.position.y + liveArrowText.size.h / 2).toBeCloseTo(visibleAnchor.y, 3);
       node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       const after = structuredClone(viewport.store.getAll());
       const fittedShape = viewport.store.getById(shape.id);
