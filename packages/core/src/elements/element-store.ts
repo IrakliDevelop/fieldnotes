@@ -268,16 +268,8 @@ export class ElementStore {
           });
           if (result.text) {
             const boundContainer =
-              container.type === 'shape' &&
-              result.container &&
-              'size' in result.container &&
-              result.container.size &&
-              result.container.position
-                ? {
-                    ...container,
-                    position: result.container.position,
-                    size: result.container.size,
-                  }
+              result.container && container.type !== 'arrow'
+                ? Object.assign({}, container, result.container)
                 : container;
             const box = getBoundTextBox(boundContainer, this.registry, (id) => {
               const candidate = id === element.id ? element : getCandidate(id);

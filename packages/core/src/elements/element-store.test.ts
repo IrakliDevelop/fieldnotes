@@ -6,7 +6,7 @@ import { getElementBounds } from './element-bounds';
 import { ElementRegistry } from './element-registry';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
-import { createStroke, createArrow, createShape } from './element-factory';
+import { createStroke, createArrow, createShape, createText } from './element-factory';
 import { createBoundText } from './bound-text';
 import { getArrowLabelAnchor } from './arrow-geometry';
 import { setTextMeasurer } from './text-measure';
@@ -667,6 +667,70 @@ describe('ElementStore', () => {
 
     expect(events).toEqual([shape.id]);
     expect(store.getVersion(text.id)).toBe(version);
+  });
+
+  it('positions added text in an extension’s grown box', () => {
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:growing-extension',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => {
+        const height = element.data['height'];
+        return {
+          x: element.position.x,
+          y: element.position.y,
+          w: 100,
+          h: typeof height === 'number' ? height : 10,
+        };
+      },
+      boundTextLayout: (element) => {
+        const height = element.data['height'];
+        return {
+          box: {
+            x: element.position.x,
+            y: element.position.y,
+            w: 100,
+            h: typeof height === 'number' ? height : 10,
+          },
+          grow: (current, nextHeight) => ({
+            ...current,
+            data: { ...current.data, height: nextHeight },
+          }),
+        };
+      },
+    });
+    const store = new ElementStore(registry);
+    const extension: ExtensionElementEnvelope = {
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:growing-extension',
+      position: { x: 20, y: 10 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: { height: 10 },
+    };
+    const text = createText({
+      id: 'text',
+      position: { x: 0, y: 0 },
+      parentId: extension.id,
+      containerId: extension.id,
+      text: 'fitted',
+      size: { w: 100, h: 26.4 },
+    });
+
+    store.add(extension);
+    store.add(text);
+
+    expect(extensionOf(store, extension.id).data['height']).toBe(26.4);
+    expect(textOf(store, text.id).size).toEqual({ w: 100, h: 26.4 });
+    expect(textOf(store, text.id).position).toEqual({ x: 20, y: 10 });
   });
 
   it.each([
