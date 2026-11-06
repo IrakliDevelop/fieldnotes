@@ -10,12 +10,7 @@ import {
 } from './element-bounds';
 import { getArrowControlPoint } from './arrow-geometry';
 import { findBoundArrows, updateBoundArrow } from './arrow-binding';
-import {
-  findBoundText,
-  getBoundTextBox,
-  isBoundTextContainer,
-  layoutBoundText,
-} from './bound-text';
+import { getBoundTextBox, isBoundTextContainer, layoutBoundText } from './bound-text';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
 import type { CanvasElement, ElementType } from './types';
@@ -241,7 +236,10 @@ export class ElementStore {
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
     }
-    let containerUpdate: { existing: CanvasElement; updated: CanvasElement } | null = null;
+    const prepared: { existing: CanvasElement; updated: CanvasElement }[] = [];
+    const overlay = new Map<string, CanvasElement>();
+    const getCandidate = (id: string): CanvasElement | undefined =>
+      overlay.get(id) ?? this.elements.get(id);
     if (
       !isExternalChange(meta) &&
       element.type === 'text' &&
@@ -250,64 +248,92 @@ export class ElementStore {
     ) {
       const container = this.elements.get(element.containerId);
       if (container && isBoundTextContainer(container, this.registry)) {
-        const first = findBoundText(container, [...this.elements.values(), element]);
+        const first = [...this.getChildren(container.id), element]
+          .filter(
+            (child): child is Extract<CanvasElement, { type: 'text' }> =>
+              child.type === 'text' &&
+              child.parentId === container.id &&
+              child.containerId === container.id,
+          )
+          .sort(compareElementOrder)[0];
         if (first?.id === element.id) {
           const result = layoutBoundText(container, element, {
             registry: this.registry,
             resolveBounds: (id) => {
-              const candidate = id === element.id ? element : this.elements.get(id);
+              const candidate = id === element.id ? element : getCandidate(id);
               return candidate ? getElementBounds(candidate, this.registry) : null;
             },
             remeasure: false,
           });
-          if (result.text) element = { ...element, ...result.text };
+          if (result.text) {
+            const boundContainer =
+              container.type === 'shape' &&
+              result.container &&
+              'size' in result.container &&
+              result.container.size &&
+              result.container.position
+                ? {
+                    ...container,
+                    position: result.container.position,
+                    size: result.container.size,
+                  }
+                : container;
+            const box = getBoundTextBox(boundContainer, this.registry, (id) => {
+              const candidate = id === element.id ? element : getCandidate(id);
+              return candidate ? getElementBounds(candidate, this.registry) : null;
+            });
+            const laidOutSize = result.text.size ?? element.size;
+            const size =
+              boundContainer.type === 'arrow' ? laidOutSize : { ...element.size, h: laidOutSize.h };
+            const position =
+              boundContainer.type === 'arrow'
+                ? (result.text.position ?? element.position)
+                : {
+                    x: box.x + (box.w - size.w) / 2,
+                    y: box.y + (box.h - size.h) / 2,
+                  };
+            element = { ...element, ...result.text, size, position };
+          }
           if (
             result.container &&
             !Object.entries(result.container).every(([key, value]) =>
               sameDerivedValue(container[key as keyof CanvasElement], value),
             )
           ) {
-            containerUpdate = {
+            const containerUpdate = {
               existing: container,
               updated: this.prepareUpdate(container, result.container, meta),
             };
             validateExtensionEnvelope(containerUpdate.updated, this.registry);
+            prepared.push(containerUpdate);
+            overlay.set(containerUpdate.updated.id, containerUpdate.updated);
           }
         }
       }
     }
-    if (containerUpdate) {
-      const candidate = new Map(this.elements);
-      candidate.set(element.id, element);
-      candidate.set(containerUpdate.updated.id, containerUpdate.updated);
-      this.validateCandidate(candidate, meta);
-    } else if (this.strict(meta) && this.hierarchyKnownValid && !this.elements.has(element.id)) {
+    overlay.set(element.id, element);
+    const grown = prepared[0];
+    if (grown) {
+      this.prepareBoundArrowUpdates(prepared, overlay, getCandidate, grown.updated.id, meta);
+    }
+    if (this.strict(meta) && this.hierarchyKnownValid && !this.elements.has(element.id)) {
       validateAddedElement(element, this.elements, this.registry);
     } else {
       const candidate = new Map(this.elements);
       candidate.set(element.id, element);
+      for (const item of prepared) candidate.set(item.updated.id, item.updated);
       this.validateCandidate(candidate, meta);
     }
     this.resetHierarchy();
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
-    if (containerUpdate) this.installUpdate(containerUpdate.existing, containerUpdate.updated);
+    for (const item of prepared) this.installUpdate(item.existing, item.updated);
     this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
-    if (containerUpdate) {
-      for (const arrow of findBoundArrows(containerUpdate.updated.id, this)) {
-        const patch = updateBoundArrow(arrow, (id) => this.elements.get(id));
-        if (patch) this.update(arrow.id, patch, meta);
-      }
-    }
     this.bus.emit('add', element, meta);
-    if (containerUpdate)
-      this.bus.emit(
-        'update',
-        { previous: containerUpdate.existing, current: containerUpdate.updated },
-        meta,
-      );
+    for (const item of prepared)
+      this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
   }
 
   update(id: string, partial: Partial<CanvasElement>, meta?: ElementChangeMeta): void {
@@ -416,6 +442,44 @@ export class ElementStore {
     return stampDataVersion(updated, this.registry);
   }
 
+  private prepareBoundArrowUpdates(
+    prepared: { existing: CanvasElement; updated: CanvasElement }[],
+    overlay: Map<string, CanvasElement>,
+    getCandidate: (id: string) => CanvasElement | undefined,
+    containerId: string,
+    meta?: ElementChangeMeta,
+  ): void {
+    for (const arrow of findBoundArrows(containerId, this)) {
+      const current = getCandidate(arrow.id);
+      if (!current || current.type !== 'arrow') continue;
+      const arrowPatch = updateBoundArrow(current, getCandidate);
+      if (!arrowPatch) continue;
+      const updated = this.prepareUpdate(current, arrowPatch, meta);
+      if (updated.type !== 'arrow') continue;
+      prepared.push({ existing: arrow, updated });
+      overlay.set(updated.id, updated);
+      const label = this.getChildren(updated.id).find(
+        (child): child is Extract<CanvasElement, { type: 'text' }> =>
+          child.type === 'text' &&
+          child.parentId === updated.id &&
+          child.containerId === updated.id,
+      );
+      if (!label) continue;
+      const result = layoutBoundText(updated, label, {
+        registry: this.registry,
+        resolveBounds: (id) => {
+          const target = getCandidate(id);
+          return target ? getElementBounds(target, this.registry) : null;
+        },
+        remeasure: false,
+      });
+      if (!result.text) continue;
+      const laidOut = this.prepareUpdate(label, result.text, meta);
+      prepared.push({ existing: label, updated: laidOut });
+      overlay.set(laidOut.id, laidOut);
+    }
+  }
+
   private deriveBoundText(
     prepared: {
       existing: CanvasElement;
@@ -444,6 +508,49 @@ export class ElementStore {
         textIds.add(updated.id);
     }
     if (geometry.size === 0 && textIds.size === 0) return;
+    const preparedElement = (id: string): CanvasElement | undefined =>
+      prepared.find((item) => item.updated.id === id)?.updated ?? this.elements.get(id);
+    let hasBoundPair = false;
+    for (const id of geometry) {
+      const container = preparedElement(id);
+      if (!container || !isBoundTextContainer(container, this.registry)) continue;
+      if (
+        this.getChildren(id).some(
+          (child) => child.type === 'text' && child.parentId === id && child.containerId === id,
+        ) ||
+        prepared.some(
+          (item) =>
+            item.updated.type === 'text' &&
+            item.updated.parentId === id &&
+            item.updated.containerId === id,
+        )
+      ) {
+        hasBoundPair = true;
+        break;
+      }
+    }
+    if (!hasBoundPair) {
+      for (const id of textIds) {
+        const text = preparedElement(id);
+        if (text?.type !== 'text' || !text.containerId || text.parentId !== text.containerId)
+          continue;
+        const container = preparedElement(text.containerId);
+        if (!container || !isBoundTextContainer(container, this.registry)) continue;
+        const first = [...this.getChildren(container.id), ...prepared.map((item) => item.updated)]
+          .filter(
+            (child): child is Extract<CanvasElement, { type: 'text' }> =>
+              child.type === 'text' &&
+              child.parentId === container.id &&
+              child.containerId === container.id,
+          )
+          .sort(compareElementOrder)[0];
+        if (first?.id === text.id) {
+          hasBoundPair = true;
+          break;
+        }
+      }
+    }
+    if (!hasBoundPair) return;
     const primary = new Map(prepared.map((item) => [item.updated.id, item]));
     const candidate = new Map(prepared.map((item) => [item.updated.id, item.updated]));
     const getCandidate = (id: string): CanvasElement | undefined =>
@@ -517,7 +624,7 @@ export class ElementStore {
       const result = layoutBoundText(container, text, {
         registry: this.registry,
         resolveBounds: (id) => {
-          const element = candidate.get(id);
+          const element = getCandidate(id);
           return element ? getElementBounds(element, this.registry) : null;
         },
         remeasure,

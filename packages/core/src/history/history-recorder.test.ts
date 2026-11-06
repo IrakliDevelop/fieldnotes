@@ -200,7 +200,7 @@ describe('HistoryRecorder', () => {
       const text = {
         ...createBoundText(shape, { text: 'fitted' }),
         id: 'text',
-        size: { w: 84, h: 42 },
+        size: { w: 184, h: 30 },
       };
       store.add(shape);
       store.add(text);

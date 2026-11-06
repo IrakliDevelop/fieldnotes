@@ -209,6 +209,48 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
 }
 
 describe('ElementStore', () => {
+  it('prepares bound-text add growth and its arrow label before emitting', () => {
+    const store = new ElementStore();
+    const shape = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 30 } }),
+      id: 'shape',
+    };
+    const arrow = {
+      ...createArrow({ from: { x: 50, y: 15 }, to: { x: 200, y: 15 } }),
+      id: 'arrow',
+      fromBinding: { elementId: shape.id, focus: 0, gap: 0 },
+    };
+    const label = {
+      ...createBoundText(arrow, { text: 'label' }),
+      id: 'label',
+      size: { w: 50, h: 20 },
+    };
+    const text = {
+      ...createBoundText(shape, { text: 'large' }),
+      id: 'text',
+      size: { w: 84, h: 116 },
+    };
+    store.add(shape);
+    store.add(arrow);
+    store.add(label, { origin: 'remote' });
+    const events: string[] = [];
+    store.on('add', ({ id }) => events.push(`add:${id}`));
+    store.on('update', ({ current }) => {
+      expect(shapeOf(store, shape.id).size).toEqual({ w: 100, h: 132 });
+      expect(store.getById(arrow.id)?.type === 'arrow' && store.getById(arrow.id)?.from).toEqual({
+        x: 50,
+        y: 66,
+      });
+      events.push(`update:${current.id}`);
+    });
+
+    store.add(text);
+
+    expect(events).toEqual(['add:text', 'update:shape', 'update:arrow', 'update:label']);
+    expect(textOf(store, label.id).position.x).toBeCloseTo(125, 3);
+    expect(textOf(store, label.id).position.y).toBeCloseTo(22, 3);
+  });
+
   it('measures and grows the first local bound text child immediately', () => {
     const measure = vi.fn(() => 100);
     setTextMeasurer(measure);

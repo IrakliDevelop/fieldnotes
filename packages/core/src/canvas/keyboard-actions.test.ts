@@ -2012,4 +2012,31 @@ describe('KeyboardActions extension cloneRemap', () => {
     const linkClone = cloneOf(ctx, link);
     expect(linkClone).toMatchObject({ data: { targetId: target.id } });
   });
+
+  it('keeps recorded bound-text sizes through duplicate and paste', () => {
+    const { actions, ctx, tool } = makeActions();
+    const shape = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 30 } }),
+      id: 'shape',
+    };
+    const text = {
+      ...createBoundText(shape, { text: 'fitted' }),
+      id: 'text',
+      size: { w: 184, h: 30 },
+    };
+    ctx.store.add(shape);
+    ctx.store.add(text, { origin: 'remote' });
+    tool.setSelection([shape.id]);
+
+    actions.duplicate();
+    const duplicate = tool.selectedIds[0];
+    if (!duplicate) throw new Error('expected duplicate');
+    expect(ctx.store.getChildren(duplicate)[0]?.size).toEqual({ w: 184, h: 30 });
+    tool.setSelection([shape.id]);
+    actions.copy();
+    actions.paste();
+    const pasted = tool.selectedIds[0];
+    if (!pasted) throw new Error('expected paste');
+    expect(ctx.store.getChildren(pasted)[0]?.size).toEqual({ w: 184, h: 30 });
+  });
 });

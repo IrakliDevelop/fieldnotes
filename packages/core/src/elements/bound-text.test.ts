@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createArrow, createNote, createShape, createText } from './element-factory';
 import { ElementStore } from './element-store';
 import {
+  findBoundText,
   getBoundText,
   getBoundTextBox,
   getBoundTextMinHeight,
@@ -44,6 +45,31 @@ function boundRegistry(
 }
 
 describe('bound text', () => {
+  it('uses code-unit order for hierarchy and array bound-text lookup', () => {
+    const store = new ElementStore();
+    const shape = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 30 } }),
+      id: 'shape',
+    };
+    const aZ = {
+      ...createText({ position: { x: 0, y: 0 }, index: 'aZ', parentId: shape.id }),
+      id: 'aZ',
+      containerId: shape.id,
+    };
+    const aa = {
+      ...createText({ position: { x: 900, y: 900 }, index: 'aa', parentId: shape.id }),
+      id: 'aa',
+      containerId: shape.id,
+    };
+    store.add(shape);
+    store.add(aa, { origin: 'remote' });
+    store.add(aZ);
+
+    expect(findBoundText(shape, [aa, aZ])?.id).toBe('aZ');
+    expect(getBoundText(shape, store)?.id).toBe('aZ');
+    expect(store.getById('aa')?.position).toEqual({ x: 900, y: 900 });
+  });
+
   afterEach(() => setTextMeasurer(null));
   it('finds a text child whose advisory container matches its parent', () => {
     const store = new ElementStore();

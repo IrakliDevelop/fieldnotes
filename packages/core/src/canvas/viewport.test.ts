@@ -35,6 +35,7 @@ import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { pointerDown, pointerUp } from '../test-helpers/pointer-helpers';
 import { LaserTool } from '../tools/laser-tool';
 import { FIXED_HELP_ROWS } from './palette-model';
+import { setTextMeasurer } from '../elements/text-measure';
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -81,6 +82,34 @@ function proxyContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
 
 describe('Viewport', () => {
   let container: HTMLDivElement;
+
+  it('undoes and redoes grown public bound text with its recorded geometry', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const viewport = new Viewport(container);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 30 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(rectangle);
+      const id = viewport.setBoundText(rectangle.id, 'one two three');
+      if (!id) throw new Error('expected bound text');
+      const grown = viewport.store.getById(rectangle.id);
+      const text = viewport.store.getById(id);
+
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(rectangle.id)?.size).toEqual({ w: 100, h: 30 });
+      expect(viewport.store.getById(id)).toBeUndefined();
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getById(rectangle.id)).toEqual(grown);
+      expect(viewport.store.getById(id)).toEqual(text);
+      viewport.destroy();
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
 
   beforeEach(() => {
     container = document.createElement('div');
