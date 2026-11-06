@@ -154,6 +154,28 @@ describe('Viewport', () => {
     viewport.destroy();
   });
 
+  it('clears a legacy arrow label with empty bound text in one history entry', () => {
+    const viewport = new Viewport(container);
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+      label: 'legacy',
+    };
+    viewport.store.add(arrow);
+    viewport.history.clear();
+
+    expect(viewport.setBoundText(arrow.id, '')).toBeUndefined();
+    expect(viewport.getBoundText(arrow.id)).toBeUndefined();
+    expect(viewport.store.getById(arrow.id)).toMatchObject({ label: undefined });
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.undo()).toBe(true);
+    expect(viewport.getBoundText(arrow.id)).toBeUndefined();
+    expect(viewport.store.getById(arrow.id)).toMatchObject({ label: 'legacy' });
+    expect(viewport.redo()).toBe(true);
+    expect(viewport.getBoundText(arrow.id)).toBeUndefined();
+    expect(viewport.store.getById(arrow.id)).toMatchObject({ label: undefined });
+    viewport.destroy();
+  });
+
   beforeEach(() => {
     container = document.createElement('div');
     Object.defineProperty(container, 'getBoundingClientRect', {
