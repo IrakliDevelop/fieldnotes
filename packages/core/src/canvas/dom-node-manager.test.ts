@@ -12,6 +12,7 @@ import {
   createShape,
 } from '../elements/element-factory';
 import { createBoundText } from '../elements/bound-text';
+import { TEXT_PADDING } from '../elements/text-measure';
 
 describe('DomNodeManager', () => {
   it('maps world clip corners into unrotated and inverse-rotated local polygons', () => {
@@ -287,6 +288,7 @@ describe('DomNodeManager', () => {
       expect(node?.style.color).toBe('rgb(0, 0, 0)');
       expect(node?.style.textAlign).toBe('center');
       expect(node?.style.boxSizing).toBe('border-box');
+      expect(node?.style.padding).toBe(`${TEXT_PADDING}px`);
     });
 
     it('renders rich HTML formatting instead of literal tags', () => {

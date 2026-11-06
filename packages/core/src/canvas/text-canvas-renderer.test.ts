@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderTextOnCanvas } from './text-canvas-renderer';
 import { createText } from '../elements/element-factory';
+import { TEXT_PADDING } from '../elements/text-measure';
 
 interface FillTextCall {
   text: string;
@@ -109,7 +110,7 @@ describe('renderTextOnCanvas', () => {
 
     renderTextOnCanvas(ctx, text);
 
-    expect(calls).toEqual([{ text: 'aa', x: 2, y: 2 }]); // startX = 0 + pad(2)
+    expect(calls).toEqual([{ text: 'aa', x: TEXT_PADDING, y: TEXT_PADDING }]);
   });
 
   it('honors textAlign: center', () => {

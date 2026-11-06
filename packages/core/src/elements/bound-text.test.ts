@@ -141,6 +141,22 @@ describe('bound text', () => {
     expect(getBoundTextMinHeight(rectangle, text, registry, 60)).toBeCloseTo(154.4);
   });
 
+  it('grows a shape when its padded text box wraps another line', () => {
+    setTextMeasurer((text) => text.length * 10);
+    const registry = new ElementRegistry();
+    const rectangle = createShape({ position: { x: 0, y: 0 }, size: { w: 116, h: 30 } });
+    const text = createText({ position: { x: 0, y: 0 }, text: 'aaaaa bbbb' });
+
+    const result = layoutBoundText(rectangle, text, {
+      registry,
+      resolveBounds: () => null,
+      remeasure: true,
+    });
+
+    expect(result.text?.size).toEqual({ w: 100, h: 48.8 });
+    expect(result.container).toMatchObject({ size: { w: 116, h: 64.8 } });
+  });
+
   it('keeps a fitted height without measuring when the candidate inner width is unchanged', () => {
     const measure = vi.fn(() => 20);
     setTextMeasurer(measure);

@@ -6,7 +6,7 @@ import type { StyledRun } from './note-sanitizer';
 export type TextMeasurer = (text: string, font: string) => number;
 
 const CACHE_SIZE = 512;
-const PAD = 2;
+export const TEXT_PADDING = 2;
 const LINE_HEIGHT = 1.4;
 const BASE_FONT_SENTINEL = -1;
 let textMeasurer: TextMeasurer | null = null;
@@ -31,10 +31,11 @@ export function measureText(
   const cached = sizes.get(key);
   if (cached) return cached;
   const runs = getRuns(html, fontSize);
-  const layout = layoutStyledRuns(measure, runs, maxWidth ?? Infinity, LINE_HEIGHT);
+  const contentWidth = maxWidth === null ? Infinity : Math.max(0, maxWidth - TEXT_PADDING * 2);
+  const layout = layoutStyledRuns(measure, runs, contentWidth, LINE_HEIGHT);
   const size = {
-    w: maxWidth === null ? layout.width + PAD * 2 : maxWidth,
-    h: (runs.length ? layout.height : fontSize * LINE_HEIGHT) + PAD * 2,
+    w: maxWidth === null ? layout.width + TEXT_PADDING * 2 : maxWidth,
+    h: (runs.length ? layout.height : fontSize * LINE_HEIGHT) + TEXT_PADDING * 2,
   };
   cache(sizes, key, size);
   return size;

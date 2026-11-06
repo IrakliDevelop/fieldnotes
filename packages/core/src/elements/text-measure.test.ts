@@ -8,6 +8,12 @@ afterEach(() => {
 });
 
 describe('measureText', () => {
+  it('wraps a constrained box at its padded content width', () => {
+    setTextMeasurer(suiteMeasurer);
+
+    expect(measureText('aaaaa bbbb', 16, 100)).toEqual({ w: 100, h: 48.8 });
+  });
+
   it('wraps, measures unwrapped content, and caches identical measurements', () => {
     const measure = vi.fn(suiteMeasurer);
     setTextMeasurer(measure);

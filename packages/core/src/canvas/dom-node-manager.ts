@@ -2,6 +2,7 @@ import type { CanvasElement, HtmlElement } from '../elements/types';
 import type { Bounds } from '../core/types';
 import type { ElementStore } from '../elements/element-store';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
+import { TEXT_PADDING } from '../elements/text-measure';
 import { DoubleTapDetector } from './double-tap-detector';
 import { LIVE_NODE_ATTR } from './live-control';
 export interface DomNodeManagerDeps {
@@ -393,7 +394,7 @@ export class DomNodeManager {
       if (!node.dataset['initialized']) {
         node.dataset['initialized'] = 'true';
         Object.assign(node.style, {
-          padding: '2px',
+          padding: `${TEXT_PADDING}px`,
           fontSize: `${element.fontSize}px`,
           color: element.color,
           textAlign: element.textAlign,
