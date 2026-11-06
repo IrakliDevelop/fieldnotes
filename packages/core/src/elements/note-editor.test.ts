@@ -581,4 +581,72 @@ describe('NoteEditor', () => {
       expect(wasEditingDuringCallback).toBe(true);
     });
   });
+
+  describe('focus return', () => {
+    let node: HTMLDivElement;
+    let target: HTMLDivElement;
+
+    afterEach(() => {
+      node.remove();
+      target.remove();
+    });
+
+    async function startFocused(): Promise<{ editor: NoteEditor; store: ElementStore }> {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: 'hi' });
+      store.add(note);
+      node = makeNode('hi');
+      node.tabIndex = 0;
+      target = document.createElement('div');
+      target.tabIndex = 0;
+      document.body.append(node, target);
+      editor.setFocusReturnTarget(target);
+      editor.startEditing(node, note.id, store);
+      await flushRAF();
+      return { editor, store };
+    }
+
+    it('returns focus to the target when Escape ends the edit', async () => {
+      const { editor } = await startFocused();
+      expect(document.activeElement).toBe(node);
+
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+      expect(document.activeElement).toBe(target);
+      expect(editor.isEditing).toBe(false);
+    });
+
+    it('returns focus to the target when stopEditing runs while the node has focus', async () => {
+      const { editor, store } = await startFocused();
+      expect(document.activeElement).toBe(node);
+
+      editor.stopEditing(store);
+
+      expect(document.activeElement).toBe(target);
+    });
+
+    it('does not take focus back when the user moved focus elsewhere', async () => {
+      const { editor } = await startFocused();
+      const input = document.createElement('input');
+      document.body.append(input);
+      const focusSpy = vi.spyOn(target, 'focus');
+
+      input.focus();
+
+      expect(editor.isEditing).toBe(false);
+      expect(document.activeElement).toBe(input);
+      expect(focusSpy).not.toHaveBeenCalled();
+      input.remove();
+    });
+
+    it('focuses the target with preventScroll', async () => {
+      const { editor, store } = await startFocused();
+      const focusSpy = vi.spyOn(target, 'focus');
+
+      editor.stopEditing(store);
+
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    });
+  });
 });
