@@ -117,10 +117,13 @@ async function touchDrag(
     type: 'touchStart',
     touchPoints: [{ ...point, id: 1 }],
   });
-  await client.send('Input.dispatchTouchEvent', {
-    type: 'touchMove',
-    touchPoints: [{ x: point.x + dx, y: point.y + dy, id: 1 }],
-  });
+  for (let step = 1; step <= 4; step++) {
+    const fraction = step / 4;
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: point.x + dx * fraction, y: point.y + dy * fraction, id: 1 }],
+    });
+  }
   await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
@@ -364,6 +367,47 @@ test('grows bound text live, anchors its current resize handle, and undoes as on
   const editorBox = await editor.boundingBox();
   if (!editorBox) throw new Error('expected editor bounds');
   expect(toolbarBox.y + toolbarBox.height).toBeLessThanOrEqual(editorBox.y);
+  expect(toolbarBox.y + toolbarBox.height + 4).toBeLessThanOrEqual(
+    live.center.y - live.host.size.h / 2,
+  );
+  const cameraTop = await canvasPage.page.evaluate(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          camera: {
+            pan: (x: number, y: number) => void;
+            worldToScreen: (point: { x: number; y: number }) => { y: number };
+          };
+          store: { getById: (id: string) => { position: { y: number } } | undefined };
+          requestRender: () => void;
+        };
+      }
+    ).__fieldnotes_viewport;
+    vp.camera.pan(0, 30);
+    vp.requestRender();
+    const host = vp.store.getById('live-host');
+    const wrapper = document.querySelector('#canvas > div')?.getBoundingClientRect();
+    if (!host || !wrapper) throw new Error('expected host and wrapper');
+    return wrapper.y + vp.camera.worldToScreen(host.position).y;
+  });
+  await expect
+    .poll(async () => {
+      const box = await toolbar.boundingBox();
+      return box ? box.y + box.height + 4 : Infinity;
+    })
+    .toBeLessThanOrEqual(cameraTop);
+  await canvasPage.page.evaluate(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          camera: { pan: (x: number, y: number) => void };
+          requestRender: () => void;
+        };
+      }
+    ).__fieldnotes_viewport;
+    vp.camera.pan(0, -30);
+    vp.requestRender();
+  });
   await canvasPage.page.keyboard.press('Escape');
   await canvasPage.page.keyboard.press('v');
   if (testInfo.project.name === 'ipad') {

@@ -1007,9 +1007,26 @@ describe('Viewport', () => {
         size: { w: 120, h: 40 },
         layerId: viewport.layerManager.activeLayerId,
       });
+      shape.rotation = Math.PI / 4;
       viewport.store.add(shape);
       viewport.history.clear();
       const before = structuredClone(viewport.store.getAll());
+      const angle = shape.rotation;
+      const topMidpoint = ({
+        position,
+        size,
+      }: {
+        position: { x: number; y: number };
+        size: { w: number; h: number };
+      }) => {
+        const center = { x: position.x + size.w / 2, y: position.y + size.h / 2 };
+        const local = { x: 0, y: -size.h / 2 };
+        return {
+          x: center.x + local.x * Math.cos(angle) - local.y * Math.sin(angle),
+          y: center.y + local.x * Math.sin(angle) + local.y * Math.cos(angle),
+        };
+      };
+      const fixedTop = topMidpoint(shape);
       expect(viewport.editBoundText(shape.id)).toBe(true);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       const node = Array.from(container.querySelectorAll<HTMLDivElement>('[data-element-id]')).find(
@@ -1022,6 +1039,8 @@ describe('Viewport', () => {
       const liveShape = viewport.store.getById(shape.id);
       if (!liveShape || liveShape.type !== 'shape') throw new Error('expected live fitted shape');
       expect(liveShape.size.h).toBe(72);
+      expect(topMidpoint(liveShape).x).toBeCloseTo(fixedTop.x, 6);
+      expect(topMidpoint(liveShape).y).toBeCloseTo(fixedTop.y, 6);
       expect(viewport.getBoundText(shape.id)?.text).toBe('typed');
       node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       const after = structuredClone(viewport.store.getAll());
