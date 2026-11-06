@@ -675,6 +675,50 @@ describe('ElementStore', () => {
     }
   });
 
+  it('lays out the final first bound text child after a batch detaches its predecessor', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const shape = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'shape',
+      };
+      const first = {
+        ...createBoundText(shape, { text: 'first' }),
+        id: 'first',
+        index: 'a1',
+      };
+      const second = {
+        ...createBoundText(shape, { text: 'second' }),
+        id: 'second',
+        index: 'a2',
+        position: { x: 999, y: 999 },
+      };
+      store.add(shape);
+      store.add(first, { origin: 'remote' });
+      store.add(second, { origin: 'remote' });
+      measure.mockClear();
+
+      store.updateMany([
+        { id: shape.id, partial: { size: { w: 200, h: 60 } } },
+        { id: first.id, partial: { parentId: undefined, containerId: undefined } },
+      ]);
+
+      expect(textOf(store, first.id)).toMatchObject({
+        parentId: undefined,
+        containerId: undefined,
+      });
+      expect(measure).toHaveBeenCalled();
+      expect(textOf(store, second.id)).toMatchObject({
+        position: { x: 8, y: 16.8 },
+        size: { w: 184, h: 26.4 },
+      });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
   it.each(['remote', 'host'] as const)('does not derive bound text for %s metadata', (origin) => {
     const measure = vi.fn(() => 100);
     setTextMeasurer(measure);

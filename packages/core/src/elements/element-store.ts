@@ -514,6 +514,9 @@ export class ElementStore {
     }
     if (geometry.size === 0 && textIds.size === 0) return;
     const primary = new Map(prepared.map((item) => [item.updated.id, item]));
+    const candidate = new Map(prepared.map((item) => [item.updated.id, item.updated]));
+    const getCandidate = (id: string): CanvasElement | undefined =>
+      candidate.get(id) ?? this.elements.get(id);
     const preparedText = new Map<string, Extract<CanvasElement, { type: 'text' }>[]>();
     for (const { updated } of prepared) {
       if (updated.type !== 'text' || !updated.parentId || updated.parentId !== updated.containerId)
@@ -522,72 +525,64 @@ export class ElementStore {
       if (texts) texts.push(updated);
       else preparedText.set(updated.parentId, [updated]);
     }
-    const preparedElement = (id: string): CanvasElement | undefined =>
-      primary.get(id)?.updated ?? this.elements.get(id);
+    const finalTexts = new Map<string, Extract<CanvasElement, { type: 'text' }>[]>();
+    const firstText = (container: CanvasElement) => {
+      if (!isBoundTextContainer(container, this.registry)) return undefined;
+      let texts = finalTexts.get(container.id);
+      if (!texts) {
+        const byId = new Map<string, Extract<CanvasElement, { type: 'text' }>>();
+        for (const child of this.getChildren(container.id)) {
+          const current = getCandidate(child.id);
+          if (
+            current?.type === 'text' &&
+            current.parentId === container.id &&
+            current.containerId === container.id
+          )
+            byId.set(current.id, current);
+        }
+        for (const child of preparedText.get(container.id) ?? []) {
+          const current = getCandidate(child.id);
+          if (
+            current?.type === 'text' &&
+            current.parentId === container.id &&
+            current.containerId === container.id
+          )
+            byId.set(current.id, current);
+        }
+        texts = [...byId.values()].sort(compareElementOrder);
+        finalTexts.set(container.id, texts);
+      }
+      const first = texts[0];
+      const current = first && getCandidate(first.id);
+      return current?.type === 'text' &&
+        current.parentId === container.id &&
+        current.containerId === container.id
+        ? current
+        : undefined;
+    };
     let hasBoundPair = false;
     for (const id of geometry) {
-      const container = preparedElement(id);
+      const container = getCandidate(id);
       if (!container || !isBoundTextContainer(container, this.registry)) continue;
-      if (
-        this.getChildren(id).some(
-          (child) => child.type === 'text' && child.parentId === id && child.containerId === id,
-        ) ||
-        preparedText.has(id)
-      ) {
+      if (firstText(container)) {
         hasBoundPair = true;
         break;
       }
     }
     if (!hasBoundPair) {
       for (const id of textIds) {
-        const text = preparedElement(id);
+        const text = getCandidate(id);
         if (text?.type !== 'text' || !text.containerId || text.parentId !== text.containerId)
           continue;
-        const container = preparedElement(text.containerId);
+        const container = getCandidate(text.containerId);
         if (!container || !isBoundTextContainer(container, this.registry)) continue;
-        const first = [...this.getChildren(container.id), ...(preparedText.get(container.id) ?? [])]
-          .filter(
-            (child): child is Extract<CanvasElement, { type: 'text' }> =>
-              child.type === 'text' &&
-              child.parentId === container.id &&
-              child.containerId === container.id,
-          )
-          .sort(compareElementOrder)[0];
-        if (first?.id === text.id) {
+        if (firstText(container)?.id === text.id) {
           hasBoundPair = true;
           break;
         }
       }
     }
     if (!hasBoundPair) return;
-    const candidate = new Map(prepared.map((item) => [item.updated.id, item.updated]));
-    const getCandidate = (id: string): CanvasElement | undefined =>
-      candidate.get(id) ?? this.elements.get(id);
-
-    const first = new Map<string, Extract<CanvasElement, { type: 'text' }>>();
-    if (geometry.size > 0) {
-      for (const id of geometry) {
-        const container = getCandidate(id);
-        if (!container || !isBoundTextContainer(container, this.registry)) continue;
-        const children = [...this.getChildren(id), ...(preparedText.get(id) ?? [])];
-        const text = children
-          .filter(
-            (element): element is Extract<CanvasElement, { type: 'text' }> =>
-              element.type === 'text' && element.parentId === id && element.containerId === id,
-          )
-          .sort(compareElementOrder)[0];
-        if (text) first.set(id, text);
-      }
-    }
-    const firstText = (container: CanvasElement) => {
-      const mapped = first.get(container.id);
-      if (mapped) return mapped;
-      if (!isBoundTextContainer(container, this.registry)) return undefined;
-      return this.getChildren(container.id).find(
-        (element): element is Extract<CanvasElement, { type: 'text' }> =>
-          element.type === 'text' && element.containerId === container.id,
-      );
-    };
     const patch = (id: string, partial: Partial<CanvasElement>) => {
       const current = getCandidate(id);
       if (
