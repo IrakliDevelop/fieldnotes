@@ -1775,6 +1775,113 @@ describe('persisted state v5', () => {
     },
   );
 
+  it('escapes every HTML-significant character in a legacy arrow label', () => {
+    const arrow = {
+      ...createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 40, y: 0 },
+        layerId: 'L1',
+        label: `&<>"'`,
+      }),
+      id: 'arrow',
+    };
+    const parsed = parseState(
+      JSON.stringify({ version: 6, camera: makeCamera(), elements: [arrow], layers }),
+    );
+    expect(parsed.elements.find((element) => element.id === 'arrow_label')).toMatchObject({
+      text: '&amp;&lt;&gt;&quot;&#39;',
+    });
+  });
+
+  it('uses one lookup map while resolving several migrated arrow bindings', () => {
+    const target = createShape({
+      id: 'target',
+      index: 'a0',
+      shape: 'rectangle',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+      layerId: 'L1',
+    });
+    const arrows = ['one', 'two', 'three'].map((id, index) =>
+      createArrow({
+        id,
+        index: `a${index + 1}`,
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 0 },
+        layerId: 'L1',
+        fromBinding: { elementId: target.id },
+        label: id,
+      }),
+    );
+    const elements = [target, ...arrows];
+    const find = vi.spyOn(elements, 'find');
+    const migrated = migrateState({
+      version: 6,
+      camera: makeCamera(),
+      elements,
+      layers,
+    });
+    expect(find).not.toHaveBeenCalled();
+    find.mockRestore();
+    expect(migrated.elements.filter((element) => element.type === 'text')).toHaveLength(3);
+  });
+
+  it('migrates depth-31 arrows but preserves depth-32 legacy labels', () => {
+    const parents: CanvasElement[] = [];
+    for (let depth = 0; depth <= 31; depth++) {
+      parents.push({
+        ...createShape({
+          index: `a${depth}x`,
+          shape: 'rectangle',
+          position: { x: depth * 10, y: 0 },
+          size: { w: 10, h: 10 },
+          layerId: 'L1',
+        }),
+        id: `parent-${depth}`,
+        ...(depth === 0 ? {} : { parentId: `parent-${depth - 1}` }),
+      });
+    }
+    const depth31 = {
+      ...createArrow({
+        index: 'a1',
+        from: { x: 0, y: 0 },
+        to: { x: 40, y: 0 },
+        layerId: 'L1',
+        label: 'migrate',
+      }),
+      id: 'depth-31',
+      parentId: 'parent-30',
+    };
+    const depth32 = {
+      ...createArrow({
+        index: 'a2',
+        from: { x: 0, y: 20 },
+        to: { x: 40, y: 20 },
+        layerId: 'L1',
+        label: 'keep',
+      }),
+      id: 'depth-32',
+      parentId: 'parent-31',
+    };
+    const parsed = parseState(
+      JSON.stringify({
+        version: 6,
+        camera: makeCamera(),
+        elements: [...parents, depth31, depth32],
+        layers,
+      }),
+    );
+    expect(parsed.elements.find((element) => element.id === 'depth-31_label')).toMatchObject({
+      parentId: 'depth-31',
+    });
+    expect(parsed.elements.find((element) => element.id === 'depth-32')).toMatchObject({
+      label: 'keep',
+    });
+    expect(parsed.elements.find((element) => element.id === 'depth-32_label')).toBeUndefined();
+    expect(() => parseState(JSON.stringify(parsed))).not.toThrow();
+  });
+
   it.each([
     ['an overlong arrow id', 'a'.repeat(251), undefined],
     ['a deterministic child id collision', 'arrow', { id: 'arrow_label' }],

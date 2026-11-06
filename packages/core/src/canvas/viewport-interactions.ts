@@ -10,7 +10,11 @@ import type { ToolContext } from '../tools/types';
 import { DoubleTapDetector } from './double-tap-detector';
 import { isNearArrowCurve } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
-import { isNoteContentEmpty, sanitizeNoteHtml } from '../elements/note-sanitizer';
+import {
+  escapePlainTextHtml,
+  isNoteContentEmpty,
+  sanitizeNoteHtml,
+} from '../elements/note-sanitizer';
 import { hitTest } from '../tools/select-hit';
 import { isLiveControlTarget } from './live-control';
 import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
@@ -75,17 +79,12 @@ export class ViewportInteractions {
       return this.openEditor(existing.id);
     }
     this.deps.recorder.begin();
-    const text = createBoundText(container, {
-      text:
-        container.type === 'arrow'
-          ? (container.label ?? '')
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#39;')
-          : undefined,
-    });
+    const legacyLabel =
+      container.type === 'arrow' ? escapePlainTextHtml(container.label ?? '') : undefined;
+    const text = {
+      ...createBoundText(container, { text: legacyLabel }),
+      ...(legacyLabel === undefined ? {} : { text: legacyLabel }),
+    };
     const transactionId = this.deps.recorder.currentTransactionId;
     if (transactionId === null)
       throw new Error('bound text creation requires a history transaction');

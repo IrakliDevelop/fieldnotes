@@ -95,6 +95,15 @@ const ALLOWED_TAGS = new Set([
 const SANITIZED_MEMO_SIZE = 256;
 const sanitizedMemo = new Set<string>();
 
+export function escapePlainTextHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function sanitizeNoteHtml(html: string): string {
   if (!html) return '';
   if (sanitizedMemo.has(html)) return html;

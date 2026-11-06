@@ -1389,6 +1389,9 @@ export class Viewport {
         const text = createBoundText(container, { text: html });
         this.store.add(text);
       }
+      if (container.type === 'arrow' && container.label) {
+        this.store.update(container.id, { label: undefined });
+      }
     });
     this.requestRender();
     return getBoundText(container, this.store)?.id;

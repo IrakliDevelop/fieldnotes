@@ -128,6 +128,28 @@ describe('Viewport', () => {
     }
   });
 
+  it('converts a legacy arrow label in the same setBoundText history entry', () => {
+    const viewport = new Viewport(container);
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+      label: 'legacy',
+    };
+    viewport.store.add(arrow);
+    viewport.history.clear();
+    const before = structuredClone(viewport.store.getAll());
+
+    const textId = viewport.setBoundText(arrow.id, 'replacement');
+    if (!textId) throw new Error('expected bound text');
+    const after = structuredClone(viewport.store.getAll());
+    expect(viewport.store.getById(arrow.id)).toMatchObject({ label: undefined });
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.undo()).toBe(true);
+    expect(viewport.store.getAll()).toEqual(before);
+    expect(viewport.redo()).toBe(true);
+    expect(viewport.store.getAll()).toEqual(after);
+    viewport.destroy();
+  });
+
   beforeEach(() => {
     container = document.createElement('div');
     Object.defineProperty(container, 'getBoundingClientRect', {
@@ -970,7 +992,7 @@ describe('Viewport', () => {
       const arrow = {
         ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
         id: 'legacy-arrow',
-        label: '<b>legacy</b>',
+        label: `&<>"'`,
       };
       viewport.store.add(arrow);
       viewport.history.clear();
@@ -982,8 +1004,8 @@ describe('Viewport', () => {
         (candidate) => candidate.dataset['elementId'] !== arrow.id,
       );
       if (!node) throw new Error('expected rendered bound text editor');
-      expect(node.innerHTML).toBe('&lt;b&gt;legacy&lt;/b&gt;');
-      expect(node.textContent).toBe('<b>legacy</b>');
+      expect(node.innerHTML).toBe('&amp;&lt;&gt;"\'');
+      expect(node.textContent).toBe(`&<>"'`);
       const seededArrow = viewport.store.getById(arrow.id);
       const seededText = viewport.getBoundText(arrow.id);
       expect(seededArrow?.version).toBeGreaterThan(arrow.version);

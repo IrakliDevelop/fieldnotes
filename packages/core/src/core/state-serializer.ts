@@ -5,13 +5,13 @@ import type {
 } from '../elements/types';
 import type { Point } from './types';
 import type { Layer } from '../layers/types';
-import { sanitizeNoteHtml } from '../elements/note-sanitizer';
+import { escapePlainTextHtml, sanitizeNoteHtml } from '../elements/note-sanitizer';
 import type { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { PersistedPluginState } from './plugin-state-manager';
 import { isValidIndexKey } from './fractional-index';
 import { assignLegacyOrder } from './legacy-order';
-import { validateHierarchy } from '../elements/element-hierarchy';
+import { MAX_HIERARCHY_DEPTH, validateHierarchy } from '../elements/element-hierarchy';
 import { getArrowLabelAnchor } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
 import { measureText } from '../elements/text-measure';
@@ -144,16 +144,15 @@ export function migrateState(
 }
 
 function migrateArrowLabels(elements: CanvasElement[], registry: ElementRegistry): void {
-  const ids = new Set(elements.map((element) => element.id));
-  const boundTextIds = new Set(
-    elements.flatMap((element) =>
-      element.type === 'text' && element.parentId === element.containerId && element.parentId
-        ? [element.parentId]
-        : [],
-    ),
-  );
+  const elementsById = new Map(elements.map((element) => [element.id, element]));
+  const boundTextIds = new Set<string>();
+  for (const element of elements) {
+    if (element.type === 'text' && element.parentId === element.containerId && element.parentId) {
+      boundTextIds.add(element.parentId);
+    }
+  }
   const resolveBounds = (id: string) => {
-    const element = elements.find((candidate) => candidate.id === id);
+    const element = elementsById.get(id);
     return element ? getElementBounds(element, registry) : null;
   };
 
@@ -163,15 +162,12 @@ function migrateArrowLabels(elements: CanvasElement[], registry: ElementRegistry
       !arrow.label ||
       arrow.id.length > 250 ||
       boundTextIds.has(arrow.id) ||
-      ids.has(`${arrow.id}_label`)
+      elementsById.has(`${arrow.id}_label`) ||
+      !canAddBoundText(arrow, elementsById)
     ) {
       continue;
     }
-    const text = arrow.label.replace(/[&<>]/g, (character) => {
-      if (character === '&') return '&amp;';
-      if (character === '<') return '&lt;';
-      return '&gt;';
-    });
+    const text = escapePlainTextHtml(arrow.label);
     const size = measureText(text, 14, null);
     const anchor = getArrowLabelAnchor(arrow, resolveBounds);
     elements.push({
@@ -193,6 +189,19 @@ function migrateArrowLabels(elements: CanvasElement[], registry: ElementRegistry
     });
     delete arrow.label;
   }
+}
+
+function canAddBoundText(
+  element: CanvasElement,
+  elementsById: ReadonlyMap<string, CanvasElement>,
+): boolean {
+  let current: CanvasElement | undefined = element;
+  let depth = 0;
+  while (current?.parentId !== undefined) {
+    if (++depth >= MAX_HIERARCHY_DEPTH) return false;
+    current = elementsById.get(current.parentId);
+  }
+  return true;
 }
 
 export function convertLegacyToEnvelopes(elements: unknown[], registry: ElementRegistry): void {

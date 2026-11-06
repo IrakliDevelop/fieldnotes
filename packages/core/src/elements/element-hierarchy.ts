@@ -3,7 +3,7 @@ import type { CanvasElement } from './types';
 import type { Bounds } from '../core/types';
 import { reportFailure } from '../core/report-failure';
 
-const MAX_DEPTH = 32;
+export const MAX_HIERARCHY_DEPTH = 32;
 
 function isFrame(element: CanvasElement): boolean {
   return element.type === 'extension' && element.extensionType === 'core:frame';
@@ -45,7 +45,7 @@ export function validateAddedElement(
       parent.id === current.id ||
       parent.layerId !== current.layerId ||
       isFullCanvas(parent, registry) ||
-      ++depth > MAX_DEPTH
+      ++depth > MAX_HIERARCHY_DEPTH
     ) {
       invalidHierarchy();
     }
@@ -86,7 +86,7 @@ export class ElementHierarchy {
           parent.id === current.id ||
           parent.layerId !== current.layerId ||
           isFullCanvas(parent, registry) ||
-          ++depth > MAX_DEPTH
+          ++depth > MAX_HIERARCHY_DEPTH
         ) {
           isValid = false;
           break;
