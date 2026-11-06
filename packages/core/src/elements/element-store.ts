@@ -80,7 +80,8 @@ export interface ElementChangeMeta {
   /**
    * Identifies what caused the change. `undefined` or `'local'` = a local change (recorded to undo
    * history and observed as local). Any other value (e.g. `'remote'`) marks an externally-applied
-   * change: it is NOT recorded to undo history, and is tagged so observers can avoid re-broadcasting it.
+   * change: it is NOT recorded to undo history. `'history'` is reserved local replay and replication
+   * layers publish it; `'remote'`, `'host'`, and other external origins remain non-local.
    * `'host'` is reserved for host-owned elements driven by the embedding application; like `'remote'`
    * it is external, so it neither creates an undo step nor is re-broadcast.
    */

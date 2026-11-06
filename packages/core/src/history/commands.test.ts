@@ -93,11 +93,15 @@ describe('UpdateElementCommand', () => {
     store.add(note);
     const command = new UpdateElementCommand(note.id, note, updated);
 
+    const origins: (string | undefined)[] = [];
+    store.on('update', (_change, meta) => origins.push(meta.origin));
+
     command.execute(store);
     expect(store.getById(note.id)).toMatchObject({ position: { x: 50, y: 50 }, version: 9 });
 
     command.undo(store);
     expect(store.getById(note.id)).toMatchObject({ position: { x: 0, y: 0 }, version: 4 });
+    expect(origins).toEqual(['history', 'history']);
   });
 
   it('undo clears a key that the update newly added', () => {
