@@ -42,6 +42,8 @@ export class NoteEditor {
   private pointerHandler: ((e: PointerEvent) => void) | null = null;
   private inputHandler: (() => void) | null = null;
   private pendingEditId: string | null = null;
+  private pendingToolbarPosition: (() => DOMRect | null) | null = null;
+  private toolbarPosition: (() => DOMRect | null) | null = null;
   private onStopCallback: ((elementId: string) => void) | null = null;
   private onInputCallback: ((elementId: string) => void) | null = null;
   private beginHistory: ((id: string) => void) | null = null;
@@ -84,7 +86,12 @@ export class NoteEditor {
     this.onAbandonCallback = callback;
   }
 
-  startEditing(node: HTMLDivElement, elementId: string, store: ElementStore): void {
+  startEditing(
+    node: HTMLDivElement,
+    elementId: string,
+    store: ElementStore,
+    toolbarPosition?: () => DOMRect | null,
+  ): void {
     if (this.isEditingOrPending(elementId)) return;
 
     if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
@@ -93,10 +100,13 @@ export class NoteEditor {
     }
 
     this.pendingEditId = elementId;
+    this.pendingToolbarPosition = toolbarPosition ?? null;
 
     requestAnimationFrame(() => {
       if (this.pendingEditId !== elementId) return;
       this.pendingEditId = null;
+      this.toolbarPosition = this.pendingToolbarPosition;
+      this.pendingToolbarPosition = null;
       this.activateEditing(node, elementId, store);
     });
   }
@@ -104,6 +114,7 @@ export class NoteEditor {
   stopEditing(store: ElementStore): void {
     if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
     this.pendingEditId = null;
+    this.pendingToolbarPosition = null;
 
     if (!this.editingId || !this.editingNode) return;
 
@@ -152,11 +163,13 @@ export class NoteEditor {
     this.keyHandler = null;
     this.pointerHandler = null;
     this.inputHandler = null;
+    this.toolbarPosition = null;
   }
 
   destroy(store: ElementStore): void {
     if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
     this.pendingEditId = null;
+    this.pendingToolbarPosition = null;
     if (this.isEditing) {
       this.stopEditing(store);
     }
@@ -164,7 +177,7 @@ export class NoteEditor {
 
   updateToolbarPosition(): void {
     if (this.editingNode) {
-      this.toolbar?.updatePosition(this.editingNode);
+      this.toolbar?.updatePosition();
     }
   }
 
@@ -199,7 +212,7 @@ export class NoteEditor {
     };
     node.addEventListener('input', this.inputHandler);
 
-    this.toolbar?.show(node);
+    this.toolbar?.show(node, this.toolbarPosition ?? undefined);
 
     this.blurHandler = (e: FocusEvent) => {
       const related = e.relatedTarget as Node | null;

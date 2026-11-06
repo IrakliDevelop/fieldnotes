@@ -1019,6 +1019,10 @@ describe('Viewport', () => {
       Object.defineProperty(node, 'scrollHeight', { configurable: true, value: 56 });
       node.textContent = 'typed';
       node.dispatchEvent(new Event('input', { bubbles: true }));
+      const liveShape = viewport.store.getById(shape.id);
+      if (!liveShape || liveShape.type !== 'shape') throw new Error('expected live fitted shape');
+      expect(liveShape.size.h).toBe(72);
+      expect(viewport.getBoundText(shape.id)?.text).toBe('typed');
       node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       const after = structuredClone(viewport.store.getAll());
       const fittedShape = viewport.store.getById(shape.id);
@@ -2530,7 +2534,48 @@ describe('Viewport', () => {
   });
 
   describe('note text-edit undo coalescing', () => {
-    it('a note text-edit that grows the note is a single undo step', () => {
+    it('does not commit an unrelated transaction when a pending note edit is abandoned', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        text: 'note',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const other = createNote({
+        position: { x: 120, y: 0 },
+        text: 'other',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.store.add(other);
+      viewport.history.clear();
+      const priv = viewport as unknown as {
+        historyRecorder: {
+          begin: () => void;
+          commit: () => void;
+          currentTransactionId: number | null;
+        };
+        noteEditor: {
+          startEditing: (node: HTMLDivElement, id: string, store: typeof viewport.store) => void;
+          stopEditing: (store: typeof viewport.store) => void;
+        };
+      };
+      const node = document.createElement('div');
+
+      priv.historyRecorder.begin();
+      viewport.store.update(other.id, { text: 'changed' });
+      priv.noteEditor.startEditing(node, note.id, viewport.store);
+      priv.noteEditor.stopEditing(viewport.store);
+
+      expect(priv.historyRecorder.currentTransactionId).not.toBeNull();
+      priv.historyRecorder.commit();
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(other.id)).toMatchObject({ text: 'other' });
+      viewport.destroy();
+    });
+
+    it('a note text-edit preserves its chosen height in one undo step', () => {
       const viewport = new Viewport(container);
 
       const note = createNote({
@@ -2573,7 +2618,7 @@ describe('Viewport', () => {
 
       const after = viewport.store.getById(note.id);
       expect(after?.type === 'note' && after.text).toContain('longer');
-      expect(after?.type === 'note' && after.size.h).toBe(80);
+      expect(after?.type === 'note' && after.size.h).toBe(20);
       expect(viewport.history.undoCount).toBe(undosBefore + 1); // ONE step, not two
 
       viewport.history.undo(viewport.store);

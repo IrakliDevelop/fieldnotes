@@ -321,7 +321,7 @@ export class Viewport {
       placeholder: options.placeholder,
     });
     this.noteEditor.setOnInput((id) => this.interactions.liveFitHeight(id));
-    this.noteEditor.setOnAbandon((id) => this.interactions.commitEditHistory(id));
+    this.noteEditor.setOnAbandon((id) => this.interactions.abandonEditHistory(id));
     this.noteEditor.setHistoryHooks(
       (id) => this.interactions.beginEditHistory(id),
       (id) => this.interactions.commitEditHistory(id),

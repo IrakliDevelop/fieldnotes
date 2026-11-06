@@ -55,6 +55,45 @@ async function addCenteredRectangle(canvasPage: CanvasPage, id: string, size = {
   return { x: box.x + screen.x, y: box.y + screen.y };
 }
 
+async function addCenteredNote(canvasPage: CanvasPage, id: string, size = { w: 120, h: 140 }) {
+  const box = await canvasPage.wrapper().boundingBox();
+  if (!box) throw new Error('Wrapper not found');
+  const screen = { x: box.width / 2, y: box.height / 2 };
+  await canvasPage.page.evaluate(
+    ({ id, screen, size }) => {
+      const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+        camera: { screenToWorld: (point: { x: number; y: number }) => { x: number; y: number } };
+        layerManager: { activeLayerId: string };
+        store: { add: (element: unknown) => void };
+        requestRender: () => void;
+      };
+      const world = vp.camera.screenToWorld(screen);
+      vp.store.add({
+        id,
+        type: 'note',
+        position: { x: world.x - size.w / 2, y: world.y - size.h / 2 },
+        size,
+        text: 'seed',
+        color: 'yellow',
+        index: 'a0',
+        version: 1,
+        locked: false,
+        layerId: vp.layerManager.activeLayerId,
+      });
+      vp.requestRender();
+    },
+    { id, screen, size },
+  );
+  await canvasPage.page.waitForFunction((id) => {
+    const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+      store: { getById: (id: string) => unknown };
+    };
+    return vp.store.getById(id) !== undefined;
+  }, id);
+  await canvasPage.page.evaluate(() => new Promise(requestAnimationFrame));
+  return { x: box.x + screen.x, y: box.y + screen.y };
+}
+
 async function doubleTap(canvasPage: CanvasPage, point: { x: number; y: number }) {
   const client = await canvasPage.page.context().newCDPSession(canvasPage.page);
   for (let id = 1; id <= 2; id++) {
@@ -65,6 +104,24 @@ async function doubleTap(canvasPage: CanvasPage, point: { x: number; y: number }
     await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     if (id === 1) await canvasPage.page.evaluate(() => new Promise(requestAnimationFrame));
   }
+}
+
+async function touchDrag(
+  canvasPage: CanvasPage,
+  point: { x: number; y: number },
+  dx: number,
+  dy: number,
+) {
+  const client = await canvasPage.page.context().newCDPSession(canvasPage.page);
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ ...point, id: 1 }],
+  });
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [{ x: point.x + dx, y: point.y + dy, id: 1 }],
+  });
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
 async function activateEditor(
@@ -153,6 +210,199 @@ test('double-clicking a rectangle creates editable bound text and Escape abandon
     };
     return !vp.store.getAll().some((element) => element.type === 'text' && element.containerId);
   });
+});
+
+test('editing a resized note keeps its height', async ({ canvasPage }, testInfo) => {
+  const point = await addCenteredNote(canvasPage, 'tall-note');
+  const height = await canvasPage.page.evaluate(() => {
+    const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+      store: { getById: (id: string) => { size: { h: number } } | undefined };
+    };
+    return vp.store.getById('tall-note')?.size.h;
+  });
+  expect(height).toBe(140);
+
+  const note = canvasPage.wrapper().locator('[data-element-id="tall-note"]');
+  await expect(note).toBeVisible();
+  if (testInfo.project.name === 'ipad') await activateEditor(canvasPage, point, true);
+  else await note.dblclick();
+  await expect(note).toHaveAttribute('contenteditable', 'true');
+  await canvasPage.page.keyboard.press('Escape');
+  if (testInfo.project.name === 'ipad') await activateEditor(canvasPage, point, true);
+  else await note.dblclick();
+  const editor = note;
+  await expect(editor).toHaveAttribute('contenteditable', 'true');
+  await editor.fill('short');
+  await canvasPage.page.keyboard.press('Escape');
+  const after = await canvasPage.page.evaluate(() => {
+    const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+      store: { getById: (id: string) => { size: { h: number } } | undefined };
+    };
+    return vp.store.getById('tall-note')?.size.h;
+  });
+  expect(after).toBe(height);
+});
+
+test('seeds a bound editor from installed geometry before typing', async ({
+  canvasPage,
+}, testInfo) => {
+  const editor = await openEditor(canvasPage, 'seed-host', testInfo.project.name === 'ipad');
+  const expected = await canvasPage.page.evaluate(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          camera: { worldToScreen: (point: { x: number; y: number }) => { x: number; y: number } };
+          store: {
+            getAll: () => {
+              containerId?: string;
+              position: { x: number; y: number };
+              size: { w: number; h: number };
+            }[];
+          };
+        };
+      }
+    ).__fieldnotes_viewport;
+    const text = vp.store.getAll().find((element) => element.containerId === 'seed-host');
+    const wrapper = document.querySelector('#canvas > div')?.getBoundingClientRect();
+    if (!text || !wrapper) throw new Error('expected installed text and wrapper');
+    const topLeft = vp.camera.worldToScreen(text.position);
+    const bottomRight = vp.camera.worldToScreen({
+      x: text.position.x + text.size.w,
+      y: text.position.y + text.size.h,
+    });
+    return {
+      x: wrapper.x + topLeft.x,
+      y: wrapper.y + topLeft.y,
+      w: bottomRight.x - topLeft.x,
+      h: bottomRight.y - topLeft.y,
+    };
+  });
+  const actual = await editor.boundingBox();
+  if (!actual) throw new Error('expected editor bounds');
+  expect(actual.x).toBeCloseTo(expected.x, 0);
+  expect(actual.y).toBeCloseTo(expected.y, 0);
+  expect(actual.width).toBeCloseTo(expected.w, 0);
+  expect(actual.height).toBeCloseTo(expected.h, 0);
+  await canvasPage.page.keyboard.press('Escape');
+});
+
+test('grows bound text live, anchors its current resize handle, and undoes as one edit', async ({
+  canvasPage,
+}, testInfo) => {
+  const editor = await openEditor(canvasPage, 'live-host', testInfo.project.name === 'ipad');
+  const before = await canvasPage.page.evaluate(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          store: {
+            getById: (
+              id: string,
+            ) => { position: { x: number; y: number }; size: { w: number; h: number } } | undefined;
+          };
+        };
+      }
+    ).__fieldnotes_viewport;
+    const host = vp.store.getById('live-host');
+    if (!host) throw new Error('expected host');
+    return structuredClone(host);
+  });
+  await editor.fill('one two three four five six seven eight nine ten eleven twelve');
+  await canvasPage.page.waitForFunction(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          store: { getById: (id: string) => { size: { h: number } } | undefined };
+        };
+      }
+    ).__fieldnotes_viewport;
+    return (vp.store.getById('live-host')?.size.h ?? 0) > 60;
+  });
+  const live = await canvasPage.page.evaluate(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          camera: { worldToScreen: (point: { x: number; y: number }) => { x: number; y: number } };
+          store: {
+            getById: (
+              id: string,
+            ) => { position: { x: number; y: number }; size: { w: number; h: number } } | undefined;
+            getAll: () => {
+              containerId?: string;
+              position: { x: number; y: number };
+              size: { w: number; h: number };
+            }[];
+          };
+        };
+      }
+    ).__fieldnotes_viewport;
+    const host = vp.store.getById('live-host');
+    const text = vp.store.getAll().find((element) => element.containerId === 'live-host');
+    const wrapper = document.querySelector('#canvas > div')?.getBoundingClientRect();
+    if (!host || !text || !wrapper) throw new Error('expected live host, text, and wrapper');
+    const center = vp.camera.worldToScreen({
+      x: host.position.x + host.size.w / 2,
+      y: host.position.y + host.size.h / 2,
+    });
+    const corner = vp.camera.worldToScreen({
+      x: host.position.x + host.size.w,
+      y: host.position.y + host.size.h,
+    });
+    return {
+      host,
+      text,
+      center: { x: wrapper.x + center.x, y: wrapper.y + center.y },
+      corner: { x: wrapper.x + corner.x, y: wrapper.y + corner.y },
+    };
+  });
+  expect(live.text.position.y + live.text.size.h / 2).toBeCloseTo(
+    live.host.position.y + live.host.size.h / 2,
+    6,
+  );
+  const toolbar = canvasPage.page.locator('[data-note-toolbar]');
+  const toolbarBox = await toolbar.boundingBox();
+  if (!toolbarBox) throw new Error('expected toolbar bounds');
+  const editorBox = await editor.boundingBox();
+  if (!editorBox) throw new Error('expected editor bounds');
+  expect(toolbarBox.y + toolbarBox.height).toBeLessThanOrEqual(editorBox.y);
+  await canvasPage.page.keyboard.press('Escape');
+  await canvasPage.page.keyboard.press('v');
+  if (testInfo.project.name === 'ipad') {
+    await touchDrag(canvasPage, live.center, 0, 0);
+    await touchDrag(canvasPage, live.corner, 0, -86);
+  } else {
+    await canvasPage.page.mouse.click(live.center.x, live.center.y);
+    await canvasPage.page.mouse.move(live.corner.x, live.corner.y);
+    await canvasPage.page.mouse.down();
+    await canvasPage.page.mouse.move(live.corner.x, live.corner.y - 86, { steps: 6 });
+    await canvasPage.page.mouse.up();
+  }
+  const clamped = await canvasPage.page.evaluate(() => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: { store: { getById: (id: string) => unknown } };
+      }
+    ).__fieldnotes_viewport;
+    return vp.store.getById('live-host');
+  });
+  expect(clamped).toMatchObject({ position: live.host.position, size: { h: live.host.size.h } });
+  await canvasPage.page.evaluate(() =>
+    (
+      window as unknown as { __fieldnotes_viewport: { undo: () => boolean } }
+    ).__fieldnotes_viewport.undo(),
+  );
+  await canvasPage.page.waitForFunction((expected) => {
+    const vp = (
+      window as unknown as {
+        __fieldnotes_viewport: {
+          store: { getById: (id: string) => unknown; getAll: () => { containerId?: string }[] };
+        };
+      }
+    ).__fieldnotes_viewport;
+    return (
+      JSON.stringify(vp.store.getById('live-host')) === JSON.stringify(expected) &&
+      !vp.store.getAll().some((element) => element.containerId === 'live-host')
+    );
+  }, before);
 });
 
 test('types bound content centered in the container content box', async ({

@@ -5,12 +5,12 @@ import type { InteractMode } from './interact-mode';
 import type { DomNodeManager } from './dom-node-manager';
 import type { RenderLoop } from './render-loop';
 import type { HistoryRecorder } from '../history/history-recorder';
-import type { ArrowElement } from '../elements/types';
+import type { ArrowElement, CanvasElement } from '../elements/types';
 import type { ToolContext } from '../tools/types';
 import { DoubleTapDetector } from './double-tap-detector';
 import { isNearArrowCurve } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
-import { isNoteContentEmpty } from '../elements/note-sanitizer';
+import { isNoteContentEmpty, sanitizeNoteHtml } from '../elements/note-sanitizer';
 import { hitTest } from '../tools/select-hit';
 import { isLiveControlTarget } from './live-control';
 import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
@@ -95,8 +95,10 @@ export class ViewportInteractions {
       this.deps.store.update(container.id, { label: undefined });
     this.deps.requestRender();
     this.deps.renderLoop.flush();
-    this.deps.domNodeManager.syncDomNode(text);
-    if (!this.openEditor(text.id)) {
+    const stored = this.deps.store.getById(text.id);
+    if (!stored || stored.type !== 'text') throw new Error('bound text was not added');
+    this.deps.domNodeManager.syncDomNode(stored);
+    if (!this.openEditor(stored.id)) {
       this.deps.store.remove(text.id);
       if (!this.deps.recorder.rollbackIfOnly(text.id)) this.deps.recorder.commit();
       this.createdEdit = null;
@@ -113,7 +115,12 @@ export class ViewportInteractions {
 
     const node = this.deps.domNodeManager.getNode(id);
     if (node) {
-      this.deps.noteEditor.startEditing(node, id, this.deps.store);
+      const toolbarPosition = this.toolbarPositionFor(element);
+      if (toolbarPosition) {
+        this.deps.noteEditor.startEditing(node, id, this.deps.store, toolbarPosition);
+      } else {
+        this.deps.noteEditor.startEditing(node, id, this.deps.store);
+      }
       return true;
     }
     return false;
@@ -121,21 +128,32 @@ export class ViewportInteractions {
 
   liveFitHeight(elementId: string): void {
     const element = this.deps.store.getById(elementId);
-    if (!element || (element.type !== 'note' && element.type !== 'text')) return;
-    if (element.type === 'text' && element.autoResize === false) return;
+    if (!element || element.type !== 'text' || element.autoResize === false) return;
     const node = this.deps.domNodeManager.getNode(elementId);
     if (!node) return;
     const previousHeight = node.style.height;
     const previousWidth = node.style.width;
     node.style.height = 'auto';
-    if (element.type === 'text' && element.wrap === false) node.style.width = 'auto';
+    if (element.wrap === false) node.style.width = 'auto';
     const height = node.scrollHeight;
-    const width =
-      element.type === 'text' && element.wrap === false ? node.scrollWidth : element.size.w;
+    const width = element.wrap === false ? node.scrollWidth : element.size.w;
     node.style.height = previousHeight;
     node.style.width = previousWidth;
-    if (height > 0 && (height !== element.size.h || width !== element.size.w)) {
-      this.deps.store.update(elementId, { size: { w: width, h: height } });
+    const size = { w: width, h: height };
+    const container =
+      element.containerId && element.parentId === element.containerId
+        ? this.deps.store.getById(element.containerId)
+        : undefined;
+    const isBound =
+      container !== undefined &&
+      isBoundTextContainer(container, this.deps.store.elementRegistry) &&
+      getBoundText(container, this.deps.store)?.id === element.id;
+    const text = isBound ? sanitizeNoteHtml(node.innerHTML) : element.text;
+    if (
+      height > 0 &&
+      (height !== element.size.h || width !== element.size.w || (isBound && text !== element.text))
+    ) {
+      this.deps.store.update(elementId, isBound ? { text, size } : { size });
       this.deps.noteEditor.updateToolbarPosition?.();
     }
   }
@@ -161,7 +179,6 @@ export class ViewportInteractions {
         this.deps.store.remove(elementId);
         return;
       }
-      this.liveFitHeight(elementId);
       return;
     }
 
@@ -278,6 +295,46 @@ export class ViewportInteractions {
     this.onTextEditStop(id);
     if (!this.deps.recorder.rollbackIfOnly(id)) this.deps.recorder.commit();
     if (this.createdEdit?.id === id) this.createdEdit = null;
+  }
+
+  abandonEditHistory(id: string): void {
+    if (
+      this.createdEdit?.id !== id ||
+      this.createdEdit.transactionId !== this.deps.recorder.currentTransactionId
+    )
+      return;
+    this.commitEditHistory(id);
+  }
+
+  private toolbarPositionFor(element: CanvasElement): (() => DOMRect | null) | undefined {
+    if (element.type !== 'text' || !element.containerId || element.parentId !== element.containerId)
+      return undefined;
+    const container = this.deps.store.getById(element.containerId);
+    if (
+      !container ||
+      !isBoundTextContainer(container, this.deps.store.elementRegistry) ||
+      getBoundText(container, this.deps.store)?.id !== element.id
+    )
+      return undefined;
+    const id = container.id;
+    return () => {
+      const current = this.deps.store.getById(id);
+      if (!current || !isBoundTextContainer(current, this.deps.store.elementRegistry)) return null;
+      const bounds = getElementBounds(current, this.deps.store.elementRegistry);
+      if (!bounds) return null;
+      const topLeft = this.deps.camera.worldToScreen({ x: bounds.x, y: bounds.y });
+      const bottomRight = this.deps.camera.worldToScreen({
+        x: bounds.x + bounds.w,
+        y: bounds.y + bounds.h,
+      });
+      const wrapper = this.deps.wrapper.getBoundingClientRect();
+      return new DOMRect(
+        wrapper.left + topLeft.x,
+        wrapper.top + topLeft.y,
+        bottomRight.x - topLeft.x,
+        bottomRight.y - topLeft.y,
+      );
+    };
   }
 
   onDragOver = (e: DragEvent): void => {

@@ -71,6 +71,36 @@ interface Priv {
 }
 
 describe('ViewportInteractions', () => {
+  it('syncs a new bound editor from the installed text element', () => {
+    const store = new ElementStore();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(store, stack);
+    const shape = createShape({
+      position: { x: 100, y: 200 },
+      size: { w: 300, h: 200 },
+      shape: 'rectangle',
+    });
+    store.add(shape);
+    const node = document.createElement('div');
+    const { deps, nodes } = makeDeps(store, {
+      recorder,
+      noteEditor: {
+        isEditingOrPending: () => false,
+        stopEditing: vi.fn(),
+        startEditing: vi.fn(),
+      } as never,
+    });
+    const sync = vi.fn((element: CanvasElement) => nodes.set(element.id, node));
+    deps.domNodeManager = { getNode: (id: string) => nodes.get(id), syncDomNode: sync } as never;
+
+    expect(new ViewportInteractions(deps).editBoundText(shape.id)).toBe(true);
+
+    const text = store.getAll().find((element) => element.containerId === shape.id);
+    if (!text || text.type !== 'text') throw new Error('expected bound text');
+    expect(sync).toHaveBeenCalledWith(text);
+    expect(sync.mock.calls[0]?.[0]).toBe(text);
+  });
+
   it('edits advisory mismatches and later siblings as ordinary text', () => {
     const store = new ElementStore();
     const host = {
@@ -110,7 +140,13 @@ describe('ViewportInteractions', () => {
     expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
 
     expect(interactions.editBoundText(actual.id)).toBe(true);
-    expect(startEditing).toHaveBeenNthCalledWith(3, nodes.get(actual.id), actual.id, store);
+    expect(startEditing).toHaveBeenNthCalledWith(
+      3,
+      nodes.get(actual.id),
+      actual.id,
+      store,
+      expect.any(Function),
+    );
     expect(interactions.editBoundText(mismatched.id)).toBe(false);
     expect(interactions.editBoundText(later.id)).toBe(false);
   });
@@ -444,24 +480,24 @@ describe('ViewportInteractions', () => {
       editor.destroy(store);
       node.remove();
     });
-    it('grows a note to the measured scrollHeight', () => {
+    it('does not change a note height while editing', () => {
       const store = new ElementStore();
       const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
       store.add(note);
       const { deps, nodes } = makeDeps(store);
       nodes.set(note.id, nodeWithHeight(120));
       new ViewportInteractions(deps).liveFitHeight(note.id);
-      expect(heightOf(store.getById(note.id))).toBe(120);
+      expect(heightOf(store.getById(note.id))).toBe(40);
     });
 
-    it('shrinks a note to the measured scrollHeight', () => {
+    it('keeps a manually enlarged note height while editing', () => {
       const store = new ElementStore();
-      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 40 }, text: 'x' });
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 120 }, text: 'x' });
       store.add(note);
       const { deps, nodes } = makeDeps(store);
       nodes.set(note.id, nodeWithHeight(20));
       new ViewportInteractions(deps).liveFitHeight(note.id);
-      expect(heightOf(store.getById(note.id))).toBe(20);
+      expect(heightOf(store.getById(note.id))).toBe(120);
     });
 
     it('grows a text element to the measured scrollHeight', () => {
@@ -555,7 +591,7 @@ describe('ViewportInteractions', () => {
       expect(heightOf(store.getById(note.id))).toBe(200);
     });
 
-    it('editing a note (liveFitHeight) shrinks it where manual resize would not', () => {
+    it('editing a note keeps the same height as the manual resize path', () => {
       const store = new ElementStore();
       const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 200 }, text: 'x' });
       store.add(note);
@@ -565,7 +601,7 @@ describe('ViewportInteractions', () => {
       interactions.fitNoteHeight(note.id);
       expect(heightOf(store.getById(note.id))).toBe(200);
       interactions.liveFitHeight(note.id);
-      expect(heightOf(store.getById(note.id))).toBe(30);
+      expect(heightOf(store.getById(note.id))).toBe(200);
     });
   });
 
