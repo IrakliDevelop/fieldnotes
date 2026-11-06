@@ -351,6 +351,27 @@ describe('ElementStore', () => {
     expect(laidOut.position.x + laidOut.size.w / 2).toBe(100);
   });
 
+  it('uses the content width when adding canonical rectangle text', () => {
+    const store = new ElementStore();
+    const rectangle = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+      id: 'rectangle',
+    };
+    const text = createText({
+      position: { x: 0, y: 0 },
+      parentId: rectangle.id,
+      containerId: rectangle.id,
+      text: 'label',
+      size: { w: 20, h: 26.4 },
+    });
+
+    store.add(rectangle);
+    store.add(text);
+
+    expect(textOf(store, text.id).size).toEqual({ w: 84, h: 26.4 });
+    expect(textOf(store, text.id).position).toEqual({ x: 8, y: 16.8 });
+  });
+
   it('does not traverse the element map for an unlabelled arrow update', () => {
     const store = new ElementStore();
     const arrow = {
@@ -721,7 +742,7 @@ describe('ElementStore', () => {
       parentId: extension.id,
       containerId: extension.id,
       text: 'fitted',
-      size: { w: 100, h: 26.4 },
+      size: { w: 20, h: 26.4 },
     });
 
     store.add(extension);

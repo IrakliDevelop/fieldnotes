@@ -289,8 +289,7 @@ export class ElementStore {
               return candidate ? getElementBounds(candidate, this.registry) : null;
             });
             const laidOutSize = result.text.size ?? element.size;
-            const size =
-              boundContainer.type === 'arrow' ? laidOutSize : { ...element.size, h: laidOutSize.h };
+            const size = laidOutSize;
             const position =
               boundContainer.type === 'arrow'
                 ? (result.text.position ?? element.position)
