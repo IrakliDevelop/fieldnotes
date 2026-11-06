@@ -717,7 +717,6 @@ describe('ElementStore', () => {
       data: { height: 10 },
     };
     const text = createText({
-      id: 'text',
       position: { x: 0, y: 0 },
       parentId: extension.id,
       containerId: extension.id,
