@@ -12,7 +12,7 @@ import {
   createText,
   createHtmlElement,
 } from '../elements/element-factory';
-import type { ArrowElement, CanvasElement, HtmlElement, TextElement } from '../elements/types';
+import type { CanvasElement, HtmlElement, TextElement } from '../elements/types';
 import type { ToolContext } from '../tools/types';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
@@ -64,10 +64,6 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
     ...overrides,
   };
   return { deps, nodes };
-}
-
-interface Priv {
-  findArrowAt: (w: { x: number; y: number }) => ArrowElement | undefined;
 }
 
 describe('ViewportInteractions', () => {
@@ -327,70 +323,6 @@ describe('ViewportInteractions', () => {
       const { interactions, deps } = setup(html);
       doubleTap(interactions, 50, 50);
       expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
-    });
-  });
-
-  describe('findArrowAt', () => {
-    it('finds an arrow near the world point', () => {
-      const store = new ElementStore();
-      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
-      store.add(arrow);
-      const { deps } = makeDeps(store);
-      const interactions = new ViewportInteractions(deps) as unknown as Priv;
-      expect(interactions.findArrowAt({ x: 50, y: 0 })?.id).toBe(arrow.id);
-    });
-
-    it('returns undefined when far from any arrow', () => {
-      const store = new ElementStore();
-      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
-      store.add(arrow);
-      const { deps } = makeDeps(store);
-      const interactions = new ViewportInteractions(deps) as unknown as Priv;
-      expect(interactions.findArrowAt({ x: 50, y: 80 })).toBeUndefined();
-    });
-
-    it('skips the hidden bound curve and finds its visible segment', () => {
-      const store = new ElementStore();
-      const from = createShape({
-        shape: 'rectangle',
-        position: { x: 0, y: 0 },
-        size: { w: 100, h: 100 },
-      });
-      const to = createShape({
-        shape: 'rectangle',
-        position: { x: 300, y: 0 },
-        size: { w: 100, h: 100 },
-      });
-      const arrow = createArrow({
-        from: { x: 50, y: 50 },
-        to: { x: 350, y: 50 },
-        bend: 60,
-        fromBinding: { elementId: from.id },
-        toBinding: { elementId: to.id },
-      });
-      arrow.cachedControlPoint = { x: 200, y: -200 };
-      store.add(from);
-      store.add(to);
-      store.add(arrow);
-      const { deps } = makeDeps(store);
-      const interactions = new ViewportInteractions(deps) as unknown as Priv;
-
-      expect(interactions.findArrowAt({ x: 80, y: 60.8 })).toBeUndefined();
-      expect(interactions.findArrowAt({ x: 140, y: 75.2 })?.id).toBe(arrow.id);
-    });
-
-    it('finds an arrow within the screen-pixel tolerance when zoomed out', () => {
-      const store = new ElementStore();
-      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
-      store.add(arrow);
-      const { deps } = makeDeps(store, {
-        camera: { zoom: 0.1, screenToWorld: (p: { x: number; y: number }) => p } as never,
-      });
-      const interactions = new ViewportInteractions(deps) as unknown as Priv;
-
-      // Fifty world units are five screen pixels at 0.1x. The broad-phase
-      // query must use the same tolerance as the precise curve hit test.
-      expect(interactions.findArrowAt({ x: 50, y: 50 })?.id).toBe(arrow.id);
     });
   });
 

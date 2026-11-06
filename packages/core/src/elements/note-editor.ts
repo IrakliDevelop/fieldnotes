@@ -44,7 +44,6 @@ export class NoteEditor {
   private pendingEditId: string | null = null;
   private pendingToolbarPosition: (() => DOMRect | null) | null = null;
   private toolbarPosition: (() => DOMRect | null) | null = null;
-  private onStopCallback: ((elementId: string) => void) | null = null;
   private onInputCallback: ((elementId: string) => void) | null = null;
   private beginHistory: ((id: string) => void) | null = null;
   private commitHistory: ((id: string) => void) | null = null;
@@ -67,10 +66,6 @@ export class NoteEditor {
 
   isEditingOrPending(elementId: string): boolean {
     return this.editingId === elementId || this.pendingEditId === elementId;
-  }
-
-  setOnStop(callback: (elementId: string) => void): void {
-    this.onStopCallback = callback;
   }
 
   setOnInput(callback: (elementId: string) => void): void {
@@ -151,9 +146,6 @@ export class NoteEditor {
     // same element, so the recorder coalesces them into one undo step.
     if (textChanged) {
       store.update(this.editingId, { text });
-    }
-    if (this.editingId && this.onStopCallback) {
-      this.onStopCallback(this.editingId);
     }
     this.commitHistory?.(this.editingId);
 

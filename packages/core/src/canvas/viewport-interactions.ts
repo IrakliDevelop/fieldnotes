@@ -5,10 +5,9 @@ import type { InteractMode } from './interact-mode';
 import type { DomNodeManager } from './dom-node-manager';
 import type { RenderLoop } from './render-loop';
 import type { HistoryRecorder } from '../history/history-recorder';
-import type { ArrowElement, CanvasElement } from '../elements/types';
+import type { CanvasElement } from '../elements/types';
 import type { ToolContext } from '../tools/types';
 import { DoubleTapDetector } from './double-tap-detector';
-import { isNearArrowCurve } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
 import {
   escapePlainTextHtml,
@@ -18,9 +17,6 @@ import {
 import { hitTest } from '../tools/select-hit';
 import { isLiveControlTarget } from './live-control';
 import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
-
-/** Screen pixels; converted to world units per zoom at the call site. */
-const ARROW_HIT_THRESHOLD_PX = 10;
 
 export interface ViewportInteractionsDeps {
   store: ElementStore;
@@ -252,23 +248,6 @@ export class ViewportInteractions {
     return (
       (!acceptsPointer || acceptsPointer(e)) && !isLiveControlTarget(e.target, this.deps.wrapper)
     );
-  }
-
-  findArrowAt(world: { x: number; y: number }): ArrowElement | undefined {
-    const tolerance = ARROW_HIT_THRESHOLD_PX / this.deps.camera.zoom;
-    const candidates = [...this.deps.store.getAll()].reverse();
-    for (const el of candidates) {
-      if (
-        el.type === 'arrow' &&
-        isNearArrowCurve(world, el, tolerance, (id) => {
-          const bound = this.deps.store.getById(id);
-          return bound ? getElementBounds(bound) : null;
-        })
-      ) {
-        return el;
-      }
-    }
-    return undefined;
   }
 
   private findBoundTextContainerAt(world: { x: number; y: number }) {
