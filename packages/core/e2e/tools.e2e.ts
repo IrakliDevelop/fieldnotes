@@ -66,14 +66,15 @@ test.describe('drawing tools', () => {
     expect(arrows.length).toBe(1);
   });
 
-  test('opens arrow label editing within the screen-pixel tolerance when zoomed out', async ({
+  test('opens bound arrow text within the screen-pixel tolerance when zoomed out', async ({
     canvasPage,
   }) => {
     const wrapper = canvasPage.wrapper();
     const box = await wrapper.boundingBox();
     if (!box) throw new Error('Wrapper not found');
+    const point = { x: box.width / 2, y: box.height / 2 };
 
-    const screen = await canvasPage.page.evaluate(() => {
+    const screen = await canvasPage.page.evaluate((point) => {
       const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
         camera: {
           setZoom: (zoom: number) => void;
@@ -87,12 +88,13 @@ test.describe('drawing tools', () => {
       vp.store.clear();
       vp.camera.moveTo(0, 0);
       vp.camera.setZoom(0.1);
+      const world = vp.camera.screenToWorld(point);
       vp.store.add({
         id: 'zoom-arrow',
         type: 'arrow',
-        position: { x: 1000, y: 3000 },
-        from: { x: 1000, y: 3000 },
-        to: { x: 3000, y: 3000 },
+        position: { x: world.x - 1000, y: world.y },
+        from: { x: world.x - 1000, y: world.y },
+        to: { x: world.x + 1000, y: world.y },
         bend: 0,
         color: '#000000',
         width: 2,
@@ -103,11 +105,17 @@ test.describe('drawing tools', () => {
       });
       vp.requestRender();
       // Fifty world units are five screen pixels below the arrow at 0.1x.
-      return vp.camera.worldToScreen({ x: 2000, y: 3050 });
-    });
+      return vp.camera.worldToScreen({ x: world.x, y: world.y + 50 });
+    }, point);
 
+    expect(
+      await canvasPage.page.evaluate(
+        ({ x, y }) => document.elementFromPoint(x, y)?.closest('#canvas') !== null,
+        { x: box.x + screen.x, y: box.y + screen.y },
+      ),
+    ).toBe(true);
     await canvasPage.page.mouse.dblclick(box.x + screen.x, box.y + screen.y);
-    await expect(wrapper.locator('input[type="text"]')).toBeVisible();
+    await expect(wrapper.locator('[data-element-id][contenteditable="true"]')).toBeVisible();
   });
 
   test('places text with text tool', async ({ canvasPage }) => {

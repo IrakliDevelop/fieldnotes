@@ -179,7 +179,10 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('keeps the pending wrapper-helper and React parity releases first and undated', () => {
+  it('keeps the bound text releases first, in package order, and unique', () => {
+    const boundTextCore = release('@fieldnotes/core', '0.106.0');
+    const boundTextSync = release('@fieldnotes/sync', '0.30.2');
+    const boundTextServer = release('@fieldnotes/sync-server', '0.30.2');
     const wrapperHelpers = release('@fieldnotes/core', '0.105.0');
     const reactParity = release('@fieldnotes/react', '0.15.0');
     const palette = release('@fieldnotes/core', '0.104.0');
@@ -187,8 +190,24 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     const frames = release('@fieldnotes/core', '0.102.0');
     const prior = release('@fieldnotes/core', '0.101.0');
 
-    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.105.0' });
-    expect(current[1]).toMatchObject({ npmName: '@fieldnotes/react', version: '0.15.0' });
+    expect(current.slice(0, 3)).toMatchObject([
+      { npmName: '@fieldnotes/core', version: '0.106.0' },
+      { npmName: '@fieldnotes/sync', version: '0.30.2' },
+      { npmName: '@fieldnotes/sync-server', version: '0.30.2' },
+    ]);
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.106.0',
+      ),
+    ).toHaveLength(1);
+    expect(
+      current.filter((entry) => entry.npmName === '@fieldnotes/sync' && entry.version === '0.30.2'),
+    ).toHaveLength(1);
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/sync-server' && entry.version === '0.30.2',
+      ),
+    ).toHaveLength(1);
     for (const version of ['0.104.0', '0.103.0', '0.102.0', '0.101.0']) {
       expect(
         current.filter(
@@ -198,7 +217,21 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     }
     expect(frames).toBeDefined();
     expect(prior).toBeDefined();
-    if (!wrapperHelpers || !reactParity || !palette || !presentation || !frames || !prior) return;
+    if (
+      !boundTextCore ||
+      !boundTextSync ||
+      !boundTextServer ||
+      !wrapperHelpers ||
+      !reactParity ||
+      !palette ||
+      !presentation ||
+      !frames ||
+      !prior
+    )
+      return;
+    expect(boundTextCore.date).toBeUndefined();
+    expect(boundTextSync.date).toBeUndefined();
+    expect(boundTextServer.date).toBeUndefined();
     expect(wrapperHelpers.date).toBeUndefined();
     expect(reactParity.date).toBeUndefined();
     expect(palette.date).toBeUndefined();

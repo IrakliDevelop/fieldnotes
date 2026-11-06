@@ -4,7 +4,7 @@ export const SYNC_LIMITS = {
   maxFrameJsonDepth: 32, // server default inbound depth
   maxReceivedJsonDepth: 64, // client parseEnvelope guard (snapshots nest elements one level deeper)
   maxPresenceBytes: 4096, // server default presence cap
-  maxIdLength: 256, // element/layer/group/binding ids, envelope from, layer editor
+  maxIdLength: 256, // element/layer/group/container/binding ids, envelope from, layer editor
   maxShortStringLength: 256, // colors, htmlType, extensionType, layer name, fontFamily-like fields
   maxTextLength: 1_048_576, // note/text text, arrow label
   maxSrcLength: 16_777_216, // image src (data URIs); hosts may raise maxMessageBytes

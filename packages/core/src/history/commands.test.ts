@@ -86,6 +86,26 @@ describe('UpdateElementCommand', () => {
     expect(store.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
   });
 
+  it('replays as a local update with newer versions and no editor', () => {
+    const store = new ElementStore();
+    const note = { ...createNote({ position: { x: 0, y: 0 } }), version: 4, editor: 'A' };
+    const updated = { ...note, position: { x: 50, y: 50 }, version: 9, editor: 'B' };
+    store.add(note);
+    const command = new UpdateElementCommand(note.id, note, updated);
+
+    const origins: (string | undefined)[] = [];
+    store.on('update', (_change, meta) => origins.push(meta.origin));
+
+    command.execute(store);
+    expect(store.getById(note.id)).toMatchObject({ position: { x: 50, y: 50 }, version: 5 });
+    expect(store.getById(note.id)).not.toHaveProperty('editor');
+
+    command.undo(store);
+    expect(store.getById(note.id)).toMatchObject({ position: { x: 0, y: 0 }, version: 6 });
+    expect(store.getById(note.id)).not.toHaveProperty('editor');
+    expect(origins).toEqual([undefined, undefined]);
+  });
+
   it('undo clears a key that the update newly added', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 } });

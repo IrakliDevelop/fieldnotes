@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, expectTypeOf } from 'vitest';
 import * as FN from './index';
 import type {
   ActionsApi,
@@ -22,8 +22,55 @@ import type {
 } from './index';
 
 describe('core public surface', () => {
+  it('keeps bound-text-compatible shape factory results literal', () => {
+    const rectangle = FN.createShape({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } });
+    const ellipse = FN.createShape({
+      position: { x: 0, y: 0 },
+      size: { w: 80, h: 48 },
+      shape: 'ellipse',
+    });
+    const line = FN.createShape({
+      position: { x: 0, y: 0 },
+      size: { w: 80, h: 48 },
+      shape: 'line',
+    });
+
+    expectTypeOf(rectangle).toMatchTypeOf<FN.BoundTextContainer>();
+    expectTypeOf(ellipse).toMatchTypeOf<FN.BoundTextContainer>();
+    expectTypeOf(line).not.toMatchTypeOf<FN.BoundTextContainer>();
+    expect(FN.createBoundText(rectangle).containerId).toBe(rectangle.id);
+    expect(FN.createBoundText(rectangle, { text: 'label' }).containerId).toBe(rectangle.id);
+    expect(
+      FN.createBoundText(rectangle, { text: 'label' }, new FN.ElementRegistry()).containerId,
+    ).toBe(rectangle.id);
+    expect(FN.createBoundText(ellipse).containerId).toBe(ellipse.id);
+  });
+
+  it('exports bound text helpers and types without internal layout helpers', () => {
+    const container: FN.BoundTextContainer | undefined = undefined;
+    const layout: FN.BoundTextLayout<FN.BoundTextContainer> | undefined = undefined;
+    const options: FN.CreateBoundTextOptions = { fontSize: 16 };
+    expect([
+      typeof FN.createBoundText,
+      typeof FN.getBoundText,
+      typeof FN.isBoundTextContainer,
+    ]).toEqual(['function', 'function', 'function']);
+    expect([container, layout, options.fontSize]).toEqual([undefined, undefined, 16]);
+    for (const name of [
+      'findBoundText',
+      'layoutBoundText',
+      'getBoundTextBox',
+      'getBoundTextMinHeight',
+    ])
+      expect(name in FN).toBe(false);
+  });
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.105.0');
+    expect(FN.VERSION).toBe('0.106.0');
+  });
+
+  it('exports text measurement helpers', () => {
+    expect(typeof FN.measureText).toBe('function');
+    expect(typeof FN.setTextMeasurer).toBe('function');
   });
 
   it('exports mount autosave options and no autosave without the option', () => {
@@ -361,9 +408,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.105.0', async () => {
+  it('reports VERSION 0.106.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.105.0');
+    expect(VERSION).toBe('0.106.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

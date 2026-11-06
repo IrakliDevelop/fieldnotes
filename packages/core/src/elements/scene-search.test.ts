@@ -10,6 +10,7 @@ import { ElementRegistry } from './element-registry';
 import { createFrame } from './frame-element';
 import { getDefaultElementRegistry } from './default-registry';
 import { SceneSearch } from './scene-search';
+import { createBoundText } from './bound-text';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 
 function extension(
@@ -44,6 +45,40 @@ function labelDefinition(type: string): ElementTypeDefinition<ExtensionElementEn
 }
 
 describe('SceneSearch', () => {
+  it('searches a many-arrow collection with a constant number of passes', () => {
+    const arrows = Array.from({ length: 20 }, () =>
+      createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 10 }, label: 'legacy' }),
+    );
+    const first = arrows[0];
+    if (!first) throw new Error('expected arrow');
+    const label = createBoundText(first, { text: 'bound' });
+    let passes = 0;
+    const elements = new Proxy([...arrows, label], {
+      get(target, key, receiver) {
+        if (key === Symbol.iterator) {
+          return function* () {
+            passes++;
+            yield* target;
+          };
+        }
+        return Reflect.get(target, key, receiver);
+      },
+    });
+
+    expect(new SceneSearch(getDefaultElementRegistry()).search(elements, 'bound')).toHaveLength(1);
+    expect(passes).toBe(2);
+  });
+
+  it('finds bound arrow text once after a cached legacy label', () => {
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 10 }, label: 'legacy' });
+    const text = createBoundText(arrow, { text: 'bound' });
+    const search = new SceneSearch(getDefaultElementRegistry());
+
+    expect(search.search([arrow], 'legacy')).toHaveLength(1);
+    expect(search.search([arrow, text], 'bound').map((hit) => hit.id)).toEqual([text.id]);
+    expect(search.search([arrow, text], 'legacy')).toEqual([]);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

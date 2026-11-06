@@ -5,6 +5,7 @@ import type { SelectDragInfo, SelectDragObserver } from './select-drag';
 import { normalizeAngle } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
 import { updateArrowsBoundToElements } from '../elements/arrow-binding';
+import { getBoundText, getBoundTextMinHeight, isBoundTextContainer } from '../elements/bound-text';
 import { getElementBounds } from '../elements/element-bounds';
 import { hasSize } from '../elements/element-size';
 import { expandToGroups } from '../elements/group';
@@ -644,6 +645,12 @@ export class SelectTool implements Tool {
     const lockAspect = shiftKey !== (el.type === 'image');
 
     const angle = el.rotation ?? 0;
+    let minHeight: ((width: number) => number) | undefined;
+    if (isBoundTextContainer(el, ctx.store.elementRegistry)) {
+      const text = getBoundText(el, ctx.store);
+      if (text)
+        minHeight = (width) => getBoundTextMinHeight(el, text, ctx.store.elementRegistry, width);
+    }
     const patch =
       angle !== 0
         ? computeRotatedResize(
@@ -654,6 +661,7 @@ export class SelectTool implements Tool {
             this.lastWorld,
             this.resizeAspectRatio,
             lockAspect,
+            minHeight,
           )
         : computeResize(
             el,
@@ -662,6 +670,7 @@ export class SelectTool implements Tool {
             this.lastWorld,
             this.resizeAspectRatio,
             lockAspect,
+            minHeight,
           );
 
     this.lastWorld = world;

@@ -15,9 +15,11 @@ import { getElementsBoundingBox } from '../elements/bounds';
 import {
   createHtmlElement,
   createNote,
+  createShape,
   createStroke,
   createText,
 } from '../elements/element-factory';
+import { createBoundText } from '../elements/bound-text';
 import type { CanvasElement } from '../elements/types';
 import type { Bounds } from '../core/types';
 import type { ExtensionElementEnvelope } from '../elements/types';
@@ -664,6 +666,74 @@ describe('MinimapController', () => {
     expect(recorder.fillRectLog.length).toBe(2);
     expect(recorder.fillRectLog[0]?.fillStyle).toBe('#ff0000');
     expect(recorder.fillRectLog[1]?.fillStyle).toBe('rgba(100,116,139,0.6)');
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('8b. omits only canonical bound text while rendering advisory text fallbacks', () => {
+    const { viewport } = makeViewportHarness();
+    const layerId = viewport.layerManager.activeLayerId;
+    const shape = createShape({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 80 },
+      layerId,
+    });
+    const boundText = createBoundText(shape, { text: 'Bound', index: 'a' });
+    const additionalBoundText = createText({
+      position: { x: 25, y: 25 },
+      size: { w: 50, h: 20 },
+      layerId,
+      index: 'b',
+      text: 'Additional',
+      color: '#00ff00',
+      parentId: shape.id,
+      containerId: shape.id,
+    });
+    const line = createShape({
+      position: { x: 200, y: 0 },
+      size: { w: 100, h: 80 },
+      layerId,
+      index: 'c',
+      shape: 'line',
+    });
+    const lineText = createText({
+      position: { x: 225, y: 25 },
+      size: { w: 50, h: 20 },
+      layerId,
+      index: 'd',
+      text: 'Line text',
+      color: '#0000ff',
+      parentId: line.id,
+      containerId: line.id,
+    });
+    const text = createText({
+      position: { x: 400, y: 200 },
+      size: { w: 50, h: 20 },
+      layerId,
+      index: 'e',
+      text: 'Ordinary',
+      color: '#ff00ff',
+    });
+    viewport.store.add(shape);
+    viewport.store.add(boundText);
+    viewport.store.add(additionalBoundText);
+    viewport.store.add(line);
+    viewport.store.add(lineText);
+    viewport.store.add(text);
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+
+    expect(
+      rendererSpy.mock.calls.map(([, element]: [unknown, CanvasElement]) => element.id),
+    ).toEqual([shape.id, line.id]);
+    expect(recorder.fillRectLog.map(({ fillStyle }) => fillStyle)).toEqual([
+      '#00ff00',
+      '#0000ff',
+      '#ff00ff',
+    ]);
 
     controller.dispose();
     viewport.destroy();

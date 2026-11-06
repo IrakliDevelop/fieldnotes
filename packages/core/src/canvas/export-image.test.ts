@@ -21,6 +21,7 @@ import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-reg
 import type { CanvasElement, ExtensionElementEnvelope, HtmlElement } from '../elements/types';
 import { ElementRegistry } from '../elements/element-registry';
 import { createRenderHooks } from './render-hooks';
+import { createBoundText } from '../elements/bound-text';
 
 function extensionFixture(): {
   element: ExtensionElementEnvelope;
@@ -785,6 +786,37 @@ function recordExportCanvases() {
   };
   return { canvases, draws, createSpy, label, snapshot, restore: () => createSpy.mockRestore() };
 }
+
+describe('exportImage bound arrow labels', () => {
+  it('paints the arrow pill before its bound text and still exports a legacy label', async () => {
+    const recorder = recordExportCanvases();
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const text = { ...createBoundText(arrow, { text: 'bound' }), size: { w: 60, h: 20 } };
+    store.add(arrow);
+    store.add(text);
+
+    await expect(exportImage(store, {})).resolves.toBeInstanceOf(Blob);
+    const ctx = recorder.canvases[0]?.ctx;
+    if (!ctx) throw new Error('Missing export canvas');
+    expect(ctx.roundRect).toHaveBeenCalledTimes(1);
+    expect(ctx.fillText).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ctx.roundRect).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(ctx.fillText).mock.invocationCallOrder[0] ?? Infinity,
+    );
+    recorder.restore();
+
+    const legacyRecorder = recordExportCanvases();
+    const legacy = new ElementStore();
+    legacy.add(createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'legacy' }));
+    await expect(exportImage(legacy, {})).resolves.toBeInstanceOf(Blob);
+    const legacyCtx = legacyRecorder.canvases[0]?.ctx;
+    if (!legacyCtx) throw new Error('Missing legacy export canvas');
+    expect(legacyCtx.roundRect).toHaveBeenCalledWith(24, -11, 52, 22, 4);
+    expect(legacyCtx.fillText).toHaveBeenCalledWith('legacy', 50, 0);
+    legacyRecorder.restore();
+  });
+});
 
 interface ClipData extends Record<string, unknown> {
   label: string;

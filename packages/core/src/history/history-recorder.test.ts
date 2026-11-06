@@ -1,8 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { HistoryRecorder } from './history-recorder';
 import { HistoryStack } from './history-stack';
 import { ElementStore } from '../elements/element-store';
-import { createNote } from '../elements/element-factory';
+import { createArrow, createNote, createShape } from '../elements/element-factory';
+import { createBoundText } from '../elements/bound-text';
+import { setTextMeasurer } from '../elements/text-measure';
 import { createFrame } from '../elements/frame-element';
 import { LayerManager } from '../layers/layer-manager';
 
@@ -14,6 +16,27 @@ function setup() {
 }
 
 describe('HistoryRecorder', () => {
+  it('rolls back an add and remove of the same new element', () => {
+    const { store, stack, recorder } = setup();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    recorder.begin();
+    store.add(note);
+    store.remove(note.id);
+    expect(recorder.rollbackIfOnly(note.id)).toBe(true);
+    expect(stack.canUndo).toBe(false);
+  });
+
+  it('keeps a mixed transaction when rolling back one element is unsafe', () => {
+    const { store, recorder } = setup();
+    const first = createNote({ position: { x: 0, y: 0 } });
+    const second = createNote({ position: { x: 10, y: 0 } });
+    recorder.begin();
+    store.add(first);
+    store.remove(first.id);
+    store.add(second);
+    expect(recorder.rollbackIfOnly(first.id)).toBe(false);
+    recorder.commit();
+  });
   it('records add operations', () => {
     const { store, stack } = setup();
     const note = createNote({ position: { x: 0, y: 0 } });
@@ -121,6 +144,83 @@ describe('HistoryRecorder', () => {
       ['b', 'b'],
     ]);
     expect(store.getById('child')).toMatchObject({ layerId: 'b', parentId: 'parent' });
+  });
+
+  it('undos and redos a shape text edit with its bound arrow and label in one step', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const { store, stack, recorder } = setup();
+      const shape = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'shape',
+      };
+      const text = {
+        ...createBoundText(shape, { text: 'small' }),
+        id: 'text',
+        size: { w: 84, h: 42 },
+      };
+      const arrow = {
+        ...createArrow({ from: { x: 50, y: 30 }, to: { x: 200, y: 30 } }),
+        id: 'arrow',
+        fromBinding: { elementId: shape.id, focus: 0, gap: 0 },
+      };
+      const label = {
+        ...createBoundText(arrow, { text: 'label' }),
+        id: 'label',
+        size: { w: 50, h: 20 },
+      };
+      for (const element of [shape, text, arrow, label]) store.add(element);
+      stack.clear();
+      const before = store.getAll();
+
+      recorder.run(() => store.update(text.id, { text: 'a a a a a' }));
+
+      const after = store.getAll();
+      expect(stack.undoCount).toBe(1);
+      recorder.pause();
+      stack.undo(store);
+      expect(store.getAll()).toEqual(before);
+      stack.redo(store);
+      recorder.resume();
+      expect(store.getAll()).toEqual(after);
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('restores a deleted bound-text subtree without remeasurement', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const { store, stack, recorder } = setup();
+      const shape = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'shape',
+      };
+      const text = {
+        ...createBoundText(shape, { text: 'fitted' }),
+        id: 'text',
+        size: { w: 184, h: 30 },
+      };
+      store.add(shape);
+      store.add(text);
+      stack.clear();
+      const before = store.getAll();
+      measure.mockClear();
+
+      recorder.run(() => {
+        store.remove(text.id);
+        store.remove(shape.id);
+      });
+      recorder.pause();
+      stack.undo(store);
+      recorder.resume();
+
+      expect(measure).not.toHaveBeenCalled();
+      expect(store.getAll()).toEqual(before);
+    } finally {
+      setTextMeasurer(null);
+    }
   });
 
   it('undoes a detached child and removed frame without restoring an invalid link', () => {

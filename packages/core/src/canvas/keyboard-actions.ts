@@ -8,8 +8,9 @@ import type { Point } from '../core/types';
 import { normalizeConstraintStep } from '../core/constraint-service';
 import { createId } from '../elements/create-id';
 import { getElementsBoundingBox } from '../elements/bounds';
-import { ElementStore } from '../elements/element-store';
+import { ElementStore, replayWithoutDerivation } from '../elements/element-store';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
+import { getBoundText } from '../elements/bound-text';
 import type { RotateDirection } from './selection-rotate';
 
 export interface KeyboardActionsDeps {
@@ -54,7 +55,13 @@ export class KeyboardActions {
         (el) =>
           !el.locked &&
           (ctx.isLayerVisible?.(el.layerId) ?? true) &&
-          !(ctx.isLayerLocked?.(el.layerId) ?? false),
+          !(ctx.isLayerLocked?.(el.layerId) ?? false) &&
+          !(
+            el.type === 'text' &&
+            el.parentId === el.containerId &&
+            el.parentId &&
+            getBoundText(ctx.store.getById(el.parentId) ?? el, ctx.store)?.id === el.id
+          ),
       );
   }
 
@@ -344,6 +351,11 @@ export class KeyboardActions {
         if (parentId) clone.parentId = parentId;
         else delete clone.parentId;
       }
+      if (clone.type === 'text' && clone.containerId) {
+        const containerId = idMap.get(clone.containerId);
+        if (containerId) clone.containerId = containerId;
+        else delete clone.containerId;
+      }
       if (clone.groupId) clone.groupId = groupIdMap.get(clone.groupId) ?? clone.groupId;
       clone.position = { x: clone.position.x + offset.x, y: clone.position.y + offset.y };
 
@@ -405,7 +417,9 @@ export class KeyboardActions {
     for (const clone of clones) preflight.add(clone);
 
     this.inHistory(() => {
-      for (const clone of clones) sel.ctx.store.add(clone);
+      replayWithoutDerivation(sel.ctx.store, () => {
+        for (const clone of clones) sel.ctx.store.add(clone);
+      });
     });
     const selectedRoots = clones
       .filter((clone) => clone.parentId === undefined || !cloneIds.has(clone.parentId))

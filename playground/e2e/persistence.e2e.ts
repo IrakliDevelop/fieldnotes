@@ -3,7 +3,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { gotoBlank } from './helpers/board';
 import { singleFingerDraw } from './helpers/touch';
 
-const SAMPLE = { text: 1, note: 4, shape: 5, extension: 1, arrow: 1, stroke: 1 } as const;
+const SAMPLE = { text: 3, note: 4, shape: 5, extension: 1, arrow: 1, stroke: 1 } as const;
 
 async function open(page: Page): Promise<void> {
   await page.goto('/');

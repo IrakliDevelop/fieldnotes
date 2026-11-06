@@ -6,7 +6,7 @@ import { Camera } from './camera';
 import { InputHandler } from './input-handler';
 import type { InputHandlerOptions } from './input-handler';
 import type { ToolManager } from '../tools/tool-manager';
-import type { ToolContext } from '../tools/types';
+import type { Tool, ToolContext } from '../tools/types';
 import type { HistoryRecorder } from '../history/history-recorder';
 import type { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder as RealHistoryRecorder } from '../history/history-recorder';
@@ -1326,9 +1326,25 @@ describe('InputHandler', () => {
 
   describe('lifecycle', () => {
     it('stops handling events after destroy', () => {
+      const tm = stubToolManager();
+      const recorder = fakeRecorder() as unknown as HistoryRecorder;
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        historyRecorder: recorder,
+        actions: stubActionRegistry(),
+      });
       handler.destroy();
       wheel(element, { deltaY: -100, clientX: 0, clientY: 0 });
+      pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+      window.dispatchEvent(new Event('blur'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       expect(camera.zoom).toBe(1);
+      expect(tm.handlePointerDown).not.toHaveBeenCalled();
+      expect(recorder.begin).not.toHaveBeenCalled();
+      expect(recorder.commit).not.toHaveBeenCalled();
     });
   });
 
@@ -1618,6 +1634,135 @@ describe('InputHandler', () => {
 
       expect(hr.begin).toHaveBeenCalledOnce();
       expect(hr.commit).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      ['pointerup', pointerUp],
+      ['pointercancel', pointerCancel],
+    ] as const)('commits one real gesture mutation on %s', (_name, finish) => {
+      const store = new ElementStore();
+      const stack = new RealHistoryStack();
+      const recorder = new RealHistoryRecorder(store, stack);
+      const tm = new RealToolManager();
+      const tool: Tool = {
+        name: 'history-probe',
+        onPointerDown: () => store.add(createNote({ position: { x: 20, y: 20 } })),
+        onPointerMove: () => undefined,
+        onPointerUp: () => undefined,
+        onPointerCancel: () => undefined,
+      };
+      tm.register(tool);
+      tm.setTool(tool.name, stubToolContext());
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        historyRecorder: recorder,
+        actions: stubActionRegistry(),
+      });
+
+      pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+      finish(element, { pointerId: 1, clientX: 20, clientY: 20 });
+
+      expect(store.count).toBe(1);
+      expect(stack.undoCount).toBe(1);
+      expect(recorder.currentTransactionId).toBeNull();
+      expect(stack.undo(store)).toBe(true);
+      expect(store.count).toBe(0);
+    });
+
+    it.each([
+      ['pointerup', pointerUp, 'handlePointerUp'],
+      ['pointercancel', pointerCancel, 'handlePointerCancel'],
+    ] as const)(
+      'does not commit a transaction the tool replaces on %s via %s',
+      (_name, finish, _method) => {
+        const store = new ElementStore();
+        const stack = new RealHistoryStack();
+        const recorder = new RealHistoryRecorder(store, stack);
+        const tm = new RealToolManager();
+        const replacement = () => {
+          recorder.begin();
+          store.add(createNote({ position: { x: 40, y: 40 } }));
+        };
+        const tool: Tool = {
+          name: 'history-replacement-probe',
+          onPointerDown: () => store.add(createNote({ position: { x: 20, y: 20 } })),
+          onPointerMove: () => undefined,
+          onPointerUp: replacement,
+          onPointerCancel: replacement,
+        };
+        tm.register(tool);
+        tm.setTool(tool.name, stubToolContext());
+
+        handler = new InputHandler(element, camera, {
+          toolManager: tm,
+          toolContext: stubToolContext(),
+          historyRecorder: recorder,
+          actions: stubActionRegistry(),
+        });
+
+        pointerDown(element, { pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+        finish(element, { pointerId: 1, clientX: 20, clientY: 20 });
+
+        expect(store.count).toBe(2);
+        expect(stack.undoCount).toBe(1);
+        expect(recorder.currentTransactionId).not.toBeNull();
+        recorder.commit();
+        expect(stack.undoCount).toBe(2);
+        recorder.pause();
+        expect(stack.undo(store)).toBe(true);
+        expect(store.count).toBe(1);
+        expect(stack.undo(store)).toBe(true);
+        expect(store.count).toBe(0);
+        expect(stack.redo(store)).toBe(true);
+        expect(store.count).toBe(1);
+        expect(stack.redo(store)).toBe(true);
+        expect(store.count).toBe(2);
+        recorder.resume();
+      },
+    );
+
+    it('ignores a synthetic pointerleave after the touch pointer already ended', () => {
+      const store = new ElementStore();
+      const stack = new RealHistoryStack();
+      const recorder = new RealHistoryRecorder(store, stack);
+      const tm = new RealToolManager();
+      const tool: Tool = {
+        name: 'deferred-touch-history-probe',
+        onPointerDown: () => store.add(createNote({ position: { x: 20, y: 20 } })),
+        onPointerMove: () => undefined,
+        onPointerUp: () => {
+          recorder.begin();
+          store.add(createNote({ position: { x: 40, y: 40 } }));
+        },
+        onPointerCancel: () => undefined,
+      };
+      tm.register(tool);
+      tm.setTool(tool.name, stubToolContext());
+      handler = new InputHandler(element, camera, {
+        toolManager: tm,
+        toolContext: stubToolContext(),
+        historyRecorder: recorder,
+        actions: stubActionRegistry(),
+      });
+
+      pointerDown(element, {
+        pointerId: 1,
+        button: 0,
+        pointerType: 'touch',
+        clientX: 20,
+        clientY: 20,
+      });
+      pointerUp(element, { pointerId: 1, pointerType: 'touch', clientX: 20, clientY: 20 });
+      element.dispatchEvent(
+        new PointerEvent('pointerleave', { bubbles: true, pointerId: 1, pointerType: 'touch' }),
+      );
+
+      expect(store.count).toBe(2);
+      expect(stack.undoCount).toBe(1);
+      expect(recorder.currentTransactionId).not.toBeNull();
+      recorder.commit();
+      expect(stack.undoCount).toBe(2);
     });
   });
 
@@ -2289,7 +2434,7 @@ describe('InputHandler', () => {
       button.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }));
       live.remove();
 
-      expect(switchTool).toHaveBeenCalledTimes(1);
+      expect(switchTool).toHaveBeenCalledOnce();
     });
 
     it('tool key is ignored mid-gesture', () => {
@@ -2504,6 +2649,47 @@ describe('InputHandler', () => {
       expect(switchTool).toHaveBeenCalledWith('pencil');
       document.body.removeChild(outside);
     });
+
+    it.each(['focus', 'window'] as const)(
+      'keeps activation keys native on BUTTON, A[href], and SUMMARY in %s scope while routing mod+z',
+      (scope) => {
+        const undo = vi.fn();
+        const tool = { onKeyDown: vi.fn((event: KeyboardEvent) => event.key !== 'z') };
+        handler.destroy();
+        handler = new InputHandler(element, camera, {
+          toolManager: { ...stubToolManager(), activeTool: tool } as unknown as ToolManager,
+          toolContext: stubToolContext(),
+          shortcuts: { scope },
+          historyStack: { undo, redo: vi.fn() } as unknown as HistoryStack,
+          actions: stubActionRegistry(),
+        });
+        const controls = [
+          document.createElement('button'),
+          document.createElement('a'),
+          document.createElement('summary'),
+        ];
+        controls[1]?.setAttribute('href', '#native');
+        const parent = scope === 'window' ? document.body : element;
+        for (const control of controls) parent.appendChild(control);
+
+        for (const control of controls) {
+          control.focus();
+          control.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          );
+          control.dispatchEvent(
+            new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+          );
+          control.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }),
+          );
+        }
+
+        expect(tool.onKeyDown).toHaveBeenCalledTimes(3);
+        expect(undo).toHaveBeenCalledTimes(3);
+        for (const control of controls) control.remove();
+      },
+    );
 
     it('makes the element focusable and focuses it on pointer down', () => {
       expect(element.tabIndex).toBe(0);

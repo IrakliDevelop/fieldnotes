@@ -62,6 +62,11 @@ The client tags each element from the layer it is on:
 
 A client can send any tag, so the relay's `resolveAudience` decides the tag it stores. Here a GM's tag is kept, and a player's element keeps its stored tag or becomes `shared`. Without `resolveAudience` on the relay, `authorize` has to check the tag itself.
 
+If your `resolveAudience` sets audiences per element, give [the text inside a shape or on an
+arrow](/docs/tools-and-input/#mouse-touch-and-pen) the same audience as that shape or arrow. When
+one person edits that text while another moves or resizes the shape or arrow, the text can stay out
+of place until someone edits either one again.
+
 When an element moves to an audience a viewer can't read, that viewer receives a remove, and when it moves back, an add. With several relay instances, each one filters for its own connections, so all of them need the same `canRead`. Layers are not filtered: every viewer receives every synced layer and its name.
 
 ## Keep rooms in Redis

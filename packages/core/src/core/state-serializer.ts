@@ -5,13 +5,16 @@ import type {
 } from '../elements/types';
 import type { Point } from './types';
 import type { Layer } from '../layers/types';
-import { sanitizeNoteHtml } from '../elements/note-sanitizer';
+import { escapePlainTextHtml, sanitizeNoteHtml } from '../elements/note-sanitizer';
 import type { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { PersistedPluginState } from './plugin-state-manager';
 import { isValidIndexKey } from './fractional-index';
 import { assignLegacyOrder } from './legacy-order';
-import { validateHierarchy } from '../elements/element-hierarchy';
+import { MAX_HIERARCHY_DEPTH, validateHierarchy } from '../elements/element-hierarchy';
+import { getArrowLabelAnchor } from '../elements/arrow-geometry';
+import { getElementBounds } from '../elements/element-bounds';
+import { measureText } from '../elements/text-measure';
 
 export interface CanvasState {
   version: 6;
@@ -124,17 +127,81 @@ export function migrateState(
     const adapter = registry.getAdapter(el['extensionType']);
     elements[i] = migrateEnvelope(el as unknown as ExtensionElementEnvelope, adapter);
   }
-  if (state.version === CANVAS_STATE_VERSION) return state;
-  const legacy = state as LegacyCanvasState;
-  for (const element of legacy.elements) {
-    if (isRecord(element)) delete element['parentId'];
+  if (state.version < CANVAS_STATE_VERSION) {
+    const legacy = state as LegacyCanvasState;
+    for (const element of legacy.elements) {
+      if (isRecord(element)) delete element['parentId'];
+    }
+    convertLegacyToEnvelopes(legacy.elements, registry);
+    for (const migrator of legacyStateMigrators) {
+      migrator(legacy);
+    }
+    (legacy as { version: number }).version = CANVAS_STATE_VERSION;
   }
-  convertLegacyToEnvelopes(legacy.elements, registry);
-  for (const migrator of legacyStateMigrators) {
-    migrator(legacy);
+  const current = state as CanvasState;
+  migrateArrowLabels(current.elements, registry);
+  return current;
+}
+
+function migrateArrowLabels(elements: CanvasElement[], registry: ElementRegistry): void {
+  const elementsById = new Map(elements.map((element) => [element.id, element]));
+  const boundTextIds = new Set<string>();
+  for (const element of elements) {
+    if (element.type === 'text' && element.parentId === element.containerId && element.parentId) {
+      boundTextIds.add(element.parentId);
+    }
   }
-  (legacy as { version: number }).version = CANVAS_STATE_VERSION;
-  return legacy as unknown as CanvasState;
+  const resolveBounds = (id: string) => {
+    const element = elementsById.get(id);
+    return element ? getElementBounds(element, registry) : null;
+  };
+
+  for (const arrow of elements) {
+    if (
+      arrow.type !== 'arrow' ||
+      !arrow.label ||
+      arrow.id.length > 250 ||
+      boundTextIds.has(arrow.id) ||
+      elementsById.has(`${arrow.id}_label`) ||
+      !canAddBoundText(arrow, elementsById)
+    ) {
+      continue;
+    }
+    const text = escapePlainTextHtml(arrow.label);
+    const size = measureText(text, 14, null);
+    const anchor = getArrowLabelAnchor(arrow, resolveBounds);
+    elements.push({
+      id: `${arrow.id}_label`,
+      type: 'text',
+      position: { x: anchor.x - size.w / 2, y: anchor.y - size.h / 2 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: arrow.layerId,
+      parentId: arrow.id,
+      containerId: arrow.id,
+      size,
+      text,
+      fontSize: 14,
+      color: '#1a1a1a',
+      textAlign: 'center',
+      wrap: false,
+    });
+    delete arrow.label;
+  }
+}
+
+function canAddBoundText(
+  element: CanvasElement,
+  elementsById: ReadonlyMap<string, CanvasElement>,
+): boolean {
+  let current: CanvasElement | undefined = element;
+  let depth = 0;
+  while (current?.parentId !== undefined) {
+    if (++depth >= MAX_HIERARCHY_DEPTH) return false;
+    current = elementsById.get(current.parentId);
+  }
+  return true;
 }
 
 export function convertLegacyToEnvelopes(elements: unknown[], registry: ElementRegistry): void {
@@ -462,7 +529,10 @@ function validateTypeFields(
         isString(el['text']) &&
         isFiniteNumber(el['fontSize']) &&
         isString(el['color']) &&
-        isEnum(el['textAlign'], ['left', 'center', 'right'])
+        isEnum(el['textAlign'], ['left', 'center', 'right']) &&
+        isOptional(el['wrap'], isBoolean) &&
+        isOptional(el['autoResize'], isBoolean) &&
+        isOptional(el['containerId'], isNonEmptyString)
       );
     case 'shape':
       return (
@@ -557,6 +627,10 @@ function isFiniteNumber(value: unknown): value is number {
 
 function isString(value: unknown): value is string {
   return typeof value === 'string';
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.length > 0;
 }
 
 function isBoolean(value: unknown): value is boolean {

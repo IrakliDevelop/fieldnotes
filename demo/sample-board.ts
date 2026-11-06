@@ -1,4 +1,11 @@
-import { createArrow, createNote, createShape, createStroke, createText } from '@fieldnotes/core';
+import {
+  createArrow,
+  createBoundText,
+  createNote,
+  createShape,
+  createStroke,
+  createText,
+} from '@fieldnotes/core';
 import type { CanvasElement } from '@fieldnotes/core';
 
 const NOTES = [
@@ -24,6 +31,13 @@ export function createSampleBoard(layerId: string): CanvasElement[] {
     fillColor: '#fff3e0',
     layerId,
   });
+  const arrow = createArrow({
+    from: { x: 180, y: 415 },
+    to: { x: 480, y: 415 },
+    fromBinding: { elementId: rect.id },
+    toBinding: { elementId: ellipse.id },
+    layerId,
+  });
   return [
     createText({
       position: { x: 0, y: 0 },
@@ -36,15 +50,10 @@ export function createSampleBoard(layerId: string): CanvasElement[] {
       createNote({ position: { x: i * 220, y: 100 }, size: { w: 200, h: 200 }, text, layerId }),
     ),
     rect,
+    createBoundText(rect, { text: 'Rectangle' }),
     ellipse,
-    createArrow({
-      from: { x: 180, y: 415 },
-      to: { x: 480, y: 415 },
-      fromBinding: { elementId: rect.id },
-      toBinding: { elementId: ellipse.id },
-      label: 'drag me',
-      layerId,
-    }),
+    arrow,
+    createBoundText(arrow, { text: 'connects' }),
     createStroke({
       position: { x: 0, y: 540 },
       points: [

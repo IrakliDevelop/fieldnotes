@@ -19,6 +19,10 @@ order: 3
 
 `loadState` takes a `CanvasState` object and skips the check, so give it only state your own code exported.
 
+Loading a board turns each arrow's `label` into a text element on that arrow, with the id `<arrow
+id>_label`, so every client that loads the board creates the same element. Saves keep format version
+6, so older versions of `@fieldnotes/core` can still load them.
+
 The board below opens a saved board with two strokes and a note.
 
 ::board{example="saving-and-loading"}

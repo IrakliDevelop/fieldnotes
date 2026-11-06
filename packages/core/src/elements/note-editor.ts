@@ -42,10 +42,12 @@ export class NoteEditor {
   private pointerHandler: ((e: PointerEvent) => void) | null = null;
   private inputHandler: (() => void) | null = null;
   private pendingEditId: string | null = null;
-  private onStopCallback: ((elementId: string) => void) | null = null;
+  private pendingToolbarPosition: (() => DOMRect | null) | null = null;
+  private toolbarPosition: (() => DOMRect | null) | null = null;
   private onInputCallback: ((elementId: string) => void) | null = null;
-  private beginHistory: (() => void) | null = null;
-  private commitHistory: (() => void) | null = null;
+  private beginHistory: ((id: string) => void) | null = null;
+  private commitHistory: ((id: string) => void) | null = null;
+  private onAbandonCallback: ((id: string) => void) | null = null;
   private toolbar: NoteToolbar | null;
   private readonly placeholder: string;
 
@@ -62,37 +64,52 @@ export class NoteEditor {
     return this.editingId;
   }
 
-  setOnStop(callback: (elementId: string) => void): void {
-    this.onStopCallback = callback;
+  isEditingOrPending(elementId: string): boolean {
+    return this.editingId === elementId || this.pendingEditId === elementId;
   }
 
   setOnInput(callback: (elementId: string) => void): void {
     this.onInputCallback = callback;
   }
 
-  setHistoryHooks(begin: () => void, commit: () => void): void {
+  setHistoryHooks(begin: (id: string) => void, commit: (id: string) => void): void {
     this.beginHistory = begin;
     this.commitHistory = commit;
   }
 
-  startEditing(node: HTMLDivElement, elementId: string, store: ElementStore): void {
-    if (this.editingId === elementId) return;
+  setOnAbandon(callback: (id: string) => void): void {
+    this.onAbandonCallback = callback;
+  }
 
+  startEditing(
+    node: HTMLDivElement,
+    elementId: string,
+    store: ElementStore,
+    toolbarPosition?: () => DOMRect | null,
+  ): void {
+    if (this.isEditingOrPending(elementId)) return;
+
+    if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
     if (this.editingId) {
       this.stopEditing(store);
     }
 
     this.pendingEditId = elementId;
+    this.pendingToolbarPosition = toolbarPosition ?? null;
 
     requestAnimationFrame(() => {
       if (this.pendingEditId !== elementId) return;
       this.pendingEditId = null;
+      this.toolbarPosition = this.pendingToolbarPosition;
+      this.pendingToolbarPosition = null;
       this.activateEditing(node, elementId, store);
     });
   }
 
   stopEditing(store: ElementStore): void {
+    if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
     this.pendingEditId = null;
+    this.pendingToolbarPosition = null;
 
     if (!this.editingId || !this.editingNode) return;
 
@@ -124,16 +141,11 @@ export class NoteEditor {
 
     this.toolbar?.hide();
 
-    // The history transaction spans the whole edit session: opened at activate, committed
-    // here at stop. Live height fits during editing plus the final text write all touch the
-    // same element, so the recorder coalesces them into one undo step.
+    // Live fitting and the final text write share this edit's history transaction.
     if (textChanged) {
       store.update(this.editingId, { text });
     }
-    if (this.editingId && this.onStopCallback) {
-      this.onStopCallback(this.editingId);
-    }
-    this.commitHistory?.();
+    this.commitHistory?.(this.editingId);
 
     this.editingId = null;
     this.editingNode = null;
@@ -141,10 +153,13 @@ export class NoteEditor {
     this.keyHandler = null;
     this.pointerHandler = null;
     this.inputHandler = null;
+    this.toolbarPosition = null;
   }
 
   destroy(store: ElementStore): void {
+    if (this.pendingEditId) this.onAbandonCallback?.(this.pendingEditId);
     this.pendingEditId = null;
+    this.pendingToolbarPosition = null;
     if (this.isEditing) {
       this.stopEditing(store);
     }
@@ -152,14 +167,14 @@ export class NoteEditor {
 
   updateToolbarPosition(): void {
     if (this.editingNode) {
-      this.toolbar?.updatePosition(this.editingNode);
+      this.toolbar?.updatePosition();
     }
   }
 
   private activateEditing(node: HTMLDivElement, elementId: string, store: ElementStore): void {
     this.editingId = elementId;
     this.editingNode = node;
-    this.beginHistory?.();
+    this.beginHistory?.(elementId);
 
     node.contentEditable = 'true';
     Object.assign(node.style, {
@@ -187,7 +202,7 @@ export class NoteEditor {
     };
     node.addEventListener('input', this.inputHandler);
 
-    this.toolbar?.show(node);
+    this.toolbar?.show(node, this.toolbarPosition ?? undefined);
 
     this.blurHandler = (e: FocusEvent) => {
       const related = e.relatedTarget as Node | null;
@@ -203,8 +218,9 @@ export class NoteEditor {
           return;
         }
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) {
         node.blur();
+        if (this.editingId) this.stopEditing(store);
       }
       e.stopPropagation();
     };

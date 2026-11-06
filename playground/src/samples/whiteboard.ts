@@ -1,5 +1,6 @@
 import {
   createArrow,
+  createBoundText,
   createFrame,
   createNote,
   createShape,
@@ -55,6 +56,13 @@ export function buildWhiteboardSample(viewport: Viewport): void {
       color: '#6366f1',
       layerId: sketchId,
     });
+    const arrow = createArrow({
+      from: { x: 180, y: 415 },
+      to: { x: 480, y: 415 },
+      fromBinding: { elementId: rect.id },
+      toBinding: { elementId: ellipse.id },
+      layerId: sketchId,
+    });
     const frameRect = createShape({
       position: { x: 32, y: 736 },
       size: { w: 150, h: 90 },
@@ -95,19 +103,14 @@ export function buildWhiteboardSample(viewport: Viewport): void {
         }),
       ),
       rect,
+      createBoundText(rect, { text: 'Rectangle' }),
       ellipse,
       frame,
       frameRect,
       frameEllipse,
       frameOverlap,
-      createArrow({
-        from: { x: 180, y: 415 },
-        to: { x: 480, y: 415 },
-        fromBinding: { elementId: rect.id },
-        toBinding: { elementId: ellipse.id },
-        label: 'connects',
-        layerId: sketchId,
-      }),
+      arrow,
+      createBoundText(arrow, { text: 'connects' }),
       createStroke({
         position: { x: 0, y: 540 },
         points: [

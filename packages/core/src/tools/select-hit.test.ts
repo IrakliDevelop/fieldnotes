@@ -12,7 +12,14 @@ import {
 } from './select-hit';
 import { ElementStore } from '../elements/element-store';
 import { Camera } from '../canvas/camera';
-import { createNote, createStroke, createArrow, createShape } from '../elements/element-factory';
+import {
+  createNote,
+  createStroke,
+  createArrow,
+  createShape,
+  createText,
+} from '../elements/element-factory';
+import { createBoundText } from '../elements/bound-text';
 import { createFrame } from '../elements/frame-element';
 import type { ToolContext } from './types';
 import { ElementRegistry } from '../elements/element-registry';
@@ -45,6 +52,97 @@ describe('rectsOverlap', () => {
 });
 
 describe('isInsideBounds', () => {
+  it('selects a bound text child as its rectangle and excludes it from a marquee', () => {
+    const ctx = makeCtx();
+    const rectangle = createShape({
+      shape: 'rectangle',
+      position: { x: 20, y: 30 },
+      size: { w: 160, h: 100 },
+    });
+    const text = { ...createBoundText(rectangle, { text: 'Bound text' }), size: { w: 80, h: 20 } };
+    ctx.store.add(rectangle);
+    ctx.store.add(text);
+
+    expect(
+      hitTest({ x: text.position.x + text.size.w / 2, y: text.position.y + text.size.h / 2 }, ctx)
+        ?.id,
+    ).toBe(rectangle.id);
+    expect(findElementsInRect({ x: 0, y: 0, w: 240, h: 180 }, ctx)).toEqual([rectangle.id]);
+  });
+
+  it('maps actual bound text through locked layers but leaves advisory text independent', () => {
+    const rectangle = createShape({
+      shape: 'rectangle',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 80 },
+    });
+    const bound = {
+      ...createBoundText(rectangle, { text: 'bound', index: 'a' }),
+      size: { w: 40, h: 20 },
+    };
+    const mismatched = createText({
+      position: { x: 120, y: 0 },
+      size: { w: 40, h: 20 },
+      parentId: rectangle.id,
+    });
+    const extra = {
+      ...createBoundText(rectangle, { text: 'extra', index: 'z' }),
+      position: { x: 180, y: 0 },
+      size: { w: 40, h: 20 },
+    };
+    const ctx = makeCtx({ isLayerLocked: (id) => id === 'locked' });
+    rectangle.layerId = 'locked';
+    bound.layerId = 'locked';
+    mismatched.layerId = 'locked';
+    extra.layerId = 'locked';
+    ctx.store.add(rectangle);
+    ctx.store.add(bound);
+    ctx.store.add(mismatched);
+    ctx.store.add(extra);
+    const point = {
+      x: bound.position.x + bound.size.w / 2,
+      y: bound.position.y + bound.size.h / 2,
+    };
+    expect(hitTest(point, ctx)).toBeNull();
+    ctx.isLayerLocked = () => false;
+    expect(hitTest(point, ctx)?.id).toBe(rectangle.id);
+    expect(hitTest({ x: 140, y: 10 }, ctx)?.id).toBe(mismatched.id);
+    expect(hitTest({ x: 200, y: 10 }, ctx)?.id).toBe(extra.id);
+    expect(findElementsInRect({ x: 0, y: 0, w: 240, h: 80 }, ctx)).toEqual([
+      rectangle.id,
+      mismatched.id,
+      extra.id,
+    ]);
+  });
+
+  it('skips a bound arrow inside its source and hits its visible curve', () => {
+    const ctx = makeCtx();
+    const from = createShape({
+      shape: 'rectangle',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const to = createShape({
+      shape: 'rectangle',
+      position: { x: 300, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 60,
+      fromBinding: { elementId: from.id },
+      toBinding: { elementId: to.id },
+    });
+    arrow.cachedControlPoint = { x: 200, y: -200 };
+    ctx.store.add(from);
+    ctx.store.add(to);
+    ctx.store.add(arrow);
+
+    expect(hitTest({ x: 80, y: 60.8 }, ctx)?.id).toBe(from.id);
+    expect(hitTest({ x: 140, y: 75.2 }, ctx)?.id).toBe(arrow.id);
+  });
+
   it('falls through a clipped top candidate to the lower visible element', () => {
     const ctx = makeCtx();
     const lower = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, index: 'a' });

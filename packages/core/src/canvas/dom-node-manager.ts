@@ -2,6 +2,7 @@ import type { CanvasElement, HtmlElement } from '../elements/types';
 import type { Bounds } from '../core/types';
 import type { ElementStore } from '../elements/element-store';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
+import { TEXT_PADDING } from '../elements/text-measure';
 import { DoubleTapDetector } from './double-tap-detector';
 import { LIVE_NODE_ATTR } from './live-control';
 export interface DomNodeManagerDeps {
@@ -144,7 +145,10 @@ export class DomNodeManager {
       }
     }
 
-    if (node.parentElement !== this.getStratum(zIndex)) {
+    const deferredStratumMove =
+      this.isEditingElement(element.id) &&
+      node.parentElement?.dataset['paintOrder'] !== String(zIndex);
+    if (!deferredStratumMove && node.parentElement !== this.getStratum(zIndex)) {
       const previousStratum = node.parentElement;
       this.getStratum(zIndex).appendChild(node);
       if (previousStratum?.childElementCount === 0) {
@@ -156,7 +160,7 @@ export class DomNodeManager {
 
     if (this.getVersion) {
       this.lastSyncedVersion.set(element.id, this.getVersion(element.id));
-      this.lastSyncedZIndex.set(element.id, zIndex);
+      if (!deferredStratumMove) this.lastSyncedZIndex.set(element.id, zIndex);
       this.lastSyncedOpacity.set(element.id, opacity);
       if (clip !== undefined) this.lastSyncedClip.set(element.id, this.clipKey(element, clip));
     }
@@ -168,7 +172,7 @@ export class DomNodeManager {
       top: `${element.position.y}px`,
       width: size ? `${size.w}px` : 'auto',
       height: size ? `${size.h}px` : 'auto',
-      zIndex: String(zIndex),
+      zIndex: String(this.lastSyncedZIndex.get(element.id) ?? zIndex),
       opacity: String(opacity),
       transform: element.rotation ? `rotate(${element.rotation}rad)` : '',
       transformOrigin: '50% 50%',
@@ -331,6 +335,7 @@ export class DomNodeManager {
           cursor: 'default',
           userSelect: 'none',
           wordWrap: 'break-word',
+          boxSizing: 'border-box',
         });
         node.innerHTML = element.text || '';
 
@@ -389,7 +394,7 @@ export class DomNodeManager {
       if (!node.dataset['initialized']) {
         node.dataset['initialized'] = 'true';
         Object.assign(node.style, {
-          padding: '2px',
+          padding: `${TEXT_PADDING}px`,
           fontSize: `${element.fontSize}px`,
           color: element.color,
           textAlign: element.textAlign,
@@ -399,7 +404,9 @@ export class DomNodeManager {
           overflow: 'visible',
           cursor: 'default',
           userSelect: 'none',
-          wordWrap: 'break-word',
+          wordWrap: element.wrap === false ? 'normal' : 'break-word',
+          whiteSpace: element.wrap === false ? 'pre' : 'normal',
+          boxSizing: 'border-box',
           lineHeight: '1.4',
         });
         node.innerHTML = element.text || '';
@@ -424,6 +431,8 @@ export class DomNodeManager {
           fontSize: `${element.fontSize}px`,
           color: element.color,
           textAlign: element.textAlign,
+          wordWrap: element.wrap === false ? 'normal' : 'break-word',
+          whiteSpace: element.wrap === false ? 'pre' : 'normal',
         });
       }
     }

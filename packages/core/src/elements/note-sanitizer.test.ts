@@ -1,6 +1,21 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { sanitizeNoteHtml, parseStyledRuns, isNoteContentEmpty } from './note-sanitizer';
+import {
+  escapePlainTextHtml,
+  sanitizeNoteHtml,
+  parseStyledRuns,
+  isNoteContentEmpty,
+} from './note-sanitizer';
+
+describe('escapePlainTextHtml', () => {
+  it('escapes every HTML-significant character in legacy plain text', () => {
+    expect(escapePlainTextHtml(`&<>"'`)).toBe('&amp;&lt;&gt;&quot;&#39;');
+  });
+
+  it('remains strict after sanitization', () => {
+    expect(sanitizeNoteHtml(escapePlainTextHtml(`&<>"'`))).toBe('&amp;&lt;&gt;&quot;&#39;');
+  });
+});
 
 describe('sanitizeNoteHtml', () => {
   it('passes plain text through unchanged', () => {
