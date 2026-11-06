@@ -37,6 +37,23 @@ import { LaserTool } from '../tools/laser-tool';
 import { FIXED_HELP_ROWS } from './palette-model';
 import { setTextMeasurer } from '../elements/text-measure';
 
+function arrowAnchor(from: { x: number; y: number }, to: { x: number; y: number }, bend: number) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy);
+  const control =
+    length === 0
+      ? { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }
+      : {
+          x: (from.x + to.x) / 2 - (dy / length) * bend,
+          y: (from.y + to.y) / 2 + (dx / length) * bend,
+        };
+  return {
+    x: (from.x + 2 * control.x + to.x) / 4,
+    y: (from.y + 2 * control.y + to.y) / 4,
+  };
+}
+
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
   if (!(w instanceof HTMLDivElement)) throw new Error('viewport wrapper not found');
@@ -1058,6 +1075,38 @@ describe('Viewport', () => {
       expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
         after.map(({ version: _version, ...element }) => element),
       );
+      viewport.destroy();
+    });
+
+    it('live-fits an arrow label without changing the arrow geometry', async () => {
+      const viewport = new Viewport(container);
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 120, y: 40 },
+        bend: 30,
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      arrow.label = 'label';
+      viewport.store.add(arrow);
+      expect(viewport.editBoundText(arrow.id)).toBe(true);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const textId = viewport.getBoundText(arrow.id)?.id;
+      if (!textId) throw new Error('expected arrow label');
+      const before = structuredClone(viewport.store.getById(arrow.id));
+      const node = container.querySelector<HTMLDivElement>(`[data-element-id="${textId}"]`);
+      if (!node) throw new Error('expected arrow editor');
+      Object.defineProperty(node, 'scrollHeight', { configurable: true, value: 60 });
+      node.textContent = 'a longer arrow label';
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      const afterArrow = viewport.store.getById(arrow.id);
+      const text = viewport.getBoundText(arrow.id);
+      if (!afterArrow || afterArrow.type !== 'arrow' || !text)
+        throw new Error('expected live arrow label');
+      expect(afterArrow).toEqual(before);
+      expect(text.size.h).toBe(60);
+      const anchor = arrowAnchor(afterArrow.from, afterArrow.to, afterArrow.bend);
+      expect(text.position.x + text.size.w / 2).toBeCloseTo(anchor.x, 6);
+      expect(text.position.y + text.size.h / 2).toBeCloseTo(anchor.y, 6);
       viewport.destroy();
     });
 
