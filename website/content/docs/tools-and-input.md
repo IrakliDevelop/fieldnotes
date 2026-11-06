@@ -62,7 +62,7 @@ For a board inside a scrolling page, [Boards in a scrolling page](/docs/html-ele
 
 ## Keyboard shortcuts
 
-Shortcuts work while the board has focus, and a click on the board gives it focus. With `shortcuts: { scope: 'window' }` they work anywhere on the page. Keys typed into an input, a textarea, a select, editable content or a control on a live HTML element never reach the board. In both scopes, Enter and Space stay with a focused `BUTTON`, `A[href]`, or `SUMMARY`; other shortcuts still route to the board.
+Shortcuts work while the board has focus, and a click on the board gives it focus. With `shortcuts: { scope: 'window' }` they work anywhere on the page. Keys typed into an input, a textarea, a select, editable content or a control on a live HTML element never reach the board. In both scopes, Enter and Space on a focused button, link or `<summary>` go to that element; other shortcuts still route to the board.
 
 `mod` is Ctrl or ⌘. Each shortcut runs a named action:
 

@@ -89,7 +89,7 @@ describe('parseRoadmap', () => {
     expect(roadmap.built).toHaveLength(new Set(roadmap.built).size);
     expect(roadmap.next).toEqual(["I'm adding elbow arrows that route around shapes."]);
     expect(roadmap.notBuilt).toEqual([
-      'Copy and paste, and drag and drop: text, images and links pasted as elements, files dragged in, and exported images that open again as editable boards',
+      'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
     ]);
     for (const section of [roadmap.built, roadmap.next, roadmap.notBuilt]) {
       expect(section).not.toContain(

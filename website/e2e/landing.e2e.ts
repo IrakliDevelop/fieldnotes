@@ -65,7 +65,7 @@ test.describe('landing without JavaScript', () => {
 
     const notBuilt = page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem');
     await expect(notBuilt).toHaveText([
-      'Copy and paste, and drag and drop: text, images and links pasted as elements, files dragged in, and exported images that open again as editable boards',
+      'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
     ]);
 
     const packages = page.getByRole('contentinfo').getByRole('row');

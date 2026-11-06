@@ -42,4 +42,4 @@
 
 ## Not built yet
 
-- Copy and paste, and drag and drop: text, images and links pasted as elements, files dragged in, and exported images that open again as editable boards
+- Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board

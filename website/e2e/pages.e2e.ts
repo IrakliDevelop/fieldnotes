@@ -15,7 +15,7 @@ const newestBuilt = ROADMAP.built.at(-1);
 if (!oldestBuilt || !newestBuilt) throw new Error('roadmap.md has no Built item');
 
 const NOT_BUILT = [
-  'Copy and paste, and drag and drop: text, images and links pasted as elements, files dragged in, and exported images that open again as editable boards',
+  'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
 ];
 
 const BUILT = [
@@ -153,7 +153,7 @@ test.describe('changelog and roadmap without JavaScript', () => {
     );
     await page.goto('/roadmap/');
     await expect(page.getByRole('region', { name: 'Not built yet' })).toContainText(
-      'Copy and paste, and drag and drop: text, images and links pasted as elements, files dragged in, and exported images that open again as editable boards',
+      'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
     );
   });
 });
