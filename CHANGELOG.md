@@ -31,7 +31,7 @@ Release notes prepared 2026-11-05.
 **Fixed**
 
 - Opening or editing a resized note keeps its chosen height.
-- Rectangles and ellipses grow while their bound text is typed rather than waiting for commit.
+- Rectangles and ellipses grow while their bound text is typed.
 - The minimap no longer paints bound text as a dark block over its container.
 - A bent arrow bound to shapes draws its curve, label and bend handle on the same path; before, the label and handle sat off the drawn curve.
 
