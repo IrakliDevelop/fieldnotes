@@ -1794,6 +1794,36 @@ describe('persisted state v5', () => {
     });
   });
 
+  it('preserves escaped legacy arrow labels after loading more than 256 migrations', () => {
+    const arrows = Array.from({ length: 257 }, (_, index) => ({
+      ...createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 40, y: 0 },
+        layerId: 'L1',
+        label: `label-${index} &<>"'`,
+      }),
+      id: `arrow-${index}`,
+    }));
+
+    setTextMeasurer((text) => text.length * 10);
+    try {
+      const parsed = parseState(
+        JSON.stringify({ version: 6, camera: makeCamera(), elements: arrows, layers }),
+      );
+      const store = new ElementStore();
+      store.loadSnapshot(parsed.elements);
+
+      for (let index = 0; index < 257; index++) {
+        expect(store.getById(`arrow-${index}_label`)).toMatchObject({
+          text: `label-${index} &amp;&lt;&gt;&quot;&#39;`,
+        });
+      }
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
   it('uses one lookup map while resolving several migrated arrow bindings', () => {
     const target = {
       ...createShape({

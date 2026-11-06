@@ -94,20 +94,21 @@ const ALLOWED_TAGS = new Set([
 // Recent outputs; sanitizing is idempotent, so an output passes through unparsed.
 const SANITIZED_MEMO_SIZE = 256;
 const sanitizedMemo = new Set<string>();
+const ESCAPED_PLAIN_TEXT_ENTITIES = /&(amp|lt|gt|quot|#39);/g;
+const RAW_HTML_SPECIAL_CHARACTER = /[&<>"']/;
 
 export function escapePlainTextHtml(text: string): string {
-  const escaped = text
+  return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-  rememberSanitized(escaped);
-  return escaped;
 }
 
 export function sanitizeNoteHtml(html: string): string {
   if (!html) return '';
+  if (isEscapedPlainText(html)) return html;
   if (sanitizedMemo.has(html)) return html;
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -115,6 +116,10 @@ export function sanitizeNoteHtml(html: string): string {
   const sanitized = doc.body.innerHTML;
   rememberSanitized(sanitized);
   return sanitized;
+}
+
+function isEscapedPlainText(html: string): boolean {
+  return !RAW_HTML_SPECIAL_CHARACTER.test(html.replace(ESCAPED_PLAIN_TEXT_ENTITIES, ''));
 }
 
 function rememberSanitized(html: string): void {
