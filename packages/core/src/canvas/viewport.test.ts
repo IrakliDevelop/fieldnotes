@@ -120,12 +120,15 @@ describe('Viewport', () => {
     setTextMeasurer(() => 100);
     try {
       const viewport = new Viewport(container);
-      const rectangle = createShape({
-        shape: 'rectangle',
-        position: { x: 0, y: 0 },
-        size: { w: 100, h: 30 },
-        layerId: viewport.layerManager.activeLayerId,
-      });
+      const rectangle = {
+        ...createShape({
+          shape: 'rectangle',
+          position: { x: 0, y: 0 },
+          size: { w: 100, h: 30 },
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+        editor: 'peer',
+      };
       viewport.store.add(rectangle);
       const id = viewport.setBoundText(rectangle.id, 'one two three');
       if (!id) throw new Error('expected bound text');
