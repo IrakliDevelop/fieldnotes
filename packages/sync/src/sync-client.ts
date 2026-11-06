@@ -780,7 +780,7 @@ export class SyncClient {
 
   private projectSnapshotElement(element: CanvasElement): CanvasElement {
     const revision = this.liveRevisions.get(element.id);
-    if (!revision?.history) return element;
+    if (!revision) return element;
     return { ...element, version: revision.version, editor: revision.editor };
   }
 
@@ -789,7 +789,7 @@ export class SyncClient {
     // Transient elements belong to the embedding host, not the document: the hub must never
     // learn about them. Removes need no guard — the hub never knew the element existed.
     if (op.kind === 'upsert' && isTransientHtml(op.element)) return;
-    if (op.kind === 'upsert' && origin === 'local') {
+    if (op.kind === 'upsert') {
       const revision = this.liveRevisions.get(op.element.id);
       if (revision && revision.editor !== this.clientId) {
         this.liveRevisions.set(op.element.id, { ...revision, editor: this.clientId });

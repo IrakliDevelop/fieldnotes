@@ -965,7 +965,9 @@ describe('SyncClient snapshot-on-join', () => {
     if (!resp) throw new Error('expected a snapshot response');
     expect(resp.to).toBe('X');
     expect(resp.elements).toHaveLength(2);
-    expect(resp.elements).toEqual(storeA.snapshot());
+    expect(resp.elements).toEqual(
+      storeA.snapshot().map((element) => ({ ...element, editor: 'A' })),
+    );
   });
 });
 
