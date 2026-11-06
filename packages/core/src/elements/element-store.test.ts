@@ -8,6 +8,7 @@ import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 import { createStroke, createArrow, createShape } from './element-factory';
 import { createBoundText } from './bound-text';
+import { getArrowLabelAnchor } from './arrow-geometry';
 import { setTextMeasurer } from './text-measure';
 import { createFrame } from './frame-element';
 import type {
@@ -234,7 +235,16 @@ describe('ElementStore', () => {
     store.add(arrow);
     store.add(label, { origin: 'remote' });
     const events: string[] = [];
-    store.on('add', ({ id }) => events.push(`add:${id}`));
+    store.on('add', ({ id }) => {
+      expect(shapeOf(store, shape.id).size).toEqual({ w: 100, h: 132 });
+      expect(store.getById(arrow.id)?.type === 'arrow' && store.getById(arrow.id)?.from).toEqual({
+        x: 50,
+        y: 66,
+      });
+      expect(textOf(store, label.id).position.x).toBeCloseTo(125, 3);
+      expect(textOf(store, label.id).position.y).toBeCloseTo(22, 3);
+      events.push(`add:${id}`);
+    });
     store.on('update', ({ current }) => {
       expect(shapeOf(store, shape.id).size).toEqual({ w: 100, h: 132 });
       expect(store.getById(arrow.id)?.type === 'arrow' && store.getById(arrow.id)?.from).toEqual({
@@ -298,6 +308,96 @@ describe('ElementStore', () => {
       expect(store.getById(arrow.id)).toMatchObject(geometry);
     } finally {
       setTextMeasurer(null);
+    }
+  });
+
+  it('centres an explicit arrow-label size patch using its supplied width', () => {
+    const store = new ElementStore();
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+      id: 'arrow',
+    };
+    const label = { ...createBoundText(arrow, { text: 'label' }), id: 'label' };
+    store.add(arrow);
+    store.add(label, { origin: 'remote' });
+
+    store.update(label.id, { size: { w: 13, h: 26.4 } });
+
+    const laidOut = textOf(store, label.id);
+    const anchor = getArrowLabelAnchor(arrow, () => null);
+    expect(laidOut.size).toEqual({ w: 13, h: 26.4 });
+    expect({
+      x: laidOut.position.x + laidOut.size.w / 2,
+      y: laidOut.position.y + laidOut.size.h / 2,
+    }).toEqual(anchor);
+  });
+
+  it('replaces an explicit rectangle-text width with the content width', () => {
+    const store = new ElementStore();
+    const rectangle = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 200, h: 60 } }),
+      id: 'rectangle',
+    };
+    const text = { ...createBoundText(rectangle, { text: 'label' }), id: 'text' };
+    store.add(rectangle);
+    store.add(text, { origin: 'remote' });
+
+    store.update(text.id, { size: { w: 50, h: 26.4 } });
+
+    const laidOut = textOf(store, text.id);
+    expect(laidOut.size).toEqual({ w: 184, h: 26.4 });
+    expect(laidOut.position.x + laidOut.size.w / 2).toBe(100);
+  });
+
+  it('does not traverse the element map for an unlabelled arrow update', () => {
+    const store = new ElementStore();
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+      id: 'arrow',
+    };
+    store.add(arrow);
+    store.getAll();
+    const elements = (store as unknown as { elements: Map<string, CanvasElement> }).elements;
+    const iterate = vi.spyOn(elements, Symbol.iterator);
+    const values = vi.spyOn(elements, 'values');
+
+    try {
+      store.update(arrow.id, { to: { x: 120, y: 0 } });
+
+      expect(iterate).not.toHaveBeenCalled();
+      expect(values).not.toHaveBeenCalled();
+    } finally {
+      iterate.mockRestore();
+      values.mockRestore();
+    }
+  });
+
+  it('does not traverse the element map when adding bound text that grows its container', () => {
+    const store = new ElementStore();
+    const rectangle = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 30 } }),
+      id: 'rectangle',
+    };
+    const text = {
+      ...createBoundText(rectangle, { text: 'large', index: 'a1' }),
+      id: 'text',
+      size: { w: 84, h: 116 },
+    };
+    store.add(rectangle);
+    store.getAll();
+    const elements = (store as unknown as { elements: Map<string, CanvasElement> }).elements;
+    const iterate = vi.spyOn(elements, Symbol.iterator);
+    const values = vi.spyOn(elements, 'values');
+
+    try {
+      store.add(text);
+
+      expect(shapeOf(store, rectangle.id).size).toEqual({ w: 100, h: 132 });
+      expect(iterate).not.toHaveBeenCalled();
+      expect(values).not.toHaveBeenCalled();
+    } finally {
+      iterate.mockRestore();
+      values.mockRestore();
     }
   });
 
