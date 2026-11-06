@@ -5,6 +5,7 @@ import { ShortcutMap } from './shortcut-map';
 import type { KeyboardActions } from './keyboard-actions';
 import type { ActionRegistry } from '../actions/action-registry';
 import { createBuiltinActions } from '../actions/builtin-actions';
+import { isLiveControlTarget } from './live-control';
 
 export interface KeyboardHandlerDeps {
   element: HTMLElement;
@@ -79,6 +80,7 @@ export class KeyboardHandler {
   }
 
   private shouldHandle(target: EventTarget | null): boolean {
+    if (isLiveControlTarget(target, this.deps.element)) return false;
     const el = target as HTMLElement | null;
     if (el?.isContentEditable) return false;
     const tag = el?.tagName;

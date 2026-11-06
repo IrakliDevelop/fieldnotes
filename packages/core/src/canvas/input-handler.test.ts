@@ -2415,7 +2415,7 @@ describe('InputHandler', () => {
       expect(switchTool).toHaveBeenCalledWith('pencil');
     });
 
-    it('routes tool keys from live controls but not editable targets', () => {
+    it('routes F only from the canvas, not editable or live-control targets', () => {
       const { switchTool } = setupWithTools();
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f' }));
       expect(switchTool).toHaveBeenCalledWith('frame');
@@ -2434,7 +2434,7 @@ describe('InputHandler', () => {
       button.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }));
       live.remove();
 
-      expect(switchTool).toHaveBeenCalledTimes(2);
+      expect(switchTool).toHaveBeenCalledOnce();
     });
 
     it('tool key is ignored mid-gesture', () => {
