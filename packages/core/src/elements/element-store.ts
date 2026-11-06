@@ -639,15 +639,13 @@ export class ElementStore {
     for (const id of geometry) {
       const container = getCandidate(id);
       const previous = this.elements.get(id);
-      if (
-        !container ||
-        !previous ||
-        !isBoundTextContainer(container, this.registry) ||
-        !isBoundTextContainer(previous, this.registry)
-      )
-        continue;
+      if (!container || !previous || !isBoundTextContainer(container, this.registry)) continue;
       const text = firstText(container);
       if (!text) continue;
+      if (!isBoundTextContainer(previous, this.registry)) {
+        layout(container, text, true);
+        continue;
+      }
       const oldWidth = getBoundTextBox(previous, this.registry, (target) => {
         const element = this.elements.get(target);
         return element ? getElementBounds(element, this.registry) : null;

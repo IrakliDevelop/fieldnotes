@@ -518,6 +518,41 @@ describe('ElementStore', () => {
     }
   });
 
+  it('lays out bound text when a line becomes a rectangle', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const line = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 }, shape: 'line' }),
+        id: 'line',
+      };
+      const text = {
+        ...createText({
+          position: { x: 999, y: 999 },
+          size: { w: 20, h: 42 },
+          parentId: line.id,
+          containerId: line.id,
+          text: 'label',
+        }),
+        id: 'text',
+      };
+      store.add(line);
+      store.add(text);
+      measure.mockClear();
+
+      store.update(line.id, { shape: 'rectangle' });
+
+      expect(measure).toHaveBeenCalled();
+      expect(textOf(store, text.id)).toMatchObject({
+        position: { x: 8, y: 16.8 },
+        size: { w: 84, h: 26.4 },
+      });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
   it('measures once for a width change and snaps a direct bound-text move back to center', () => {
     const measure = vi.fn(() => 100);
     setTextMeasurer(measure);
