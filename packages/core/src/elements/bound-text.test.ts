@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createArrow, createNote, createShape, createText } from './element-factory';
 import { ElementStore } from './element-store';
 import {
+  createBoundText,
   findBoundText,
   getBoundText,
   getBoundTextBox,
@@ -311,6 +312,24 @@ describe('bound text', () => {
     });
     expect(isBoundTextContainer(extension('unknown'), new ElementRegistry())).toBe(false);
     expect(isBoundTextContainer(extension('no-hook'), boundRegistry(undefined))).toBe(false);
+  });
+
+  it('uses the supplied registry to create extension bound text before store insertion', () => {
+    setTextMeasurer(() => 20);
+    const registry = boundRegistry(() => ({ box: { x: 20, y: 10, w: 100, h: 80 } }));
+    const container = { ...extension('extension'), index: 'a0' };
+    const text = createBoundText(container, { text: 'aa bb' }, registry);
+    const store = new ElementStore(registry);
+    store.add(container);
+    store.add(text);
+
+    expect(text.size.w).toBe(100);
+    expect(text.size.h).toBeCloseTo(26.4);
+    expect(text.position).toEqual({ x: 20, y: 36.8 });
+    expect(store.getById(text.id)).toMatchObject({
+      size: { w: 100, h: 26.4 },
+      position: { x: 20, y: 36.8 },
+    });
   });
 
   it('lets extension text overflow without grow and relays one layout after width-changing growth', () => {

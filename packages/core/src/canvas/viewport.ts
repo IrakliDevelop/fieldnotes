@@ -1389,7 +1389,7 @@ export class Viewport {
       if (existing) {
         this.store.update(existing.id, { text: html });
       } else {
-        const text = createBoundText(container, { text: html });
+        const text = createBoundText(container, { text: html }, this.elementRegistry);
         this.store.add(text);
       }
     });

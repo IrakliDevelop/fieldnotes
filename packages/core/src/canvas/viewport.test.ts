@@ -36,6 +36,7 @@ import { pointerDown, pointerUp } from '../test-helpers/pointer-helpers';
 import { LaserTool } from '../tools/laser-tool';
 import { FIXED_HELP_ROWS } from './palette-model';
 import { setTextMeasurer } from '../elements/text-measure';
+import { ElementRegistry } from '../elements/element-registry';
 
 function arrowAnchor(from: { x: number; y: number }, to: { x: number; y: number }, bend: number) {
   const dx = to.x - from.x;
@@ -51,6 +52,20 @@ function arrowAnchor(from: { x: number; y: number }, to: { x: number; y: number 
   return {
     x: (from.x + 2 * control.x + to.x) / 4,
     y: (from.y + 2 * control.y + to.y) / 4,
+  };
+}
+
+function extension(id: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:bound',
+    position: { x: 0, y: 0 },
+    index: 'a0',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: {},
   };
 }
 
@@ -126,6 +141,39 @@ describe('Viewport', () => {
       expect(viewport.redo()).toBe(true);
       expect(viewport.store.getById(rectangle.id)).toEqual(grown);
       expect(viewport.store.getById(id)).toEqual(text);
+      viewport.destroy();
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('uses its private registry to install extension bound text with recorded geometry', () => {
+    setTextMeasurer(() => 20);
+    try {
+      const registry = new ElementRegistry();
+      registry.register<ExtensionElementEnvelope>({
+        type: 'test:bound',
+        legacyTypes: [],
+        decodeLegacy: () => extension('legacy'),
+        validateData: () => true,
+        unwrap: (element) => element,
+        wrap: (element) => element,
+        bounds: () => null,
+        boundTextLayout: () => ({ box: { x: 20, y: 10, w: 100, h: 80 } }),
+      });
+      const viewport = new Viewport(container, { elementRegistry: registry });
+      const element = extension('extension');
+      viewport.store.add(element);
+      viewport.history.clear();
+
+      const textId = viewport.setBoundText(element.id, 'aa bb');
+      if (!textId) throw new Error('expected bound text');
+      const text = viewport.store.getById(textId);
+      expect(text).toMatchObject({ size: { w: 100, h: 26.4 }, position: { x: 20, y: 36.8 } });
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(textId)).toBeUndefined();
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getById(textId)).toEqual(text);
       viewport.destroy();
     } finally {
       setTextMeasurer(null);

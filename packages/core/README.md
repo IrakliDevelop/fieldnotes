@@ -620,6 +620,7 @@ creates, updates, or removes one and keeps the text change and any container gro
 step. `getBoundText` and `isBoundTextContainer` read the relation. The child has `wrap` and
 `autoResize`; wrapping uses the container's text box, and `autoResize` controls whether free text
 shrinks to its content while editing. `measureText` measures text for a host's own layout.
+The third `createBoundText` argument defaults to the global registry; private extensions should pass `viewport.elementRegistry`.
 
 An extension element definition can implement `boundTextLayout(el)`, returning the text `box` and an optional `grow(el, height)` that returns the element grown to fit. `setBoundText` adds the child and any growth as one undo step; if you add the child with `store.add` instead, wrap the call in `viewport.transaction`.
 

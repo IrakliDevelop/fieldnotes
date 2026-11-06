@@ -77,7 +77,7 @@ export class ViewportInteractions {
     this.deps.recorder.begin();
     const legacyLabel =
       container.type === 'arrow' ? escapePlainTextHtml(container.label ?? '') : undefined;
-    const text = createBoundText(container, { text: legacyLabel });
+    const text = createBoundText(container, { text: legacyLabel }, this.deps.store.elementRegistry);
     const transactionId = this.deps.recorder.currentTransactionId;
     if (transactionId === null)
       throw new Error('bound text creation requires a history transaction');

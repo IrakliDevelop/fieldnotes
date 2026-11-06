@@ -207,6 +207,7 @@ export function layoutBoundText(
 export function createBoundText(
   container: BoundTextContainer,
   options: CreateBoundTextOptions = {},
+  registry: ElementRegistry = getDefaultElementRegistry(),
 ): TextElement {
   const arrow = container.type === 'arrow';
   const point = arrow
@@ -232,7 +233,7 @@ export function createBoundText(
     autoResize: true,
   });
   const result = layoutBoundText(container, text, {
-    registry: getDefaultElementRegistry(),
+    registry,
     resolveBounds: () => null,
     remeasure: true,
   });

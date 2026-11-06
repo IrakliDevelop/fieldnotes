@@ -39,6 +39,10 @@ describe('core public surface', () => {
     expectTypeOf(ellipse).toMatchTypeOf<FN.BoundTextContainer>();
     expectTypeOf(line).not.toMatchTypeOf<FN.BoundTextContainer>();
     expect(FN.createBoundText(rectangle).containerId).toBe(rectangle.id);
+    expect(FN.createBoundText(rectangle, { text: 'label' }).containerId).toBe(rectangle.id);
+    expect(
+      FN.createBoundText(rectangle, { text: 'label' }, new FN.ElementRegistry()).containerId,
+    ).toBe(rectangle.id);
     expect(FN.createBoundText(ellipse).containerId).toBe(ellipse.id);
   });
 

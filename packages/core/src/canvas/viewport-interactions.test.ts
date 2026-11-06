@@ -17,6 +17,8 @@ import type { ToolContext } from '../tools/types';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 import { NoteEditor } from '../elements/note-editor';
+import { ElementRegistry } from '../elements/element-registry';
+import type { ExtensionElementEnvelope } from '../elements/types';
 
 function heightOf(element: CanvasElement | undefined): number {
   if (!element || !('size' in element) || element.type === 'extension') {
@@ -43,6 +45,20 @@ function nodeWithSize(height: number, width: number): HTMLDivElement {
   return node;
 }
 
+function extension(id: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:bound',
+    position: { x: 0, y: 0 },
+    index: 'a0',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: {},
+  };
+}
+
 function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDeps> = {}) {
   const nodes = new Map<string, HTMLElement>();
   const camera = { zoom: 1, screenToWorld: (p: { x: number; y: number }) => p } as never;
@@ -67,6 +83,42 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
 }
 
 describe('ViewportInteractions', () => {
+  it('uses the store registry before opening a new extension bound-text editor', () => {
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:bound',
+      legacyTypes: [],
+      decodeLegacy: () => extension('legacy'),
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => null,
+      boundTextLayout: () => ({ box: { x: 20, y: 10, w: 100, h: 80 } }),
+    });
+    const store = new ElementStore(registry);
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(store, stack);
+    const container = extension('extension');
+    store.add(container);
+    const { deps, nodes } = makeDeps(store, {
+      recorder,
+      noteEditor: {
+        isEditingOrPending: () => false,
+        stopEditing: vi.fn(),
+        startEditing: vi.fn(),
+      } as never,
+    });
+    const node = document.createElement('div');
+    deps.domNodeManager = {
+      getNode: (id: string) => nodes.get(id),
+      syncDomNode: (element: CanvasElement) => nodes.set(element.id, node),
+    } as never;
+
+    expect(new ViewportInteractions(deps).editBoundText(container.id)).toBe(true);
+    const text = store.getAll().find((element) => element.type === 'text');
+    expect(text).toMatchObject({ size: { w: 100 } });
+  });
+
   it('syncs a new bound editor from the installed text element', () => {
     const store = new ElementStore();
     const stack = new HistoryStack();
