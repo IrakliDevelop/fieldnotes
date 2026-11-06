@@ -423,10 +423,22 @@ test('grows bound text live, anchors its current resize handle, and undoes as on
   const clamped = await canvasPage.page.evaluate(() => {
     const vp = (
       window as unknown as {
-        __fieldnotes_viewport: { store: { getById: (id: string) => unknown } };
+        __fieldnotes_viewport: {
+          store: {
+            getById: (id: string) =>
+              | {
+                  position: { x: number; y: number };
+                  size: { w: number; h: number };
+                  version: number;
+                }
+              | undefined;
+          };
+        };
       }
     ).__fieldnotes_viewport;
-    return vp.store.getById('live-host');
+    const host = vp.store.getById('live-host');
+    if (!host) throw new Error('expected clamped host');
+    return host;
   });
   expect(clamped).toMatchObject({ position: live.host.position, size: { h: live.host.size.h } });
   await canvasPage.page.evaluate(() =>
@@ -434,19 +446,36 @@ test('grows bound text live, anchors its current resize handle, and undoes as on
       window as unknown as { __fieldnotes_viewport: { undo: () => boolean } }
     ).__fieldnotes_viewport.undo(),
   );
-  await canvasPage.page.waitForFunction((expected) => {
-    const vp = (
-      window as unknown as {
-        __fieldnotes_viewport: {
-          store: { getById: (id: string) => unknown; getAll: () => { containerId?: string }[] };
-        };
-      }
-    ).__fieldnotes_viewport;
-    return (
-      JSON.stringify(vp.store.getById('live-host')) === JSON.stringify(expected) &&
-      !vp.store.getAll().some((element) => element.containerId === 'live-host')
-    );
-  }, before);
+  await canvasPage.page.waitForFunction(
+    ({ before, version }) => {
+      const vp = (
+        window as unknown as {
+          __fieldnotes_viewport: {
+            store: {
+              getById: (id: string) =>
+                | {
+                    position: { x: number; y: number };
+                    size: { w: number; h: number };
+                    version: number;
+                  }
+                | undefined;
+              getAll: () => { containerId?: string }[];
+            };
+          };
+        }
+      ).__fieldnotes_viewport;
+      const host = vp.store.getById('live-host');
+      return (
+        host?.position.x === before.position.x &&
+        host.position.y === before.position.y &&
+        host.size.w === before.size.w &&
+        host.size.h === before.size.h &&
+        host.version > version &&
+        !vp.store.getAll().some((element) => element.containerId === 'live-host')
+      );
+    },
+    { before, version: clamped.version },
+  );
 });
 
 test('types bound content centered in the container content box', async ({
