@@ -1008,6 +1008,7 @@ describe('Viewport', () => {
       expect(node.textContent).toBe(`&<>"'`);
       const seededArrow = viewport.store.getById(arrow.id);
       const seededText = viewport.getBoundText(arrow.id);
+      expect(seededText?.text).toBe('&amp;&lt;&gt;&quot;&#39;');
       expect(seededArrow?.version).toBeGreaterThan(arrow.version);
       expect(seededText?.version).toBeGreaterThan(0);
       node.textContent = '<i>edited</i>';

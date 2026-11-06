@@ -96,12 +96,14 @@ const SANITIZED_MEMO_SIZE = 256;
 const sanitizedMemo = new Set<string>();
 
 export function escapePlainTextHtml(text: string): string {
-  return text
+  const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+  rememberSanitized(escaped);
+  return escaped;
 }
 
 export function sanitizeNoteHtml(html: string): string {
@@ -111,12 +113,16 @@ export function sanitizeNoteHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   sanitizeNode(doc.body);
   const sanitized = doc.body.innerHTML;
-  sanitizedMemo.add(sanitized);
+  rememberSanitized(sanitized);
+  return sanitized;
+}
+
+function rememberSanitized(html: string): void {
+  sanitizedMemo.add(html);
   if (sanitizedMemo.size > SANITIZED_MEMO_SIZE) {
     const oldest = sanitizedMemo.values().next().value;
     if (oldest !== undefined) sanitizedMemo.delete(oldest);
   }
-  return sanitized;
 }
 
 function sanitizeNode(node: Node): void {

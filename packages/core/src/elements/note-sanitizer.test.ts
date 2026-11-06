@@ -11,6 +11,10 @@ describe('escapePlainTextHtml', () => {
   it('escapes every HTML-significant character in legacy plain text', () => {
     expect(escapePlainTextHtml(`&<>"'`)).toBe('&amp;&lt;&gt;&quot;&#39;');
   });
+
+  it('remains strict after sanitization', () => {
+    expect(sanitizeNoteHtml(escapePlainTextHtml(`&<>"'`))).toBe('&amp;&lt;&gt;&quot;&#39;');
+  });
 });
 
 describe('sanitizeNoteHtml', () => {
