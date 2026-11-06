@@ -413,7 +413,7 @@ export class ElementStore {
       type: existing.type,
     } as CanvasElement;
 
-    // Local edits (including undo/redo) always move forward; remote ones carry the accepted version.
+    // Local edits advance versions; external/history writes preserve recorded versions.
     if (!isExternalChange(meta)) {
       updated.version = existing.version + 1;
       delete updated.editor;

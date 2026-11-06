@@ -94,7 +94,7 @@ describe('ViewportInteractions', () => {
     const text = store
       .getAll()
       .find((element) => element.type === 'text' && element.containerId === shape.id);
-    if (!text || text.type !== 'text') throw new Error('expected bound text');
+    if (!text) throw new Error('expected bound text');
     expect(sync).toHaveBeenCalledWith(text);
     expect(sync.mock.calls[0]?.[0]).toBe(text);
   });

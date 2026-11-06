@@ -141,9 +141,7 @@ export class NoteEditor {
 
     this.toolbar?.hide();
 
-    // The history transaction spans the whole edit session: opened at activate, committed
-    // here at stop. Live height fits during editing plus the final text write all touch the
-    // same element, so the recorder coalesces them into one undo step.
+    // Live fitting and the final text write share this edit's history transaction.
     if (textChanged) {
       store.update(this.editingId, { text });
     }
