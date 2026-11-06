@@ -960,15 +960,13 @@ describe('Viewport', () => {
         before.map(({ version: _version, ...element }) => element),
       );
       const undoneArrow = viewport.store.getById(arrow.id);
-      expect(undoneArrow?.version).toBeGreaterThan(editedArrow?.version ?? 0);
+      expect(undoneArrow?.version).toBe(arrow.version);
       expect(viewport.redo()).toBe(true);
       expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
         after.map(({ version: _version, ...element }) => element),
       );
-      expect(viewport.store.getById(arrow.id)?.version).toBeGreaterThan(undoneArrow?.version ?? 0);
-      expect(viewport.getBoundText(arrow.id)?.version).toBeGreaterThanOrEqual(
-        editedText?.version ?? 0,
-      );
+      expect(viewport.store.getById(arrow.id)?.version).toBe(editedArrow?.version);
+      expect(viewport.getBoundText(arrow.id)?.version).toBe(editedText?.version);
       viewport.destroy();
     });
 

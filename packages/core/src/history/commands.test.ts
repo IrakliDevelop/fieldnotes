@@ -86,6 +86,20 @@ describe('UpdateElementCommand', () => {
     expect(store.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
   });
 
+  it('replays the recorded version without treating it as a local update', () => {
+    const store = new ElementStore();
+    const note = { ...createNote({ position: { x: 0, y: 0 } }), version: 4 };
+    const updated = { ...note, position: { x: 50, y: 50 }, version: 9 };
+    store.add(note);
+    const command = new UpdateElementCommand(note.id, note, updated);
+
+    command.execute(store);
+    expect(store.getById(note.id)).toMatchObject({ position: { x: 50, y: 50 }, version: 9 });
+
+    command.undo(store);
+    expect(store.getById(note.id)).toMatchObject({ position: { x: 0, y: 0 }, version: 4 });
+  });
+
   it('undo clears a key that the update newly added', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 } });

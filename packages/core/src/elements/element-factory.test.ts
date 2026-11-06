@@ -36,8 +36,11 @@ describe('element factories', () => {
       containerId: 'arrow',
       fontSize: 14,
       wrap: false,
-      position: { x: 20, y: 10 },
+      position: { x: 8 },
+      size: { w: 24 },
     });
+    expect(arrowText.position.y).toBeCloseTo(-1.8);
+    expect(arrowText.size.h).toBeCloseTo(23.6);
     expect([shapeText.id.startsWith('text_'), arrowText.id.startsWith('text_')]).toEqual([
       true,
       true,

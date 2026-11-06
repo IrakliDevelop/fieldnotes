@@ -1,6 +1,8 @@
 import type { Bounds } from '../core/types';
 import { getArrowLabelAnchor, getArrowMidpoint } from './arrow-geometry';
 import { createText } from './element-factory';
+import { getDefaultElementRegistry } from './default-registry';
+import { compareElementOrder } from './element-hierarchy';
 import type { ElementStore } from './element-store';
 import type { ElementRegistry } from './element-registry';
 import { isNoteContentEmpty, sanitizeNoteHtml } from './note-sanitizer';
@@ -64,7 +66,7 @@ export function findBoundText(
         element.parentId === container.id &&
         element.containerId === container.id,
     )
-    .sort((a, b) => a.index.localeCompare(b.index) || a.id.localeCompare(b.id))[0];
+    .sort(compareElementOrder)[0];
 }
 
 function withMinimumWidth(box: Bounds): Bounds {
@@ -147,7 +149,8 @@ export function layoutBoundText(
         ? { x: 0, y: 0, w: box.w, h: text.size.h }
         : { x: 0, y: 0, ...measureText(text.text, text.fontSize, box.w) };
   }
-  const width = current.type === 'arrow' ? Math.max(24, measured.w) : box.w;
+  const width =
+    current.type === 'arrow' ? (options.remeasure ? Math.max(24, measured.w) : measured.w) : box.w;
   const height = measured.h;
   let containerPatch: Partial<BoundTextContainer> | null = null;
   if (!isNoteContentEmpty(text.text) && current.type === 'shape') {
@@ -214,7 +217,7 @@ export function createBoundText(
           y: container.position.y + container.size.h / 2,
         }
       : container.position;
-  return createText({
+  const text = createText({
     position: point,
     text: sanitizeNoteHtml(options.text ?? ''),
     fontSize: options.fontSize ?? (arrow ? 14 : 16),
@@ -228,4 +231,10 @@ export function createBoundText(
     wrap: !arrow,
     autoResize: true,
   });
+  const result = layoutBoundText(container, text, {
+    registry: getDefaultElementRegistry(),
+    resolveBounds: () => null,
+    remeasure: true,
+  });
+  return result.text ? { ...text, ...result.text } : text;
 }

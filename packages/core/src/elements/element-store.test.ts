@@ -274,6 +274,7 @@ describe('ElementStore', () => {
         position: { x: 8, y: 9 },
         size: { w: 84, h: 42 },
       };
+      measure.mockClear();
       store.add(rectangle);
       store.add(text, { origin: 'remote' });
       const updates: string[] = [];
@@ -2333,7 +2334,7 @@ describe('ElementStore order keys and versions', () => {
     expect(store.getById('n')?.version).toBe(6);
   });
 
-  it('undo never lowers version', () => {
+  it('history replay restores recorded versions', () => {
     const store = new ElementStore();
     const stack = new HistoryStack();
     const recorder = new HistoryRecorder(store, stack);
@@ -2346,10 +2347,10 @@ describe('ElementStore order keys and versions', () => {
     expect(store.getById('n')?.version).toBe(2);
     recorder.pause();
     stack.undo(store);
-    expect(store.getById('n')?.version).toBe(3);
+    expect(store.getById('n')?.version).toBe(1);
     expect(store.getById('n')?.position).toEqual({ x: 0, y: 0 });
     stack.redo(store);
-    expect(store.getById('n')?.version).toBe(4);
+    expect(store.getById('n')?.version).toBe(2);
     expect(store.getById('n')?.position).toEqual({ x: 10, y: 0 });
   });
 

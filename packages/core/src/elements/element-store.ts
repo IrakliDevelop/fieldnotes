@@ -21,7 +21,12 @@ import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache'
 import type { CanvasElement, ElementType } from './types';
 import { getRegistryToken, type ElementRegistry } from './element-registry';
 import { getDefaultElementRegistry } from './default-registry';
-import { ElementHierarchy, validateAddedElement, validateHierarchy } from './element-hierarchy';
+import {
+  compareElementOrder,
+  ElementHierarchy,
+  validateAddedElement,
+  validateHierarchy,
+} from './element-hierarchy';
 
 function sanitizeRichText(element: CanvasElement): CanvasElement {
   if (element.type !== 'note' && element.type !== 'text') return element;
@@ -253,7 +258,7 @@ export class ElementStore {
               const candidate = id === element.id ? element : this.elements.get(id);
               return candidate ? getElementBounds(candidate, this.registry) : null;
             },
-            remeasure: true,
+            remeasure: false,
           });
           if (result.text) element = { ...element, ...result.text };
           if (
@@ -290,6 +295,12 @@ export class ElementStore {
     this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
+    if (containerUpdate) {
+      for (const arrow of findBoundArrows(containerUpdate.updated.id, this)) {
+        const patch = updateBoundArrow(arrow, (id) => this.elements.get(id));
+        if (patch) this.update(arrow.id, patch, meta);
+      }
+    }
     this.bus.emit('add', element, meta);
     if (containerUpdate)
       this.bus.emit(
@@ -433,28 +444,32 @@ export class ElementStore {
         textIds.add(updated.id);
     }
     if (geometry.size === 0 && textIds.size === 0) return;
-    const candidate = new Map(this.elements);
     const primary = new Map(prepared.map((item) => [item.updated.id, item]));
-    for (const item of prepared) candidate.set(item.updated.id, item.updated);
+    const candidate = new Map(prepared.map((item) => [item.updated.id, item.updated]));
+    const getCandidate = (id: string): CanvasElement | undefined =>
+      candidate.get(id) ?? this.elements.get(id);
 
     const first = new Map<string, Extract<CanvasElement, { type: 'text' }>>();
     if (geometry.size > 0) {
-      for (const element of candidate.values()) {
-        if (
-          element.type !== 'text' ||
-          !element.containerId ||
-          element.parentId !== element.containerId
-        )
-          continue;
-        const container = candidate.get(element.containerId);
+      for (const id of geometry) {
+        const container = getCandidate(id);
         if (!container || !isBoundTextContainer(container, this.registry)) continue;
-        const previous = first.get(container.id);
-        if (
-          !previous ||
-          element.index < previous.index ||
-          (element.index === previous.index && element.id < previous.id)
-        )
-          first.set(container.id, element);
+        const children = [
+          ...this.getChildren(id),
+          ...prepared
+            .map((item) => item.updated)
+            .filter(
+              (element): element is Extract<CanvasElement, { type: 'text' }> =>
+                element.type === 'text' && element.parentId === id && element.containerId === id,
+            ),
+        ];
+        const text = children
+          .filter(
+            (element): element is Extract<CanvasElement, { type: 'text' }> =>
+              element.type === 'text' && element.parentId === id && element.containerId === id,
+          )
+          .sort(compareElementOrder)[0];
+        if (text) first.set(id, text);
       }
     }
     const firstText = (container: CanvasElement) => {
@@ -467,7 +482,7 @@ export class ElementStore {
       );
     };
     const patch = (id: string, partial: Partial<CanvasElement>) => {
-      const current = candidate.get(id);
+      const current = getCandidate(id);
       if (
         !current ||
         Object.entries(partial).every(([key, value]) =>
@@ -496,7 +511,6 @@ export class ElementStore {
       container: CanvasElement,
       text: Extract<CanvasElement, { type: 'text' }>,
       remeasure: boolean,
-      preserveSize = false,
     ) => {
       if (!isBoundTextContainer(container, this.registry)) return;
       if (primary.has(container.id) && primary.has(text.id)) return;
@@ -512,17 +526,11 @@ export class ElementStore {
         if (patch(container.id, result.container)) grown.add(container.id);
       }
       if (result.text) {
-        if (preserveSize) {
-          const positioning = { ...result.text };
-          delete positioning.size;
-          patch(text.id, positioning);
-        } else {
-          patch(text.id, result.text);
-        }
+        patch(text.id, result.text);
       }
     };
     for (const id of geometry) {
-      const container = candidate.get(id);
+      const container = getCandidate(id);
       const previous = this.elements.get(id);
       if (
         !container ||
@@ -538,36 +546,37 @@ export class ElementStore {
         return element ? getElementBounds(element, this.registry) : null;
       }).w;
       const nextWidth = getBoundTextBox(container, this.registry, (target) => {
-        const element = candidate.get(target);
+        const element = getCandidate(target);
         return element ? getElementBounds(element, this.registry) : null;
       }).w;
       layout(container, text, Math.abs(oldWidth - nextWidth) > 1e-6);
     }
     for (const id of textIds) {
-      const text = candidate.get(id);
+      const text = getCandidate(id);
       if (text?.type !== 'text' || !text.containerId || text.parentId !== text.containerId)
         continue;
-      const container = candidate.get(text.containerId);
+      const container = getCandidate(text.containerId);
       if (!container || firstText(container)?.id !== text.id) continue;
       const partial = primary.get(id)?.partial;
       const remeasure =
         partial !== undefined &&
         !('size' in partial) &&
         ('text' in partial || 'fontSize' in partial || 'wrap' in partial);
-      layout(container, text, remeasure, partial !== undefined && 'size' in partial);
+      layout(container, text, remeasure);
     }
     for (const id of grown) {
-      const container = candidate.get(id);
+      const container = getCandidate(id);
       if (!container || container.type === 'arrow') continue;
       for (const arrow of findBoundArrows(id, this)) {
         if (primary.has(arrow.id)) continue;
-        const current = candidate.get(arrow.id);
+        const current = getCandidate(arrow.id);
         if (!current || current.type !== 'arrow') continue;
-        const arrowPatch = updateBoundArrow(current, (target) => candidate.get(target));
+        const arrowPatch = updateBoundArrow(current, getCandidate);
         if (!arrowPatch) continue;
         patch(arrow.id, arrowPatch);
-        const label = firstText(candidate.get(arrow.id) ?? current);
-        if (label) layout(candidate.get(arrow.id) ?? current, label, false);
+        const updatedArrow = getCandidate(arrow.id) ?? current;
+        const label = firstText(updatedArrow);
+        if (label) layout(updatedArrow, label, false);
       }
     }
   }
