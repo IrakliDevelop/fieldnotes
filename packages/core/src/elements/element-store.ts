@@ -100,12 +100,12 @@ const replayingStores = new WeakSet<ElementStore>();
 
 /** Runs command replay without bound-text derivation for this store. */
 export function replayWithoutDerivation<T>(store: ElementStore, run: () => T): T {
-  const alreadyReplaying = replayingStores.has(store);
-  if (!alreadyReplaying) replayingStores.add(store);
+  if (replayingStores.has(store)) return run();
+  replayingStores.add(store);
   try {
     return run();
   } finally {
-    if (!alreadyReplaying) replayingStores.delete(store);
+    replayingStores.delete(store);
   }
 }
 
