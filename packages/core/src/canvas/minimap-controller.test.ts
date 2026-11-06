@@ -15,9 +15,11 @@ import { getElementsBoundingBox } from '../elements/bounds';
 import {
   createHtmlElement,
   createNote,
+  createShape,
   createStroke,
   createText,
 } from '../elements/element-factory';
+import { createBoundText } from '../elements/bound-text';
 import type { CanvasElement } from '../elements/types';
 import type { Bounds } from '../core/types';
 import type { ExtensionElementEnvelope } from '../elements/types';
@@ -664,6 +666,43 @@ describe('MinimapController', () => {
     expect(recorder.fillRectLog.length).toBe(2);
     expect(recorder.fillRectLog[0]?.fillStyle).toBe('#ff0000');
     expect(recorder.fillRectLog[1]?.fillStyle).toBe('rgba(100,116,139,0.6)');
+
+    controller.dispose();
+    viewport.destroy();
+  });
+
+  it('8b. omits bound text while rendering its shape and ordinary text fallback', () => {
+    const { viewport } = makeViewportHarness();
+    const layerId = viewport.layerManager.activeLayerId;
+    const shape = createShape({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 80 },
+      layerId,
+    });
+    const boundText = createBoundText(shape, { text: 'Bound' });
+    const text = createText({
+      position: { x: 200, y: 200 },
+      size: { w: 50, h: 20 },
+      layerId,
+      text: 'Ordinary',
+    });
+    viewport.store.add(shape);
+    viewport.store.add(boundText);
+    viewport.store.add(text);
+
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+
+    expect(
+      rendererSpy.mock.calls.map(([, element]: [unknown, CanvasElement]) => element.id),
+    ).toEqual([shape.id]);
+    expect(recorder.fillRectLog).toEqual([
+      {
+        args: [58.666666666666664, 49.333333333333336, 10.333333333333334, 4.133333333333333],
+        fillStyle: '#1a1a1a',
+      },
+    ]);
 
     controller.dispose();
     viewport.destroy();
