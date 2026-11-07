@@ -58,7 +58,7 @@ export interface ArrowElement extends BaseElement {
   toBinding?: Binding;
   /** Derived from from/to/bend. Redundant in serialized state — safe to omit. */
   cachedControlPoint?: Point;
-  /** Optional text rendered at the curve midpoint. */
+  /** @deprecated Use `viewport.setBoundText`. Loading a board moves the label into a bound `TextElement`. */
   label?: string;
   /** Line dash appearance. Absent = solid. Decoupled from binding. */
   strokeStyle?: ArrowStrokeStyle;
@@ -103,6 +103,12 @@ export interface TextElement extends BaseElement {
   fontSize: number;
   color: string;
   textAlign: 'left' | 'center' | 'right';
+  /** Whether text wraps at the element width; absent means true. */
+  wrap?: boolean;
+  /** Whether text changes the element size; absent means true. */
+  autoResize?: boolean;
+  /** Id of the container this text is bound to; ignored unless it equals `parentId`. */
+  containerId?: string;
 }
 
 export type ShapeKind = 'rectangle' | 'ellipse' | 'line';
@@ -188,6 +194,8 @@ export interface ElementTypeDefinition<T extends BaseElement> {
   clipBounds?(el: T): Bounds | null;
   /** Text the board search matches; absent or `null` means not searchable. */
   searchText?(el: T): string | null;
+  /** Supplies the text layout box for an extension that accepts bound text. */
+  boundTextLayout?(el: T): BoundTextLayout<T> | null;
   hitTest?(el: T, point: Point): boolean;
   interaction?: ElementInteractionAdapter<T>;
   /** `'canvas'` and `'hybrid'` draw with `render` on the canvas; `'none'` is treated the same
@@ -232,6 +240,7 @@ export interface ElementTypeAdapter {
   bounds(el: ExtensionElementEnvelope): Bounds | null;
   clipBounds?(el: ExtensionElementEnvelope): Bounds | null;
   searchText?(el: ExtensionElementEnvelope): string | null;
+  boundTextLayout?(el: ExtensionElementEnvelope): BoundTextLayout<ExtensionElementEnvelope> | null;
   hitTest?(el: ExtensionElementEnvelope, point: Point): boolean;
   hitTestHandle?(
     el: ExtensionElementEnvelope,
@@ -267,6 +276,12 @@ export interface ElementTypeAdapter {
     el: ExtensionElementEnvelope,
     idMap: ReadonlyMap<string, string>,
   ): ExtensionElementEnvelope;
+}
+
+/** Layout supplied by a container that accepts a bound text child. */
+export interface BoundTextLayout<T> {
+  readonly box: Bounds;
+  readonly grow?: (el: T, boxHeight: number) => T;
 }
 
 export interface ElementTypeKey<T extends BaseElement> {

@@ -1,9 +1,8 @@
 import type { ArrowElement, ArrowStrokeStyle } from '../types';
 import type { ElementStore } from '../element-store';
-import { getArrowRenderGeometry } from '../arrow-render-cache';
-import { getArrowMidpoint } from '../arrow-geometry';
-import { getEdgeIntersection } from '../arrow-binding';
+import { getArrowCurve, getArrowLabelAnchor, getArrowTangentAngle } from '../arrow-geometry';
 import { getElementBounds } from '../element-bounds';
+import { getBoundText } from '../bound-text';
 
 const ARROWHEAD_LENGTH = 12;
 const ARROWHEAD_ANGLE = Math.PI / 6;
@@ -24,10 +23,12 @@ export function renderArrow(
   ctx: CanvasRenderingContext2D,
   arrow: ArrowElement,
   store: ElementStore | null,
-  labelEditingId: string | null,
 ): void {
-  const geometry = getArrowRenderGeometry(arrow);
-  const { visualFrom, visualTo } = getVisualEndpoints(arrow, geometry, store);
+  const resolveBounds = (id: string) => {
+    const element = store?.getById(id);
+    return element ? getElementBounds(element) : null;
+  };
+  const curve = getArrowCurve(arrow, resolveBounds);
 
   ctx.save();
   ctx.strokeStyle = arrow.color;
@@ -38,31 +39,57 @@ export function renderArrow(
   if (dash.length > 0) ctx.setLineDash(dash);
 
   ctx.beginPath();
-  ctx.moveTo(visualFrom.x, visualFrom.y);
+  ctx.moveTo(curve.from.x, curve.from.y);
 
   if (arrow.bend !== 0) {
-    const cp = geometry.controlPoint;
-    if (cp) {
-      ctx.quadraticCurveTo(cp.x, cp.y, visualTo.x, visualTo.y);
-    }
+    ctx.quadraticCurveTo(curve.control.x, curve.control.y, curve.to.x, curve.to.y);
   } else {
-    ctx.lineTo(visualTo.x, visualTo.y);
+    ctx.lineTo(curve.to.x, curve.to.y);
   }
   ctx.stroke();
 
-  renderArrowhead(ctx, arrow, visualTo, geometry.tangentEnd);
+  renderArrowhead(
+    ctx,
+    arrow,
+    curve.to,
+    getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1),
+  );
   ctx.restore();
-  renderArrowLabel(ctx, arrow, labelEditingId);
+  renderArrowLabel(ctx, arrow, store, resolveBounds);
 }
 
 function renderArrowLabel(
   ctx: CanvasRenderingContext2D,
   arrow: ArrowElement,
-  labelEditingId: string | null,
+  store: ElementStore | null,
+  resolveBounds: (id: string) => { x: number; y: number; w: number; h: number } | null,
 ): void {
+  const boundText = store && getBoundText(arrow, store);
+  if (boundText) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    const angle = boundText.rotation ?? 0;
+    if (angle) {
+      const x = boundText.position.x + boundText.size.w / 2;
+      const y = boundText.position.y + boundText.size.h / 2;
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.translate(-x, -y);
+    }
+    ctx.beginPath();
+    ctx.roundRect(
+      boundText.position.x - 4,
+      boundText.position.y - 2,
+      boundText.size.w + 8,
+      boundText.size.h + 4,
+      4,
+    );
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
   if (!arrow.label || arrow.label.length === 0) return;
-  if (arrow.id === labelEditingId) return;
-  const mid = getArrowMidpoint(arrow.from, arrow.to, arrow.bend);
+  const mid = getArrowLabelAnchor(arrow, resolveBounds);
   ctx.save();
   ctx.font = `${ARROW_LABEL_FONT_SIZE}px system-ui, sans-serif`;
   const metrics = ctx.measureText(arrow.label);
@@ -100,52 +127,4 @@ function renderArrowhead(
   ctx.closePath();
   ctx.fillStyle = arrow.color;
   ctx.fill();
-}
-
-export function getVisualEndpoints(
-  arrow: ArrowElement,
-  geometry: ReturnType<typeof getArrowRenderGeometry>,
-  store: ElementStore | null,
-): {
-  visualFrom: { x: number; y: number };
-  visualTo: { x: number; y: number };
-} {
-  let visualFrom = arrow.from;
-  let visualTo = arrow.to;
-
-  if (!store) return { visualFrom, visualTo };
-
-  if (arrow.fromBinding) {
-    const el = store.getById(arrow.fromBinding.elementId);
-    if (el) {
-      const bounds = getElementBounds(el);
-      if (bounds) {
-        const tangentAngle = geometry.tangentStart;
-        const rayTarget = {
-          x: arrow.from.x + Math.cos(tangentAngle) * 1000,
-          y: arrow.from.y + Math.sin(tangentAngle) * 1000,
-        };
-        visualFrom = getEdgeIntersection(bounds, rayTarget);
-      }
-    }
-  }
-
-  if (arrow.toBinding) {
-    const el = store.getById(arrow.toBinding.elementId);
-    if (el) {
-      const bounds = getElementBounds(el);
-      if (bounds) {
-        const tangentAngle = geometry.tangentEnd;
-        // Reverse tangent — at t=1 tangent points away from curve body,
-        // but we need the ray from center back toward the curve
-        const rayTarget = {
-          x: arrow.to.x - Math.cos(tangentAngle) * 1000,
-          y: arrow.to.y - Math.sin(tangentAngle) * 1000,
-        };
-        visualTo = getEdgeIntersection(bounds, rayTarget);
-      }
-    }
-  }
-
-  return { visualFrom, visualTo };
 }

@@ -32,6 +32,7 @@ export const DEFAULT_FONT_SIZE_PRESETS: FontSizePreset[] = [
 export class NoteToolbar {
   private el: HTMLDivElement | null = null;
   private anchor: HTMLElement | null = null;
+  private positionProvider: (() => DOMRect | null) | null = null;
   private selectionListener: (() => void) | null = null;
   private readonly fontSizePresets: FontSizePreset[];
 
@@ -39,12 +40,13 @@ export class NoteToolbar {
     this.fontSizePresets = fontSizePresets ?? DEFAULT_FONT_SIZE_PRESETS;
   }
 
-  show(anchor: HTMLElement): void {
+  show(anchor: HTMLElement, positionProvider?: () => DOMRect | null): void {
     this.hide();
     this.anchor = anchor;
+    this.positionProvider = positionProvider ?? null;
     this.el = this.createToolbarElement();
     document.body.appendChild(this.el);
-    this.positionToolbar(anchor);
+    this.positionToolbar();
     this.selectionListener = () => this.updateActiveStates();
     document.addEventListener('selectionchange', this.selectionListener);
   }
@@ -59,15 +61,16 @@ export class NoteToolbar {
       this.el = null;
     }
     this.anchor = null;
+    this.positionProvider = null;
   }
 
   getElement(): HTMLDivElement | null {
     return this.el;
   }
 
-  updatePosition(anchor: HTMLElement): void {
+  updatePosition(): void {
     if (this.el) {
-      this.positionToolbar(anchor);
+      this.positionToolbar();
     }
   }
 
@@ -188,10 +191,11 @@ export class NoteToolbar {
     setFontSize(size);
   }
 
-  private positionToolbar(anchor: HTMLElement): void {
+  private positionToolbar(): void {
     if (!this.el) return;
 
-    const rect = anchor.getBoundingClientRect();
+    const rect = this.positionProvider?.() ?? this.anchor?.getBoundingClientRect();
+    if (!rect) return;
     const toolbarWidth = this.el.offsetWidth || 200;
 
     let top = rect.top - TOOLBAR_HEIGHT - TOOLBAR_GAP;

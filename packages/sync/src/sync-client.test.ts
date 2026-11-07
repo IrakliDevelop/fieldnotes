@@ -7,6 +7,7 @@ import {
   createShape,
   createHtmlElement,
   createFrame,
+  HistoryStack,
   type CanvasElement,
   type Layer,
 } from '@fieldnotes/core';
@@ -358,6 +359,25 @@ describe('SyncClient', () => {
     if (remote?.type === 'note') {
       expect(remote.backgroundColor).toBe('#bbbbbb');
     }
+  });
+
+  it('publishes a newer local undo to the connected peer', () => {
+    const stack = new HistoryStack();
+    const note = createNote({ index: 'a0', position: { x: 0, y: 0 } });
+    storeA.add(note);
+    storeA.update(note.id, { position: { x: 50, y: 50 } });
+    const beforeUndo = storeA.getById(note.id)?.version;
+
+    expect(storeB.getById(note.id)?.position).toEqual({ x: 50, y: 50 });
+    stack.push({
+      execute: (store) => store.update(note.id, { position: { x: 50, y: 50 } }),
+      undo: (store) => store.update(note.id, { position: { x: 0, y: 0 } }),
+    });
+    expect(stack.undo(storeA)).toBe(true);
+
+    expect(storeA.getById(note.id)?.version).toBeGreaterThan(beforeUndo ?? 0);
+    expect(storeB.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
+    expect(storeB.getById(note.id)?.version).toBe(storeA.getById(note.id)?.version);
   });
 
   it('keeps negotiated template envelopes on the wire and at runtime', () => {

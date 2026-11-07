@@ -117,9 +117,16 @@ describe('NoteToolbar', () => {
   it('updatePosition repositions the toolbar', () => {
     const toolbar = new NoteToolbar();
     toolbar.show(container);
-    toolbar.updatePosition(container);
+    toolbar.updatePosition();
     const el = toolbar.getElement();
     expect(el?.style.position).toBe('fixed');
+    toolbar.hide();
+  });
+
+  it('uses the position provider instead of the editing node', () => {
+    const toolbar = new NoteToolbar();
+    toolbar.show(container, () => new DOMRect(80, 160, 120, 40));
+    expect(toolbar.getElement()?.style.top).toBe('104px');
     toolbar.hide();
   });
 

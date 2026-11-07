@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createArrow, createNote, createStroke } from './element-factory';
+import { createArrow, createNote, createStroke, createShape, createText } from './element-factory';
 import { ElementStore } from './element-store';
 import {
   captureHierarchyOrigins,
@@ -33,6 +33,33 @@ function addTree(store: ElementStore): void {
 }
 
 describe('hierarchy operations', () => {
+  it('clears a detached bound text relation and retains it within a moved subtree', () => {
+    const store = new ElementStore();
+    const parent = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId: 'a' }),
+      id: 'parent',
+    };
+    const text = {
+      ...createText({ position: { x: 0, y: 0 }, parentId: 'parent', layerId: 'a' }),
+      id: 'text',
+      containerId: 'parent',
+    };
+    store.add(parent);
+    store.add(text);
+    expect(moveHierarchyToLayer(['text'], 'b', store)).toBe(true);
+    expect(store.getById('text')).toMatchObject({
+      layerId: 'b',
+      parentId: undefined,
+      containerId: undefined,
+    });
+    store.update('text', { parentId: 'parent', containerId: 'parent', layerId: 'a' });
+    expect(moveHierarchyToLayer(['parent'], 'b', store)).toBe(true);
+    expect(store.getById('text')).toMatchObject({
+      layerId: 'b',
+      parentId: 'parent',
+      containerId: 'parent',
+    });
+  });
   it('moves a selected subtree atomically and retains its internal links', () => {
     const store = new ElementStore();
     addTree(store);

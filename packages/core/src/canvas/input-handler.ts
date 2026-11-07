@@ -74,6 +74,8 @@ export class InputHandler {
   private toolContext: ToolContext | null;
   private historyRecorder: HistoryRecorder | null;
   private historyStack: HistoryStack | null;
+  private toolTransactionId: number | null = null;
+  private ownsToolTransaction = false;
   private isToolActive = false;
   /** Pointer that started the active tool gesture; only its up/cancel/leave may end it. */
   private toolPointerId: number | null = null;
@@ -450,6 +452,8 @@ export class InputHandler {
       if (cancelled) this.dispatchToolCancel(e);
       else this.dispatchToolUp(e);
       this.deferredDown = null;
+      this.isToolActive = false;
+      this.toolPointerId = null;
     } else {
       this.deferredDown = null;
     }
@@ -579,6 +583,7 @@ export class InputHandler {
 
   private onPointerLeave = (e: PointerEvent): void => {
     this.lastPointerEvent = null;
+    if (!this.activePointers.has(e.pointerId)) return;
     this.onPointerUp(e);
   };
 
@@ -607,7 +612,10 @@ export class InputHandler {
   private dispatchToolDown(e: PointerEvent): void {
     if (!this.toolManager || !this.toolContext) return;
     this.actions.flushPendingNudge();
-    this.historyRecorder?.begin();
+    const recorder = this.historyRecorder;
+    recorder?.begin();
+    this.toolTransactionId = recorder?.currentTransactionId ?? null;
+    this.ownsToolTransaction = recorder !== null;
     this.isToolActive = true;
     this.toolPointerId = e.pointerId;
     this.toolManager.handlePointerDown(this.toPointerState(e), this.toolContext);
@@ -629,13 +637,26 @@ export class InputHandler {
   private dispatchToolUp(e: PointerEvent): void {
     if (!this.toolManager || !this.toolContext) return;
     this.toolManager.handlePointerUp(this.toPointerState(e), this.toolContext);
-    this.historyRecorder?.commit();
+    this.commitToolTransaction();
   }
 
   private dispatchToolCancel(e: PointerEvent): void {
     if (!this.toolManager || !this.toolContext) return;
     this.toolManager.handlePointerCancel(this.toPointerState(e), this.toolContext);
-    this.historyRecorder?.commit();
+    this.commitToolTransaction();
+  }
+
+  private commitToolTransaction(): void {
+    const recorder = this.historyRecorder;
+    if (!recorder || !this.ownsToolTransaction) return;
+    if (
+      this.toolTransactionId === null ||
+      recorder.currentTransactionId === this.toolTransactionId
+    ) {
+      recorder.commit();
+    }
+    this.toolTransactionId = null;
+    this.ownsToolTransaction = false;
   }
 
   private isInScope(): boolean {

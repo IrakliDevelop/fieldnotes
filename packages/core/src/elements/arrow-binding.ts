@@ -1,9 +1,10 @@
 import type { Bounds, Point } from '../core/types';
 import type { ArrowElement, CanvasElement } from './types';
 import type { ElementChangeMeta, ElementStore } from './element-store';
-import { getArrowTangentAngle } from './arrow-geometry';
+import { getArrowCurve } from './arrow-geometry';
 import { getElementBounds } from './element-bounds';
 import type { ElementRegistry } from './element-registry';
+import { getBoundText } from './bound-text';
 
 const BINDABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape']);
 
@@ -18,27 +19,6 @@ export function getElementCenter(element: CanvasElement): Point {
   return {
     x: element.position.x + element.size.w / 2,
     y: element.position.y + element.size.h / 2,
-  };
-}
-
-export function getEdgeIntersection(bounds: Bounds, outsidePoint: Point): Point {
-  const cx = bounds.x + bounds.w / 2;
-  const cy = bounds.y + bounds.h / 2;
-  const dx = outsidePoint.x - cx;
-  const dy = outsidePoint.y - cy;
-
-  if (dx === 0 && dy === 0) return { x: cx, y: cy };
-
-  const halfW = bounds.w / 2;
-  const halfH = bounds.h / 2;
-
-  const scaleX = dx !== 0 ? halfW / Math.abs(dx) : Infinity;
-  const scaleY = dy !== 0 ? halfH / Math.abs(dy) : Infinity;
-  const scale = Math.min(scaleX, scaleY);
-
-  return {
-    x: cx + dx * scale,
-    y: cy + dy * scale,
   };
 }
 
@@ -59,6 +39,13 @@ export function findBindTarget(
     h: threshold * 2,
   })) {
     if (!isBindable(el)) continue;
+    if (
+      el.type === 'text' &&
+      el.parentId === el.containerId &&
+      el.parentId &&
+      getBoundText(store.getById(el.parentId) ?? el, store)?.id === el.id
+    )
+      continue;
     if (excludeId && el.id === excludeId) continue;
     if (filter && !filter(el)) continue;
 
@@ -100,7 +87,7 @@ export function updateArrowsBoundToElements(movedIds: Iterable<string>, store: E
     for (const ba of findBoundArrows(id, store)) {
       if (updated.has(ba.id)) continue;
       updated.add(ba.id);
-      const updates = updateBoundArrow(ba, store);
+      const updates = updateBoundArrow(ba, (id) => store.getById(id));
       if (updates) store.update(ba.id, updates);
     }
   }
@@ -108,14 +95,14 @@ export function updateArrowsBoundToElements(movedIds: Iterable<string>, store: E
 
 export function updateBoundArrow(
   arrow: ArrowElement,
-  store: ElementStore,
+  getElement: (id: string) => CanvasElement | undefined,
 ): Partial<ArrowElement> | null {
   if (!arrow.fromBinding && !arrow.toBinding) return null;
 
   const updates: Partial<ArrowElement> = {};
 
   if (arrow.fromBinding) {
-    const el = store.getById(arrow.fromBinding.elementId);
+    const el = getElement(arrow.fromBinding.elementId);
     if (el) {
       const center = getElementCenter(el);
       updates.from = center;
@@ -124,7 +111,7 @@ export function updateBoundArrow(
   }
 
   if (arrow.toBinding) {
-    const el = store.getById(arrow.toBinding.elementId);
+    const el = getElement(arrow.toBinding.elementId);
     if (el) {
       updates.to = getElementCenter(el);
     }
@@ -153,43 +140,6 @@ export function clearStaleBindings(
   return hasUpdates ? updates : null;
 }
 
-export function unbindArrow(arrow: ArrowElement, store: ElementStore): Partial<ArrowElement> {
-  const updates: Partial<ArrowElement> = {};
-
-  if (arrow.fromBinding) {
-    const el = store.getById(arrow.fromBinding.elementId);
-    const bounds = el ? getElementBounds(el) : null;
-    if (bounds) {
-      const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 0);
-      const rayTarget = {
-        x: arrow.from.x + Math.cos(angle) * 1000,
-        y: arrow.from.y + Math.sin(angle) * 1000,
-      };
-      const edge = getEdgeIntersection(bounds, rayTarget);
-      updates.from = edge;
-      updates.position = edge;
-    }
-    updates.fromBinding = undefined;
-  }
-
-  if (arrow.toBinding) {
-    const el = store.getById(arrow.toBinding.elementId);
-    const bounds = el ? getElementBounds(el) : null;
-    if (bounds) {
-      const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 1);
-      // Reverse tangent direction — tangent at t=1 points away from curve body
-      const rayTarget = {
-        x: arrow.to.x - Math.cos(angle) * 1000,
-        y: arrow.to.y - Math.sin(angle) * 1000,
-      };
-      updates.to = getEdgeIntersection(bounds, rayTarget);
-    }
-    updates.toBinding = undefined;
-  }
-
-  return updates;
-}
-
 /** Detaches arrows bound to a removed element, leaving each endpoint on the element's former edge. */
 export function unbindArrowsFrom(
   store: ElementStore,
@@ -198,35 +148,24 @@ export function unbindArrowsFrom(
   registry: ElementRegistry,
 ): void {
   const boundArrows = findBoundArrows(removed.id, store);
-  const bounds = getElementBounds(removed, registry);
 
   for (const arrow of boundArrows) {
     const updates: Partial<ArrowElement> = {};
+    const curve = getArrowCurve(arrow, (id) => {
+      if (id === removed.id) return getElementBounds(removed, registry);
+      const element = store.getById(id);
+      return element ? getElementBounds(element, registry) : null;
+    });
 
     if (arrow.fromBinding?.elementId === removed.id) {
       updates.fromBinding = undefined;
-      if (bounds) {
-        const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 0);
-        const rayTarget = {
-          x: arrow.from.x + Math.cos(angle) * 1000,
-          y: arrow.from.y + Math.sin(angle) * 1000,
-        };
-        const edge = getEdgeIntersection(bounds, rayTarget);
-        updates.from = edge;
-        updates.position = edge;
-      }
+      updates.from = curve.from;
+      updates.position = curve.from;
     }
 
     if (arrow.toBinding?.elementId === removed.id) {
       updates.toBinding = undefined;
-      if (bounds) {
-        const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, 1);
-        const rayTarget = {
-          x: arrow.to.x - Math.cos(angle) * 1000,
-          y: arrow.to.y - Math.sin(angle) * 1000,
-        };
-        updates.to = getEdgeIntersection(bounds, rayTarget);
-      }
+      updates.to = curve.to;
     }
 
     if (Object.keys(updates).length > 0) {

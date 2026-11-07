@@ -44,6 +44,8 @@ describe('getFacts', () => {
       version: '9.9.9',
       source: 'npm',
     });
-    expect(facts.docs.notBuilt).toHaveLength(1);
+    expect(facts.docs.notBuilt).toEqual([
+      'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
+    ]);
   });
 });

@@ -28,6 +28,7 @@ import { Viewport } from '../canvas/viewport';
 import { SelectTool } from '../tools/select-tool';
 import { getDefaultElementRegistry, setDefaultElementRegistry } from '../elements/default-registry';
 import type { BaseElement, CanvasElement, ElementTypeDefinition } from '../elements/types';
+import { setTextMeasurer } from '../elements/text-measure';
 
 interface LegacyMarker extends BaseElement {
   type: 'marker';
@@ -179,6 +180,210 @@ describe('parseState', () => {
     expect(state.version).toBe(6);
     expect(state.camera.zoom).toBe(1);
     expect(state.elements).toHaveLength(1);
+  });
+
+  it('keeps a non-text element with an unknown containerId field loadable', () => {
+    const state = validState();
+    const serialized = JSON.stringify({
+      ...state,
+      elements: [
+        {
+          ...createShape({
+            index: 'a0',
+            position: { x: 0, y: 0 },
+            size: { w: 20, h: 10 },
+            layerId: 'default-layer',
+          }),
+          containerId: '',
+        },
+      ],
+    });
+
+    expect(parseState(serialized).elements[0]?.type).toBe('shape');
+  });
+
+  it('rejects an empty text containerId', () => {
+    const state = validState();
+    const text = createText({
+      index: 'a0',
+      position: { x: 0, y: 0 },
+      layerId: 'default-layer',
+    });
+    state.elements = [{ ...text, containerId: '' }];
+
+    expect(() => parseState(JSON.stringify(state))).toThrow('malformed text data');
+  });
+
+  it('round-trips a v6 rectangle and its matching bound text relation', () => {
+    const rectangle = {
+      id: 'rectangle-1',
+      type: 'shape' as const,
+      position: { x: 10, y: 20 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: 'default-layer',
+      shape: 'rectangle' as const,
+      size: { w: 160, h: 80 },
+      strokeColor: '#000000',
+      strokeWidth: 2,
+      fillColor: 'none',
+    };
+    const text = {
+      id: 'text-1',
+      type: 'text' as const,
+      position: { x: 18, y: 28 },
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: 'default-layer',
+      parentId: 'rectangle-1',
+      containerId: 'rectangle-1',
+      size: { w: 144, h: 32 },
+      text: 'Bound text',
+      fontSize: 16,
+      color: '#1a1a1a',
+      textAlign: 'center' as const,
+      wrap: true,
+      autoResize: true,
+    };
+    const state: CanvasState = {
+      version: 6,
+      camera: makeCamera(),
+      elements: [rectangle, text],
+      layers: [
+        {
+          id: 'default-layer',
+          name: 'Layer 1',
+          visible: true,
+          locked: false,
+          order: 0,
+          opacity: 1,
+        },
+      ],
+    };
+
+    const parsed = parseState(JSON.stringify(state));
+    const restored = parseState(
+      JSON.stringify(exportState(parsed.elements, parsed.camera, parsed.layers)),
+    );
+
+    expect(restored.version).toBe(6);
+    expect(restored.elements).toEqual([rectangle, text]);
+  });
+
+  it('preserves a mismatched v6 text containerId as an advisory relation', () => {
+    const state: CanvasState = {
+      version: 6,
+      camera: makeCamera(),
+      elements: [
+        {
+          id: 'rectangle-1',
+          type: 'shape',
+          position: { x: 10, y: 20 },
+          index: 'a0',
+          version: 1,
+          locked: false,
+          layerId: 'default-layer',
+          shape: 'rectangle',
+          size: { w: 160, h: 80 },
+          strokeColor: '#000000',
+          strokeWidth: 2,
+          fillColor: 'none',
+        },
+        {
+          id: 'text-1',
+          type: 'text',
+          position: { x: 18, y: 28 },
+          index: 'a1',
+          version: 1,
+          locked: false,
+          layerId: 'default-layer',
+          parentId: 'rectangle-1',
+          containerId: 'another-container',
+          size: { w: 144, h: 32 },
+          text: 'Ordinary child',
+          fontSize: 16,
+          color: '#1a1a1a',
+          textAlign: 'center',
+          wrap: true,
+          autoResize: true,
+        },
+      ],
+      layers: [
+        {
+          id: 'default-layer',
+          name: 'Layer 1',
+          visible: true,
+          locked: false,
+          order: 0,
+          opacity: 1,
+        },
+      ],
+    };
+
+    const parsed = parseState(JSON.stringify(state));
+
+    expect(parsed.elements[1]).toMatchObject({
+      id: 'text-1',
+      parentId: 'rectangle-1',
+      containerId: 'another-container',
+    });
+  });
+
+  it('preserves text with an unregistered extension parent', () => {
+    const state: CanvasState = {
+      version: 6,
+      camera: makeCamera(),
+      elements: [
+        {
+          id: 'plugin-container-1',
+          type: 'extension',
+          extensionType: 'plugin:container',
+          position: { x: 10, y: 20 },
+          index: 'a0',
+          version: 1,
+          locked: false,
+          layerId: 'default-layer',
+          data: { title: 'Plugin container' },
+          size: { w: 160, h: 80 },
+        },
+        {
+          id: 'text-1',
+          type: 'text',
+          position: { x: 18, y: 28 },
+          index: 'a1',
+          version: 1,
+          locked: false,
+          layerId: 'default-layer',
+          parentId: 'plugin-container-1',
+          containerId: 'plugin-container-1',
+          size: { w: 144, h: 32 },
+          text: 'Plugin child',
+          fontSize: 16,
+          color: '#1a1a1a',
+          textAlign: 'center',
+          wrap: true,
+          autoResize: true,
+        },
+      ],
+      layers: [
+        {
+          id: 'default-layer',
+          name: 'Layer 1',
+          visible: true,
+          locked: false,
+          order: 0,
+          opacity: 1,
+        },
+      ],
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const parsed = parseState(JSON.stringify(state), new ElementRegistry());
+
+    expect(parsed.elements).toEqual(state.elements);
+    warn.mockRestore();
   });
 
   it('retains a valid v6 parent relationship regardless of element order', () => {
@@ -617,6 +822,23 @@ describe('parseState', () => {
     expect(parseState(JSON.stringify(data)).elements).toHaveLength(7);
   });
 
+  it('round-trips boolean text wrapping fields and rejects other values', () => {
+    const data = validState();
+    const text = createText({ index: 'a0', position: { x: 0, y: 0 }, layerId: 'default-layer' });
+    data.elements = [{ ...text, wrap: false, autoResize: false }];
+
+    expect(parseState(JSON.stringify(data)).elements[0]).toMatchObject({
+      wrap: false,
+      autoResize: false,
+    });
+    expect(() =>
+      parseState(JSON.stringify(data).replace('"wrap":false', '"wrap":"false"')),
+    ).toThrow('malformed text data');
+    expect(() =>
+      parseState(JSON.stringify(data).replace('"autoResize":false', '"autoResize":"false"')),
+    ).toThrow('malformed text data');
+  });
+
   it.each([
     ['stroke', 'points'],
     ['note', 'size'],
@@ -668,7 +890,7 @@ describe('parseState', () => {
     expect(() => parseState(JSON.stringify(data))).toThrow(`malformed ${type} data`);
   });
 
-  it('preserves an arrow label across an export → parse round-trip', () => {
+  it('migrates an exported arrow label into bound text', () => {
     const arrow = createArrow({
       index: 'a0',
       from: { x: 0, y: 0 },
@@ -678,7 +900,12 @@ describe('parseState', () => {
     const json = JSON.stringify(exportState([arrow], makeCamera()));
     const restored = parseState(json);
     const a = restored.elements.find((e) => e.type === 'arrow');
-    expect((a as { label?: string }).label).toBe('flows to');
+    expect(a).not.toHaveProperty('label');
+    expect(restored.elements.find((element) => element.id === `${arrow.id}_label`)).toMatchObject({
+      parentId: arrow.id,
+      containerId: arrow.id,
+      text: 'flows to',
+    });
   });
 
   it('preserves stroke blendMode across an export → parse round-trip', () => {
@@ -1460,6 +1687,267 @@ describe('persisted state v5', () => {
     store.loadSnapshot(state.elements);
     return store.getAll().map((el) => el.id);
   }
+
+  function labelState(version: number) {
+    const base = {
+      position: { x: 0, y: 0 },
+      locked: false,
+      layerId: 'L1',
+    };
+    const left = {
+      ...base,
+      id: 'left',
+      type: 'shape' as const,
+      index: 'a0',
+      version: 1,
+      shape: 'rectangle' as const,
+      size: { w: 80, h: 60 },
+      strokeColor: '#000000',
+      strokeWidth: 2,
+      fillColor: 'none',
+      ...(version < 5 ? { zIndex: 0 } : {}),
+    };
+    const right = {
+      ...left,
+      id: 'right',
+      position: { x: 220, y: 80 },
+      index: 'a1',
+      ...(version < 5 ? { zIndex: 1 } : {}),
+    };
+    const arrow = {
+      ...base,
+      id: 'arrow',
+      type: 'arrow' as const,
+      index: 'a2',
+      version: 7,
+      from: { x: 40, y: 30 },
+      to: { x: 260, y: 110 },
+      bend: 70,
+      color: '#000000',
+      width: 2,
+      fromBinding: { elementId: left.id },
+      toBinding: { elementId: right.id },
+      label: 'a<b',
+      ...(version < 5 ? { zIndex: 2 } : {}),
+    };
+    return { version, camera: makeCamera(), elements: [left, right, arrow], layers };
+  }
+
+  it.each([1, 2, 3, 4, 5, 6] as const)(
+    'migrates a v%s bent arrow label into deterministic bound text',
+    (version) => {
+      setTextMeasurer((text) => text.length * 10);
+      try {
+        const parsed = parseState(JSON.stringify(labelState(version)));
+        const arrow = parsed.elements.find((element) => element.id === 'arrow');
+        const label = parsed.elements.find((element) => element.id === 'arrow_label');
+
+        expect(arrow).toMatchObject({ type: 'arrow', version: 7 });
+        expect(arrow).not.toHaveProperty('label');
+        expect(label).toMatchObject({
+          id: 'arrow_label',
+          type: 'text',
+          parentId: 'arrow',
+          containerId: 'arrow',
+          layerId: 'L1',
+          index: 'a0',
+          version: 1,
+          locked: false,
+          text: 'a&lt;b',
+          fontSize: 14,
+          color: '#1a1a1a',
+          textAlign: 'center',
+          wrap: false,
+        });
+        if (!arrow || arrow.type !== 'arrow' || !label || label.type !== 'text') {
+          throw new Error('Expected migrated arrow label');
+        }
+        expect(label.position.x).toBeCloseTo(121.43526606320597, 6);
+        expect(label.position.y).toBeCloseTo(91.23638624610543, 6);
+        expect(label.size.w).toBeCloseTo(34, 6);
+        expect(label.size.h).toBeCloseTo(23.599999999999998, 6);
+        expect(
+          parseState(JSON.stringify(exportState(parsed.elements, parsed.camera, parsed.layers))),
+        ).toEqual(parsed);
+      } finally {
+        setTextMeasurer(null);
+      }
+    },
+  );
+
+  it('escapes every HTML-significant character in a legacy arrow label', () => {
+    const arrow = {
+      ...createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 40, y: 0 },
+        layerId: 'L1',
+        label: `&<>"'`,
+      }),
+      id: 'arrow',
+    };
+    const parsed = parseState(
+      JSON.stringify({ version: 6, camera: makeCamera(), elements: [arrow], layers }),
+    );
+    expect(parsed.elements.find((element) => element.id === 'arrow_label')).toMatchObject({
+      text: '&amp;&lt;&gt;&quot;&#39;',
+    });
+  });
+
+  it('preserves escaped legacy arrow labels after loading more than 256 migrations', () => {
+    const arrows = Array.from({ length: 257 }, (_, index) => ({
+      ...createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 40, y: 0 },
+        layerId: 'L1',
+        label: `label-${index} &<>"'`,
+      }),
+      id: `arrow-${index}`,
+    }));
+
+    setTextMeasurer((text) => text.length * 10);
+    try {
+      const parsed = parseState(
+        JSON.stringify({ version: 6, camera: makeCamera(), elements: arrows, layers }),
+      );
+      const store = new ElementStore();
+      store.loadSnapshot(parsed.elements);
+
+      for (let index = 0; index < 257; index++) {
+        expect(store.getById(`arrow-${index}_label`)).toMatchObject({
+          text: `label-${index} &amp;&lt;&gt;&quot;&#39;`,
+        });
+      }
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('uses one lookup map while resolving several migrated arrow bindings', () => {
+    const target = {
+      ...createShape({
+        index: 'a0',
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 100 },
+        layerId: 'L1',
+      }),
+      id: 'target',
+    };
+    const arrows = ['one', 'two', 'three'].map((id, index) => ({
+      ...createArrow({
+        index: `a${index + 1}`,
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 0 },
+        layerId: 'L1',
+        fromBinding: { elementId: target.id },
+        label: id,
+      }),
+      id,
+    }));
+    const elements = [target, ...arrows];
+    const find = vi.spyOn(elements, 'find');
+    const migrated = migrateState({
+      version: 6,
+      camera: makeCamera(),
+      elements,
+      layers,
+    });
+    expect(find).not.toHaveBeenCalled();
+    find.mockRestore();
+    expect(migrated.elements.filter((element) => element.type === 'text')).toHaveLength(3);
+  });
+
+  it('migrates depth-31 arrows but preserves depth-32 legacy labels', () => {
+    const parents: CanvasElement[] = [];
+    for (let depth = 0; depth <= 31; depth++) {
+      parents.push({
+        ...createShape({
+          index: `a${depth}x`,
+          shape: 'rectangle',
+          position: { x: depth * 10, y: 0 },
+          size: { w: 10, h: 10 },
+          layerId: 'L1',
+        }),
+        id: `parent-${depth}`,
+        ...(depth === 0 ? {} : { parentId: `parent-${depth - 1}` }),
+      });
+    }
+    const depth31 = {
+      ...createArrow({
+        index: 'a1',
+        from: { x: 0, y: 0 },
+        to: { x: 40, y: 0 },
+        layerId: 'L1',
+        label: 'migrate',
+      }),
+      id: 'depth-31',
+      parentId: 'parent-30',
+    };
+    const depth32 = {
+      ...createArrow({
+        index: 'a2',
+        from: { x: 0, y: 20 },
+        to: { x: 40, y: 20 },
+        layerId: 'L1',
+        label: 'keep',
+      }),
+      id: 'depth-32',
+      parentId: 'parent-31',
+    };
+    const parsed = parseState(
+      JSON.stringify({
+        version: 6,
+        camera: makeCamera(),
+        elements: [...parents, depth31, depth32],
+        layers,
+      }),
+    );
+    expect(parsed.elements.find((element) => element.id === 'depth-31_label')).toMatchObject({
+      parentId: 'depth-31',
+    });
+    expect(parsed.elements.find((element) => element.id === 'depth-32')).toMatchObject({
+      label: 'keep',
+    });
+    expect(parsed.elements.find((element) => element.id === 'depth-32_label')).toBeUndefined();
+    expect(() => parseState(JSON.stringify(parsed))).not.toThrow();
+  });
+
+  it.each([
+    ['an overlong arrow id', 'a'.repeat(251), undefined],
+    ['a deterministic child id collision', 'arrow', { id: 'arrow_label' }],
+    [
+      'an existing bound text child',
+      'arrow',
+      { id: 'existing', parentId: 'arrow', containerId: 'arrow' },
+    ],
+  ])('keeps the legacy fallback for %s', (_name, id, child) => {
+    const arrow = {
+      ...createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 40, y: 0 },
+        layerId: 'L1',
+        label: 'legacy',
+      }),
+      id,
+    };
+    const elements: CanvasElement[] = [arrow];
+    if (child) {
+      elements.push({
+        ...createText({ index: 'a1', position: { x: 0, y: 0 }, layerId: 'L1' }),
+        ...child,
+      });
+    }
+    const parsed = parseState(
+      JSON.stringify({ version: 6, camera: makeCamera(), elements, layers: [layers[0]] }),
+    );
+    expect(parsed.elements.find((element) => element.id === id)).toMatchObject({ label: 'legacy' });
+    expect(parsed.elements.filter((element) => element.id === `${id}_label`)).toHaveLength(
+      child?.id === `${id}_label` ? 1 : 0,
+    );
+  });
 
   const v4Elements = () => [
     legacyNote('e1', 'L1', 2),

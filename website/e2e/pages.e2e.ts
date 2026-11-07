@@ -14,16 +14,19 @@ const [oldestBuilt] = ROADMAP.built;
 const newestBuilt = ROADMAP.built.at(-1);
 if (!oldestBuilt || !newestBuilt) throw new Error('roadmap.md has no Built item');
 
-const NOT_BUILT = ['Elbow arrows that route around shapes'];
+const NOT_BUILT = [
+  'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
+];
 
 const BUILT = [
   'Command palette on Ctrl or ⌘+K to search and run actions',
   'Find text on the board: notes, text, arrow labels and frame titles, with the camera moved to the match',
   'Shortcuts help on the ? key, generated from the current bindings',
   'React props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence',
+  'Text inside shapes and arrow labels as text elements, with wrapping and auto-resize',
 ];
 
-const NEXT = ["I'm adding text inside shapes, with wrapping and auto-resize."];
+const NEXT = ["I'm adding elbow arrows that route around shapes."];
 
 const BUILT_FRAMES = 'Frames that group and clip elements';
 
@@ -150,7 +153,7 @@ test.describe('changelog and roadmap without JavaScript', () => {
     );
     await page.goto('/roadmap/');
     await expect(page.getByRole('region', { name: 'Not built yet' })).toContainText(
-      'Elbow arrows that route around shapes',
+      'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
     );
   });
 });

@@ -3,13 +3,13 @@ import type { CanvasElement } from './types';
 import type { Bounds } from '../core/types';
 import { reportFailure } from '../core/report-failure';
 
-const MAX_DEPTH = 32;
+export const MAX_HIERARCHY_DEPTH = 32;
 
 function isFrame(element: CanvasElement): boolean {
   return element.type === 'extension' && element.extensionType === 'core:frame';
 }
 
-function compare(a: CanvasElement, b: CanvasElement): number {
+export function compareElementOrder(a: CanvasElement, b: CanvasElement): number {
   if (a.index !== b.index) return a.index < b.index ? -1 : 1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
@@ -45,7 +45,7 @@ export function validateAddedElement(
       parent.id === current.id ||
       parent.layerId !== current.layerId ||
       isFullCanvas(parent, registry) ||
-      ++depth > MAX_DEPTH
+      ++depth > MAX_HIERARCHY_DEPTH
     ) {
       invalidHierarchy();
     }
@@ -86,7 +86,7 @@ export class ElementHierarchy {
           parent.id === current.id ||
           parent.layerId !== current.layerId ||
           isFullCanvas(parent, registry) ||
-          ++depth > MAX_DEPTH
+          ++depth > MAX_HIERARCHY_DEPTH
         ) {
           isValid = false;
           break;
@@ -105,11 +105,12 @@ export class ElementHierarchy {
         this.children.set(element.parentId, [...siblings, element]);
       }
     }
-    for (const [id, children] of this.children) this.children.set(id, [...children].sort(compare));
+    for (const [id, children] of this.children)
+      this.children.set(id, [...children].sort(compareElementOrder));
     roots.sort((a, b) => {
       const layerA = layerOrder.get(a.layerId) ?? 0;
       const layerB = layerOrder.get(b.layerId) ?? 0;
-      return layerA === layerB ? compare(a, b) : layerA - layerB;
+      return layerA === layerB ? compareElementOrder(a, b) : layerA - layerB;
     });
     const scene: CanvasElement[] = [];
     const add = (element: CanvasElement, ancestors: readonly string[]): void => {

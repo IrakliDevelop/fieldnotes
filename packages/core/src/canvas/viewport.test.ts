@@ -35,6 +35,40 @@ import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { pointerDown, pointerUp } from '../test-helpers/pointer-helpers';
 import { LaserTool } from '../tools/laser-tool';
 import { FIXED_HELP_ROWS } from './palette-model';
+import { setTextMeasurer } from '../elements/text-measure';
+import { ElementRegistry } from '../elements/element-registry';
+import { createBoundText } from '../elements/bound-text';
+
+function arrowAnchor(from: { x: number; y: number }, to: { x: number; y: number }, bend: number) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy);
+  const control =
+    length === 0
+      ? { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }
+      : {
+          x: (from.x + to.x) / 2 - (dy / length) * bend,
+          y: (from.y + to.y) / 2 + (dx / length) * bend,
+        };
+  return {
+    x: (from.x + 2 * control.x + to.x) / 4,
+    y: (from.y + 2 * control.y + to.y) / 4,
+  };
+}
+
+function extension(id: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:bound',
+    position: { x: 0, y: 0 },
+    index: 'a0',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: {},
+  };
+}
 
 function wrapperOf(container: HTMLElement): HTMLDivElement {
   const w = container.firstElementChild;
@@ -82,6 +116,194 @@ function proxyContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
 describe('Viewport', () => {
   let container: HTMLDivElement;
 
+  it('undoes and redoes grown public bound text with its recorded geometry', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const viewport = new Viewport(container);
+      const rectangle = {
+        ...createShape({
+          shape: 'rectangle',
+          position: { x: 0, y: 0 },
+          size: { w: 100, h: 30 },
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+        editor: 'peer',
+      };
+      viewport.store.add(rectangle);
+      const id = viewport.setBoundText(rectangle.id, 'one two three');
+      if (!id) throw new Error('expected bound text');
+      const grown = viewport.store.getById(rectangle.id);
+      const text = viewport.store.getById(id);
+      const versions: number[] = [];
+      const origins: (string | undefined)[] = [];
+      viewport.store.on('update', ({ current }, meta) => {
+        if (current.id === rectangle.id) {
+          versions.push(current.version);
+          origins.push(meta.origin);
+        }
+      });
+      const beforeUndoVersion = grown?.version;
+
+      expect(viewport.undo()).toBe(true);
+      const restoredRectangle = viewport.store.getById(rectangle.id);
+      expect(restoredRectangle?.type === 'shape' ? restoredRectangle.size : undefined).toEqual({
+        w: 100,
+        h: 30,
+      });
+      expect(viewport.store.getById(id)).toBeUndefined();
+      const undone = viewport.store.getById(rectangle.id);
+      expect(undone?.version).toBeGreaterThan(beforeUndoVersion ?? 0);
+      expect(undone).not.toHaveProperty('editor');
+      expect(viewport.redo()).toBe(true);
+      const redone = viewport.store.getById(rectangle.id);
+      expect(redone?.version).toBeGreaterThan(undone?.version ?? 0);
+      expect(redone).not.toHaveProperty('editor');
+      expect({ ...redone, version: 0, editor: undefined }).toEqual({
+        ...grown,
+        version: 0,
+        editor: undefined,
+      });
+      expect({ ...viewport.store.getById(id), version: 0, editor: undefined }).toEqual({
+        ...text,
+        version: 0,
+        editor: undefined,
+      });
+      expect(origins).toEqual([undefined, undefined]);
+      expect(versions).toEqual([undone?.version, redone?.version]);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.setBoundText(rectangle.id, 'one two three')).toBeDefined();
+      const resizedRectangle = viewport.store.getById(rectangle.id);
+      expect(
+        resizedRectangle?.type === 'shape' ? resizedRectangle.size.h : undefined,
+      ).toBeGreaterThan(30);
+      viewport.destroy();
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('replays direct bound-text adds without deriving new geometry', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const viewport = new Viewport(container);
+      const host = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 30 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const text = createBoundText(host, { text: 'one two three' });
+      viewport.store.add(host);
+      viewport.history.clear();
+      viewport.transaction(() => viewport.store.add(text));
+      const grown = viewport.store.getById(host.id);
+      const laidOutText = viewport.store.getById(text.id);
+
+      expect(viewport.undo()).toBe(true);
+      const restoredHost = viewport.store.getById(host.id);
+      expect(restoredHost?.type === 'shape' ? restoredHost.size : undefined).toEqual({
+        w: 100,
+        h: 30,
+      });
+      expect(viewport.store.getById(text.id)).toBeUndefined();
+      expect(viewport.redo()).toBe(true);
+      expect({ ...viewport.store.getById(host.id), version: 0, editor: undefined }).toEqual({
+        ...grown,
+        version: 0,
+        editor: undefined,
+      });
+      expect({ ...viewport.store.getById(text.id), version: 0, editor: undefined }).toEqual({
+        ...laidOutText,
+        version: 0,
+        editor: undefined,
+      });
+      viewport.destroy();
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('uses its private registry to install extension bound text with recorded geometry', () => {
+    setTextMeasurer(() => 20);
+    try {
+      const registry = new ElementRegistry();
+      registry.register<ExtensionElementEnvelope>({
+        type: 'test:bound',
+        legacyTypes: [],
+        decodeLegacy: () => extension('legacy'),
+        validateData: () => true,
+        unwrap: (element) => element,
+        wrap: (element) => element,
+        bounds: () => null,
+        boundTextLayout: () => ({ box: { x: 20, y: 10, w: 100, h: 80 } }),
+      });
+      const viewport = new Viewport(container, { elementRegistry: registry });
+      const element = extension('extension');
+      viewport.store.add(element);
+      viewport.history.clear();
+
+      const textId = viewport.setBoundText(element.id, 'aa bb');
+      if (!textId) throw new Error('expected bound text');
+      const text = viewport.store.getById(textId);
+      expect(text).toMatchObject({ size: { w: 100, h: 26.4 }, position: { x: 20, y: 36.8 } });
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(textId)).toBeUndefined();
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getById(textId)).toEqual(text);
+      viewport.destroy();
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('converts a legacy arrow label in the same setBoundText history entry', () => {
+    const viewport = new Viewport(container);
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+      label: 'legacy',
+    };
+    viewport.store.add(arrow);
+    viewport.history.clear();
+    const before = structuredClone(viewport.store.getAll());
+
+    const textId = viewport.setBoundText(arrow.id, 'replacement');
+    if (!textId) throw new Error('expected bound text');
+    const after = structuredClone(viewport.store.getAll());
+    expect(viewport.store.getById(arrow.id)).toMatchObject({ label: undefined });
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.undo()).toBe(true);
+    expect(
+      viewport.store.getAll().map(({ version: _version, editor: _editor, ...element }) => element),
+    ).toEqual(before.map(({ version: _version, editor: _editor, ...element }) => element));
+    expect(viewport.redo()).toBe(true);
+    expect(
+      viewport.store.getAll().map(({ version: _version, editor: _editor, ...element }) => element),
+    ).toEqual(after.map(({ version: _version, editor: _editor, ...element }) => element));
+    viewport.destroy();
+  });
+
+  it('clears a legacy arrow label with empty bound text in one history entry', () => {
+    const viewport = new Viewport(container);
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+      label: 'legacy',
+    };
+    viewport.store.add(arrow);
+    viewport.history.clear();
+
+    expect(viewport.setBoundText(arrow.id, '')).toBeUndefined();
+    expect(viewport.getBoundText(arrow.id)).toBeUndefined();
+    expect(viewport.store.getById(arrow.id)).toMatchObject({ label: undefined });
+    expect(viewport.history.undoCount).toBe(1);
+    expect(viewport.undo()).toBe(true);
+    expect(viewport.getBoundText(arrow.id)).toBeUndefined();
+    expect(viewport.store.getById(arrow.id)).toMatchObject({ label: 'legacy' });
+    expect(viewport.redo()).toBe(true);
+    expect(viewport.getBoundText(arrow.id)).toBeUndefined();
+    expect(viewport.store.getById(arrow.id)).toMatchObject({ label: undefined });
+    viewport.destroy();
+  });
+
   beforeEach(() => {
     container = document.createElement('div');
     Object.defineProperty(container, 'getBoundingClientRect', {
@@ -124,6 +346,61 @@ describe('Viewport', () => {
     const wrapper = wrapperOf(container);
     expect(wrapper.style.userSelect).toBe('none');
     viewport.destroy();
+  });
+
+  it('ignores wrapper, window, document, queued-frame, and window shortcut work after destruction', async () => {
+    const viewport = new Viewport(container, { tools: 'default', shortcuts: { scope: 'window' } });
+    const note = createNote({
+      position: { x: 0, y: 0 },
+      layerId: viewport.layerManager.activeLayerId,
+    });
+    viewport.store.add(note);
+    const select = viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([note.id]);
+    viewport.history.clear();
+    const wrapper = wrapperOf(container);
+    viewport.destroy();
+    const before = {
+      actionEnabled: viewport.actions.isEnabled('edit.delete'),
+      editing: wrapper.querySelector('[contenteditable="true"]') !== null,
+      history: { undo: viewport.history.undoCount, redo: viewport.history.redoCount },
+      selectedIds: viewport.getSelectedIds(),
+      store: structuredClone(viewport.store.getAll()),
+      tool: viewport.toolManager.activeTool?.name,
+    };
+
+    wrapper.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        pointerId: 1,
+        button: 0,
+        clientX: 20,
+        clientY: 20,
+      }),
+    );
+    wrapper.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId: 1,
+        button: 0,
+        clientX: 20,
+        clientY: 20,
+      }),
+    );
+    window.dispatchEvent(new Event('blur'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    expect({
+      actionEnabled: viewport.actions.isEnabled('edit.delete'),
+      editing: wrapper.querySelector('[contenteditable="true"]') !== null,
+      history: { undo: viewport.history.undoCount, redo: viewport.history.redoCount },
+      selectedIds: viewport.getSelectedIds(),
+      store: viewport.store.getAll(),
+      tool: viewport.toolManager.activeTool?.name,
+    }).toEqual(before);
   });
 
   it('creates a wrapper with canvas, paint-stack, and DOM overlay layers', () => {
@@ -714,6 +991,442 @@ describe('Viewport', () => {
       ).interactions;
       priv.startEditingElement(text.id);
 
+      viewport.destroy();
+    });
+
+    it.each(['mouse', 'touch', 'pen'] as const)(
+      'abandons an empty %s double-tap bound text without an undo entry',
+      async (pointerType) => {
+        const viewport = new Viewport(container);
+        const rectangle = createShape({
+          shape: 'rectangle',
+          position: { x: 0, y: 0 },
+          size: { w: 120, h: 60 },
+          layerId: viewport.layerManager.activeLayerId,
+        });
+        viewport.store.add(rectangle);
+        const unchangedRectangle = viewport.store.getById(rectangle.id);
+        viewport.history.clear();
+        const wrapper = wrapperOf(container);
+        const node = document.createElement('div');
+        wrapper.appendChild(node);
+        document.elementFromPoint = vi.fn().mockReturnValue(node);
+        const editorNode = document.createElement('div');
+        vi.spyOn(
+          (
+            viewport as unknown as {
+              domNodeManager: { getNode: (id: string) => HTMLDivElement | undefined };
+            }
+          ).domNodeManager,
+          'getNode',
+        ).mockReturnValue(editorNode);
+
+        for (let tap = 0; tap < 2; tap += 1) {
+          pointerDown(wrapper, 60, 30, { pointerType });
+          pointerUp(wrapper, 60, 30, { pointerType });
+        }
+        await new Promise(requestAnimationFrame);
+
+        const text = viewport.getBoundText(rectangle.id);
+        expect(text).toBeDefined();
+        const editor = (
+          viewport as unknown as { noteEditor: { stopEditing: (store: unknown) => void } }
+        ).noteEditor;
+        editor.stopEditing(viewport.store);
+        expect(viewport.getBoundText(rectangle.id)).toBeUndefined();
+        expect(viewport.store.getById(rectangle.id)).toEqual(unchangedRectangle);
+        expect(viewport.history.canUndo).toBe(false);
+        viewport.destroy();
+      },
+    );
+
+    it('redirects editBoundText from a bound child id to its unlocked container', () => {
+      const viewport = new Viewport(container);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(rectangle);
+      const textId = viewport.setBoundText(rectangle.id, 'saved label');
+      if (!textId) throw new Error('expected bound text');
+      vi.spyOn(
+        (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
+          .domNodeManager,
+        'getNode',
+      ).mockReturnValue(document.createElement('div'));
+
+      expect(viewport.editBoundText(textId)).toBe(true);
+      viewport.destroy();
+    });
+
+    it.each([
+      ['locked container', { locked: true }, false],
+      ['unlocked container', {}, true],
+    ])('redirects a bound child through a %s', (_name, input, expected) => {
+      const viewport = new Viewport(container);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(rectangle);
+      const textId = viewport.setBoundText(rectangle.id, 'saved label');
+      if (!textId) throw new Error('expected bound text');
+      if ('locked' in input && input.locked) viewport.store.update(rectangle.id, input);
+      vi.spyOn(
+        (viewport as unknown as { domNodeManager: { getNode: (id: string) => HTMLDivElement } })
+          .domNodeManager,
+        'getNode',
+      ).mockReturnValue(document.createElement('div'));
+
+      expect(viewport.editBoundText(textId)).toBe(expected);
+      viewport.destroy();
+    });
+
+    it('refuses a bound-child redirect through a locked layer', () => {
+      const viewport = new Viewport(container);
+      const layer = viewport.layerManager.createLayer('Locked');
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        layerId: layer.id,
+      });
+      viewport.store.add(rectangle);
+      const textId = viewport.setBoundText(rectangle.id, 'saved label');
+      if (!textId) throw new Error('expected bound text');
+      viewport.layerManager.setLayerLocked(layer.id, true);
+
+      expect(viewport.editBoundText(textId)).toBe(false);
+      expect(viewport.getBoundText(rectangle.id)?.id).toBe(textId);
+      viewport.destroy();
+    });
+
+    it.each(['new bound text', 'existing bound text'] as const)(
+      'leaves %s unchanged when its editor DOM node is missing',
+      (kind) => {
+        const viewport = new Viewport(container);
+        const rectangle = createShape({
+          shape: 'rectangle',
+          position: { x: 0, y: 0 },
+          size: { w: 120, h: 60 },
+          layerId: viewport.layerManager.activeLayerId,
+        });
+        viewport.store.add(rectangle);
+        if (kind === 'existing bound text') viewport.setBoundText(rectangle.id, 'saved');
+        viewport.history.clear();
+        const before = viewport.store.getAll();
+        vi.spyOn(
+          (
+            viewport as unknown as {
+              domNodeManager: { getNode: (id: string) => HTMLDivElement | undefined };
+            }
+          ).domNodeManager,
+          'getNode',
+        ).mockImplementation(() => undefined);
+
+        expect(viewport.editBoundText(rectangle.id)).toBe(false);
+        expect(viewport.store.getAll()).toEqual(before);
+        expect(viewport.history.canUndo).toBe(false);
+        expect(viewport.historyRecorder.currentTransactionId).toBeNull();
+        const unrelated = createNote({ position: { x: 10, y: 20 } });
+        viewport.store.add(unrelated);
+        expect(viewport.history.undoCount).toBe(1);
+        expect(viewport.undo()).toBe(true);
+        expect(viewport.store.getById(unrelated.id)).toBeUndefined();
+        viewport.destroy();
+      },
+    );
+
+    it('edits legacy arrow-label plain text through the rendered editor node', async () => {
+      const viewport = new Viewport(container);
+      const arrow = {
+        ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+        id: 'legacy-arrow',
+        label: `&<>"'`,
+      };
+      viewport.store.add(arrow);
+      viewport.history.clear();
+      const before = structuredClone(viewport.store.getAll());
+
+      expect(viewport.editBoundText(arrow.id)).toBe(true);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const node = Array.from(container.querySelectorAll<HTMLDivElement>('[data-element-id]')).find(
+        (candidate) => candidate.dataset['elementId'] !== arrow.id,
+      );
+      if (!node) throw new Error('expected rendered bound text editor');
+      expect(node.innerHTML).toBe('&amp;&lt;&gt;"\'');
+      expect(node.textContent).toBe(`&<>"'`);
+      const seededArrow = viewport.store.getById(arrow.id);
+      const seededText = viewport.getBoundText(arrow.id);
+      expect(seededText?.text).toBe('&amp;&lt;&gt;&quot;&#39;');
+      expect(seededArrow?.version).toBeGreaterThan(arrow.version);
+      expect(seededText?.version).toBeGreaterThan(0);
+      node.textContent = '<i>edited</i>';
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const after = structuredClone(viewport.store.getAll());
+      expect(after).toMatchObject([
+        { id: arrow.id, label: undefined },
+        { containerId: arrow.id, text: '&lt;i&gt;edited&lt;/i&gt;' },
+      ]);
+      const editedArrow = viewport.store.getById(arrow.id);
+      const editedText = viewport.getBoundText(arrow.id);
+      expect(editedArrow?.version).toBe(seededArrow?.version);
+      expect(editedText?.version).toBeGreaterThan(seededText?.version ?? 0);
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
+        before.map(({ version: _version, ...element }) => element),
+      );
+      const undoneArrow = viewport.store.getById(arrow.id);
+      expect(undoneArrow?.version).toBeGreaterThan(editedArrow?.version ?? 0);
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
+        after.map(({ version: _version, ...element }) => element),
+      );
+      expect(viewport.store.getById(arrow.id)?.version).toBeGreaterThan(undoneArrow?.version ?? 0);
+      viewport.destroy();
+    });
+
+    it('undos and redoes create, type, and live fit through the editor session', async () => {
+      const viewport = new Viewport(container);
+      const shape = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 40 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      shape.rotation = Math.PI / 4;
+      viewport.store.add(shape);
+      const boundArrow = createArrow({
+        from: { x: 60, y: 20 },
+        to: { x: 300, y: 20 },
+        fromBinding: { elementId: shape.id },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(boundArrow);
+      if (!viewport.setBoundText(boundArrow.id, 'route'))
+        throw new Error('expected bound arrow text');
+      viewport.history.clear();
+      const before = structuredClone(viewport.store.getAll());
+      const angle = shape.rotation;
+      const topMidpoint = ({
+        position,
+        size,
+      }: {
+        position: { x: number; y: number };
+        size: { w: number; h: number };
+      }) => {
+        const center = { x: position.x + size.w / 2, y: position.y + size.h / 2 };
+        const local = { x: 0, y: -size.h / 2 };
+        return {
+          x: center.x + local.x * Math.cos(angle) - local.y * Math.sin(angle),
+          y: center.y + local.x * Math.sin(angle) + local.y * Math.cos(angle),
+        };
+      };
+      const fixedTop = topMidpoint(shape);
+      expect(viewport.editBoundText(shape.id)).toBe(true);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const node = Array.from(container.querySelectorAll<HTMLDivElement>('[data-element-id]')).find(
+        (candidate) => candidate.dataset['elementId'] !== shape.id,
+      );
+      if (!node) throw new Error('expected rendered bound text editor');
+      Object.defineProperty(node, 'scrollHeight', { configurable: true, value: 56 });
+      node.textContent = 'typed';
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      const liveShape = viewport.store.getById(shape.id);
+      if (!liveShape || liveShape.type !== 'shape') throw new Error('expected live fitted shape');
+      expect(liveShape.size.h).toBe(72);
+      expect(topMidpoint(liveShape).x).toBeCloseTo(fixedTop.x, 6);
+      expect(topMidpoint(liveShape).y).toBeCloseTo(fixedTop.y, 6);
+      expect(viewport.getBoundText(shape.id)?.text).toBe('typed');
+      const liveArrow = viewport.store.getById(boundArrow.id);
+      const liveArrowText = viewport.getBoundText(boundArrow.id);
+      if (!liveArrow || liveArrow.type !== 'arrow' || !liveArrowText)
+        throw new Error('expected reanchored arrow and label');
+      const hostCenter = {
+        x: liveShape.position.x + liveShape.size.w / 2,
+        y: liveShape.position.y + liveShape.size.h / 2,
+      };
+      expect(liveArrow.from).toEqual(hostCenter);
+      const exitT =
+        (liveShape.position.x + liveShape.size.w - hostCenter.x) / (liveArrow.to.x - hostCenter.x);
+      const visibleAnchor = {
+        x: hostCenter.x + (liveArrow.to.x - hostCenter.x) * ((exitT + 1) / 2),
+        y: hostCenter.y + (liveArrow.to.y - hostCenter.y) * ((exitT + 1) / 2),
+      };
+      expect(liveArrowText.position.x + liveArrowText.size.w / 2).toBeCloseTo(visibleAnchor.x, 3);
+      expect(liveArrowText.position.y + liveArrowText.size.h / 2).toBeCloseTo(visibleAnchor.y, 3);
+      node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      const after = structuredClone(viewport.store.getAll());
+      const fittedShape = viewport.store.getById(shape.id);
+      const text = viewport.getBoundText(shape.id);
+      if (!fittedShape || fittedShape.type !== 'shape') throw new Error('expected fitted shape');
+      expect(fittedShape.size.h).toBe(72);
+      expect(text).toMatchObject({ text: 'typed', size: { w: 104, h: 56 } });
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
+        before.map(({ version: _version, ...element }) => element),
+      );
+      expect(viewport.redo()).toBe(true);
+      expect(viewport.store.getAll().map(({ version: _version, ...element }) => element)).toEqual(
+        after.map(({ version: _version, ...element }) => element),
+      );
+      viewport.destroy();
+    });
+
+    it('live-fits an arrow label without changing the arrow geometry', async () => {
+      const viewport = new Viewport(container);
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 120, y: 40 },
+        bend: 30,
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      arrow.label = 'label';
+      viewport.store.add(arrow);
+      expect(viewport.editBoundText(arrow.id)).toBe(true);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const textId = viewport.getBoundText(arrow.id)?.id;
+      if (!textId) throw new Error('expected arrow label');
+      const before = structuredClone(viewport.store.getById(arrow.id));
+      const node = container.querySelector<HTMLDivElement>(`[data-element-id="${textId}"]`);
+      if (!node) throw new Error('expected arrow editor');
+      Object.defineProperty(node, 'scrollHeight', { configurable: true, value: 60 });
+      node.textContent = 'a longer arrow label';
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      const afterArrow = viewport.store.getById(arrow.id);
+      const text = viewport.getBoundText(arrow.id);
+      if (!afterArrow || afterArrow.type !== 'arrow' || !text)
+        throw new Error('expected live arrow label');
+      expect(afterArrow).toEqual(before);
+      expect(text.size.h).toBe(60);
+      const anchor = arrowAnchor(afterArrow.from, afterArrow.to, afterArrow.bend);
+      expect(text.position.x + text.size.w / 2).toBeCloseTo(anchor.x, 6);
+      expect(text.position.y + text.size.h / 2).toBeCloseTo(anchor.y, 6);
+      viewport.destroy();
+    });
+
+    it('finalizes one active text edit once through the history commit path', () => {
+      const viewport = new Viewport(container);
+      const text = createText({
+        position: { x: 0, y: 0 },
+        text: 'before',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(text);
+      viewport.history.clear();
+      const privateViewport = viewport as unknown as {
+        interactions: {
+          onTextEditStop: (id: string) => void;
+        };
+        noteEditor: {
+          activateEditing: (node: HTMLDivElement, id: string, store: unknown) => void;
+          stopEditing: (store: unknown) => void;
+        };
+      };
+      const node = document.createElement('div');
+      node.innerHTML = 'before';
+      privateViewport.noteEditor.activateEditing(node, text.id, viewport.store);
+      const onStop = vi.spyOn(privateViewport.interactions, 'onTextEditStop');
+      node.innerHTML = 'after';
+
+      privateViewport.noteEditor.stopEditing(viewport.store);
+
+      expect(onStop).toHaveBeenCalledTimes(1);
+      expect(onStop).toHaveBeenCalledWith(text.id);
+      expect(viewport.history.undoCount).toBe(1);
+      viewport.destroy();
+    });
+
+    it('refuses setBoundText on a locked container without creating a child', () => {
+      const viewport = new Viewport(container);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        locked: true,
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(rectangle);
+      viewport.history.clear();
+      const before = viewport.store.getAll();
+
+      expect(viewport.setBoundText(rectangle.id, 'must not save')).toBeUndefined();
+      expect(viewport.store.getAll()).toEqual(before);
+      expect(viewport.history.canUndo).toBe(false);
+      viewport.destroy();
+    });
+
+    it('refuses setBoundText on a locked container layer without creating a child', () => {
+      const viewport = new Viewport(container);
+      const layer = viewport.layerManager.createLayer('Locked');
+      viewport.layerManager.setLayerLocked(layer.id, true);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 120, h: 60 },
+        layerId: layer.id,
+      });
+      viewport.store.add(rectangle);
+      viewport.history.clear();
+      const before = viewport.store.getAll();
+
+      expect(viewport.setBoundText(rectangle.id, 'must not save')).toBeUndefined();
+      expect(viewport.store.getAll()).toEqual(before);
+      expect(viewport.history.canUndo).toBe(false);
+      viewport.destroy();
+    });
+
+    it('creates, updates, and removes public bound text with its returned id', () => {
+      const viewport = new Viewport(container);
+      const rectangle = createShape({
+        shape: 'rectangle',
+        position: { x: 10, y: 20 },
+        size: { w: 120, h: 60 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(rectangle);
+      viewport.history.clear();
+
+      const id = viewport.setBoundText(rectangle.id, 'first');
+      if (!id) throw new Error('expected bound text');
+      expect(viewport.getBoundText(rectangle.id)).toMatchObject({
+        id,
+        containerId: rectangle.id,
+        text: 'first',
+      });
+      expect(viewport.getBoundText(rectangle.id)?.position).toEqual({ x: 18, y: 36.8 });
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.setBoundText(rectangle.id, 'second')).toBe(id);
+      expect(viewport.getBoundText(rectangle.id)?.text).toBe('second');
+      expect(viewport.history.undoCount).toBe(2);
+      expect(viewport.setBoundText(rectangle.id, '')).toBeUndefined();
+      expect(viewport.getBoundText(rectangle.id)).toBeUndefined();
+      expect(viewport.history.undoCount).toBe(3);
+      expect(viewport.history.canUndo).toBe(true);
+      viewport.destroy();
+    });
+
+    it('refuses public bound text for missing and non-container ids', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.history.clear();
+
+      expect(viewport.setBoundText('missing', 'text')).toBeUndefined();
+      expect(viewport.setBoundText(note.id, 'text')).toBeUndefined();
+      expect(viewport.editBoundText('missing')).toBe(false);
+      expect(viewport.editBoundText(note.id)).toBe(false);
+      expect(viewport.history.canUndo).toBe(false);
       viewport.destroy();
     });
 
@@ -2091,7 +2804,48 @@ describe('Viewport', () => {
   });
 
   describe('note text-edit undo coalescing', () => {
-    it('a note text-edit that grows the note is a single undo step', () => {
+    it('does not commit an unrelated transaction when a pending note edit is abandoned', () => {
+      const viewport = new Viewport(container);
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        text: 'note',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const other = createNote({
+        position: { x: 120, y: 0 },
+        text: 'other',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.store.add(other);
+      viewport.history.clear();
+      const priv = viewport as unknown as {
+        historyRecorder: {
+          begin: () => void;
+          commit: () => void;
+          currentTransactionId: number | null;
+        };
+        noteEditor: {
+          startEditing: (node: HTMLDivElement, id: string, store: typeof viewport.store) => void;
+          stopEditing: (store: typeof viewport.store) => void;
+        };
+      };
+      const node = document.createElement('div');
+
+      priv.historyRecorder.begin();
+      viewport.store.update(other.id, { text: 'changed' });
+      priv.noteEditor.startEditing(node, note.id, viewport.store);
+      priv.noteEditor.stopEditing(viewport.store);
+
+      expect(priv.historyRecorder.currentTransactionId).not.toBeNull();
+      priv.historyRecorder.commit();
+      expect(viewport.history.undoCount).toBe(1);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(other.id)).toMatchObject({ text: 'other' });
+      viewport.destroy();
+    });
+
+    it('a note text-edit preserves its chosen height in one undo step', () => {
       const viewport = new Viewport(container);
 
       const note = createNote({
@@ -2134,7 +2888,7 @@ describe('Viewport', () => {
 
       const after = viewport.store.getById(note.id);
       expect(after?.type === 'note' && after.text).toContain('longer');
-      expect(after?.type === 'note' && after.size.h).toBe(80);
+      expect(after?.type === 'note' && after.size.h).toBe(20);
       expect(viewport.history.undoCount).toBe(undosBefore + 1); // ONE step, not two
 
       viewport.history.undo(viewport.store);
@@ -2565,49 +3319,6 @@ describe('Viewport', () => {
     });
   });
 
-  describe('arrow label editing', () => {
-    it('findArrowAt returns an arrow under the world point, undefined off it', () => {
-      const viewport = new Viewport(container);
-      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
-      viewport.store.add(arrow);
-      const priv = (
-        viewport as unknown as {
-          interactions: { findArrowAt: (w: { x: number; y: number }) => unknown };
-        }
-      ).interactions;
-      expect(priv.findArrowAt({ x: 50, y: 0 })).toBeTruthy();
-      expect(priv.findArrowAt({ x: 50, y: 80 })).toBeUndefined();
-      viewport.destroy();
-    });
-
-    it('startArrowLabelEdit opens an input in the dom layer and sets the renderer editing id', () => {
-      const viewport = new Viewport(container);
-      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
-      viewport.store.add(arrow);
-      const priv = (
-        viewport as unknown as { interactions: { startArrowLabelEdit: (a: typeof arrow) => void } }
-      ).interactions;
-      priv.startArrowLabelEdit(arrow);
-      expect(viewport.domLayer.querySelector('input')).not.toBeNull();
-      viewport.destroy();
-    });
-
-    it.each([
-      [undefined, 'rgb(33, 150, 243)'],
-      ['#B8322A', 'rgb(184, 50, 42)'],
-    ])('borders the label input in selectionColor %s', (selectionColor, expected) => {
-      const viewport = new Viewport(container, { selectionColor });
-      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
-      viewport.store.add(arrow);
-      const priv = (
-        viewport as unknown as { interactions: { startArrowLabelEdit: (a: typeof arrow) => void } }
-      ).interactions;
-      priv.startArrowLabelEdit(arrow);
-      expect(viewport.domLayer.querySelector('input')?.style.borderColor).toBe(expected);
-      viewport.destroy();
-    });
-  });
-
   describe('fitNoteHeight (auto-grow)', () => {
     it('grows a note height to fit content height', () => {
       const viewport = new Viewport(container);
@@ -2719,9 +3430,11 @@ describe('Viewport', () => {
         (a) =>
           !a.id.startsWith('tool.') &&
           !a.id.startsWith('presentation.') &&
-          !a.id.startsWith('palette.'),
+          !a.id.startsWith('palette.') &&
+          a.id !== 'selection.edit-text',
       );
       expect(builtins).toHaveLength(31);
+      expect(list.some((action) => action.id === 'selection.edit-text')).toBe(true);
       expect(list.filter((a) => a.id.startsWith('presentation.')).map((a) => a.id)).toEqual([
         'presentation.start',
         'presentation.exit',
@@ -2832,6 +3545,7 @@ describe('Viewport', () => {
       viewport.runAction('edit.copy');
       viewport.openContextMenu({ x: 5, y: 5 });
       expect(menuEntries()).toEqual([
+        'Edit text',
         'Cut',
         'Copy',
         'Paste',
@@ -2905,10 +3619,9 @@ describe('Viewport', () => {
       select([a.id]);
       const runSpy = vi.spyOn(viewport.actions, 'run');
       viewport.openContextMenu({ x: 5, y: 5 });
-      // Click the first button (Cut)
       const firstButton = document.querySelector('.fieldnotes-context-menu-item') as HTMLElement;
       firstButton.click();
-      expect(runSpy).toHaveBeenCalledWith('edit.cut', { source: 'menu' });
+      expect(runSpy).toHaveBeenCalledWith('selection.edit-text', { source: 'menu' });
       runSpy.mockRestore();
       viewport.destroy();
     });
@@ -4674,6 +5387,31 @@ describe('Viewport live html elements', () => {
     viewport.setParent('missing', parent.id);
     expect(updates).not.toHaveBeenCalled();
     expect(viewport.history.undoCount).toBe(1);
+  });
+
+  it('normalizes a stale text container relation but preserves a matching rebind', () => {
+    const viewport = vp;
+    const parent = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }),
+      id: 'parent',
+    };
+    const text = {
+      ...createText({ position: { x: 0, y: 0 }, parentId: 'parent' }),
+      id: 'text',
+      containerId: 'stale',
+    };
+    viewport.store.add(parent);
+    viewport.store.add(text);
+    viewport.setParent(text.id, parent.id);
+    expect(viewport.store.getById(text.id)).toMatchObject({
+      parentId: 'parent',
+      containerId: undefined,
+    });
+    viewport.store.update(text.id, { containerId: parent.id });
+    viewport.setParent(text.id, parent.id);
+    const updatedText = viewport.store.getById(text.id);
+    if (!updatedText || updatedText.type !== 'text') throw new Error('expected text element');
+    expect(updatedText.containerId).toBe(parent.id);
   });
 
   it('rejects parenting a frame before recording history but allows frame children', () => {

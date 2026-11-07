@@ -27,6 +27,7 @@ export function computeResize(
   lastWorld: Point,
   aspectRatio: number,
   lockAspect: boolean,
+  minHeight: (candidateWidth: number) => number = () => MIN_ELEMENT_SIZE,
 ): { position: { x: number; y: number }; size: { w: number; h: number } } {
   const dx = world.x - lastWorld.x;
   const dy = world.y - lastWorld.y;
@@ -76,9 +77,10 @@ export function computeResize(
     if (handle === 'nw' || handle === 'sw') x = el.position.x + el.size.w - MIN_ELEMENT_SIZE;
     w = MIN_ELEMENT_SIZE;
   }
-  if (h < MIN_ELEMENT_SIZE) {
-    if (handle === 'nw' || handle === 'ne') y = el.position.y + el.size.h - MIN_ELEMENT_SIZE;
-    h = MIN_ELEMENT_SIZE;
+  const minimumHeight = Math.max(MIN_ELEMENT_SIZE, minHeight(w));
+  if (h < minimumHeight) {
+    if (handle === 'nw' || handle === 'ne') y = el.position.y + el.size.h - minimumHeight;
+    h = minimumHeight;
   }
 
   return { position: { x, y }, size: { w, h } };
@@ -92,6 +94,7 @@ export function computeRotatedResize(
   lastWorld: Point,
   aspectRatio: number,
   lockAspect: boolean,
+  minHeight: (candidateWidth: number) => number = () => MIN_ELEMENT_SIZE,
 ): { position: { x: number; y: number }; size: { w: number; h: number } } {
   const wdx = world.x - lastWorld.x;
   const wdy = world.y - lastWorld.y;
@@ -130,7 +133,7 @@ export function computeRotatedResize(
     else w = h * aspectRatio;
   }
   w = Math.max(w, MIN_ELEMENT_SIZE);
-  h = Math.max(h, MIN_ELEMENT_SIZE);
+  h = Math.max(h, MIN_ELEMENT_SIZE, minHeight(w));
 
   // anchor (opposite corner) fixed in world space, computed from OLD geometry
   const oldCenter = { x: el.position.x + el.size.w / 2, y: el.position.y + el.size.h / 2 };

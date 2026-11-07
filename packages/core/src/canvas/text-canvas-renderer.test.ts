@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderTextOnCanvas } from './text-canvas-renderer';
 import { createText } from '../elements/element-factory';
+import { TEXT_PADDING } from '../elements/text-measure';
 
 interface FillTextCall {
   text: string;
@@ -109,7 +110,7 @@ describe('renderTextOnCanvas', () => {
 
     renderTextOnCanvas(ctx, text);
 
-    expect(calls).toEqual([{ text: 'aa', x: 2, y: 2 }]); // startX = 0 + pad(2)
+    expect(calls).toEqual([{ text: 'aa', x: TEXT_PADDING, y: TEXT_PADDING }]);
   });
 
   it('honors textAlign: center', () => {
@@ -157,5 +158,20 @@ describe('renderTextOnCanvas', () => {
     expect(calls[0]).toEqual({ text: 'aa', x: 2, y: 2 });
     // line 2 y = startY(2) + fontSize(16) * 1.4 = 2 + 22.4.
     expect(calls[1]?.y).toBeCloseTo(2 + 16 * 1.4);
+  });
+
+  it('keeps centered unwrapped text coordinates finite', () => {
+    const { ctx, calls } = deterministicCtx();
+    const text = createText({
+      position: { x: 0, y: 0 },
+      size: { w: 60, h: 28 },
+      text: 'aa bb cc',
+      textAlign: 'center',
+      wrap: false,
+    });
+
+    renderTextOnCanvas(ctx, text);
+
+    expect(calls.every((call) => Number.isFinite(call.x))).toBe(true);
   });
 });

@@ -9,7 +9,10 @@ import {
   createText,
   createHtmlElement,
   createStroke,
+  createShape,
 } from '../elements/element-factory';
+import { createBoundText } from '../elements/bound-text';
+import { TEXT_PADDING } from '../elements/text-measure';
 
 describe('DomNodeManager', () => {
   it('maps world clip corners into unrotated and inverse-rotated local polygons', () => {
@@ -136,6 +139,7 @@ describe('DomNodeManager', () => {
       expect(node?.textContent).toBe('Hello');
       expect(node?.style.backgroundColor).toBe('rgb(255, 235, 59)');
       expect(node?.style.color).toBe('rgb(51, 51, 51)');
+      expect(node?.style.boxSizing).toBe('border-box');
     });
 
     it('updates text when not editing', () => {
@@ -252,6 +256,22 @@ describe('DomNodeManager', () => {
   });
 
   describe('renderDomContent — text', () => {
+    it('keeps a bound text node centered and rotated on creation and sync', () => {
+      const shape = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 80 },
+      });
+      const text = { ...createBoundText(shape, { text: 'bound' }), rotation: Math.PI / 6 };
+      manager.syncDomNode(text);
+      const node = manager.getNode(text.id);
+      expect(node?.style.textAlign).toBe('center');
+      expect(node?.style.transform).toBe('rotate(0.5235987755982988rad)');
+      manager.syncDomNode({ ...text, rotation: Math.PI / 3 });
+      expect(node?.style.textAlign).toBe('center');
+      expect(node?.style.transform).toBe('rotate(1.0471975511965976rad)');
+    });
+
     it('applies text styling on first render', () => {
       const text = createText({
         position: { x: 0, y: 0 },
@@ -267,6 +287,8 @@ describe('DomNodeManager', () => {
       expect(node?.style.fontSize).toBe('24px');
       expect(node?.style.color).toBe('rgb(0, 0, 0)');
       expect(node?.style.textAlign).toBe('center');
+      expect(node?.style.boxSizing).toBe('border-box');
+      expect(node?.style.padding).toBe(`${TEXT_PADDING}px`);
     });
 
     it('renders rich HTML formatting instead of literal tags', () => {
@@ -314,6 +336,32 @@ describe('DomNodeManager', () => {
       const node = manager.getNode(text.id);
       expect(node?.style.fontSize).toBe('32px');
       expect(node?.style.color).toBe('rgb(255, 0, 0)');
+    });
+
+    it('updates wrapping styles when wrap changes', () => {
+      const text = createText({ position: { x: 0, y: 0 }, size: { w: 200, h: 50 }, text: 'Title' });
+      manager.syncDomNode(text);
+      manager.syncDomNode({ ...text, wrap: false });
+      const node = manager.getNode(text.id);
+      expect(node?.style.whiteSpace).toBe('pre');
+      expect(node?.style.wordWrap).toBe('normal');
+    });
+
+    it('sets unwrapped styles while an initial text node is editing', () => {
+      isEditingElement.mockReturnValue(true);
+      const text = {
+        ...createText({
+          position: { x: 0, y: 0 },
+          size: { w: 200, h: 50 },
+          text: 'Title',
+        }),
+        wrap: false,
+      };
+      manager.syncDomNode(text);
+
+      const node = manager.getNode(text.id);
+      expect(node?.style.whiteSpace).toBe('pre');
+      expect(node?.style.wordWrap).toBe('normal');
     });
   });
 
@@ -791,6 +839,41 @@ describe('DomNodeManager', () => {
 
       trackedManager.syncDomNode(note, 5);
       expect(node?.style.zIndex).toBe('5');
+    });
+
+    it('keeps an edited node focused until its deferred paint-order move can reconcile', () => {
+      let editing = true;
+      const trackedManager = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement: () => editing,
+        getVersion: () => 0,
+      });
+      const text = {
+        ...createText({ text: 'one', position: { x: 0, y: 0 }, size: { w: 120, h: 20 } }),
+        id: 'edited-text',
+      };
+
+      trackedManager.syncDomNode(text, 0);
+      const node = trackedManager.getNode(text.id);
+      if (!node) throw new Error('expected text node');
+      node.contentEditable = 'true';
+      node.tabIndex = 0;
+      node.focus();
+
+      trackedManager.syncDomNode({ ...text, size: { w: 120, h: 60 } }, 4);
+
+      expect(document.activeElement).toBe(node);
+      expect(node.contentEditable).toBe('true');
+      expect(node.parentElement?.dataset['paintOrder']).toBe('0');
+      expect(node.style.zIndex).toBe('0');
+      expect(domLayer.querySelector('[data-paint-order="4"]')).toBeNull();
+
+      editing = false;
+      trackedManager.syncDomNode({ ...text, size: { w: 120, h: 60 } }, 4);
+
+      expect(node.parentElement?.dataset['paintOrder']).toBe('4');
+      expect(node.style.zIndex).toBe('4');
     });
 
     it('always syncs first time (no cached version)', () => {

@@ -6,6 +6,7 @@ import type { TypedHookRegistry, MinimapRenderHooks, MinimapMapping } from './re
 import { ElementRenderer } from '../elements/element-renderer';
 import { getElementBounds, getElementVisualBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
+import { getBoundText } from '../elements/bound-text';
 import {
   computeMinimapTransform,
   miniToWorld,
@@ -220,9 +221,13 @@ export class MinimapController {
   // Single source for both mapping bounds and rendering: layer-visible elements.
   // Full-canvas extensions return null bounds through their registered adapter.
   private sceneElements(): CanvasElement[] {
-    return this.viewport.store
-      .getAll()
-      .filter((el) => this.viewport.layerManager.isLayerVisible(el.layerId));
+    return this.viewport.store.getAll().filter((el) => {
+      if (!this.viewport.layerManager.isLayerVisible(el.layerId)) return false;
+      if (el.type !== 'text' || el.containerId === undefined || el.containerId !== el.parentId)
+        return true;
+      const parent = this.viewport.store.getById(el.parentId);
+      return !parent || getBoundText(parent, this.viewport.store)?.id !== el.id;
+    });
   }
 
   private currentMapping(elements = this.sceneElements()): Bounds {

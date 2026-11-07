@@ -288,8 +288,14 @@ test('a deletion survives a host reload', async ({ page }) => {
   await open(page);
   const guest = await collaborate(page);
   await expect.poll(() => ids(guest)).toEqual(await ids(page));
-  const [removed] = await ids(page);
-  if (!removed) throw new Error('empty sample');
+  const removed = await page.evaluate(() => {
+    const { store } = window.__playground.viewport;
+    const element = store
+      .getAll()
+      .find((element) => !element.parentId && store.getChildren(element.id).length === 0);
+    if (!element) throw new Error('empty sample');
+    return element.id;
+  });
   await page.evaluate((id) => window.__playground.viewport.store.remove(id), removed);
   await expect.poll(async () => (await ids(guest)).includes(removed)).toBe(false);
 
