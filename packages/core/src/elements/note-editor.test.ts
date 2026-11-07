@@ -767,6 +767,18 @@ describe('NoteEditor', () => {
       expect(editor.isEditing).toBe(false);
     });
 
+    it('returns focus to the target when Ctrl+Enter ends the edit', async () => {
+      const { editor } = await startFocused();
+      expect(document.activeElement).toBe(node);
+
+      node.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
+      );
+
+      expect(document.activeElement).toBe(target);
+      expect(editor.isEditing).toBe(false);
+    });
+
     it('returns focus to the target when stopEditing runs while the node has focus', async () => {
       const { editor, store } = await startFocused();
       expect(document.activeElement).toBe(node);

@@ -73,4 +73,60 @@ test.describe('notes editing', () => {
     expect(notes).toHaveLength(1);
     expect(notes[0]?.text ?? '').not.toContain('Hello');
   });
+
+  test('Escape after editing shape text lets Control+z undo it without a click', async ({
+    canvasPage,
+  }) => {
+    const { page } = canvasPage;
+    const box = await canvasPage.wrapper().boundingBox();
+    if (!box) throw new Error('Wrapper not found');
+    const screen = { x: box.width / 2, y: box.height / 2 };
+    await page.evaluate((screen) => {
+      const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+        camera: { screenToWorld: (point: { x: number; y: number }) => { x: number; y: number } };
+        layerManager: { activeLayerId: string };
+        store: { add: (element: unknown) => void };
+      };
+      const world = vp.camera.screenToWorld(screen);
+      vp.store.add({
+        id: 'focus-host',
+        type: 'shape',
+        shape: 'rectangle',
+        position: { x: world.x - 60, y: world.y - 30 },
+        size: { w: 120, h: 60 },
+        strokeColor: '#000000',
+        strokeWidth: 2,
+        fillColor: 'none',
+        index: 'a0',
+        version: 1,
+        locked: false,
+        layerId: vp.layerManager.activeLayerId,
+      });
+    }, screen);
+    const host = () =>
+      page.evaluate(() => {
+        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+          store: { getAll: () => { id: string; containerId?: string; size: { h: number } }[] };
+        };
+        const all = vp.store.getAll();
+        return {
+          height: all.find((element) => element.id === 'focus-host')?.size.h,
+          bound: all.some((element) => element.containerId === 'focus-host'),
+        };
+      });
+
+    await page.keyboard.press('v');
+    await page.mouse.click(box.x + screen.x, box.y + screen.y);
+    await page.keyboard.press('Enter');
+    const editor = canvasPage.wrapper().locator('[data-element-id][contenteditable="true"]');
+    await expect(editor).toBeVisible();
+    await page.keyboard.type('one two three four five six seven eight nine ten eleven twelve');
+    await expect.poll(async () => (await host()).height ?? 0).toBeGreaterThan(60);
+    await page.keyboard.press('Escape');
+    await expect(editor).toHaveCount(0);
+
+    await page.keyboard.press('Control+z');
+
+    await expect.poll(host).toEqual({ height: 60, bound: false });
+  });
 });
