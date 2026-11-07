@@ -35,6 +35,10 @@ export class HistoryRecorder {
   private transaction: Command[] | null = null;
   private generation = 0;
   private updateSnapshots = new Map<string, CanvasElement>();
+  private transactionIds = new Set<string>();
+  private addedIds = new Set<string>();
+  private removedIds = new Set<string>();
+  private transactionTouchedLayer = false;
   private unsubscribers: (() => void)[];
   private transactionEndListeners = new Set<() => void>();
 
@@ -74,6 +78,10 @@ export class HistoryRecorder {
     }
     this.transaction = [];
     this.updateSnapshots.clear();
+    this.transactionIds.clear();
+    this.addedIds.clear();
+    this.removedIds.clear();
+    this.transactionTouchedLayer = false;
     this.generation += 1;
   }
 
@@ -114,6 +122,10 @@ export class HistoryRecorder {
     const all = [...this.transaction, ...finalCommands];
     this.transaction = null;
     this.updateSnapshots.clear();
+    this.transactionIds.clear();
+    this.addedIds.clear();
+    this.removedIds.clear();
+    this.transactionTouchedLayer = false;
 
     if (all.length > 0) {
       const first = all[0];
@@ -126,11 +138,31 @@ export class HistoryRecorder {
     const wasOpen = this.transaction !== null;
     this.transaction = null;
     this.updateSnapshots.clear();
+    this.transactionIds.clear();
+    this.addedIds.clear();
+    this.removedIds.clear();
+    this.transactionTouchedLayer = false;
     if (wasOpen) this.notifyTransactionEnd();
   }
 
   destroy(): void {
     this.unsubscribers.forEach((fn) => fn());
+  }
+
+  rollbackIfOnly(id: string): boolean {
+    if (
+      this.transaction === null ||
+      this.transactionTouchedLayer ||
+      this.transactionIds.size !== 1 ||
+      !this.transactionIds.has(id) ||
+      !this.addedIds.has(id) ||
+      !this.removedIds.has(id) ||
+      [...this.updateSnapshots.keys()].some((snapshotId) => snapshotId !== id)
+    ) {
+      return false;
+    }
+    this.rollback();
+    return true;
   }
 
   private record(command: Command): void {
@@ -144,12 +176,16 @@ export class HistoryRecorder {
   private onAdd(element: CanvasElement, meta: EventMeta): void {
     if (isExternalChange(meta)) return;
     if (!this.recording) return;
+    if (this.transaction) this.transactionIds.add(element.id);
+    if (this.transaction) this.addedIds.add(element.id);
     this.record(new AddElementCommand(element));
   }
 
   private onRemove(element: CanvasElement, meta: EventMeta): void {
     if (isExternalChange(meta)) return;
     if (!this.recording) return;
+    if (this.transaction) this.transactionIds.add(element.id);
+    if (this.transaction) this.removedIds.add(element.id);
 
     // Undo must restore the element as it was before this transaction's updates.
     const snapshot = this.transaction ? this.updateSnapshots.get(element.id) : undefined;
@@ -167,6 +203,7 @@ export class HistoryRecorder {
     if (!this.recording) return;
 
     if (this.transaction) {
+      this.transactionIds.add(current.id);
       if (!this.updateSnapshots.has(current.id)) {
         this.updateSnapshots.set(current.id, { ...previous });
       }
@@ -179,6 +216,7 @@ export class HistoryRecorder {
     if (isExternalChange(meta)) return;
     if (!this.recording) return;
     if (!this.layerManager) return;
+    if (this.transaction) this.transactionTouchedLayer = true;
     this.record(new CreateLayerCommand(this.layerManager, layer));
   }
 
@@ -186,6 +224,7 @@ export class HistoryRecorder {
     if (isExternalChange(meta)) return;
     if (!this.recording) return;
     if (!this.layerManager) return;
+    if (this.transaction) this.transactionTouchedLayer = true;
     this.record(new RemoveLayerCommand(this.layerManager, layer));
   }
 
@@ -193,6 +232,7 @@ export class HistoryRecorder {
     if (isExternalChange(meta)) return;
     if (!this.recording) return;
     if (!this.layerManager) return;
+    if (this.transaction) this.transactionTouchedLayer = true;
     this.record(new UpdateLayerCommand(this.layerManager, current.id, previous, current));
   }
 

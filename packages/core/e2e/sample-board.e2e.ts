@@ -1,8 +1,8 @@
 import { test, expect, CanvasPage } from './fixtures/canvas-page';
 import type { Page } from '@playwright/test';
 
-const SAMPLE_TYPE_COUNTS = { text: 1, note: 4, shape: 2, arrow: 1, stroke: 1 };
-const SAMPLE_TOTAL = 9;
+const SAMPLE_TYPE_COUNTS = { text: 3, note: 4, shape: 2, arrow: 1, stroke: 1 };
+const SAMPLE_TOTAL = 11;
 
 async function gotoDemo(page: Page, query = ''): Promise<CanvasPage> {
   await page.goto(`/${query}`);

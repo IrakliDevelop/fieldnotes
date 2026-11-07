@@ -80,16 +80,25 @@ export class KeyboardHandler {
   }
 
   private shouldHandle(target: EventTarget | null): boolean {
+    if (isLiveControlTarget(target, this.deps.element)) return false;
     const el = target as HTMLElement | null;
     if (el?.isContentEditable) return false;
     const tag = el?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return false;
-    if (isLiveControlTarget(target, this.deps.element)) return false;
     return this.isInScope();
+  }
+
+  private isControlActivation(e: KeyboardEvent): boolean {
+    if (e.key !== 'Enter' && e.key !== ' ') return false;
+    const el = e.target;
+    if (!(el instanceof Element)) return false;
+    const control = el.closest('button, a[href], summary');
+    return control !== null;
   }
 
   onKeyDown = (e: KeyboardEvent): void => {
     if (!this.shouldHandle(e.target)) return;
+    if (this.isControlActivation(e)) return;
 
     if (e.key === ' ') {
       this.deps.setSpaceHeld(true);

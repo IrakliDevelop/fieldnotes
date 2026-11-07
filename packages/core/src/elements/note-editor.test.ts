@@ -15,6 +15,75 @@ function flushRAF(): Promise<void> {
 }
 
 describe('NoteEditor', () => {
+  it('passes the edited id to history hooks and commits on mod+Enter', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, text: 'text' });
+    store.add(note);
+    const begin = vi.fn();
+    const commit = vi.fn();
+    editor.setHistoryHooks(begin, commit);
+    const node = makeNode('text');
+    document.body.appendChild(node);
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+    node.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }),
+    );
+    expect(begin).toHaveBeenCalledWith(note.id);
+    expect(commit).toHaveBeenCalledWith(note.id);
+    node.remove();
+  });
+
+  it.each([{ ctrlKey: true }, { metaKey: true }])(
+    'commits on modified Enter',
+    async (modifiers) => {
+      const editor = new NoteEditor();
+      const store = new ElementStore();
+      const note = createNote({ position: { x: 0, y: 0 }, text: 'text' });
+      store.add(note);
+      const commit = vi.fn();
+      editor.setHistoryHooks(vi.fn(), commit);
+      const node = makeNode('text');
+      document.body.appendChild(node);
+      editor.startEditing(node, note.id, store);
+      await flushRAF();
+      node.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, ...modifiers }),
+      );
+
+      expect(commit).toHaveBeenCalledWith(note.id);
+      node.remove();
+    },
+  );
+
+  it('keeps editing on plain Enter and preserves a line break', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, text: 'first<br>second' });
+    store.add(note);
+    const node = makeNode();
+    node.innerHTML = 'first<br>second';
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(editor.editingElementId).toBe(note.id);
+    expect(node.innerHTML).toBe('first<br>second');
+    editor.stopEditing(store);
+  });
+
+  it('reports a pending edit abandoned by stopEditing', () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const abandon = vi.fn();
+    editor.setOnAbandon(abandon);
+    editor.startEditing(makeNode(), note.id, store);
+    editor.stopEditing(store);
+    expect(abandon).toHaveBeenCalledWith(note.id);
+  });
   afterEach(() => {
     document.querySelectorAll('[data-note-toolbar]').forEach((el) => el.remove());
   });
@@ -139,19 +208,156 @@ describe('NoteEditor', () => {
     expect(node1.contentEditable).not.toBe('true');
   });
 
-  it('skips if already editing same element', async () => {
+  it('keeps a pending session when the same bound text is requested again', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const abandon = vi.fn();
+    const begin = vi.fn();
+    const commit = vi.fn();
+    editor.setOnAbandon(abandon);
+    editor.setHistoryHooks(begin, commit);
+    const firstNode = makeNode();
+    const replacementNode = makeNode();
+    const added = vi.fn();
+    const removed = vi.fn();
+    const updated = vi.fn();
+    store.on('add', added);
+    store.on('remove', removed);
+    store.on('update', updated);
+
+    editor.startEditing(firstNode, note.id, store);
+    editor.startEditing(replacementNode, note.id, store);
+    await flushRAF();
+
+    expect(editor.editingElementId).toBe(note.id);
+    expect(firstNode.contentEditable).toBe('true');
+    expect(replacementNode.contentEditable).not.toBe('true');
+    expect(begin).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+    expect(abandon).not.toHaveBeenCalled();
+    expect(added).not.toHaveBeenCalled();
+    expect(removed).not.toHaveBeenCalled();
+    expect(updated).not.toHaveBeenCalled();
+  });
+
+  it('abandons one pending session before activating its replacement', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const first = createNote({ position: { x: 0, y: 0 } });
+    const second = createNote({ position: { x: 10, y: 0 } });
+    store.add(first);
+    store.add(second);
+    const abandon = vi.fn();
+    editor.setOnAbandon(abandon);
+
+    editor.startEditing(makeNode(), first.id, store);
+    editor.startEditing(makeNode(), second.id, store);
+    await flushRAF();
+
+    expect(abandon).toHaveBeenCalledTimes(1);
+    expect(abandon).toHaveBeenCalledWith(first.id);
+    expect(editor.editingElementId).toBe(second.id);
+  });
+
+  it('abandons a destroyed pending edit once and ignores its queued frame', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 } });
+    store.add(note);
+    const abandon = vi.fn();
+    const begin = vi.fn();
+    editor.setOnAbandon(abandon);
+    editor.setHistoryHooks(begin, vi.fn());
+
+    editor.startEditing(makeNode(), note.id, store);
+    editor.destroy(store);
+    await flushRAF();
+
+    expect(abandon).toHaveBeenCalledTimes(1);
+    expect(abandon).toHaveBeenCalledWith(note.id);
+    expect(begin).not.toHaveBeenCalled();
+    expect(editor.editingElementId).toBeNull();
+  });
+
+  it('does not let destroyed editor listeners mutate text after recreation', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, text: 'before' });
+    store.add(note);
+    const node = makeNode('before');
+    document.body.appendChild(node);
+    editor.startEditing(node, note.id, store);
+    await flushRAF();
+    editor.destroy(store);
+    const before = structuredClone(store.getAll());
+
+    node.textContent = 'after';
+    node.dispatchEvent(new Event('input', { bubbles: true }));
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    node.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+
+    expect(store.getAll()).toEqual(before);
+    expect(editor.editingElementId).toBeNull();
+    node.remove();
+  });
+
+  it('commits one active session before activating its replacement', async () => {
+    const editor = new NoteEditor();
+    const store = new ElementStore();
+    const first = createNote({ position: { x: 0, y: 0 } });
+    const second = createNote({ position: { x: 10, y: 0 } });
+    store.add(first);
+    store.add(second);
+    const commit = vi.fn();
+    editor.setHistoryHooks(vi.fn(), commit);
+
+    editor.startEditing(makeNode(), first.id, store);
+    await flushRAF();
+    editor.startEditing(makeNode(), second.id, store);
+    await flushRAF();
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledWith(first.id);
+    editor.stopEditing(store);
+  });
+
+  it('keeps the active node and history session when asked to edit it again', async () => {
     const editor = new NoteEditor();
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 } });
     store.add(note);
     const node = makeNode();
+    const replacementNode = makeNode();
+    const begin = vi.fn();
+    const commit = vi.fn();
+    const abandon = vi.fn();
+    const added = vi.fn();
+    const removed = vi.fn();
+    const updates = vi.fn();
+    store.on('add', added);
+    store.on('remove', removed);
+    store.on('update', updates);
+    editor.setHistoryHooks(begin, commit);
+    editor.setOnAbandon(abandon);
 
     editor.startEditing(node, note.id, store);
     await flushRAF();
     expect(editor.isEditing).toBe(true);
 
-    editor.startEditing(node, note.id, store);
+    editor.startEditing(replacementNode, note.id, store);
     expect(editor.isEditing).toBe(true);
+    expect(node.contentEditable).toBe('true');
+    expect(replacementNode.contentEditable).not.toBe('true');
+    expect(begin).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+    expect(abandon).not.toHaveBeenCalled();
+    expect(added).not.toHaveBeenCalled();
+    expect(removed).not.toHaveBeenCalled();
+    expect(updates).not.toHaveBeenCalled();
+    editor.stopEditing(store);
   });
 
   it('stops propagation of pointerdown while editing', async () => {
@@ -523,62 +729,6 @@ describe('NoteEditor', () => {
       expect(inputSpy).toHaveBeenCalledWith(note.id);
 
       editor.stopEditing(store);
-    });
-  });
-
-  describe('setOnStop callback', () => {
-    it('calls onStop with element id when editing stops', async () => {
-      const editor = new NoteEditor();
-      const store = new ElementStore();
-      const note = createNote({ position: { x: 0, y: 0 } });
-      store.add(note);
-
-      const onStop = vi.fn();
-      editor.setOnStop(onStop);
-
-      const node = document.createElement('div');
-      node.textContent = 'hello';
-      editor.startEditing(node, note.id, store);
-
-      await flushRAF();
-
-      editor.stopEditing(store);
-      expect(onStop).toHaveBeenCalledWith(note.id);
-    });
-
-    it('does not call onStop if no callback is set', async () => {
-      const editor = new NoteEditor();
-      const store = new ElementStore();
-      const note = createNote({ position: { x: 0, y: 0 } });
-      store.add(note);
-
-      const node = document.createElement('div');
-      editor.startEditing(node, note.id, store);
-
-      await flushRAF();
-
-      // Should not throw
-      expect(() => editor.stopEditing(store)).not.toThrow();
-    });
-
-    it('calls onStop before clearing internal state', async () => {
-      const editor = new NoteEditor();
-      const store = new ElementStore();
-      const note = createNote({ position: { x: 0, y: 0 } });
-      store.add(note);
-
-      let wasEditingDuringCallback = false;
-      editor.setOnStop(() => {
-        wasEditingDuringCallback = editor.isEditing;
-      });
-
-      const node = document.createElement('div');
-      editor.startEditing(node, note.id, store);
-
-      await flushRAF();
-
-      editor.stopEditing(store);
-      expect(wasEditingDuringCallback).toBe(true);
     });
   });
 });

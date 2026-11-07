@@ -1,14 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   getElementCenter,
-  getEdgeIntersection,
   findBindTarget,
   findBoundArrows,
   updateBoundArrow,
   updateArrowsBoundToElements,
   clearStaleBindings,
   isBindable,
-  unbindArrow,
   unbindArrowsFrom,
 } from './arrow-binding';
 import { getElementBounds } from './element-bounds';
@@ -23,6 +21,8 @@ import {
 import { ElementStore } from './element-store';
 import type { CanvasElement, ExtensionElementEnvelope } from './types';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
+import { createShape } from './element-factory';
+import { createBoundText } from './bound-text';
 
 describe('getElementCenter', () => {
   it('returns center of a note', () => {
@@ -72,41 +72,56 @@ describe('getElementBounds', () => {
   });
 });
 
-describe('getEdgeIntersection', () => {
-  const bounds = { x: 0, y: 0, w: 100, h: 100 };
-
-  it('returns right edge intersection for point to the right', () => {
-    const result = getEdgeIntersection(bounds, { x: 200, y: 50 });
-    expect(result.x).toBeCloseTo(100);
-    expect(result.y).toBeCloseTo(50);
-  });
-
-  it('returns left edge intersection for point to the left', () => {
-    const result = getEdgeIntersection(bounds, { x: -100, y: 50 });
-    expect(result.x).toBeCloseTo(0);
-    expect(result.y).toBeCloseTo(50);
-  });
-
-  it('returns top edge intersection for point above', () => {
-    const result = getEdgeIntersection(bounds, { x: 50, y: -100 });
-    expect(result.x).toBeCloseTo(50);
-    expect(result.y).toBeCloseTo(0);
-  });
-
-  it('returns bottom edge intersection for point below', () => {
-    const result = getEdgeIntersection(bounds, { x: 50, y: 200 });
-    expect(result.x).toBeCloseTo(50);
-    expect(result.y).toBeCloseTo(100);
-  });
-
-  it('returns correct intersection for diagonal', () => {
-    const result = getEdgeIntersection(bounds, { x: 200, y: 200 });
-    expect(result.x).toBeCloseTo(100);
-    expect(result.y).toBeCloseTo(100);
-  });
-});
-
 describe('findBindTarget', () => {
+  it('skips actual bound text when it is the only nearby bind target', () => {
+    const store = new ElementStore();
+    const rectangle = createShape({
+      shape: 'rectangle',
+      position: { x: 200, y: 200 },
+      size: { w: 100, h: 100 },
+    });
+    const bound = { ...createBoundText(rectangle, { text: 'bound' }), size: { w: 60, h: 20 } };
+    store.add(rectangle);
+    store.add(bound);
+    store.update(bound.id, { position: { x: 0, y: 0 }, size: { w: 60, h: 20 } });
+
+    expect(findBindTarget({ x: 30, y: 10 }, store, 20)).toBeNull();
+  });
+
+  it('retains ordinary, mismatched, and later matching text bind targets', () => {
+    const store = new ElementStore();
+    const rectangle = createShape({
+      shape: 'rectangle',
+      position: { x: 200, y: 200 },
+      size: { w: 100, h: 100 },
+    });
+    const first = {
+      ...createBoundText(rectangle, { text: 'first', index: 'a0' }),
+      size: { w: 60, h: 20 },
+    };
+    const mismatched = createText({
+      position: { x: 100, y: 0 },
+      size: { w: 20, h: 20 },
+      parentId: rectangle.id,
+    });
+    const later = {
+      ...createBoundText(rectangle, { text: 'later', index: 'a1' }),
+      position: { x: 200, y: 0 },
+      size: { w: 20, h: 20 },
+    };
+    const ordinary = createText({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } });
+    store.add(rectangle);
+    store.add(first);
+    store.add(mismatched);
+    store.add(later);
+    store.add(ordinary);
+    store.update(first.id, { position: { x: 300, y: 300 } });
+
+    expect(findBindTarget({ x: 10, y: 10 }, store, 20)?.id).toBe(ordinary.id);
+    expect(findBindTarget({ x: 110, y: 10 }, store, 20)?.id).toBe(mismatched.id);
+    expect(findBindTarget({ x: 210, y: 10 }, store, 20)?.id).toBe(later.id);
+  });
+
   it('retains an existing unrotated-bounds target after spatial filtering', () => {
     const store = new ElementStore();
     const note = createNote({
@@ -244,7 +259,7 @@ describe('updateBoundArrow', () => {
     });
     store.add(note);
     store.add(arrow);
-    const updates = updateBoundArrow(arrow, store);
+    const updates = updateBoundArrow(arrow, (id) => store.getById(id));
     expect(updates).not.toBeNull();
     expect(updates?.from).toEqual({ x: 200, y: 150 });
     expect(updates?.to).toBeUndefined();
@@ -254,7 +269,7 @@ describe('updateBoundArrow', () => {
     const store = new ElementStore();
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
     store.add(arrow);
-    expect(updateBoundArrow(arrow, store)).toBeNull();
+    expect(updateBoundArrow(arrow, (id) => store.getById(id))).toBeNull();
   });
 });
 
@@ -304,40 +319,6 @@ describe('isBindable', () => {
   });
 });
 
-describe('unbindArrow', () => {
-  it('clears fromBinding and rewrites from to edge point', () => {
-    const store = new ElementStore();
-    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
-    const arrow = createArrow({
-      from: { x: 50, y: 50 },
-      to: { x: 300, y: 50 },
-      fromBinding: { elementId: note.id },
-    });
-    store.add(note);
-    store.add(arrow);
-    const updates = unbindArrow(arrow, store);
-    expect(updates.fromBinding).toBeUndefined();
-    expect(updates.from).toBeDefined();
-    expect(updates.from?.x).toBeCloseTo(100); // right edge
-  });
-
-  it('clears toBinding and rewrites to to edge point', () => {
-    const store = new ElementStore();
-    const note = createNote({ position: { x: 200, y: 0 }, size: { w: 100, h: 100 } });
-    const arrow = createArrow({
-      from: { x: 0, y: 50 },
-      to: { x: 250, y: 50 },
-      toBinding: { elementId: note.id },
-    });
-    store.add(note);
-    store.add(arrow);
-    const updates = unbindArrow(arrow, store);
-    expect(updates.toBinding).toBeUndefined();
-    expect(updates.to).toBeDefined();
-    expect(updates.to?.x).toBeCloseTo(200); // left edge
-  });
-});
-
 describe('updateArrowsBoundToElements', () => {
   it('re-anchors arrows bound to a moved element and ignores arrow ids', () => {
     const store = new ElementStore();
@@ -367,6 +348,27 @@ describe('updateArrowsBoundToElements', () => {
 });
 
 describe('unbindArrowsFrom', () => {
+  it('releases a bent arrow at its intrinsic curve edge after removal', () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 60,
+      fromBinding: { elementId: note.id },
+    });
+    store.add(note);
+    store.add(arrow);
+    store.remove(note.id);
+
+    unbindArrowsFrom(store, note, undefined, store.elementRegistry);
+
+    const updated = store.getById(arrow.id);
+    if (!updated || updated.type !== 'arrow') throw new Error('expected arrow');
+    expect(updated.from.x).toBeCloseTo(100, 2);
+    expect(updated.from.y).toBeCloseTo(66.667, 2);
+  });
+
   it('detaches arrows from a removed element to its edge and forwards the change meta', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
@@ -385,7 +387,9 @@ describe('unbindArrowsFrom', () => {
 
     const updated = store.getById(arrow.id);
     expect(updated?.type === 'arrow' && updated.fromBinding).toBeUndefined();
-    expect(updated?.position).toEqual({ x: 100, y: 50 });
+    if (!updated || updated.type !== 'arrow') throw new Error('expected arrow');
+    expect(updated.position.x).toBeCloseTo(100, 2);
+    expect(updated.position.y).toBeCloseTo(50, 2);
     expect(metas).toEqual([{ origin: 'remote' }]);
   });
 
@@ -413,6 +417,8 @@ describe('unbindArrowsFrom', () => {
     unbindArrowsFrom(store, box, undefined, registry);
 
     const updated = store.getById(arrow.id);
-    expect(updated?.type === 'arrow' && updated.to).toEqual({ x: 100, y: 110 });
+    if (!updated || updated.type !== 'arrow') throw new Error('expected arrow');
+    expect(updated.to.x).toBeCloseTo(100, 2);
+    expect(updated.to.y).toBeCloseTo(110, 2);
   });
 });

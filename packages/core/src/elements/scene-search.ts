@@ -49,9 +49,18 @@ export class SceneSearch {
     if (!foldedQuery) return [];
 
     const matches: Match[] = [];
+    const arrowsWithBoundText = new Set<string>();
+    for (const element of elements) {
+      if (
+        element.type === 'text' &&
+        element.containerId !== undefined &&
+        element.parentId === element.containerId
+      )
+        arrowsWithBoundText.add(element.containerId);
+    }
     for (const element of elements) {
       if (options.filter && !options.filter(element)) continue;
-      const entry = this.entryFor(element);
+      const entry = this.entryFor(element, arrowsWithBoundText.has(element.id));
       if (!entry) continue;
       const at = entry.folded.indexOf(foldedQuery);
       if (at !== -1) matches.push({ element, entry, at });
@@ -93,7 +102,8 @@ export class SceneSearch {
     });
   }
 
-  private entryFor(element: CanvasElement): Entry | null {
+  private entryFor(element: CanvasElement, suppressArrowLabel: boolean): Entry | null {
+    if (element.type === 'arrow' && suppressArrowLabel) return null;
     if (this.entries.has(element)) return this.entries.get(element) ?? null;
 
     const text = this.extractText(element);

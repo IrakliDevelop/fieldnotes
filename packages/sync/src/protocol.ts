@@ -218,7 +218,13 @@ export function isValidElement(el: unknown): el is SyncElement {
         typeof el['text'] === 'string' &&
         isFiniteNumber(el['fontSize']) &&
         typeof el['color'] === 'string' &&
-        isEnum(el['textAlign'], ['left', 'center', 'right'])
+        isEnum(el['textAlign'], ['left', 'center', 'right']) &&
+        isOptional(
+          el['containerId'],
+          (value) => typeof value === 'string' && value.length > 0 && value.length <= maxIdLength,
+        ) &&
+        isOptional(el['wrap'], isBoolean) &&
+        isOptional(el['autoResize'], isBoolean)
       );
     case 'shape':
       return (
@@ -502,7 +508,11 @@ export function elementWithinLimits(el: DeepReadonly<SyncElement>, limits: Eleme
         isAtMost(el.domId, maxShortStringLength) && isAtMost(el.htmlType, maxShortStringLength)
       );
     case 'text':
-      return isAtMost(el.text, maxTextLength) && isAtMost(el.color, maxShortStringLength);
+      return (
+        isAtMost(el.text, maxTextLength) &&
+        isAtMost(el.color, maxShortStringLength) &&
+        isAtMost(el.containerId, maxIdLength)
+      );
     case 'shape':
       return (
         isAtMost(el.strokeColor, maxShortStringLength) &&

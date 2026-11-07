@@ -175,6 +175,42 @@ describe('Integration: live html elements', () => {
       expect(vp.camera.position).toEqual({ x: 0, y: 0 });
     });
 
+    it('ArrowRight on a focused live control does not nudge the selection', () => {
+      const { id, content } = addSelectedLive();
+      const control = document.createElement('button');
+      control.dataset.fnControl = '';
+      content.append(control);
+      control.focus();
+      const event = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'ArrowRight',
+      });
+
+      control.dispatchEvent(event);
+
+      expect(positionX(id)).toBe(100);
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('Space on focused live video controls does not pan or move the camera', () => {
+      const { content } = addSelectedLive();
+      const video = document.createElement('video');
+      video.controls = true;
+      video.tabIndex = 0;
+      content.append(video);
+      video.focus();
+      expect(document.activeElement).toBe(video);
+
+      press(video, ' ');
+      dispatch(wrapper, 'pointerdown', 600, 400);
+      dispatch(wrapper, 'pointermove', 640, 420);
+      dispatch(wrapper, 'pointermove', 680, 440);
+      dispatch(wrapper, 'pointerup', 680, 440);
+
+      expect(vp.camera.position).toEqual({ x: 0, y: 0 });
+    });
+
     it('(guard) Delete on a focused button outside any live node still runs', () => {
       const { id } = addSelectedLive();
       const stray = document.createElement('button');

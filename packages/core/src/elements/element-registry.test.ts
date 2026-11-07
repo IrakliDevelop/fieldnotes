@@ -97,6 +97,33 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('ElementRegistry', () => {
+  it('grows the envelope passed to an erased bound-text layout', () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      ...markerDefinition,
+      boundTextLayout: (_element) => ({
+        box: { x: 0, y: 0, w: 10, h: 10 },
+        grow: (current) => ({ ...current, label: `${current.label}:grown` }),
+      }),
+    });
+    const adapter = registry.getAdapter('test:marker');
+    if (!adapter?.boundTextLayout) throw new Error('bound text adapter missing');
+    const first = makeMarkerEnvelope({ id: 'first', index: 'a', layerId: 'one' });
+    const second = makeMarkerEnvelope({
+      id: 'second',
+      index: 'b',
+      layerId: 'two',
+      locked: true,
+      data: { label: 'B', color: '#00ff00' },
+    });
+
+    const grow = adapter.boundTextLayout(first)?.grow;
+    if (!grow) throw new Error('bound text grow missing');
+    expect(grow(second, 30)).toEqual({
+      ...second,
+      data: { label: 'B:grown', color: '#00ff00' },
+    });
+  });
   it('installs and protects one frame definition in root and child registries', () => {
     const root = new ElementRegistry();
     const child = new ElementRegistry(root);

@@ -1,16 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderArrow, getArrowDashPattern } from './arrow-renderer';
-import { createArrow } from '../element-factory';
+import { createArrow, createShape } from '../element-factory';
+import { createBoundText } from '../bound-text';
+import { ElementStore } from '../element-store';
 import type { ArrowElement } from '../types';
 
 function mockCtx() {
+  const moveTo = vi.fn<(x: number, y: number) => void>();
+  const lineTo = vi.fn<(x: number, y: number) => void>();
+  const quadraticCurveTo = vi.fn<(cpx: number, cpy: number, x: number, y: number) => void>();
   return {
     save: vi.fn(),
     restore: vi.fn(),
     beginPath: vi.fn(),
-    moveTo: vi.fn(),
-    lineTo: vi.fn(),
-    quadraticCurveTo: vi.fn(),
+    moveTo,
+    lineTo,
+    quadraticCurveTo,
     closePath: vi.fn(),
     stroke: vi.fn(),
     fill: vi.fn(),
@@ -18,6 +23,8 @@ function mockCtx() {
     measureText: vi.fn().mockReturnValue({ width: 40 }),
     fillText: vi.fn(),
     roundRect: vi.fn(),
+    translate: vi.fn(),
+    rotate: vi.fn(),
     strokeStyle: '',
     fillStyle: '',
     lineWidth: 0,
@@ -25,7 +32,12 @@ function mockCtx() {
     font: '',
     textAlign: '',
     textBaseline: '',
-  } as unknown as CanvasRenderingContext2D & { setLineDash: ReturnType<typeof vi.fn> };
+  } as unknown as CanvasRenderingContext2D & {
+    setLineDash: ReturnType<typeof vi.fn>;
+    moveTo: typeof moveTo;
+    lineTo: typeof lineTo;
+    quadraticCurveTo: typeof quadraticCurveTo;
+  };
 }
 
 function render(overrides: Partial<ArrowElement>) {
@@ -34,7 +46,7 @@ function render(overrides: Partial<ArrowElement>) {
     ...overrides,
   };
   const ctx = mockCtx();
-  renderArrow(ctx, arrow, null, null);
+  renderArrow(ctx, arrow, null);
   return ctx;
 }
 
@@ -83,5 +95,142 @@ describe('renderArrow — stroke style dashing', () => {
   it('dashes a bound arrow only when its strokeStyle says so', () => {
     const ctx = render({ fromBinding: { elementId: 'note-1' }, strokeStyle: 'dashed' });
     expect(ctx.setLineDash).toHaveBeenCalledWith([8, 4]);
+  });
+});
+
+describe('renderArrow bound curve', () => {
+  it('draws a bound text pill without drawing the deprecated label', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'legacy' });
+    const text = {
+      ...createBoundText(arrow, { text: 'bound' }),
+      position: { x: 20, y: -10 },
+      size: { w: 60, h: 20 },
+    };
+    store.add(arrow);
+    store.add(text, { origin: 'remote' });
+    const laidOut = store.getById(text.id);
+    if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
+    const ctx = mockCtx();
+
+    renderArrow(ctx, arrow, store);
+
+    expect(ctx.roundRect).toHaveBeenCalledWith(
+      laidOut.position.x - 4,
+      laidOut.position.y - 2,
+      68,
+      24,
+      4,
+    );
+    expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+
+  it('rotates a bound text pill around the text-box center', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const text = {
+      ...createBoundText(arrow, { text: 'bound' }),
+      position: { x: 20, y: -10 },
+      size: { w: 60, h: 20 },
+      rotation: Math.PI / 6,
+    };
+    store.add(arrow);
+    store.add(text, { origin: 'remote' });
+    const laidOut = store.getById(text.id);
+    if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
+    laidOut.rotation = Math.PI / 6;
+    const ctx = mockCtx();
+
+    renderArrow(ctx, arrow, store);
+
+    expect(ctx.translate).toHaveBeenCalledWith(50, 0);
+    expect(ctx.rotate).toHaveBeenCalledWith(Math.PI / 6);
+    expect(ctx.translate).toHaveBeenCalledWith(-50, -0);
+    expect(ctx.roundRect).toHaveBeenCalledWith(16, -12, 68, 24, 4);
+  });
+
+  it('draws a bound curve and arrowhead from persisted geometry, not its stale cache', () => {
+    const store = new ElementStore();
+    const from = createShape({
+      shape: 'rectangle',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const to = createShape({
+      shape: 'rectangle',
+      position: { x: 300, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 60,
+      label: 'label',
+      fromBinding: { elementId: from.id },
+      toBinding: { elementId: to.id },
+    });
+    arrow.cachedControlPoint = { x: 200, y: -200 };
+    store.add(from);
+    store.add(to);
+    store.add(arrow);
+
+    const ctx = mockCtx();
+    renderArrow(ctx, arrow, store);
+
+    const move = ctx.moveTo.mock.calls[0];
+    const curve = ctx.quadraticCurveTo.mock.calls[0];
+    if (!move || !curve) throw new Error('expected quadratic path');
+    const [fromX, fromY] = move as [number, number];
+    const [controlX, controlY, toX, toY] = curve as [number, number, number, number];
+    const drawn = {
+      from: { x: fromX, y: fromY },
+      control: { x: controlX, y: controlY },
+      to: { x: toX, y: toY },
+    };
+
+    const intrinsicControl = { x: 200, y: 110 };
+    const t0 = 1 / 6;
+    const t1 = 5 / 6;
+    const pointAt = (t: number) => {
+      const mt = 1 - t;
+      return {
+        x: mt * mt * arrow.from.x + 2 * mt * t * intrinsicControl.x + t * t * arrow.to.x,
+        y: mt * mt * arrow.from.y + 2 * mt * t * intrinsicControl.y + t * t * arrow.to.y,
+      };
+    };
+    const drawnAt = (s: number) => {
+      const mt = 1 - s;
+      return {
+        x: mt * mt * drawn.from.x + 2 * mt * s * drawn.control.x + s * s * drawn.to.x,
+        y: mt * mt * drawn.from.y + 2 * mt * s * drawn.control.y + s * s * drawn.to.y,
+      };
+    };
+
+    for (const s of [0, 0.5, 1]) {
+      const expected = pointAt(t0 + s * (t1 - t0));
+      const actual = drawnAt(s);
+      expect(actual.x).toBeCloseTo(expected.x, 2);
+      expect(actual.y).toBeCloseTo(expected.y, 2);
+    }
+    expect(drawn.from.x).toBeCloseTo(100, 0);
+    expect(drawn.to.x).toBeCloseTo(300, 0);
+    const tangent = { x: 300, y: -80 };
+    const angle = Math.atan2(tangent.y, tangent.x);
+    const arrowhead = ctx.lineTo.mock.calls.slice(-2);
+    const expectedArrowhead = [angle - Math.PI / 6, angle + Math.PI / 6].map((legAngle) => [
+      drawn.to.x - 12 * Math.cos(legAngle),
+      drawn.to.y - 12 * Math.sin(legAngle),
+    ]);
+    expect(arrowhead).toHaveLength(2);
+    for (const [actual, expected] of arrowhead.map((actual, i) => [actual, expectedArrowhead[i]])) {
+      if (!actual || !expected || actual[0] === undefined || actual[1] === undefined)
+        throw new Error('expected arrowhead leg');
+      const [expectedX, expectedY] = expected;
+      if (expectedX === undefined || expectedY === undefined)
+        throw new Error('expected arrowhead leg');
+      expect(actual[0]).toBeCloseTo(expectedX, 2);
+      expect(actual[1]).toBeCloseTo(expectedY, 2);
+    }
+    expect(ctx.fillText).toHaveBeenCalledWith('label', 200, 80);
   });
 });

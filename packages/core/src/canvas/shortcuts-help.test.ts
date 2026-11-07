@@ -88,6 +88,7 @@ describe('shortcuts help', () => {
       'Tools',
       'Palette',
       'While presenting',
+      'Selection',
     ]);
     expect(root?.textContent).toContain('Undo');
     expect(root?.textContent).toContain('Ctrl+Z');

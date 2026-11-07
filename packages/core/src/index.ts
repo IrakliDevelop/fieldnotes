@@ -1,7 +1,9 @@
-export const VERSION = '0.105.0';
+export const VERSION = '0.106.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
+export { measureText, setTextMeasurer } from './elements/text-measure';
+export type { TextMeasurer } from './elements/text-measure';
 export {
   CANVAS_STATE_VERSION,
   migrateElementData,
@@ -262,6 +264,7 @@ export {
   createShape,
   DEFAULT_NOTE_FONT_SIZE,
 } from './elements/element-factory';
+export { createBoundText, getBoundText, isBoundTextContainer } from './elements/bound-text';
 export { pickBaseFields } from './elements/base-fields';
 export {
   getArrowControlPoint,
@@ -297,7 +300,9 @@ export type {
   ElementTypeDefinition,
   ElementTypeAdapter,
   ElementTypeKey,
+  BoundTextLayout,
 } from './elements/types';
+export type { BoundTextContainer, CreateBoundTextOptions } from './elements/bound-text';
 export { ElementRegistry } from './elements/element-registry';
 export { getDefaultElementRegistry, setDefaultElementRegistry } from './elements/default-registry';
 export { TypedHookRegistry, createRenderHooks } from './canvas/render-hooks';

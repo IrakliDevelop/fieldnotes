@@ -1,5 +1,14 @@
 import type { Bounds, Point } from '../core/types';
 import { distSqToSegment } from '../core/geometry';
+import type { ArrowElement } from './types';
+
+export interface ArrowCurve {
+  from: Point;
+  control: Point;
+  to: Point;
+  t0: number;
+  t1: number;
+}
 
 export function getArrowControlPoint(from: Point, to: Point, bend: number): Point {
   const midX = (from.x + to.x) / 2;
@@ -28,6 +37,48 @@ export function getArrowMidpoint(from: Point, to: Point, bend: number): Point {
     x: 0.25 * from.x + 0.5 * cp.x + 0.25 * to.x,
     y: 0.25 * from.y + 0.5 * cp.y + 0.25 * to.y,
   };
+}
+
+export function getArrowCurve(
+  arrow: ArrowElement,
+  resolveBounds: (id: string) => Bounds | null,
+): ArrowCurve {
+  const control = getArrowControlPoint(arrow.from, arrow.to, arrow.bend);
+  const fromBounds = arrow.fromBinding ? resolveBounds(arrow.fromBinding.elementId) : null;
+  const toBounds = arrow.toBinding ? resolveBounds(arrow.toBinding.elementId) : null;
+  const t0 = fromBounds ? getExitT(arrow.from, control, arrow.to, fromBounds, true) : 0;
+  const t1 = toBounds ? getExitT(arrow.from, control, arrow.to, toBounds, false) : 1;
+  if (t0 >= t1) return { from: arrow.from, control, to: arrow.to, t0: 0, t1: 1 };
+
+  return {
+    from: bezierPoint(arrow.from, control, arrow.to, t0),
+    control: {
+      x:
+        (1 - t0) * (1 - t1) * arrow.from.x +
+        ((1 - t0) * t1 + t0 * (1 - t1)) * control.x +
+        t0 * t1 * arrow.to.x,
+      y:
+        (1 - t0) * (1 - t1) * arrow.from.y +
+        ((1 - t0) * t1 + t0 * (1 - t1)) * control.y +
+        t0 * t1 * arrow.to.y,
+    },
+    to: bezierPoint(arrow.from, control, arrow.to, t1),
+    t0,
+    t1,
+  };
+}
+
+export function getArrowLabelAnchor(
+  arrow: ArrowElement,
+  resolveBounds: (id: string) => Bounds | null,
+): Point {
+  const curve = getArrowCurve(arrow, resolveBounds);
+  return bezierPoint(
+    arrow.from,
+    getArrowControlPoint(arrow.from, arrow.to, arrow.bend),
+    arrow.to,
+    (curve.t0 + curve.t1) / 2,
+  );
 }
 
 export function getBendFromPoint(from: Point, to: Point, dragPoint: Point): number {
@@ -64,20 +115,87 @@ export function isNearBezier(
   bend: number,
   threshold: number,
 ): boolean {
-  if (bend === 0) return isNearLine(point, from, to, threshold);
+  return isNearBezierRange(point, from, to, bend, threshold, 0, 1);
+}
+
+export function isNearArrowCurve(
+  point: Point,
+  arrow: ArrowElement,
+  threshold: number,
+  resolveBounds: (id: string) => Bounds | null,
+): boolean {
+  const curve = getArrowCurve(arrow, resolveBounds);
+  return isNearBezierRange(point, arrow.from, arrow.to, arrow.bend, threshold, curve.t0, curve.t1);
+}
+
+function isNearBezierRange(
+  point: Point,
+  from: Point,
+  to: Point,
+  bend: number,
+  threshold: number,
+  t0: number,
+  t1: number,
+): boolean {
+  if (bend === 0) {
+    return isNearLine(
+      point,
+      bezierPoint(from, getArrowControlPoint(from, to, bend), to, t0),
+      bezierPoint(from, getArrowControlPoint(from, to, bend), to, t1),
+      threshold,
+    );
+  }
 
   const cp = getArrowControlPoint(from, to, bend);
   const segments = 20;
 
   for (let i = 0; i < segments; i++) {
-    const t0 = i / segments;
-    const t1 = (i + 1) / segments;
-    const a = bezierPoint(from, cp, to, t0);
-    const b = bezierPoint(from, cp, to, t1);
+    const start = t0 + ((t1 - t0) * i) / segments;
+    const end = t0 + ((t1 - t0) * (i + 1)) / segments;
+    const a = bezierPoint(from, cp, to, start);
+    const b = bezierPoint(from, cp, to, end);
     if (isNearLine(point, a, b, threshold)) return true;
   }
 
   return false;
+}
+
+function getExitT(
+  from: Point,
+  control: Point,
+  to: Point,
+  bounds: Bounds,
+  fromStart: boolean,
+): number {
+  const endpoint = fromStart ? from : to;
+  if (!isInsideBounds(endpoint, bounds)) return fromStart ? 0 : 1;
+
+  let inside = fromStart ? 0 : 1;
+  for (let i = 1; i <= 32; i++) {
+    const sample = fromStart ? i / 32 : 1 - i / 32;
+    if (isInsideBounds(bezierPoint(from, control, to, sample), bounds)) {
+      inside = sample;
+      continue;
+    }
+
+    let outside = sample;
+    for (let j = 0; j < 12; j++) {
+      const mid = (inside + outside) / 2;
+      if (isInsideBounds(bezierPoint(from, control, to, mid), bounds)) inside = mid;
+      else outside = mid;
+    }
+    return fromStart ? outside : outside;
+  }
+  return fromStart ? 1 : 0;
+}
+
+function isInsideBounds(point: Point, bounds: Bounds): boolean {
+  return (
+    point.x >= bounds.x &&
+    point.x <= bounds.x + bounds.w &&
+    point.y >= bounds.y &&
+    point.y <= bounds.y + bounds.h
+  );
 }
 
 export function getArrowBounds(from: Point, to: Point, bend: number): Bounds {

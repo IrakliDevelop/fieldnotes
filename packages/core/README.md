@@ -611,12 +611,27 @@ viewport.setTool('highlighter');
 
 `ShapeTool` supports a `'line'` shape kind that draws a straight segment between two points. Hold **Shift** while drawing to snap to 45° increments. Lines are hit-tested by proximity to the segment, and `ShapeElement.flip` records which diagonal of the bounding box the line runs along. When a line is selected, it shows two endpoint drag-handles instead of bounding-box resize handles — drag one endpoint to reshape the line while the other stays anchored.
 
-### Arrow Labels
+### Bound text
 
-Arrows support an optional `label` string, rendered as a pill at the curve midpoint. Pass it at creation or double-click an arrow on the canvas to add or edit the label inline.
+Double-click or double-tap a rectangle, ellipse, or arrow to edit its text. Select one and press Enter to run the `selection.edit-text` action. See [Tools and input](https://iraklidevelop.github.io/fieldnotes/docs/tools-and-input/#mouse-touch-and-pen) for the full interaction rules. Rectangles and ellipses grow for their text, do not shrink automatically, and cannot resize below the text's height. Arrow labels are text elements positioned at the curve midpoint. Arrows never grow.
+
+`createBoundText(container, options)` creates the text child. `viewport.setBoundText(id, html)`
+creates, updates, or removes one and keeps the text change and any container growth in one undo
+step. `getBoundText` and `isBoundTextContainer` read the relation. The child has `wrap` and
+`autoResize`; wrapping uses the container's text box, and `autoResize` controls whether free text
+shrinks to its content while editing. `measureText` measures text for a host's own layout.
+The third `createBoundText` argument defaults to the global registry; private extensions should pass `viewport.elementRegistry`.
+
+An extension element definition can implement `boundTextLayout(el)`, returning the text `box` and an optional `grow(el, height)` that returns the element grown to fit. `setBoundText` adds the child and any growth as one undo step; if you add the child with `store.add` instead, wrap the call in `viewport.transaction`.
+
+`ArrowElement.label` and the `label` option of `createArrow` are deprecated; use `setBoundText`.
+Loading a board turns each `label` into a text element on its arrow, and the next save stores that
+element instead.
 
 ```typescript
-createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 }, label: 'depends on' });
+const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
+viewport.store.add(arrow);
+viewport.setBoundText(arrow.id, 'depends on');
 new NoteTool({ backgroundColor: '#fff9c4', size: { w: 200, h: 150 } });
 new ImageTool({ size: { w: 400, h: 300 } });
 ```

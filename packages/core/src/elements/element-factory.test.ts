@@ -9,8 +9,43 @@ import {
   createText,
   createShape,
 } from './element-factory';
+import { createBoundText } from './bound-text';
 
 describe('element factories', () => {
+  it('creates sanitized bound text with shape and arrow defaults', () => {
+    const rectangle = {
+      ...createShape({ position: { x: 10, y: 20 }, size: { w: 40, h: 30 } }),
+      id: 'rect',
+    };
+    const arrow = { ...createArrow({ from: { x: 0, y: 0 }, to: { x: 40, y: 20 } }), id: 'arrow' };
+    const shapeText = createBoundText(rectangle, { text: '<img src=x><b>safe</b>' });
+    const arrowText = createBoundText(arrow);
+
+    expect(shapeText).toMatchObject({
+      parentId: 'rect',
+      containerId: 'rect',
+      fontSize: 16,
+      wrap: true,
+      autoResize: true,
+      textAlign: 'center',
+      color: '#1a1a1a',
+      text: '<b>safe</b>',
+    });
+    expect(arrowText).toMatchObject({
+      parentId: 'arrow',
+      containerId: 'arrow',
+      fontSize: 14,
+      wrap: false,
+      position: { x: 8 },
+      size: { w: 24 },
+    });
+    expect(arrowText.position.y).toBeCloseTo(-1.8);
+    expect(arrowText.size.h).toBeCloseTo(23.6);
+    expect([shapeText.id.startsWith('text_'), arrowText.id.startsWith('text_')]).toEqual([
+      true,
+      true,
+    ]);
+  });
   it.each([
     ['stroke', (parentId?: string) => createStroke({ points: [], parentId })],
     ['note', (parentId?: string) => createNote({ position: { x: 0, y: 0 }, parentId })],

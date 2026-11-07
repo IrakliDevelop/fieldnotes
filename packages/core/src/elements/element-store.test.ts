@@ -6,7 +6,10 @@ import { getElementBounds } from './element-bounds';
 import { ElementRegistry } from './element-registry';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
-import { createStroke, createArrow } from './element-factory';
+import { createStroke, createArrow, createShape, createText } from './element-factory';
+import { createBoundText } from './bound-text';
+import { getArrowLabelAnchor } from './arrow-geometry';
+import { setTextMeasurer } from './text-measure';
 import { createFrame } from './frame-element';
 import type {
   CanvasElement,
@@ -14,9 +17,28 @@ import type {
   BaseElement,
   ElementTypeDefinition,
   NoteElement,
+  ShapeElement,
   StrokeElement,
   TextElement,
 } from './types';
+
+function shapeOf(store: ElementStore, id: string): ShapeElement {
+  const element = store.getById(id);
+  if (!element || element.type !== 'shape') throw new Error('expected shape element');
+  return element;
+}
+
+function textOf(store: ElementStore, id: string): TextElement {
+  const element = store.getById(id);
+  if (!element || element.type !== 'text') throw new Error('expected text element');
+  return element;
+}
+
+function extensionOf(store: ElementStore, id: string): ExtensionElementEnvelope {
+  const element = store.getById(id);
+  if (!element || element.type !== 'extension') throw new Error('expected extension element');
+  return element;
+}
 
 function fullCanvasDefinition(): ElementTypeDefinition<BaseElement> {
   return {
@@ -95,6 +117,60 @@ function clipRegistry(): ElementRegistry {
   return registry;
 }
 
+function boundExtensionRegistry(
+  grow: boolean,
+  shrink = false,
+  onGrow?: () => void,
+): ElementRegistry {
+  const registry = new ElementRegistry();
+  registry.register<ExtensionElementEnvelope>({
+    type: 'test:bound-extension',
+    legacyTypes: [],
+    renderMode: 'canvas',
+    decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => element,
+    bounds: (element) => ({
+      x: element.position.x,
+      y: element.position.y,
+      w: element.data['width'] === 60 ? 60 : 40,
+      h: element.data['grown'] === true ? (shrink ? 5 : 30) : 10,
+    }),
+    boundTextLayout: (element) => ({
+      box: {
+        x: element.position.x,
+        y: element.position.y,
+        w: element.data['width'] === 60 ? 60 : 40,
+        h: element.data['grown'] === true ? (shrink ? 5 : 30) : 10,
+      },
+      ...(grow
+        ? {
+            grow: (current) => {
+              onGrow?.();
+              return { ...current, data: { ...current.data, grown: true, width: 60 } };
+            },
+          }
+        : {}),
+    }),
+  });
+  return registry;
+}
+
+function boundExtension(id: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:bound-extension',
+    position: { x: 0, y: 0 },
+    index: 'a0',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: {},
+  };
+}
+
 function makeStroke(overrides: Partial<StrokeElement> = {}): StrokeElement {
   return {
     id: 'stroke-1',
@@ -134,6 +210,756 @@ function makeText(overrides: Partial<TextElement> = {}): TextElement {
 }
 
 describe('ElementStore', () => {
+  it('prepares bound-text add growth and its arrow label before emitting', () => {
+    const store = new ElementStore();
+    const shape = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 30 } }),
+      id: 'shape',
+    };
+    const arrow = {
+      ...createArrow({ from: { x: 50, y: 15 }, to: { x: 200, y: 15 } }),
+      id: 'arrow',
+      fromBinding: { elementId: shape.id, focus: 0, gap: 0 },
+    };
+    const label = {
+      ...createBoundText(arrow, { text: 'label' }),
+      id: 'label',
+      size: { w: 50, h: 20 },
+    };
+    const text = {
+      ...createBoundText(shape, { text: 'large' }),
+      id: 'text',
+      size: { w: 84, h: 116 },
+    };
+    store.add(shape);
+    store.add(arrow);
+    store.add(label, { origin: 'remote' });
+    const events: string[] = [];
+    store.on('add', ({ id }) => {
+      expect(shapeOf(store, shape.id).size).toEqual({ w: 100, h: 132 });
+      const currentArrow = store.getById(arrow.id);
+      expect(currentArrow?.type === 'arrow' ? currentArrow.from : undefined).toEqual({
+        x: 50,
+        y: 66,
+      });
+      expect(textOf(store, label.id).position.x).toBeCloseTo(125, 3);
+      expect(textOf(store, label.id).position.y).toBeCloseTo(22, 3);
+      events.push(`add:${id}`);
+    });
+    store.on('update', ({ current }) => {
+      expect(shapeOf(store, shape.id).size).toEqual({ w: 100, h: 132 });
+      const currentArrow = store.getById(arrow.id);
+      expect(currentArrow?.type === 'arrow' ? currentArrow.from : undefined).toEqual({
+        x: 50,
+        y: 66,
+      });
+      events.push(`update:${current.id}`);
+    });
+
+    store.add(text);
+
+    expect(events).toEqual(['add:text', 'update:shape', 'update:arrow', 'update:label']);
+    expect(textOf(store, label.id).position.x).toBeCloseTo(125, 3);
+    expect(textOf(store, label.id).position.y).toBeCloseTo(22, 3);
+  });
+
+  it('measures and grows the first local bound text child immediately', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const rectangle = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 28 } }),
+        id: 'rectangle',
+      };
+      const text = {
+        ...createBoundText(rectangle, { text: 'one two three four' }),
+        id: 'text',
+      };
+      store.add(rectangle);
+      const updates = vi.fn();
+      store.on('update', updates);
+
+      store.add(text);
+
+      const measuredText = textOf(store, text.id);
+      const grownRectangle = shapeOf(store, rectangle.id);
+      expect(measure).toHaveBeenCalled();
+      expect(measuredText.size.h).toBeGreaterThan(28);
+      expect(grownRectangle.size.h).toBe(measuredText.size.h + 16);
+      expect(measuredText.position.x + measuredText.size.w / 2).toBe(
+        grownRectangle.position.x + grownRectangle.size.w / 2,
+      );
+      expect(measuredText.position.y + measuredText.size.h / 2).toBe(
+        grownRectangle.position.y + grownRectangle.size.h / 2,
+      );
+      expect(updates).toHaveBeenCalledTimes(1);
+      expect(store.getVersion(text.id)).toBe(0);
+
+      const arrow = { ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }), id: 'a' };
+      const geometry = { from: arrow.from, to: arrow.to, bend: arrow.bend };
+      const label = { ...createBoundText(arrow, { text: 'label' }), id: 'label' };
+      store.add(arrow);
+      store.add(label);
+
+      const measuredLabel = textOf(store, label.id);
+      expect(measuredLabel.size.w).toBe(104);
+      expect(measuredLabel.size.h).toBeCloseTo(23.6);
+      expect(measuredLabel.position.x).toBe(-2);
+      expect(measuredLabel.position.y).toBeCloseTo(-11.8);
+      expect(store.getById(arrow.id)).toMatchObject(geometry);
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('centres an explicit arrow-label size patch using its supplied width', () => {
+    const store = new ElementStore();
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+      id: 'arrow',
+    };
+    const label = { ...createBoundText(arrow, { text: 'label' }), id: 'label' };
+    store.add(arrow);
+    store.add(label, { origin: 'remote' });
+
+    store.update(label.id, { size: { w: 13, h: 26.4 } });
+
+    const laidOut = textOf(store, label.id);
+    const anchor = getArrowLabelAnchor(arrow, () => null);
+    expect(laidOut.size).toEqual({ w: 13, h: 26.4 });
+    expect({
+      x: laidOut.position.x + laidOut.size.w / 2,
+      y: laidOut.position.y + laidOut.size.h / 2,
+    }).toEqual(anchor);
+  });
+
+  it('replaces an explicit rectangle-text width with the content width', () => {
+    const store = new ElementStore();
+    const rectangle = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 200, h: 60 } }),
+      id: 'rectangle',
+    };
+    const text = { ...createBoundText(rectangle, { text: 'label' }), id: 'text' };
+    store.add(rectangle);
+    store.add(text, { origin: 'remote' });
+
+    store.update(text.id, { size: { w: 50, h: 26.4 } });
+
+    const laidOut = textOf(store, text.id);
+    expect(laidOut.size).toEqual({ w: 184, h: 26.4 });
+    expect(laidOut.position.x + laidOut.size.w / 2).toBe(100);
+  });
+
+  it('uses the content width when adding canonical rectangle text', () => {
+    const store = new ElementStore();
+    const rectangle = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+      id: 'rectangle',
+    };
+    const text = createText({
+      position: { x: 0, y: 0 },
+      parentId: rectangle.id,
+      containerId: rectangle.id,
+      text: 'label',
+      size: { w: 20, h: 26.4 },
+    });
+
+    store.add(rectangle);
+    store.add(text);
+
+    expect(textOf(store, text.id).size).toEqual({ w: 84, h: 26.4 });
+    expect(textOf(store, text.id).position).toEqual({ x: 8, y: 16.8 });
+  });
+
+  it('does not traverse the element map for an unlabelled arrow update', () => {
+    const store = new ElementStore();
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }),
+      id: 'arrow',
+    };
+    store.add(arrow);
+    store.getAll();
+    const elements = (store as unknown as { elements: Map<string, CanvasElement> }).elements;
+    const iterate = vi.spyOn(elements, Symbol.iterator);
+    const values = vi.spyOn(elements, 'values');
+
+    try {
+      store.update(arrow.id, { to: { x: 120, y: 0 } });
+
+      expect(iterate).not.toHaveBeenCalled();
+      expect(values).not.toHaveBeenCalled();
+    } finally {
+      iterate.mockRestore();
+      values.mockRestore();
+    }
+  });
+
+  it('does not traverse the element map when adding bound text that grows its container', () => {
+    const store = new ElementStore();
+    const rectangle = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 30 } }),
+      id: 'rectangle',
+    };
+    const text = {
+      ...createBoundText(rectangle, { text: 'large', index: 'a1' }),
+      id: 'text',
+      size: { w: 84, h: 116 },
+    };
+    store.add(rectangle);
+    store.getAll();
+    const elements = (store as unknown as { elements: Map<string, CanvasElement> }).elements;
+    const iterate = vi.spyOn(elements, Symbol.iterator);
+    const values = vi.spyOn(elements, 'values');
+
+    try {
+      store.add(text);
+
+      expect(shapeOf(store, rectangle.id).size).toEqual({ w: 100, h: 132 });
+      expect(iterate).not.toHaveBeenCalled();
+      expect(values).not.toHaveBeenCalled();
+    } finally {
+      iterate.mockRestore();
+      values.mockRestore();
+    }
+  });
+
+  it('preserves fitted text and skips a no-op derived layout for same geometry', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const rectangle = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'rectangle',
+      };
+      const text = {
+        ...createBoundText(rectangle, { text: 'fitted' }),
+        id: 'text',
+        position: { x: 8, y: 9 },
+        size: { w: 84, h: 42 },
+      };
+      measure.mockClear();
+      store.add(rectangle);
+      store.add(text, { origin: 'remote' });
+      const updates: string[] = [];
+      store.on('update', ({ current }) => updates.push(current.id));
+
+      store.update(rectangle.id, { position: { x: 0, y: 0 } });
+
+      expect(measure).not.toHaveBeenCalled();
+      expect(textOf(store, text.id).size.h).toBe(42);
+      expect(store.getVersion(text.id)).toBe(0);
+      expect(updates).toEqual([rectangle.id]);
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('lays out and grows the first local bound text update atomically', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const store = new ElementStore();
+      const rectangle = {
+        ...createShape({ position: { x: 10, y: 20 }, size: { w: 100, h: 60 } }),
+        id: 'rectangle',
+        rotation: Math.PI / 2,
+      };
+      const text = { ...createBoundText(rectangle), id: 'text' };
+      store.add(rectangle);
+      store.add(text, { origin: 'remote' });
+      const update = vi.fn();
+      store.on('update', update);
+
+      store.update(text.id, { text: 'a a a a a' });
+
+      const laidOutText = store.getById(text.id);
+      expect(laidOutText).toMatchObject({ size: { w: 84, h: 116 }, rotation: Math.PI / 2 });
+      expect(laidOutText?.position).toMatchObject({ x: -18 });
+      expect(laidOutText?.position.y).toBeCloseTo(-8);
+      const grownRectangle = store.getById(rectangle.id);
+      expect(grownRectangle).toMatchObject({ size: { w: 100, h: 132 } });
+      expect(grownRectangle?.position.x).toBeCloseTo(-26);
+      expect(grownRectangle?.position.y).toBeCloseTo(-16);
+      expect(update).toHaveBeenCalledTimes(2);
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it.each([
+    ['move', { position: { x: 40, y: 30 } }],
+    ['rotate', { rotation: Math.PI / 2 }],
+    ['height-only resize', { size: { w: 100, h: 90 } }],
+  ] as const)('repositions fitted bound text without measuring on %s', (_name, partial) => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const shape = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'shape',
+      };
+      const text = {
+        ...createBoundText(shape, { text: 'fitted' }),
+        id: 'text',
+        size: { w: 84, h: 42 },
+      };
+      store.add(shape);
+      store.add(text, { origin: 'remote' });
+      measure.mockClear();
+
+      store.update(shape.id, partial);
+
+      expect(measure).not.toHaveBeenCalled();
+      expect(store.getById(text.id)).toMatchObject({ size: { w: 84, h: 42 } });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('lays out bound text when a line becomes a rectangle', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const line = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 }, shape: 'line' }),
+        id: 'line',
+      };
+      const text = {
+        ...createText({
+          position: { x: 999, y: 999 },
+          size: { w: 20, h: 42 },
+          parentId: line.id,
+          containerId: line.id,
+          text: 'label',
+        }),
+        id: 'text',
+      };
+      store.add(line);
+      store.add(text);
+      measure.mockClear();
+
+      store.update(line.id, { shape: 'rectangle' });
+
+      expect(measure).toHaveBeenCalled();
+      expect(textOf(store, text.id)).toMatchObject({
+        position: { x: 8, y: 16.8 },
+        size: { w: 84, h: 26.4 },
+      });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('measures once for a width change and snaps a direct bound-text move back to center', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const shape = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'shape',
+      };
+      const text = {
+        ...createBoundText(shape, { text: 'fitted' }),
+        id: 'text',
+        size: { w: 84, h: 42 },
+      };
+      store.add(shape);
+      store.add(text);
+      measure.mockClear();
+
+      store.update(shape.id, { size: { w: 160, h: 60 } });
+
+      expect(measure).toHaveBeenCalledTimes(1);
+      expect(store.getById(text.id)).toMatchObject({ size: { w: 144, h: 26.4 } });
+      store.update(text.id, { position: { x: 700, y: 800 } });
+      expect(store.getById(text.id)?.position).toEqual({ x: 8, y: 16.8 });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('installs grown shape, arrow, and label before one event each', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const store = new ElementStore();
+      const shape = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'shape',
+      };
+      const text = {
+        ...createBoundText(shape, { text: 'small' }),
+        id: 'text',
+        size: { w: 84, h: 42 },
+      };
+      const arrow = {
+        ...createArrow({ from: { x: 50, y: 30 }, to: { x: 200, y: 30 } }),
+        id: 'arrow',
+        fromBinding: { elementId: shape.id, focus: 0, gap: 0 },
+      };
+      const label = {
+        ...createBoundText(arrow, { text: 'label' }),
+        id: 'label',
+        size: { w: 50, h: 20 },
+      };
+      store.add(shape);
+      store.add(text, { origin: 'remote' });
+      store.add(arrow);
+      store.add(label, { origin: 'remote' });
+      const versions = new Map(
+        [shape, text, arrow, label].map((element) => [element.id, store.getVersion(element.id)]),
+      );
+      const events: string[] = [];
+      store.on('update', ({ current }) => {
+        const finalArrow = store.getById(arrow.id);
+        const finalLabel = store.getById(label.id);
+        expect(shapeOf(store, shape.id).size.h).toBe(132);
+        expect(textOf(store, text.id).size.h).toBe(116);
+        expect(finalArrow?.type === 'arrow' && finalArrow.from).toEqual({ x: 50, y: 66 });
+        expect(finalLabel?.position.x).toBeCloseTo(125, 3);
+        expect(finalLabel?.position.y).toBeCloseTo(32, 3);
+        events.push(current.id);
+      });
+
+      store.update(text.id, { text: 'a a a a a' });
+
+      expect(events).toHaveLength(4);
+      for (const id of [shape.id, text.id, arrow.id, label.id]) {
+        expect(store.getVersion(id)).toBe((versions.get(id) ?? -1) + 1);
+      }
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('replays supplied container and text geometry without a derived measurement or event', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const shape = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'shape',
+      };
+      const text = {
+        ...createBoundText(shape, { text: 'fitted' }),
+        id: 'text',
+        size: { w: 84, h: 42 },
+      };
+      store.add(shape);
+      store.add(text, { origin: 'remote' });
+      measure.mockClear();
+      const events: string[] = [];
+      store.on('update', ({ current }) => events.push(current.id));
+
+      store.updateMany([
+        { id: shape.id, partial: { position: { x: 20, y: 30 }, size: { w: 140, h: 90 } } },
+        { id: text.id, partial: { position: { x: 24, y: 34 }, size: { w: 70, h: 50 } } },
+      ]);
+
+      expect(measure).not.toHaveBeenCalled();
+      expect(events).toEqual([shape.id, text.id]);
+      expect(store.getById(shape.id)).toMatchObject({
+        position: { x: 20, y: 30 },
+        size: { w: 140, h: 90 },
+      });
+      expect(store.getById(text.id)).toMatchObject({
+        position: { x: 24, y: 34 },
+        size: { w: 70, h: 50 },
+      });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('lays out the final first bound text child after a batch detaches its predecessor', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const shape = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'shape',
+      };
+      const first = {
+        ...createBoundText(shape, { text: 'first' }),
+        id: 'first',
+        index: 'a1',
+      };
+      const second = {
+        ...createBoundText(shape, { text: 'second' }),
+        id: 'second',
+        index: 'a2',
+        position: { x: 999, y: 999 },
+      };
+      store.add(shape);
+      store.add(first, { origin: 'remote' });
+      store.add(second, { origin: 'remote' });
+      measure.mockClear();
+
+      store.updateMany([
+        { id: shape.id, partial: { size: { w: 200, h: 60 } } },
+        { id: first.id, partial: { parentId: undefined, containerId: undefined } },
+      ]);
+
+      expect(textOf(store, first.id)).toMatchObject({
+        parentId: undefined,
+        containerId: undefined,
+      });
+      expect(measure).toHaveBeenCalled();
+      expect(textOf(store, second.id)).toMatchObject({
+        position: { x: 8, y: 16.8 },
+        size: { w: 184, h: 26.4 },
+      });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it.each(['remote', 'host'] as const)('does not derive bound text for %s metadata', (origin) => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const shape = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'shape',
+      };
+      const text = {
+        ...createBoundText(shape, { text: 'fitted' }),
+        id: 'text',
+        size: { w: 84, h: 42 },
+      };
+      store.add(shape);
+      store.add(text, { origin: 'remote' });
+      measure.mockClear();
+
+      store.update(shape.id, { size: { w: 160, h: 60 } }, { origin });
+
+      expect(measure).not.toHaveBeenCalled();
+      expect(textOf(store, text.id).size).toEqual({ w: 84, h: 42 });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('does not emit or bump derived text for an equal geometry update', () => {
+    const store = new ElementStore();
+    const shape = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+      id: 'shape',
+    };
+    const text = {
+      ...createBoundText(shape, { text: 'fitted' }),
+      id: 'text',
+      size: { w: 84, h: 42 },
+    };
+    store.add(shape);
+    store.add(text);
+    const version = store.getVersion(text.id);
+    const events: string[] = [];
+    store.on('update', ({ current }) => events.push(current.id));
+
+    store.update(shape.id, { size: { w: 100, h: 60 } });
+
+    expect(events).toEqual([shape.id]);
+    expect(store.getVersion(text.id)).toBe(version);
+  });
+
+  it('positions added text in an extension’s grown box', () => {
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:growing-extension',
+      legacyTypes: [],
+      renderMode: 'canvas',
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => {
+        const height = element.data['height'];
+        return {
+          x: element.position.x,
+          y: element.position.y,
+          w: 100,
+          h: typeof height === 'number' ? height : 10,
+        };
+      },
+      boundTextLayout: (element) => {
+        const height = element.data['height'];
+        return {
+          box: {
+            x: element.position.x,
+            y: element.position.y,
+            w: 100,
+            h: typeof height === 'number' ? height : 10,
+          },
+          grow: (current, nextHeight) => ({
+            ...current,
+            data: { ...current.data, height: nextHeight },
+          }),
+        };
+      },
+    });
+    const store = new ElementStore(registry);
+    const extension: ExtensionElementEnvelope = {
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:growing-extension',
+      position: { x: 20, y: 10 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: { height: 10 },
+    };
+    const text = createText({
+      position: { x: 0, y: 0 },
+      parentId: extension.id,
+      containerId: extension.id,
+      text: 'fitted',
+      size: { w: 20, h: 26.4 },
+    });
+
+    store.add(extension);
+    store.add(text);
+
+    expect(extensionOf(store, extension.id).data['height']).toBe(26.4);
+    expect(textOf(store, text.id).size).toEqual({ w: 100, h: 26.4 });
+    expect(textOf(store, text.id).position).toEqual({ x: 20, y: 10 });
+  });
+
+  it.each([
+    ['without grow', false, false, false],
+    ['with accepted grow', true, false, true],
+    ['with shrinking grow', true, true, false],
+  ] as const)(
+    'keeps extension overflow unless the registered adapter accepts growth %s',
+    (_name, grow, shrink, grows) => {
+      const store = new ElementStore(boundExtensionRegistry(grow, shrink));
+      const extension = boundExtension('extension');
+      const text = {
+        ...createBoundText(extension, { text: 'fitted' }),
+        id: 'text',
+        size: { w: 40, h: 20 },
+      };
+      store.add(extension);
+      store.add(text);
+
+      store.update(text.id, { position: { x: 1, y: 1 } });
+
+      expect(extensionOf(store, extension.id).data['grown']).toBe(grows ? true : undefined);
+      expect(textOf(store, text.id).size.w).toBe(grows ? 60 : 40);
+    },
+  );
+
+  it('remeasures exactly once at an extension adapter’s returned width', () => {
+    const measure = vi.fn(() => 10);
+    const grow = vi.fn();
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore(boundExtensionRegistry(true, false, grow));
+      const extension = boundExtension('extension');
+      const text = {
+        ...createBoundText(extension, { text: 'fitted' }),
+        id: 'text',
+        size: { w: 40, h: 20 },
+      };
+      store.add(extension);
+      store.add(text);
+      measure.mockClear();
+      grow.mockClear();
+
+      store.update(text.id, { text: 'a a a a a' });
+
+      expect(grow).toHaveBeenCalledTimes(1);
+      expect(textOf(store, text.id).size).toEqual({ w: 60, h: 48.8 });
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('lays out each first text once in a multi-container geometry batch with arrow labels', () => {
+    const measure = vi.fn(() => 100);
+    setTextMeasurer(measure);
+    try {
+      const store = new ElementStore();
+      const first = {
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'first',
+      };
+      const second = {
+        ...createShape({ position: { x: 200, y: 0 }, size: { w: 100, h: 60 } }),
+        id: 'second',
+      };
+      const firstText = {
+        ...createBoundText(first, { text: 'fitted' }),
+        id: 'first-text',
+        size: { w: 84, h: 42 },
+      };
+      const secondText = {
+        ...createBoundText(second, { text: 'fitted' }),
+        id: 'second-text',
+        size: { w: 84, h: 42 },
+      };
+      const arrow = {
+        ...createArrow({ from: { x: 50, y: 30 }, to: { x: 250, y: 30 } }),
+        id: 'arrow',
+      };
+      const label = {
+        ...createBoundText(arrow, { text: 'label' }),
+        id: 'label',
+        size: { w: 50, h: 20 },
+      };
+      for (const element of [first, second, firstText, secondText, arrow, label])
+        store.add(element);
+      measure.mockClear();
+
+      store.updateMany([
+        { id: first.id, partial: { size: { w: 160, h: 60 } } },
+        { id: second.id, partial: { size: { w: 160, h: 60 } } },
+      ]);
+
+      expect(measure).toHaveBeenCalledTimes(1);
+      expect(textOf(store, firstText.id).size.w).toBe(144);
+      expect(textOf(store, secondText.id).size.w).toBe(144);
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('does not rescan prepared batches for each unbound geometry update', () => {
+    const store = new ElementStore();
+    const batchSize = 64;
+    const shapes = Array.from({ length: batchSize }, (_, index) => ({
+      ...createShape({ position: { x: index, y: 0 }, size: { w: 100, h: 60 } }),
+      id: `shape-${index}`,
+    }));
+    for (const shape of shapes) store.add(shape);
+    const find = vi.spyOn(Array.prototype, 'find');
+    const some = vi.spyOn(Array.prototype, 'some');
+    try {
+      find.mockClear();
+      some.mockClear();
+
+      store.updateMany(
+        shapes.map((shape) => ({
+          id: shape.id,
+          partial: { position: { x: shape.position.x + 1, y: shape.position.y + 1 } },
+        })),
+      );
+
+      expect(find).toHaveBeenCalledTimes(batchSize);
+      expect(some.mock.calls.length).toBeLessThanOrEqual(2 * batchSize + 2);
+    } finally {
+      find.mockRestore();
+      some.mockRestore();
+    }
+  });
+
   it('rebuilds clip projection after local and inherited registry registration changes', () => {
     const parentRegistry = new ElementRegistry();
     const registry = new ElementRegistry(parentRegistry);
@@ -1844,12 +2670,12 @@ describe('ElementStore order keys and versions', () => {
     expect(store.getById('n')?.version).toBe(6);
   });
 
-  it('undo never lowers version', () => {
+  it('history replay advances local versions and clears editor', () => {
     const store = new ElementStore();
     const stack = new HistoryStack();
     const recorder = new HistoryRecorder(store, stack);
     recorder.pause();
-    store.add(makeNote({ id: 'n', index: 'a0', version: 1 }));
+    store.add(makeNote({ id: 'n', index: 'a0', version: 1, editor: 'A' }));
     recorder.resume();
     recorder.begin();
     store.update('n', { position: { x: 10, y: 0 } });
@@ -1859,6 +2685,7 @@ describe('ElementStore order keys and versions', () => {
     stack.undo(store);
     expect(store.getById('n')?.version).toBe(3);
     expect(store.getById('n')?.position).toEqual({ x: 0, y: 0 });
+    expect(store.getById('n')).not.toHaveProperty('editor');
     stack.redo(store);
     expect(store.getById('n')?.version).toBe(4);
     expect(store.getById('n')?.position).toEqual({ x: 10, y: 0 });

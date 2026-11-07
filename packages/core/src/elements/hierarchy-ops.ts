@@ -65,7 +65,11 @@ export function moveHierarchyToLayer(
         id: element.id,
         partial:
           element.id === root.id && element.parentId && !closureIds.has(element.parentId)
-            ? { layerId, parentId: undefined }
+            ? {
+                layerId,
+                parentId: undefined,
+                ...(element.type === 'text' ? { containerId: undefined } : {}),
+              }
             : { layerId },
       },
     ];
@@ -118,7 +122,7 @@ export function updateExternalBoundArrows(movedIds: Iterable<string>, store: Ele
     }
   }
   const updates = [...arrows.values()].flatMap((arrow) => {
-    const partial = updateBoundArrow(arrow, store);
+    const partial = updateBoundArrow(arrow, (id) => store.getById(id));
     return partial ? [{ id: arrow.id, partial }] : [];
   });
   if (updates.length > 0) store.updateMany(updates);

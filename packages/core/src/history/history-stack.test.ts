@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { HistoryStack } from './history-stack';
 import { AddElementCommand } from './commands';
 import { ElementStore } from '../elements/element-store';
-import { createNote } from '../elements/element-factory';
+import { createNote, createShape } from '../elements/element-factory';
+import { createBoundText } from '../elements/bound-text';
+import { setTextMeasurer } from '../elements/text-measure';
 
 describe('HistoryStack', () => {
   it('starts empty', () => {
@@ -160,5 +162,70 @@ describe('HistoryStack', () => {
 
     stack.redo(store);
     expect(store.count).toBe(2);
+  });
+
+  it('keeps bound-text derivation suppressed through nested replay', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const stack = new HistoryStack();
+      const inner = new HistoryStack();
+      const store = new ElementStore();
+      const host = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 30 },
+      });
+      const child = createBoundText(host, { text: 'one two three' });
+      const note = createNote({ position: { x: 0, y: 0 } });
+      store.add(host);
+      store.add(note);
+      inner.push(new AddElementCommand(note));
+      stack.push({
+        execute: () => undefined,
+        undo: () => {
+          inner.undo(store);
+          store.add(child);
+        },
+      });
+
+      expect(stack.undo(store)).toBe(true);
+      const restoredHost = store.getById(host.id);
+      expect(restoredHost?.type === 'shape' ? restoredHost.size : undefined).toEqual({
+        w: 100,
+        h: 30,
+      });
+      store.update(child.id, { text: 'four five six' });
+      const resizedHost = store.getById(host.id);
+      expect(resizedHost?.type === 'shape' ? resizedHost.size.h : undefined).toBeGreaterThan(30);
+    } finally {
+      setTextMeasurer(null);
+    }
+  });
+
+  it('clears bound-text replay suppression when a command throws', () => {
+    setTextMeasurer(() => 100);
+    try {
+      const stack = new HistoryStack();
+      const store = new ElementStore();
+      const host = createShape({
+        shape: 'rectangle',
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 30 },
+      });
+      store.add(host);
+      stack.push({
+        execute: () => undefined,
+        undo: () => {
+          throw new Error('failed replay');
+        },
+      });
+
+      expect(() => stack.undo(store)).toThrow('failed replay');
+      store.add(createBoundText(host, { text: 'one two three' }));
+      const resizedHost = store.getById(host.id);
+      expect(resizedHost?.type === 'shape' ? resizedHost.size.h : undefined).toBeGreaterThan(30);
+    } finally {
+      setTextMeasurer(null);
+    }
   });
 });

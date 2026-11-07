@@ -20,6 +20,7 @@ import type {
   HtmlElement,
 } from '../elements/types';
 import { createRenderHooks } from './render-hooks';
+import { createBoundText } from '../elements/bound-text';
 
 const HTML_MARKER = 'data-distinctive-html-marker-xyz';
 
@@ -73,6 +74,49 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it('emits a bound arrow text pill and the text in scene order', async () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'legacy' });
+    const text = {
+      ...createBoundText(arrow, { text: 'bound' }),
+      position: { x: 20, y: -10 },
+      size: { w: 60, h: 20 },
+    };
+    store.add(arrow);
+    store.add(text, { origin: 'remote' });
+    const laidOut = store.getById(text.id);
+    if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain(
+      `<rect x="${laidOut.position.x - 4}" y="${laidOut.position.y - 2}" width="68" height="24" rx="4" fill="rgba(255,255,255,0.9)" />`,
+    );
+    expect(svg).not.toContain('legacy');
+  });
+
+  it('rotates a bound arrow text pill around the text-box center', async () => {
+    const store = new ElementStore();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const text = {
+      ...createBoundText(arrow, { text: 'bound' }),
+      position: { x: 20, y: -10 },
+      size: { w: 60, h: 20 },
+      rotation: Math.PI / 6,
+    };
+    store.add(arrow);
+    store.add(text, { origin: 'remote' });
+    const laidOut = store.getById(text.id);
+    if (!laidOut || laidOut.type !== 'text') throw new Error('Missing bound text');
+    laidOut.rotation = Math.PI / 6;
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain(
+      '<g transform="rotate(30 50 0)"><rect x="16" y="-12" width="68" height="24" rx="4" fill="rgba(255,255,255,0.9)" /></g>',
+    );
+  });
+
   it('uses exact frame content bounds and excludes the frame and overlapping roots', async () => {
     const store = new ElementStore();
     const frame = createFrame({
@@ -1164,6 +1208,60 @@ describe('exportSvg', () => {
     }
   });
 
+  it('exports the persisted bound curve and arrowhead rather than a stale cache', async () => {
+    const store = new ElementStore();
+    const from = createShape({
+      shape: 'rectangle',
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const to = createShape({
+      shape: 'rectangle',
+      position: { x: 300, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    const arrow = createArrow({
+      from: { x: 50, y: 50 },
+      to: { x: 350, y: 50 },
+      bend: 60,
+      fromBinding: { elementId: from.id },
+      toBinding: { elementId: to.id },
+    });
+    arrow.cachedControlPoint = { x: 200, y: -200 };
+    store.add(from);
+    store.add(to);
+    store.add(arrow);
+
+    const svg = await exportSvg(store);
+    const path = svg.match(/<path d="M([^ ]+) ([^ ]+) Q([^ ]+) ([^ ]+) ([^ ]+) ([^ ]+)"/);
+    const polygon = svg.match(/<polygon points="([^,]+),([^ ]+) ([^,]+),([^ ]+) ([^,]+),([^ ]+)"/);
+    if (!path || !polygon) throw new Error('expected arrow path and arrowhead');
+
+    const expectedPath = [100, 66.66666666666667, 200, 93.33333333333334, 300, 66.66666666666667];
+    const pathNumbers = path.slice(1).map(Number);
+    for (const [actual, expected] of pathNumbers.map((actual, i) => [actual, expectedPath[i]])) {
+      if (expected === undefined) throw new Error('expected path number');
+      expect(actual).toBeCloseTo(expected, 2);
+    }
+
+    const angle = Math.atan2(-80, 300);
+    const expectedArrowhead = [
+      300,
+      66.66666666666667,
+      300 - 12 * Math.cos(angle - Math.PI / 6),
+      66.66666666666667 - 12 * Math.sin(angle - Math.PI / 6),
+      300 - 12 * Math.cos(angle + Math.PI / 6),
+      66.66666666666667 - 12 * Math.sin(angle + Math.PI / 6),
+    ];
+    for (const [actual, expected] of polygon
+      .slice(1)
+      .map(Number)
+      .map((actual, i) => [actual, expectedArrowhead[i]])) {
+      if (expected === undefined) throw new Error('expected arrowhead number');
+      expect(actual).toBeCloseTo(expected, 2);
+    }
+  });
+
   it('keeps frame arrows bound to excluded targets without emitting their output', async () => {
     const store = new ElementStore();
     const frame = createFrame({ position: { x: 100, y: 100 }, size: { w: 240, h: 164 } });
@@ -1186,8 +1284,10 @@ describe('exportSvg', () => {
     const path = svg.match(/<path d="M[^"]*L([\d.]+) ([\d.]+)"/);
     const arrowhead = svg.match(/<polygon points="([\d.]+),([\d.]+)/);
 
-    expect(path?.slice(1)).toEqual(['400', '200']);
-    expect(arrowhead?.slice(1)).toEqual(['400', '200']);
+    expect(Number(path?.[1])).toBeCloseTo(400, 2);
+    expect(Number(path?.[2])).toBeCloseTo(200, 2);
+    expect(Number(arrowhead?.[1])).toBeCloseTo(400, 2);
+    expect(Number(arrowhead?.[2])).toBeCloseTo(200, 2);
     expect(svg).not.toContain('#ff00ff');
   });
 
