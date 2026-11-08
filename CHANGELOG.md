@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.106.1 — editor focus
+
+**Fixed**
+
+- Pressing Escape or Ctrl/Cmd+Enter in a note, text or bound-text editor returns focus to the
+  canvas, so keyboard shortcuts work without another click. Focus stays put when the edit ended
+  because the user focused another control.
+
 ### Core 0.106.0 — bound text
 
 Release notes prepared 2026-11-05.

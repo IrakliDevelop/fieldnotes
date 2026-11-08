@@ -344,6 +344,7 @@ export class Viewport {
     });
 
     this.wrapper = createWrapper();
+    this.noteEditor.setFocusReturnTarget(this.wrapper);
     this.canvasEl = createCanvas();
     this.paintStack = createPaintStack();
     this.domLayer = createDomLayer();

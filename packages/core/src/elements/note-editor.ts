@@ -48,6 +48,7 @@ export class NoteEditor {
   private beginHistory: ((id: string) => void) | null = null;
   private commitHistory: ((id: string) => void) | null = null;
   private onAbandonCallback: ((id: string) => void) | null = null;
+  private focusReturnTarget: HTMLElement | null = null;
   private toolbar: NoteToolbar | null;
   private readonly placeholder: string;
 
@@ -75,6 +76,10 @@ export class NoteEditor {
   setHistoryHooks(begin: (id: string) => void, commit: (id: string) => void): void {
     this.beginHistory = begin;
     this.commitHistory = commit;
+  }
+
+  setFocusReturnTarget(target: HTMLElement): void {
+    this.focusReturnTarget = target;
   }
 
   setOnAbandon(callback: (id: string) => void): void {
@@ -112,6 +117,10 @@ export class NoteEditor {
     this.pendingToolbarPosition = null;
 
     if (!this.editingId || !this.editingNode) return;
+
+    const node = this.editingNode;
+    const active = document.activeElement;
+    const hadFocus = node.contains(active) || !!this.toolbar?.getElement()?.contains(active);
 
     if (this.blurHandler) {
       this.editingNode.removeEventListener('blur', this.blurHandler);
@@ -154,6 +163,9 @@ export class NoteEditor {
     this.pointerHandler = null;
     this.inputHandler = null;
     this.toolbarPosition = null;
+    if (!hadFocus) return;
+    this.focusReturnTarget?.focus({ preventScroll: true });
+    if (node.contains(document.activeElement)) node.blur();
   }
 
   destroy(store: ElementStore): void {
@@ -219,8 +231,7 @@ export class NoteEditor {
         }
       }
       if (e.key === 'Escape' || ((e.ctrlKey || e.metaKey) && e.key === 'Enter')) {
-        node.blur();
-        if (this.editingId) this.stopEditing(store);
+        this.stopEditing(store);
       }
       e.stopPropagation();
     };

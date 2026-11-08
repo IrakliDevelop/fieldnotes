@@ -179,7 +179,8 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('keeps the bound text releases first, in package order, and unique', () => {
+  it('keeps the editor-focus and bound text releases first, in package order, and unique', () => {
+    const editorFocus = release('@fieldnotes/core', '0.106.1');
     const boundTextCore = release('@fieldnotes/core', '0.106.0');
     const boundTextSync = release('@fieldnotes/sync', '0.30.2');
     const boundTextServer = release('@fieldnotes/sync-server', '0.30.2');
@@ -190,7 +191,8 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     const frames = release('@fieldnotes/core', '0.102.0');
     const prior = release('@fieldnotes/core', '0.101.0');
 
-    expect(current.slice(0, 3)).toMatchObject([
+    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
+    expect(current.slice(1, 4)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.106.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.2' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.2' },
@@ -218,6 +220,7 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(frames).toBeDefined();
     expect(prior).toBeDefined();
     if (
+      !editorFocus ||
       !boundTextCore ||
       !boundTextSync ||
       !boundTextServer ||
@@ -229,6 +232,7 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
       !prior
     )
       return;
+    expect(editorFocus.date).toBeUndefined();
     expect(boundTextCore.date).toBeUndefined();
     expect(boundTextSync.date).toBeUndefined();
     expect(boundTextServer.date).toBeUndefined();
