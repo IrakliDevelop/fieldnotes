@@ -722,16 +722,24 @@ describe('rotateSelection', () => {
         { axis: 'y', value: 40 },
       ],
     });
-    expect(store.getById(shape.id)?.rotation).toBeUndefined();
+    expect(store.getById(shape.id)?.rotation ?? 0).toBe(0);
 
+    stack.clear();
     ops.rotateSelection('cw');
+    expect(stack.undoCount).toBe(1);
     ops.rotateSelection('ccw');
+    expect(stack.undoCount).toBe(2);
     expect(store.getById(arrow.id)).toMatchObject({
       fixedSegments: [
         { axis: 'x', value: 30 },
         { axis: 'y', value: 40 },
       ],
     });
+    expect(store.getById(shape.id)?.rotation ?? 0).toBe(0);
+    expect(stack.undo(store)).toBe(true);
+    expect(store.getById(shape.id)?.rotation).toBe(Math.PI / 2);
+    expect(stack.undo(store)).toBe(true);
+    expect(store.getById(shape.id)?.rotation ?? 0).toBe(0);
   });
 
   it('lone selected arrow orbits its own bbox center', () => {

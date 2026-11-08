@@ -219,6 +219,43 @@ describe('Integration: elbow arrow history', () => {
     expect(harness.viewport.history.undoCount).toBe(0);
   });
 
+  it('nudges a parent elbow scene once and undoes endpoints, pins, and label together', () => {
+    const parent = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 80 } });
+    const arrow = createArrow({
+      from: { x: 110, y: 120 },
+      to: { x: 190, y: 160 },
+      parentId: parent.id,
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 140 },
+        { axis: 'y', value: 150 },
+      ],
+    });
+    const label = createBoundText(arrow, { text: 'label' });
+    harness.viewport.store.add(parent);
+    harness.viewport.store.add(arrow);
+    harness.viewport.store.add(label);
+    const before = structuredClone(harness.viewport.store.getAll());
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([parent.id]);
+    harness.viewport.history.clear();
+    harness.viewport.transaction(() => select.nudgeSelection(4, 6, harness.viewport.toolContext));
+    expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
+      from: { x: 114, y: 126 },
+      to: { x: 194, y: 166 },
+      fixedSegments: [
+        { axis: 'x', value: 144 },
+        { axis: 'y', value: 156 },
+      ],
+    });
+    expect(harness.viewport.history.undoCount).toBe(1);
+    expect(harness.viewport.undo()).toBe(true);
+    expect(
+      harness.viewport.store.getAll().map(({ version: _version, ...element }) => element),
+    ).toEqual(before.map(({ version: _version, ...element }) => element));
+  });
+
   it('keeps one captured pin across repeated completed drags', () => {
     const arrow = createArrow({
       from: { x: 0, y: 0 },

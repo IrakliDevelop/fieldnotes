@@ -656,9 +656,14 @@ describe('KeyboardActions.cut', () => {
     actions.copy();
     actions.paste();
     const pastedParent = tool.selectedIds[0];
-    const pastedArrow = ctx.store
-      .getChildren(pastedParent ?? '')
-      .find((element) => element.type === 'arrow');
+    const pastedChildren = ctx.store.getChildren(pastedParent ?? '');
+    const pastedArrow = pastedChildren.find((element) => element.type === 'arrow');
+    const pastedSource = pastedChildren.find(
+      (element) => element.type === 'note' && element.position.x === 25,
+    );
+    const pastedTarget = pastedChildren.find(
+      (element) => element.type === 'note' && element.position.x === 55,
+    );
     const pastedText =
       pastedArrow &&
       ctx.store.getChildren(pastedArrow.id).find((element) => element.type === 'text');
@@ -668,8 +673,15 @@ describe('KeyboardActions.cut', () => {
         { axis: 'x', value: 50 },
         { axis: 'y', value: 60 },
       ],
+      parentId: pastedParent,
+      fromBinding: { elementId: pastedSource?.id },
+      toBinding: { elementId: pastedTarget?.id },
     });
     expect(pastedText).toMatchObject({ parentId: pastedArrow?.id, containerId: pastedArrow?.id });
+    if (pastedArrow?.type !== 'arrow') throw new Error('expected pasted arrow');
+    expect(pastedArrow.fixedSegments).not.toBe(arrow.fixedSegments);
+    expect(pastedArrow.fixedSegments?.[0]).not.toBe(arrow.fixedSegments?.[0]);
+    expect(ctx.store.getById(arrow.id)).toMatchObject({ parentId: parent.id, routing: 'elbow' });
   });
 
   it('duplicates a selected child closure as a detached tree', () => {
