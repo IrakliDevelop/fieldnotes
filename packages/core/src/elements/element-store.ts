@@ -79,6 +79,10 @@ function sameBounds(a: Bounds | null, b: Bounds | null): boolean {
   );
 }
 
+function sameEffectiveClip(a: Bounds | null | undefined, b: Bounds | null | undefined): boolean {
+  return a === undefined || b === undefined ? a === b : sameBounds(a, b);
+}
+
 export interface ElementUpdateEvent {
   previous: CanvasElement;
   current: CanvasElement;
@@ -206,6 +210,11 @@ export class ElementStore {
     this.registryToken = token;
     this.hierarchyKnownValid = false;
     this.resetHierarchy();
+    this.spatialIndex.clear();
+    for (const element of this.elements.values()) {
+      const bounds = this.indexBounds(element);
+      if (bounds) this.spatialIndex.insert(element.id, bounds);
+    }
     invalidateElbowRoutes(this, null, true);
   }
 
@@ -347,7 +356,10 @@ export class ElementStore {
     this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
-    invalidateElbowRoutes(this, bounds, element.parentId !== undefined);
+    const admitsDescendants =
+      !this.strict(meta) &&
+      [...this.elements.values()].some((child) => child.parentId === element.id);
+    invalidateElbowRoutes(this, bounds, element.parentId !== undefined || admitsDescendants);
     this.bus.emit('add', element, meta);
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
@@ -713,6 +725,12 @@ export class ElementStore {
     updated: CanvasElement,
     deferStructuralReset = false,
   ): void {
+    const previousClips = new Map<string, Bounds | null | undefined>();
+    if (existing.type === 'extension' && !deferStructuralReset) {
+      for (const child of this.getDescendants(existing.id)) {
+        previousClips.set(child.id, this.getEffectiveClip(child.id));
+      }
+    }
     this._versions.set(existing.id, (this._versions.get(existing.id) ?? 0) + 1);
     this.elements.set(existing.id, updated);
     const structural = this.isStructural(existing, updated);
@@ -734,7 +752,20 @@ export class ElementStore {
       existing.type === 'arrow' &&
       updated.type === 'arrow' &&
       transferElbowRoute(this, existing, updated);
-    if (!reusedRoute && !sameBounds(oldBounds, newBounds)) {
+    const eligibilityChanged =
+      existing.type === 'shape' && updated.type === 'shape' && existing.shape !== updated.shape;
+    let clipChanged = false;
+    if (previousClips.size > 0) {
+      for (const [id, clip] of previousClips) {
+        if (!sameEffectiveClip(clip, this.getEffectiveClip(id))) {
+          clipChanged = true;
+          break;
+        }
+      }
+    }
+    if (clipChanged) {
+      invalidateElbowRoutes(this, null, true);
+    } else if (!reusedRoute && (!sameBounds(oldBounds, newBounds) || eligibilityChanged)) {
       invalidateElbowRoutes(this, oldBounds);
       invalidateElbowRoutes(this, newBounds);
     }
@@ -753,7 +784,14 @@ export class ElementStore {
     this.elements.delete(id);
     this.hierarchyKnownValid = this.strict(meta);
     this.spatialIndex.remove(id);
-    invalidateElbowRoutes(this, this.indexBounds(element), element.parentId !== undefined);
+    const removesDescendants =
+      !this.strict(meta) &&
+      [...this.elements.values()].some((child) => child.parentId === element.id);
+    invalidateElbowRoutes(
+      this,
+      this.indexBounds(element),
+      element.parentId !== undefined || removesDescendants,
+    );
     this.bus.emit('remove', element, meta);
   }
 

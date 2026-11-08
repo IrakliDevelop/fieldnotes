@@ -8,6 +8,7 @@ interface CacheEntry {
   readonly route: ReturnType<typeof routeElbowArrow>;
   readonly region: Bounds;
   dirty: boolean;
+  checkedGeneration: number;
 }
 
 interface StoreCache {
@@ -91,9 +92,14 @@ export function getElbowRoute(
 ) {
   if (arrow.routing !== 'elbow') return null;
   if (!store) return routeElbowArrow(arrow, null, null, []);
+  store.getAll();
   const cache = cacheFor(store);
   const cached = cache.entries.get(arrow);
-  if (!override && cached && !cached.dirty) return cached.route;
+  if (!override && cached && !cached.dirty) {
+    if (cached.checkedGeneration !== cache.geometryGeneration)
+      cached.checkedGeneration = cache.geometryGeneration;
+    return cached.route;
+  }
   const region = getElbowRouteBounds(arrow);
   const obstacles: { id: string; bounds: Bounds; distance: number }[] = [];
   const authoredBounds = boundsOf(buildAuthoredElbowPath(arrow).points);
@@ -120,13 +126,21 @@ export function getElbowRoute(
     toBounds,
     obstacles.map((obstacle) => obstacle.bounds),
   );
-  if (!override) cache.entries.set(arrow, { route, region, dirty: false });
+  if (!override)
+    cache.entries.set(arrow, {
+      route,
+      region,
+      dirty: false,
+      checkedGeneration: cache.geometryGeneration,
+    });
   return route;
 }
 
 function getBounds(store: ElementStore, id: string): Bounds | null {
   const element = store.getById(id);
-  return element ? getElementBounds(element, store.elementRegistry) : null;
+  return element && store.getEffectiveClip(id) !== undefined
+    ? getElementBounds(element, store.elementRegistry)
+    : null;
 }
 
 function isObstacle(store: ElementStore, element: CanvasElement, arrow: ArrowElement): boolean {
@@ -222,7 +236,7 @@ export function invalidateElbowRoutes(
 ): void {
   const cache = caches.get(store);
   if (!cache) return;
-  if (all) cache.geometryGeneration += 1;
+  cache.geometryGeneration += 1;
   for (const arrow of store.getElementsByType('arrow')) {
     if (arrow.routing !== 'elbow') continue;
     const entry = cache.entries.get(arrow);
