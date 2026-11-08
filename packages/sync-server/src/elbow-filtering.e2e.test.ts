@@ -56,6 +56,23 @@ const TEXT_KEYS = [
   'type',
   'version',
 ];
+const EXPECTED_PUBLIC_LABEL = Object.freeze({
+  id: 'arrow-label',
+  type: 'text',
+  position: { x: 130, y: 10 },
+  index: 'a3',
+  version: 1,
+  locked: false,
+  layerId: '',
+  size: { w: 80, h: 20 },
+  text: '',
+  fontSize: 16,
+  color: '#1a1a1a',
+  textAlign: 'left',
+  parentId: 'arrow',
+  containerId: 'arrow',
+  editor: 'gm-client',
+});
 
 function expectExactDocumentBytes(
   frame: string,
@@ -69,6 +86,8 @@ function expectExactDocumentBytes(
     .map(record)
     .filter((element) => element.type === 'arrow' || element.type === 'text');
   if (phase === 'snapshot') expect(documents).toHaveLength(2);
+  const label = documents.find((element) => element.id === EXPECTED_PUBLIC_LABEL.id);
+  if (phase === 'snapshot' || label) expect(label).toEqual(EXPECTED_PUBLIC_LABEL);
   for (const value of values) {
     const element = record(value);
     if (element.type === 'arrow') {
@@ -80,7 +99,10 @@ function expectExactDocumentBytes(
         fixedSegments: [{ axis: 'x', value: 170 }],
       });
     }
-    if (element.type === 'text') expect(Object.keys(element).sort()).toEqual(TEXT_KEYS);
+    if (element.type === 'text') {
+      expect(Object.keys(element).sort()).toEqual(TEXT_KEYS);
+      expect(element).toEqual(EXPECTED_PUBLIC_LABEL);
+    }
   }
 }
 
@@ -254,20 +276,30 @@ describe('filtered elbow documents (end-to-end)', () => {
     const unsubscribePlayer = player.store.on('update', ({ current }, meta) =>
       playerUpdates.push({ id: current.id, origin: meta.origin }),
     );
-    const arrowBefore = structuredClone(gm.store.getById(arrow.id));
-    const labelBefore = structuredClone(gm.store.getById(label.id));
-    writer.store.update(obstacle.id, { position: { x: 140, y: 80 } });
-    await waitFor(() => gm.store.getById(obstacle.id)?.version === 2);
-    unsubscribe();
-    unsubscribePlayer();
+    const gmArrowBefore = structuredClone(gm.store.getById(arrow.id));
+    const gmLabelBefore = structuredClone(gm.store.getById(label.id));
+    const playerArrowBefore = structuredClone(player.store.getById(arrow.id));
+    const playerLabelBefore = structuredClone(player.store.getById(label.id));
+    try {
+      writer.store.update(obstacle.id, { position: { x: 140, y: 80 } });
+      await waitFor(() => gm.store.getById(obstacle.id)?.version === 2);
 
-    expect(updates).toEqual([{ id: obstacle.id, origin: 'remote' }]);
-    expect(playerUpdates).toEqual([]);
-    expect(gm.store.getById(arrow.id)).toEqual(arrowBefore);
-    expect(gm.store.getById(label.id)).toEqual(labelBefore);
-    const [movedSvg, playerSvg] = await Promise.all([exportSvg(gm.store), exportSvg(player.store)]);
-    expect(arrowPath(movedSvg, arrow.color)).toBe(clearPath);
-    expect(arrowPath(playerSvg, arrow.color)).toBe(clearPath);
+      const [movedSvg, playerSvg] = await Promise.all([
+        exportSvg(gm.store),
+        exportSvg(player.store),
+      ]);
+      expect(arrowPath(movedSvg, arrow.color)).toBe(clearPath);
+      expect(arrowPath(playerSvg, arrow.color)).toBe(clearPath);
+      expect(gm.store.getById(arrow.id)).toEqual(gmArrowBefore);
+      expect(gm.store.getById(label.id)).toEqual(gmLabelBefore);
+      expect(player.store.getById(arrow.id)).toEqual(playerArrowBefore);
+      expect(player.store.getById(label.id)).toEqual(playerLabelBefore);
+      expect(updates).toEqual([{ id: obstacle.id, origin: 'remote' }]);
+      expect(playerUpdates).toEqual([]);
+    } finally {
+      unsubscribe();
+      unsubscribePlayer();
+    }
 
     gm.store.update(arrow.id, { fixedSegments: [{ axis: 'x', value: 170 }] });
     await waitFor(
@@ -411,29 +443,57 @@ describe('filtered elbow documents (end-to-end)', () => {
     gm.store.add(obstacle);
     await waitFor(() => player.store.getById(label.id)?.type === 'text');
 
-    const events: string[] = [];
-    const removeListener = player.store.on('update', ({ current }, meta) => {
-      if (meta.origin === 'remote') events.push(current.id);
+    const events: { id: string; origin: string | undefined }[] = [];
+    const removeListener = gm.store.on('update', ({ current }, meta) => {
+      events.push({ id: current.id, origin: meta.origin });
     });
-    const received = player.store.getById(arrow.id);
-    if (!received || received.type !== 'arrow') throw new Error('missing filtered arrow');
-    player.store.update(arrow.id, { ...received, to: { x: 340, y: 20 } });
-    await waitFor(() => {
-      const updated = gm.store.getById(arrow.id);
-      return updated?.type === 'arrow' && updated.to.x === 340;
+    const playerEvents: { id: string; origin: string | undefined }[] = [];
+    const removePlayerListener = player.store.on('update', ({ current }, meta) => {
+      playerEvents.push({ id: current.id, origin: meta.origin });
     });
-    expect(gm.store.getById(arrow.id)).toMatchObject({
-      to: { x: 340, y: 20 },
-      version: 2,
-      editor: 'player-client',
-      routing: 'elbow',
-      fixedSegments: [{ axis: 'y', value: 20 }],
-    });
+    try {
+      const received = player.store.getById(arrow.id);
+      if (!received || received.type !== 'arrow') throw new Error('missing filtered arrow');
+      player.store.update(arrow.id, { ...received, to: { x: 340, y: 20 } });
+      await waitFor(() => {
+        const updated = gm.store.getById(arrow.id);
+        return updated?.type === 'arrow' && updated.to.x === 340;
+      });
+      expect(gm.store.getById(arrow.id)).toMatchObject({
+        from: { x: 20, y: 20 },
+        to: { x: 340, y: 20 },
+        version: 2,
+        editor: 'player-client',
+        routing: 'elbow',
+        fixedSegments: [{ axis: 'y', value: 20 }],
+      });
+      expect(events).toEqual([
+        { id: arrow.id, origin: 'remote' },
+        { id: label.id, origin: 'remote' },
+      ]);
+      expect(playerEvents).toEqual([
+        { id: arrow.id, origin: undefined },
+        { id: label.id, origin: undefined },
+      ]);
 
-    events.length = 0;
-    gm.store.update(obstacle.id, { position: { x: 140, y: 80 } });
-    await waitFor(() => gm.store.getById(obstacle.id)?.version === 2);
-    removeListener();
-    expect(events).toEqual([]);
+      const gmArrowBefore = structuredClone(gm.store.getById(arrow.id));
+      const gmLabelBefore = structuredClone(gm.store.getById(label.id));
+      const playerArrowBefore = structuredClone(player.store.getById(arrow.id));
+      const playerLabelBefore = structuredClone(player.store.getById(label.id));
+      events.length = 0;
+      playerEvents.length = 0;
+      gm.store.update(obstacle.id, { position: { x: 140, y: 80 } });
+      await waitFor(() => gm.store.getById(obstacle.id)?.version === 2);
+      await Promise.all([exportSvg(gm.store), exportSvg(player.store)]);
+      expect(events).toEqual([{ id: obstacle.id, origin: undefined }]);
+      expect(playerEvents).toEqual([]);
+      expect(gm.store.getById(arrow.id)).toEqual(gmArrowBefore);
+      expect(gm.store.getById(label.id)).toEqual(gmLabelBefore);
+      expect(player.store.getById(arrow.id)).toEqual(playerArrowBefore);
+      expect(player.store.getById(label.id)).toEqual(playerLabelBefore);
+    } finally {
+      removeListener();
+      removePlayerListener();
+    }
   });
 });
