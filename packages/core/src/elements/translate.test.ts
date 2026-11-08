@@ -23,6 +23,7 @@ describe('translateElementPatch', () => {
     const arrow = createArrow({
       from: { x: 0, y: 0 },
       to: { x: 10, y: 10 },
+      routing: 'elbow',
       fixedSegments: [
         { axis: 'x', value: 30 },
         { axis: 'y', value: 40 },

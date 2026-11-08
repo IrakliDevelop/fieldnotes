@@ -339,6 +339,7 @@ describe('hierarchy operations', () => {
       ...createArrow({
         from: { x: 10, y: 20 },
         to: { x: 40, y: 50 },
+        routing: 'elbow',
         fixedSegments: [{ axis: 'x', value: 30 }],
       }),
       id: 'arrow',
