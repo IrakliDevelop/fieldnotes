@@ -121,7 +121,7 @@ export function getPolylineEndTangent(points: readonly Point[]): number | null {
   return null;
 }
 
-/** Returns the visible arrow end direction, or null when it has no length. */
+/** Returns the final route direction (null for a degenerate route), preserving legacy Bézier tangents. */
 export function getArrowEndTangent(
   arrow: ArrowElement,
   t: number,
