@@ -18,9 +18,19 @@ export interface ArrowHandleDrag {
   readonly owned: Partial<ArrowElement>;
   lastWritten: Partial<ArrowElement>;
   readonly fixedIndex?: number;
-  readonly axis: 'x' | 'y';
-  readonly insertIndex: number;
+  readonly axis?: 'x' | 'y';
+  readonly insertIndex?: number;
 }
+
+const OWNED_ARROW_FIELDS = {
+  start: ['from', 'position', 'fromBinding'],
+  end: ['to', 'toBinding'],
+  mid: ['bend'],
+  segment: ['fixedSegments'],
+} satisfies Record<'start' | 'end' | 'mid' | 'segment', readonly (keyof ArrowElement)[]>;
+
+type OwnedArrowKey =
+  'from' | 'position' | 'fromBinding' | 'to' | 'toBinding' | 'bend' | 'fixedSegments';
 
 const HANDLE_RADIUS = 5;
 const HANDLE_HIT_PADDING = 4;
@@ -108,7 +118,7 @@ export function applyArrowHandleDrag(
   };
 
   if (handle.startsWith('segment:')) {
-    if (!drag) return;
+    if (!drag || drag.axis === undefined || drag.insertIndex === undefined) return;
     const value = drag.axis === 'x' ? world.x : world.y;
     const fixed = drag.owned.fixedSegments?.map((segment) => ({ ...segment })) ?? [];
     if (drag.fixedIndex === undefined)
@@ -185,7 +195,7 @@ export function captureArrowHandleDrag(
     return null;
   const owned = ownedArrowFields(handle, arrow);
   if (!handle.startsWith('segment:')) {
-    return { handle, owned, lastWritten: {}, axis: 'x', insertIndex: 0 };
+    return { handle, owned, lastWritten: {} };
   }
   const index = Number(handle.slice('segment:'.length));
   if (!Number.isInteger(index) || arrow.routing !== 'elbow') return null;
@@ -215,13 +225,10 @@ export function restoreArrowHandleDrag(
   const current = ctx.store.getById(elementId);
   if (!current || current.type !== 'arrow') return;
   const patch: Partial<ArrowElement> = {};
-  restoreOwnedField('from', current, drag, patch);
-  restoreOwnedField('position', current, drag, patch);
-  restoreOwnedField('fromBinding', current, drag, patch);
-  restoreOwnedField('to', current, drag, patch);
-  restoreOwnedField('toBinding', current, drag, patch);
-  restoreOwnedField('bend', current, drag, patch);
-  restoreOwnedField('fixedSegments', current, drag, patch);
+  for (const key of ownedKeys(drag.handle)) {
+    if (key in drag.lastWritten && jsonEqual(current[key], drag.lastWritten[key]))
+      copyOwnedField(patch, drag.owned, key);
+  }
   if (Object.keys(patch).length > 0) {
     ctx.store.update(elementId, patch);
     ctx.requestRender();
@@ -229,27 +236,30 @@ export function restoreArrowHandleDrag(
 }
 
 function ownedArrowFields(handle: ArrowHandle, arrow: ArrowElement): Partial<ArrowElement> {
-  if (handle === 'start')
-    return { from: arrow.from, position: arrow.position, fromBinding: arrow.fromBinding };
-  if (handle === 'end') return { to: arrow.to, toBinding: arrow.toBinding };
-  if (handle === 'mid') return { bend: arrow.bend };
-  return { fixedSegments: arrow.fixedSegments };
+  const owned: Partial<ArrowElement> = {};
+  for (const key of ownedKeys(handle)) copyOwnedField(owned, arrow, key);
+  return owned;
 }
 
-function restoreOwnedField(
-  key: 'from' | 'position' | 'fromBinding' | 'to' | 'toBinding' | 'bend' | 'fixedSegments',
-  current: ArrowElement,
-  drag: ArrowHandleDrag,
-  patch: Partial<ArrowElement>,
+function ownedKeys(handle: ArrowHandle): readonly OwnedArrowKey[] {
+  if (handle.startsWith('segment:')) return OWNED_ARROW_FIELDS.segment;
+  if (handle === 'start') return OWNED_ARROW_FIELDS.start;
+  if (handle === 'end') return OWNED_ARROW_FIELDS.end;
+  return OWNED_ARROW_FIELDS.mid;
+}
+
+function copyOwnedField(
+  target: Partial<ArrowElement>,
+  source: Partial<ArrowElement> | ArrowElement,
+  key: OwnedArrowKey,
 ): void {
-  if (!(key in drag.lastWritten) || !jsonEqual(current[key], drag.lastWritten[key])) return;
-  if (key === 'from') patch.from = drag.owned.from;
-  else if (key === 'position') patch.position = drag.owned.position;
-  else if (key === 'fromBinding') patch.fromBinding = drag.owned.fromBinding;
-  else if (key === 'to') patch.to = drag.owned.to;
-  else if (key === 'toBinding') patch.toBinding = drag.owned.toBinding;
-  else if (key === 'bend') patch.bend = drag.owned.bend;
-  else patch.fixedSegments = drag.owned.fixedSegments;
+  if (key === 'from') target.from = source.from;
+  else if (key === 'position') target.position = source.position;
+  else if (key === 'fromBinding') target.fromBinding = source.fromBinding;
+  else if (key === 'to') target.to = source.to;
+  else if (key === 'toBinding') target.toBinding = source.toBinding;
+  else if (key === 'bend') target.bend = source.bend;
+  else target.fixedSegments = source.fixedSegments;
 }
 
 export function getArrowHandleDragTarget(

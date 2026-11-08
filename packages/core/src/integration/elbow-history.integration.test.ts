@@ -237,4 +237,67 @@ describe('Integration: elbow arrow history', () => {
     expect(harness.viewport.store.getById(arrow.id)).toMatchObject({ fixedSegments: undefined });
     expect(harness.viewport.history.undoCount).toBe(0);
   });
+
+  it.each([
+    ['mouse', { pointerType: 'mouse' }],
+    ['deferred touch', { pointerType: 'touch' }],
+    ['pen', { pointerType: 'pen' }],
+  ])('keeps a whole remote replacement on %s cancellation', (_name, options) => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      color: '#111111',
+    });
+    harness.viewport.store.add(arrow);
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([arrow.id]);
+    harness.viewport.toolManager.setTool('select', harness.viewport.toolContext);
+    harness.viewport.history.clear();
+
+    pointerDown(harness.wrapper, 50, 50, options);
+    if (options.pointerType === 'touch') pointerMove(harness.wrapper, 54, 50, options);
+    pointerMove(harness.wrapper, 70, 50, options);
+    const remote = { ...arrow, color: '#ff0000' };
+    harness.viewport.store.update(arrow.id, remote, { origin: 'remote' });
+    harness.wrapper.dispatchEvent(
+      new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }),
+    );
+
+    expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
+      color: remote.color,
+      from: remote.from,
+      to: remote.to,
+      routing: remote.routing,
+      fixedSegments: remote.fixedSegments,
+    });
+    expect(harness.viewport.history.canUndo).toBe(false);
+  });
+
+  it('undoes a completed segment drag without undoing an external colour update', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      color: '#111111',
+    });
+    harness.viewport.store.add(arrow);
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([arrow.id]);
+    harness.viewport.toolManager.setTool('select', harness.viewport.toolContext);
+    harness.viewport.history.clear();
+
+    pointerDown(harness.wrapper, 50, 50);
+    pointerMove(harness.wrapper, 70, 50);
+    harness.viewport.store.update(arrow.id, { color: '#ff0000' }, { origin: 'remote' });
+    pointerUp(harness.wrapper, 70, 50);
+    harness.viewport.undo();
+
+    expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
+      color: '#ff0000',
+      fixedSegments: undefined,
+    });
+  });
 });
