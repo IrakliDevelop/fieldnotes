@@ -209,6 +209,58 @@ describe('applyArrowHandleDrag binding', () => {
   });
 
   it.each([
+    [
+      'start',
+      'start',
+      { x: 20, y: 30 },
+      ['from', 'position', 'fromBinding'],
+      { to: { x: 90, y: 90 } },
+    ],
+    ['end', 'end', { x: 80, y: 70 }, ['to', 'toBinding'], { from: { x: 10, y: 10 } }],
+    ['mid', 'mid', { x: 50, y: 80 }, ['bend'], { to: { x: 90, y: 90 } }],
+    ['segment', 'segment:1', { x: 70, y: 50 }, ['fixedSegments'], { to: { x: 90, y: 90 } }],
+  ] as const)(
+    'restores exactly the owned %s fields after cancellation',
+    (_name, handle, point, expectedKeys, external) => {
+      const store = new ElementStore();
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        routing: handle === 'segment:1' ? 'elbow' : undefined,
+        color: '#111111',
+        width: 7,
+        strokeStyle: 'dashed',
+      });
+      store.add(arrow);
+      const ctx = makeCtx(store);
+      const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+      if (!drag) throw new Error('expected handle drag');
+      const update = vi.spyOn(store, 'update');
+
+      applyArrowHandleDrag(handle, arrow.id, point, ctx, drag);
+      store.update(arrow.id, { color: '#ff0000', ...external }, { origin: 'remote' });
+      update.mockClear();
+      restoreArrowHandleDrag(arrow.id, drag, ctx);
+
+      const restore = update.mock.calls[0];
+      expect(restore).toBeDefined();
+      if (!restore) throw new Error('expected restore update');
+      expect(Object.keys(restore[1]).sort()).toEqual([...expectedKeys].sort());
+      expect(Object.keys(restore[1])).not.toEqual(
+        expect.arrayContaining(['index', 'layerId', 'parentId', 'color', 'width', 'strokeStyle']),
+      );
+      if (handle === 'start') {
+        expect(restore[1]).toEqual({
+          from: arrow.from,
+          position: arrow.position,
+          fromBinding: arrow.fromBinding,
+        });
+        expect(storedArrow(store, arrow.id).to).toEqual({ x: 90, y: 90 });
+      }
+    },
+  );
+
+  it.each([
     ['segment', 'segment:1', { x: 70, y: 50 }, { fixedSegments: [{ axis: 'x', value: 88 }] }],
     ['start', 'start', { x: 20, y: 20 }, { to: { x: 90, y: 90 } }],
     ['mid', 'mid', { x: 50, y: 80 }, { bend: 12 }],
@@ -225,12 +277,15 @@ describe('applyArrowHandleDrag binding', () => {
       const ctx = makeCtx(store);
       const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
       if (!drag) throw new Error('expected handle drag');
+      const update = vi.spyOn(store, 'update');
       applyArrowHandleDrag(handle, arrow.id, point, ctx, drag);
       store.update(arrow.id, external, { origin: 'remote' });
+      update.mockClear();
 
       restoreArrowHandleDrag(arrow.id, drag, ctx);
 
       expect(storedArrow(store, arrow.id)).toMatchObject(external);
+      if (handle === 'mid' || handle === 'segment:1') expect(update).not.toHaveBeenCalled();
     },
   );
   it('binds start handle when dragged near an element', () => {

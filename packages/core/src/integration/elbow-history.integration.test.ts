@@ -259,20 +259,99 @@ describe('Integration: elbow arrow history', () => {
     pointerDown(harness.wrapper, 50, 50, options);
     if (options.pointerType === 'touch') pointerMove(harness.wrapper, 54, 50, options);
     pointerMove(harness.wrapper, 70, 50, options);
-    const remote = { ...arrow, color: '#ff0000' };
+    expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [{ axis: 'x', value: 70 }],
+    });
+    const remote = {
+      ...arrow,
+      color: '#ff0000',
+      version: arrow.version + 10,
+      editor: 'remote-peer',
+      fixedSegments: undefined,
+    };
     harness.viewport.store.update(arrow.id, remote, { origin: 'remote' });
     harness.wrapper.dispatchEvent(
       new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }),
     );
 
-    expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
-      color: remote.color,
-      from: remote.from,
-      to: remote.to,
-      routing: remote.routing,
-      fixedSegments: remote.fixedSegments,
-    });
+    expect(harness.viewport.store.getById(arrow.id)).toEqual(remote);
     expect(harness.viewport.history.canUndo).toBe(false);
+  });
+
+  it('keeps an external arrow replacement and bound label change on cancellation', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    const label = createBoundText(arrow, { text: 'local' });
+    harness.viewport.store.add(arrow);
+    harness.viewport.store.add(label);
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([arrow.id]);
+    harness.viewport.toolManager.setTool('select', harness.viewport.toolContext);
+    harness.viewport.history.clear();
+
+    pointerDown(harness.wrapper, 50, 50);
+    pointerMove(harness.wrapper, 70, 50);
+    const remoteArrow = {
+      ...arrow,
+      color: '#ff0000',
+      version: arrow.version + 10,
+      editor: 'remote-peer',
+      fixedSegments: undefined,
+    };
+    const remoteLabel = {
+      ...label,
+      text: 'remote',
+      color: '#008800',
+      position: { x: 16, y: 24 },
+      size: { w: 88, h: 30 },
+      version: label.version + 10,
+      editor: 'remote-peer',
+    };
+    harness.viewport.store.update(arrow.id, remoteArrow, { origin: 'remote' });
+    harness.viewport.store.update(label.id, remoteLabel, { origin: 'remote' });
+    harness.wrapper.dispatchEvent(
+      new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }),
+    );
+
+    expect(harness.viewport.store.getById(arrow.id)).toEqual(remoteArrow);
+    expect(harness.viewport.store.getById(label.id)).toEqual(remoteLabel);
+    expect(harness.viewport.history.canUndo).toBe(false);
+  });
+
+  it('restores segment pins and label geometry while retaining an external colour update', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      color: '#111111',
+    });
+    const label = createBoundText(arrow, { text: 'label' });
+    harness.viewport.store.add(arrow);
+    harness.viewport.store.add(label);
+    const originalLabel = { position: { ...label.position }, size: { ...label.size } };
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([arrow.id]);
+    harness.viewport.toolManager.setTool('select', harness.viewport.toolContext);
+    harness.viewport.history.clear();
+
+    pointerDown(harness.wrapper, 50, 50);
+    pointerMove(harness.wrapper, 70, 50);
+    harness.viewport.store.update(arrow.id, { color: '#ff0000' }, { origin: 'remote' });
+    harness.wrapper.dispatchEvent(
+      new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }),
+    );
+
+    expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
+      color: '#ff0000',
+      fixedSegments: undefined,
+    });
+    expect(harness.viewport.store.getById(label.id)).toMatchObject(originalLabel);
+    expect(harness.viewport.history.undoCount).toBe(0);
   });
 
   it('undoes a completed segment drag without undoing an external colour update', () => {
@@ -293,6 +372,7 @@ describe('Integration: elbow arrow history', () => {
     pointerMove(harness.wrapper, 70, 50);
     harness.viewport.store.update(arrow.id, { color: '#ff0000' }, { origin: 'remote' });
     pointerUp(harness.wrapper, 70, 50);
+    expect(harness.viewport.history.undoCount).toBe(1);
     harness.viewport.undo();
 
     expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
