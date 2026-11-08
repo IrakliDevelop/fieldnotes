@@ -152,8 +152,7 @@ function getBounds(store: ElementStore, id: string): Bounds | null {
 }
 
 function isObstacle(store: ElementStore, element: CanvasElement, arrow: ArrowElement): boolean {
-  if (element.type === 'arrow' || element.type === 'stroke') return false;
-  if (element.type === 'shape' && element.shape === 'line') return false;
+  if (!isOrdinaryObstacle(element)) return false;
   if (element.id === arrow.fromBinding?.elementId || element.id === arrow.toBinding?.elementId)
     return false;
   if (

@@ -264,6 +264,12 @@ describe('elbow route cache', () => {
     (origin) => {
       const store = new ElementStore();
       const arrow = elbow(store);
+      const rawArrow = structuredClone(arrow);
+      const arrowVersion = arrow.version;
+      const arrowUpdates: string[] = [];
+      store.on('update', ({ current }) => {
+        if (current.id === arrow.id) arrowUpdates.push(current.id);
+      });
       const child = createShape({
         position: { x: 40, y: -10 },
         size: { w: 20, h: 20 },
@@ -283,6 +289,9 @@ describe('elbow route cache', () => {
 
       expect(detours(before)).toBe(false);
       expect(detours(getElbowRoute(store, arrow))).toBe(true);
+      expect(store.getById(arrow.id)).toEqual(rawArrow);
+      expect(store.getById(arrow.id)?.version).toBe(arrowVersion);
+      expect(arrowUpdates).toEqual([]);
     },
   );
 
@@ -302,19 +311,61 @@ describe('elbow route cache', () => {
     const secondRoute = getElbowRoute(store, installed);
     takeAffectedElbowLayers(store);
     const excluded = [
-      createArrow({ from: { x: 20, y: 0 }, to: { x: 80, y: 0 }, routing: 'bezier' }),
+      createArrow({
+        from: { x: 20, y: 0 },
+        to: { x: 80, y: 0 },
+        routing: 'bezier',
+        layerId: 'ignored-bezier',
+      }),
+      createArrow({
+        from: { x: 20, y: 0 },
+        to: { x: 80, y: 0 },
+        routing: 'elbow',
+        layerId: 'ignored-elbow',
+      }),
       createStroke({
+        layerId: 'ignored-stroke',
         points: [
           { x: 40, y: -10, pressure: 0.5 },
           { x: 60, y: 10, pressure: 0.5 },
         ],
       }),
-      createShape({ position: { x: 40, y: -10 }, size: { w: 20, h: 20 }, shape: 'line' }),
+      createShape({
+        position: { x: 40, y: -10 },
+        size: { w: 20, h: 20 },
+        shape: 'line',
+        layerId: 'ignored-line',
+      }),
     ];
     for (const element of excluded) {
       store.add(element);
-      store.update(element.id, { position: { x: 45, y: -10 } });
+      expect(getElbowRoute(store, first)).toBe(firstRoute);
+      expect(getElbowRoute(store, installed)).toBe(secondRoute);
+      const addedLayers = takeAffectedElbowLayers(store);
+      expect(addedLayers).not.toContain(first.layerId);
+      expect(addedLayers).not.toContain(installed.layerId);
+      const own = store.getById(element.id);
+      const ownRoute = own?.type === 'arrow' ? getElbowRoute(store, own) : undefined;
+      store.update(
+        element.id,
+        element.type === 'arrow'
+          ? { from: { x: 25, y: 0 }, to: { x: 85, y: 0 }, position: { x: 45, y: -10 } }
+          : { position: { x: 45, y: -10 } },
+      );
+      const changed = store.getById(element.id);
+      if (changed?.type === 'arrow' && changed.routing === 'elbow')
+        expect(getElbowRoute(store, changed)).not.toBe(ownRoute);
+      expect(getElbowRoute(store, first)).toBe(firstRoute);
+      expect(getElbowRoute(store, installed)).toBe(secondRoute);
+      const movedLayers = takeAffectedElbowLayers(store);
+      expect(movedLayers).not.toContain(first.layerId);
+      expect(movedLayers).not.toContain(installed.layerId);
       store.remove(element.id);
+      expect(getElbowRoute(store, first)).toBe(firstRoute);
+      expect(getElbowRoute(store, installed)).toBe(secondRoute);
+      const removedLayers = takeAffectedElbowLayers(store);
+      expect(removedLayers).not.toContain(first.layerId);
+      expect(removedLayers).not.toContain(installed.layerId);
     }
     expect(getElbowRoute(store, first)).toBe(firstRoute);
     expect(getElbowRoute(store, installed)).toBe(secondRoute);
@@ -375,13 +426,34 @@ describe('elbow route cache', () => {
     if (a?.type !== 'arrow' || b?.type !== 'arrow') throw new Error('expected arrows');
     const first = getElbowRoute(store, a);
     const other = getElbowRoute(store, b);
+    const rawArrow = structuredClone(a);
+    const version = a.version;
+    const updates: string[] = [];
+    store.on('update', ({ current }) => {
+      if (current.id === a.id) updates.push(current.id);
+    });
     takeAffectedElbowLayers(store);
 
-    store.update(target.id, { size: { w: 60, h: 20 } });
+    expect(first?.points[0]).toEqual({ x: 10, y: 0 });
+    store.update(target.id, { size: { w: 40, h: 20 } });
+    const current = store.getById(a.id);
+    if (current?.type !== 'arrow') throw new Error('expected arrow');
 
-    expect(getElbowRoute(store, store.getById(a.id) as typeof a)).not.toBe(first);
+    expect(getElbowRoute(store, current)).not.toBe(first);
+    expect(getElbowRoute(store, current)?.points[0]).toEqual({ x: 30, y: 0 });
     expect(getElbowRoute(store, b)).toBe(other);
     expect(takeAffectedElbowLayers(store)).toEqual([a.layerId]);
+    store.remove(target.id);
+    expect(getElbowRoute(store, current)?.points[0]).toEqual({ x: 0, y: 0 });
+    expect(getElbowRoute(store, b)).toBe(other);
+    expect(takeAffectedElbowLayers(store)).toEqual([a.layerId]);
+    store.add({ ...target, size: { w: 40, h: 20 } });
+    expect(getElbowRoute(store, current)?.points[0]).toEqual({ x: 30, y: 0 });
+    expect(getElbowRoute(store, b)).toBe(other);
+    expect(takeAffectedElbowLayers(store)).toEqual([a.layerId]);
+    expect(store.getById(a.id)).toEqual(rawArrow);
+    expect(store.getById(a.id)?.version).toBe(version);
+    expect(updates).toEqual([]);
   });
 
   it('an excluded parent can still admit eligible descendants', () => {
