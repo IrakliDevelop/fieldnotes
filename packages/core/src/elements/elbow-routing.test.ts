@@ -29,6 +29,23 @@ describe('routeElbowArrow', () => {
       { x: 90, y: 0 },
     ]);
   });
+
+  it('removes a port-trimmed segment that collapses at its join', () => {
+    expect(
+      routeElbowArrow(
+        { from: { x: 0, y: 0 }, to: { x: 5, y: 0 } },
+        { x: -10, y: -10, w: 20, h: 20 },
+        null,
+        [],
+      ),
+    ).toEqual({ points: [{ x: 5, y: 0 }], segments: [] });
+  });
+
+  it('keeps a truly coincident route empty', () => {
+    expect(routeElbowArrow({ from: { x: -3, y: 4 }, to: { x: -3, y: 4 } }, null, null, [])).toEqual(
+      { points: [{ x: -3, y: 4 }], segments: [] },
+    );
+  });
 });
 
 describe('buildAuthoredElbowPath', () => {
@@ -45,6 +62,36 @@ describe('buildAuthoredElbowPath', () => {
       { x: 0, y: 0 },
       { x: 100, y: 0 },
     ]);
+  });
+
+  it('uses a vertical-first Z when the vertical distance is greater', () => {
+    expect(buildAuthoredElbowPath({ from: { x: 0, y: 0 }, to: { x: 50, y: 100 } })).toEqual({
+      points: [
+        { x: 0, y: 0 },
+        { x: 0, y: 50 },
+        { x: 50, y: 50 },
+        { x: 50, y: 100 },
+      ],
+      segments: [{}, {}, {}],
+    });
+  });
+
+  it('constructs and tags a single horizontal fixed segment', () => {
+    expect(
+      buildAuthoredElbowPath({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        fixedSegments: [{ axis: 'y', value: 30 }],
+      }),
+    ).toEqual({
+      points: [
+        { x: 0, y: 0 },
+        { x: 0, y: 30 },
+        { x: 100, y: 30 },
+        { x: 100, y: 100 },
+      ],
+      segments: [{}, { fixedIndex: 0 }, {}],
+    });
   });
 
   it('keeps fixed axis tags while constructing perpendicular and parallel constraints', () => {
@@ -119,7 +166,6 @@ describe('routeElbowArrow constraints', () => {
   });
 
   it('falls back to the authored path when the graph exceeds its axis bound', () => {
-    const arrow = { from: { x: 0, y: 0 }, to: { x: 100, y: 100 } };
     const obstacles = Array.from({ length: 70 }, (_, index) => ({
       x: index * 2,
       y: index * 2,
@@ -127,6 +173,54 @@ describe('routeElbowArrow constraints', () => {
       h: 1,
     }));
 
-    expect(routeElbowArrow(arrow, null, null, obstacles)).toEqual(buildAuthoredElbowPath(arrow));
+    expect(
+      routeElbowArrow(
+        {
+          from: { x: 0, y: 0 },
+          to: { x: 100, y: 100 },
+          fixedSegments: [
+            { axis: 'x', value: 20 },
+            { axis: 'y', value: 30 },
+          ],
+        },
+        null,
+        null,
+        obstacles,
+      ),
+    ).toEqual({
+      points: [
+        { x: 0, y: 0 },
+        { x: 20, y: 0 },
+        { x: 20, y: 30 },
+        { x: 100, y: 30 },
+        { x: 100, y: 100 },
+      ],
+      segments: [{}, { fixedIndex: 0 }, { fixedIndex: 1 }, {}],
+    });
+  });
+
+  it('routes a negative-coordinate constrained gap around an obstacle', () => {
+    expect(
+      routeElbowArrow(
+        {
+          from: { x: -100, y: -100 },
+          to: { x: 100, y: 100 },
+          fixedSegments: [{ axis: 'x', value: -50 }],
+        },
+        null,
+        null,
+        [{ x: 0, y: 80, w: 20, h: 40 }],
+      ),
+    ).toEqual({
+      points: [
+        { x: -100, y: -100 },
+        { x: -50, y: -100 },
+        { x: -50, y: 100 },
+        { x: -50, y: 68 },
+        { x: 100, y: 68 },
+        { x: 100, y: 100 },
+      ],
+      segments: [{}, { fixedIndex: 0 }, {}, {}, {}],
+    });
   });
 });

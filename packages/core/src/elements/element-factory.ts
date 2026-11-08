@@ -136,15 +136,14 @@ export function createArrow(input: ArrowInput): ArrowElement {
   if (input.routing !== undefined && input.routing !== 'bezier' && input.routing !== 'elbow') {
     throw new TypeError('Invalid arrow routing');
   }
-  if (
-    input.fixedSegments !== undefined &&
-    (input.fixedSegments.length > MAX_ARROW_FIXED_SEGMENTS ||
-      input.fixedSegments.some(
-        (segment) =>
-          (segment.axis !== 'x' && segment.axis !== 'y') || !Number.isFinite(segment.value),
-      ))
-  ) {
-    throw new TypeError('Invalid arrow fixed segments');
+  const fixedSegments = input.fixedSegments;
+  if (fixedSegments !== undefined) {
+    if (!Array.isArray(fixedSegments) || fixedSegments.length > MAX_ARROW_FIXED_SEGMENTS) {
+      throw new TypeError('Invalid arrow fixed segments');
+    }
+    for (const segment of fixedSegments) {
+      if (!isArrowFixedSegment(segment)) throw new TypeError('Invalid arrow fixed segments');
+    }
   }
   const bend = input.bend ?? 0;
   const result: ArrowElement = {
@@ -169,6 +168,13 @@ export function createArrow(input: ArrowInput): ArrowElement {
   if (input.routing !== undefined) result.routing = input.routing;
   if (input.fixedSegments !== undefined) result.fixedSegments = input.fixedSegments;
   return addParent(result, input.parentId);
+}
+
+function isArrowFixedSegment(value: unknown): value is ArrowFixedSegment {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const axis = Reflect.get(value, 'axis');
+  const coordinate = Reflect.get(value, 'value');
+  return (axis === 'x' || axis === 'y') && Number.isFinite(coordinate);
 }
 
 export function createImage(input: ImageInput): ImageElement {

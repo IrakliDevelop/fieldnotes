@@ -182,7 +182,20 @@ function trimRoute(
   if (toBounds && points[last] && points[last - 1]) {
     points[last] = trimEndpoint(points[last], points[last - 1], toBounds);
   }
-  return { points, segments: route.segments };
+  return dedupeRoute({ points, segments: route.segments });
+}
+
+function dedupeRoute(route: ElbowRoute): ElbowRoute {
+  const points = [route.points[0] ?? { x: 0, y: 0 }];
+  const segments: { fixedIndex?: number }[] = [];
+  for (let index = 1; index < route.points.length; index += 1) {
+    const point = route.points[index];
+    const previous = points[points.length - 1];
+    if (!point || !previous || (point.x === previous.x && point.y === previous.y)) continue;
+    points.push(point);
+    segments.push(route.segments[index - 1] ?? {});
+  }
+  return { points, segments };
 }
 
 function trimEndpoint(endpoint: Point, join: Point, bounds: Bounds): Point {

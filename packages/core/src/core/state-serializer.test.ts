@@ -161,6 +161,75 @@ describe('exportState', () => {
     expect(() => parseState(JSON.stringify(malformed))).toThrow('malformed arrow data');
   });
 
+  it('accepts exactly 16 parallel constraints and rejects malformed raw arrow fields', () => {
+    const fixedSegments = [
+      { axis: 'x' as const, value: -80 },
+      { axis: 'x' as const, value: -70 },
+      { axis: 'x' as const, value: -60 },
+      { axis: 'x' as const, value: -50 },
+      { axis: 'x' as const, value: -40 },
+      { axis: 'x' as const, value: -30 },
+      { axis: 'x' as const, value: -20 },
+      { axis: 'x' as const, value: -10 },
+      { axis: 'x' as const, value: 0 },
+      { axis: 'x' as const, value: 10 },
+      { axis: 'x' as const, value: 20 },
+      { axis: 'x' as const, value: 30 },
+      { axis: 'x' as const, value: 40 },
+      { axis: 'x' as const, value: 50 },
+      { axis: 'x' as const, value: 60 },
+      { axis: 'x' as const, value: 70 },
+    ];
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      index: 'a0',
+      layerId: 'default-layer',
+      routing: 'bezier',
+      fixedSegments,
+    });
+    const state = exportState([arrow], makeCamera(), [
+      { id: 'default-layer', name: 'Layer', visible: true, locked: false, order: 0, opacity: 1 },
+    ]);
+    const parsed = parseState(JSON.stringify(state));
+    const parsedArrow = parsed.elements[0];
+    expect(parsedArrow?.type === 'arrow' && parsedArrow.fixedSegments).toEqual(fixedSegments);
+
+    const malformed = JSON.parse(JSON.stringify(state)) as {
+      elements: Record<string, unknown>[];
+    };
+    const rawArrow = malformed.elements[0];
+    if (!rawArrow) throw new Error('missing arrow');
+    rawArrow.fixedSegments = [...fixedSegments, { axis: 'x', value: 80 }];
+    expect(() => parseState(JSON.stringify(malformed))).toThrow('malformed arrow data');
+
+    rawArrow.fixedSegments = [{ axis: 'z', value: 0 }];
+    expect(() => parseState(JSON.stringify(malformed))).toThrow('malformed arrow data');
+
+    rawArrow.fixedSegments = [{ axis: 'x', value: 1 }];
+    rawArrow.routing = 'spline';
+    expect(() => parseState(JSON.stringify(malformed))).toThrow('malformed arrow data');
+
+    rawArrow.routing = 'elbow';
+    expect(() =>
+      parseState(JSON.stringify(malformed).replace('"value":1', '"value":1e999')),
+    ).toThrow('malformed arrow data');
+  });
+
+  it('keeps routing absent on legacy arrows', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      index: 'a0',
+      layerId: 'default-layer',
+    });
+    const state = exportState([arrow], makeCamera(), [
+      { id: 'default-layer', name: 'Layer', visible: true, locked: false, order: 0, opacity: 1 },
+    ]);
+    const parsed = parseState(JSON.stringify(state)).elements[0];
+    expect(parsed?.type === 'arrow' && 'routing' in parsed).toBe(false);
+  });
+
   it('exportState omits transient html elements', () => {
     const normal = createHtmlElement({
       position: { x: 0, y: 0 },
