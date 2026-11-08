@@ -364,6 +364,97 @@ describe('Integration: elbow arrow history', () => {
     expect(harness.viewport.history.canUndo).toBe(false);
   });
 
+  it.each([
+    ['mouse', { pointerType: 'mouse' }],
+    ['deferred touch', { pointerType: 'touch' }],
+    ['pen', { pointerType: 'pen' }],
+  ])('keeps a derived label out of history after Escape then %s release', (_name, options) => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    const label = createBoundText(arrow, { text: 'label' });
+    harness.viewport.store.add(arrow);
+    harness.viewport.store.add(label);
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([arrow.id]);
+    harness.viewport.toolManager.setTool('select', harness.viewport.toolContext);
+    harness.viewport.history.clear();
+
+    pointerDown(harness.wrapper, 50, 50, options);
+    if (options.pointerType === 'touch') pointerMove(harness.wrapper, 54, 50, options);
+    pointerMove(harness.wrapper, 70, 50, options);
+    const localLabelPosition = harness.viewport.store.getById(label.id)?.position;
+    const remote = { ...arrow, version: 100, editor: 'peer', fixedSegments: undefined };
+    harness.viewport.store.update(arrow.id, remote, { origin: 'remote' });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    pointerUp(harness.wrapper, 70, 50, options);
+
+    expect(harness.viewport.store.getById(arrow.id)).toEqual(remote);
+    expect(harness.viewport.store.getById(label.id)?.position).toEqual(localLabelPosition);
+    expect(harness.viewport.history.undoCount).toBe(0);
+    expect(harness.viewport.undo()).toBe(false);
+  });
+
+  it('keeps a derived label out of history after a completed remote replacement', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    const label = createBoundText(arrow, { text: 'label' });
+    harness.viewport.store.add(arrow);
+    harness.viewport.store.add(label);
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([arrow.id]);
+    harness.viewport.toolManager.setTool('select', harness.viewport.toolContext);
+    harness.viewport.history.clear();
+
+    pointerDown(harness.wrapper, 50, 50);
+    pointerMove(harness.wrapper, 70, 50);
+    const localLabelPosition = harness.viewport.store.getById(label.id)?.position;
+    const remote = { ...arrow, version: 100, editor: 'peer', fixedSegments: undefined };
+    harness.viewport.store.update(arrow.id, remote, { origin: 'remote' });
+    pointerUp(harness.wrapper, 70, 50);
+
+    expect(harness.viewport.history.undoCount).toBe(0);
+    expect(harness.viewport.undo()).toBe(false);
+    expect(harness.viewport.store.getById(label.id)?.position).toEqual(localLabelPosition);
+  });
+
+  it('restores segment pins while retaining a host to update on cancellation', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    const label = createBoundText(arrow, { text: 'label' });
+    harness.viewport.store.add(arrow);
+    harness.viewport.store.add(label);
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([arrow.id]);
+    harness.viewport.toolManager.setTool('select', harness.viewport.toolContext);
+    harness.viewport.history.clear();
+
+    pointerDown(harness.wrapper, 50, 50);
+    pointerMove(harness.wrapper, 70, 50);
+    const localLabelPosition = harness.viewport.store.getById(label.id)?.position;
+    harness.viewport.store.update(arrow.id, { to: { x: 200, y: 100 } }, { origin: 'host' });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    pointerUp(harness.wrapper, 70, 50);
+
+    expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
+      fixedSegments: undefined,
+      to: { x: 200, y: 100 },
+    });
+    expect(harness.viewport.store.getById(label.id)?.position).not.toEqual(localLabelPosition);
+    expect(harness.viewport.history.undoCount).toBe(0);
+  });
+
   it('keeps an external arrow replacement and bound label change on cancellation', () => {
     const arrow = createArrow({
       from: { x: 0, y: 0 },

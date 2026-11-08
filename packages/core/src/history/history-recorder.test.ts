@@ -127,6 +127,167 @@ describe('HistoryRecorder', () => {
     expect(stack.undoCount).toBe(0);
   });
 
+  it('does not record derived label geometry after an external arrow rebase', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const label = createBoundText(arrow, { text: 'label' });
+    store.add(arrow);
+    store.add(label);
+    stack.clear();
+
+    recorder.begin();
+    store.update(arrow.id, { to: { x: 160, y: 0 } });
+    store.update(arrow.id, { ...arrow, version: 100, editor: 'peer' }, { origin: 'remote' });
+    recorder.commit();
+
+    expect(stack.undoCount).toBe(0);
+  });
+
+  it('keeps a local label text edit while excluding its geometry after an external arrow rebase', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const label = createBoundText(arrow, { text: 'before' });
+    store.add(arrow);
+    store.add(label);
+    stack.clear();
+
+    recorder.begin();
+    store.update(arrow.id, { to: { x: 160, y: 0 } });
+    store.update(label.id, { text: 'after' });
+    store.update(arrow.id, { ...arrow, version: 100, editor: 'peer' }, { origin: 'remote' });
+    recorder.commit();
+
+    const geometry = store.getById(label.id)?.position;
+    expect(stack.undoCount).toBe(1);
+    recorder.pause();
+    stack.undo(store);
+    recorder.resume();
+    expect(store.getById(label.id)).toMatchObject({ text: 'before', position: geometry });
+  });
+
+  it('keeps label geometry in history for an external non-geometry arrow change', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const label = createBoundText(arrow, { text: 'label' });
+    store.add(arrow);
+    store.add(label);
+    stack.clear();
+
+    recorder.begin();
+    store.update(arrow.id, { to: { x: 160, y: 0 } });
+    const changed = store.getById(label.id)?.position;
+    store.update(arrow.id, { color: '#ff0000' }, { origin: 'remote' });
+    recorder.commit();
+
+    recorder.pause();
+    stack.undo(store);
+    recorder.resume();
+    expect(store.getById(label.id)?.position).not.toEqual(changed);
+    expect(store.getById(arrow.id)?.color).toBe('#ff0000');
+  });
+
+  it('excludes a derived label when an external update removes its snapshotted container', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const label = createBoundText(arrow, { text: 'label' });
+    store.add(arrow);
+    store.add(label);
+    stack.clear();
+
+    recorder.begin();
+    store.update(arrow.id, { to: { x: 160, y: 0 } });
+    store.remove(arrow.id, { origin: 'remote' });
+    recorder.commit();
+
+    expect(stack.undoCount).toBe(0);
+  });
+
+  it('does not leak an external label rebase into the next transaction', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const label = createBoundText(arrow, { text: 'label' });
+    store.add(arrow);
+    store.add(label);
+    stack.clear();
+
+    recorder.begin();
+    store.update(arrow.id, { to: { x: 160, y: 0 } });
+    store.update(arrow.id, { ...arrow, version: 100, editor: 'peer' }, { origin: 'remote' });
+    recorder.commit();
+    recorder.begin();
+    store.update(label.id, { position: { x: 7, y: 9 } });
+    recorder.commit();
+
+    expect(stack.undoCount).toBe(1);
+  });
+
+  it('keeps an external arrow key while undoing the remaining local arrow key', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const label = createBoundText(arrow, { text: 'label' });
+    store.add(arrow);
+    store.add(label);
+    stack.clear();
+
+    recorder.begin();
+    store.update(arrow.id, { from: { x: 20, y: 0 } });
+    store.update(arrow.id, { to: { x: 140, y: 0 } }, { origin: 'remote' });
+    recorder.commit();
+
+    const labelPosition = store.getById(label.id)?.position;
+    expect(stack.snapshot().undo[0]).toBeInstanceOf(UpdateElementCommand);
+    recorder.pause();
+    stack.undo(store);
+    recorder.resume();
+    expect(store.getById(arrow.id)).toMatchObject({ from: { x: 0, y: 0 }, to: { x: 140, y: 0 } });
+    expect(store.getById(label.id)?.position).toEqual(labelPosition);
+  });
+
+  it('drops a shape label delta when an external size rebase outlives a cancelled position drag', () => {
+    const { store, stack, recorder } = setup();
+    const shape = createShape({ id: 'shape', position: { x: 0, y: 0 }, size: { w: 100, h: 60 } });
+    const label = createBoundText(shape, { text: 'label' });
+    store.add(shape);
+    store.add(label);
+    stack.clear();
+
+    recorder.begin();
+    store.update(shape.id, { position: { x: 20, y: 0 } });
+    store.update(shape.id, { size: { w: 120, h: 60 } }, { origin: 'remote' });
+    store.update(shape.id, { position: { x: 0, y: 0 } });
+    recorder.commit();
+
+    expect(store.getById(shape.id)?.size).toEqual({ w: 120, h: 60 });
+    expect(stack.undoCount).toBe(0);
+  });
+
+  it('keeps the rebase mark through an intermediate snapshot flush and paused external update', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const label = createBoundText(arrow, { text: 'label' });
+    const other = createNote({ id: 'other', position: { x: 0, y: 0 } });
+    store.add(arrow);
+    store.add(label);
+    store.add(other);
+    stack.clear();
+
+    recorder.begin();
+    store.update(arrow.id, { to: { x: 160, y: 0 } });
+    recorder.pause();
+    store.update(arrow.id, { to: { x: 140, y: 0 } }, { origin: 'remote' });
+    recorder.resume();
+    store.remove(other.id);
+    store.update(arrow.id, { to: { x: 140, y: 0 } });
+    recorder.commit();
+
+    const labelPosition = store.getById(label.id)?.position;
+    expect(stack.undoCount).toBe(1);
+    recorder.pause();
+    stack.undo(store);
+    recorder.resume();
+    expect(store.getById(label.id)?.position).toEqual(labelPosition);
+  });
+
   it('records a meaningful optional-field value', () => {
     const { store, stack, recorder } = setup();
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });

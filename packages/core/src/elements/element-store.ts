@@ -24,6 +24,13 @@ import {
   validateHierarchy,
 } from './element-hierarchy';
 
+export const BOUND_TEXT_GEOMETRY_KEYS: Record<'shape' | 'arrow' | 'extension', readonly string[]> =
+  {
+    shape: ['position', 'size', 'rotation', 'shape'],
+    arrow: ['from', 'to', 'bend', 'fromBinding', 'toBinding', 'routing', 'fixedSegments'],
+    extension: ['position', 'size', 'data'],
+  };
+
 function sanitizeRichText(element: CanvasElement): CanvasElement {
   if (element.type !== 'note' && element.type !== 'text') return element;
   const text = sanitizeNoteHtml(element.text);
@@ -532,13 +539,8 @@ export class ElementStore {
     for (const item of prepared) {
       const { partial, updated } = item;
       if (
-        (updated.type === 'shape' &&
-          ['position', 'size', 'rotation', 'shape'].some((key) => key in partial)) ||
-        (updated.type === 'arrow' &&
-          ['from', 'to', 'bend', 'routing', 'fixedSegments', 'fromBinding', 'toBinding'].some(
-            (key) => key in partial,
-          )) ||
-        (updated.type === 'extension' && ['position', 'size', 'data'].some((key) => key in partial))
+        (updated.type === 'shape' || updated.type === 'arrow' || updated.type === 'extension') &&
+        BOUND_TEXT_GEOMETRY_KEYS[updated.type].some((key) => key in partial)
       )
         geometry.add(updated.id);
       if (

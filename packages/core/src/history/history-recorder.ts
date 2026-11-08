@@ -1,7 +1,8 @@
-import type { ElementStore } from '../elements/element-store';
+import { BOUND_TEXT_GEOMETRY_KEYS, type ElementStore } from '../elements/element-store';
 import type { EventMeta } from '../core/event-bus';
 import { isExternalChange } from '../core/event-bus';
 import type { CanvasElement } from '../elements/types';
+import { getBoundTextContainerId } from '../elements/bound-text';
 import type { Command } from './types';
 import type { HistoryStack } from './history-stack';
 import type { LayerManager } from '../layers/layer-manager';
@@ -27,6 +28,8 @@ export class HistoryRecorder {
   private transactionIds = new Set<string>();
   private addedIds = new Set<string>();
   private removedIds = new Set<string>();
+  /** Local label geometry edits beside an external container rebase are intentionally not recorded. */
+  private externallyRelaidIds = new Set<string>();
   private transactionTouchedLayer = false;
   private unsubscribers: (() => void)[];
   private transactionEndListeners = new Set<() => void>();
@@ -70,6 +73,7 @@ export class HistoryRecorder {
     this.transactionIds.clear();
     this.addedIds.clear();
     this.removedIds.clear();
+    this.externallyRelaidIds.clear();
     this.transactionTouchedLayer = false;
     this.generation += 1;
   }
@@ -114,6 +118,7 @@ export class HistoryRecorder {
     this.transactionIds.clear();
     this.addedIds.clear();
     this.removedIds.clear();
+    this.externallyRelaidIds.clear();
     this.transactionTouchedLayer = false;
 
     if (all.length > 0) {
@@ -130,6 +135,7 @@ export class HistoryRecorder {
     this.transactionIds.clear();
     this.addedIds.clear();
     this.removedIds.clear();
+    this.externallyRelaidIds.clear();
     this.transactionTouchedLayer = false;
     if (wasOpen) this.notifyTransactionEnd();
   }
@@ -172,7 +178,8 @@ export class HistoryRecorder {
 
   private onRemove(element: CanvasElement, meta: EventMeta): void {
     if (isExternalChange(meta)) {
-      if (this.transaction) this.updateSnapshots.delete(element.id);
+      if (this.transaction && this.updateSnapshots.delete(element.id))
+        this.externallyRelaidIds.add(element.id);
       return;
     }
     if (!this.recording) return;
@@ -192,10 +199,18 @@ export class HistoryRecorder {
 
   private onUpdate(previous: CanvasElement, current: CanvasElement, meta: EventMeta): void {
     if (isExternalChange(meta)) {
+      const previousValues = new Map(Object.entries(previous));
+      const currentValues = new Map(Object.entries(current));
+      if (
+        this.transaction &&
+        (current.type === 'shape' || current.type === 'arrow' || current.type === 'extension') &&
+        BOUND_TEXT_GEOMETRY_KEYS[current.type].some(
+          (key) => !jsonEqual(previousValues.get(key), currentValues.get(key)),
+        )
+      )
+        this.externallyRelaidIds.add(current.id);
       const snapshot = this.transaction ? this.updateSnapshots.get(current.id) : undefined;
       if (snapshot) {
-        const previousValues = new Map(Object.entries(previous));
-        const currentValues = new Map(Object.entries(current));
         for (const key of new Set([...previousValues.keys(), ...currentValues.keys()])) {
           const previousValue = previousValues.get(key);
           const currentValue = currentValues.get(key);
@@ -244,8 +259,21 @@ export class HistoryRecorder {
 
   private flushUpdateSnapshots(): Command[] {
     const updates: { previous: CanvasElement; current: CanvasElement }[] = [];
-    for (const [id, previous] of this.updateSnapshots) {
+    for (const [id, original] of this.updateSnapshots) {
       const current = this.store.getById(id);
+      let previous = original;
+      const containerId = getBoundTextContainerId(previous);
+      if (
+        current?.type === 'text' &&
+        containerId !== undefined &&
+        this.externallyRelaidIds.has(containerId)
+      ) {
+        const rebased = { ...previous, position: current.position, size: current.size };
+        if (current.rotation === undefined) delete rebased.rotation;
+        else rebased.rotation = current.rotation;
+        this.updateSnapshots.set(id, rebased);
+        previous = rebased;
+      }
       if (current && !jsonEqual(previous, current, VOLATILE_KEYS)) {
         updates.push({ previous, current });
       }

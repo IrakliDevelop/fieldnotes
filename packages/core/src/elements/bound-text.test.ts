@@ -5,6 +5,7 @@ import {
   createBoundText,
   findBoundText,
   getBoundText,
+  getBoundTextContainerId,
   getBoundTextBox,
   getBoundTextMinHeight,
   isBoundTextContainer,
@@ -105,6 +106,15 @@ describe('bound text', () => {
 
     expect(getBoundText(rectangle, store)).toBeUndefined();
     expect(store.getAll().some((element) => element.id === text.id)).toBe(true);
+  });
+
+  it('returns a container id only for matching bound text', () => {
+    const text = createText({ position: { x: 0, y: 0 }, parentId: 'shape' });
+
+    expect(getBoundTextContainerId({ ...text, containerId: 'shape' })).toBe('shape');
+    expect(getBoundTextContainerId(text)).toBeUndefined();
+    expect(getBoundTextContainerId({ ...text, containerId: 'other' })).toBeUndefined();
+    expect(getBoundTextContainerId(createNote({ position: { x: 0, y: 0 } }))).toBeUndefined();
   });
 
   it('uses padded rectangle and inscribed ellipse content boxes', () => {
