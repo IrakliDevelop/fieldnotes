@@ -619,6 +619,10 @@ const arrowPanel = document.getElementById('arrow-panel');
 const arrowStrokeStyleSelect = document.getElementById(
   'arrow-stroke-style',
 ) as HTMLSelectElement | null;
+const arrowRoutingSelect = document.getElementById('arrow-routing') as HTMLSelectElement | null;
+const arrowResetSegmentsButton = document.getElementById(
+  'arrow-reset-segments',
+) as HTMLButtonElement | null;
 
 function getSelectedArrowElement() {
   const ids = viewport.getSelectedIds();
@@ -638,6 +642,14 @@ function updateArrowPanel() {
     arrowStrokeStyleSelect.value =
       selectedArrow?.strokeStyle ?? arrow.getOptions().strokeStyle ?? 'solid';
   }
+  if (arrowRoutingSelect) {
+    arrowRoutingSelect.value = selectedArrow?.routing ?? arrow.getOptions().routing ?? 'bezier';
+  }
+  if (arrowResetSegmentsButton) {
+    arrowResetSegmentsButton.disabled = !(
+      selectedArrow?.routing === 'elbow' && selectedArrow.fixedSegments?.length
+    );
+  }
 }
 
 viewport.toolManager.onChange(updateArrowPanel);
@@ -649,6 +661,20 @@ arrowStrokeStyleSelect?.addEventListener('change', () => {
   if (viewport.getSelectionStyle() !== null) {
     viewport.applyStyleToSelection({ strokeStyle });
   }
+});
+
+arrowRoutingSelect?.addEventListener('change', () => {
+  const routing = arrowRoutingSelect.value === 'elbow' ? 'elbow' : 'bezier';
+  arrow.setOptions({ routing });
+  const selectedArrow = getSelectedArrowElement();
+  if (selectedArrow) {
+    viewport.transaction(() => viewport.store.update(selectedArrow.id, { routing }));
+  }
+});
+
+arrowResetSegmentsButton?.addEventListener('click', () => {
+  const selectedArrow = getSelectedArrowElement();
+  if (selectedArrow) viewport.resetArrowRoute(selectedArrow.id);
 });
 
 function syncStyleControls() {
