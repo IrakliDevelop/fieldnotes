@@ -24,9 +24,10 @@ const BUILT = [
   'Shortcuts help on the ? key, generated from the current bindings',
   'React props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence',
   'Text inside shapes and arrow labels as text elements, with wrapping and auto-resize',
+  'Elbow arrows that route around shapes',
 ];
 
-const NEXT = ["I'm adding elbow arrows that route around shapes."];
+const NEXT = ["I'm adding clipboard support and more ways to drop files onto the board."];
 
 const BUILT_FRAMES = 'Frames that group and clip elements';
 

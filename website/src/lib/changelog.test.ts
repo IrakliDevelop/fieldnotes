@@ -179,7 +179,10 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('keeps the editor-focus and bound text releases first, in package order, and unique', () => {
+  it('keeps the elbow releases first, in package order, and unique', () => {
+    const elbowCore = release('@fieldnotes/core', '0.107.0');
+    const elbowSync = release('@fieldnotes/sync', '0.30.3');
+    const elbowServer = release('@fieldnotes/sync-server', '0.30.3');
     const editorFocus = release('@fieldnotes/core', '0.106.1');
     const boundTextCore = release('@fieldnotes/core', '0.106.0');
     const boundTextSync = release('@fieldnotes/sync', '0.30.2');
@@ -191,8 +194,13 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     const frames = release('@fieldnotes/core', '0.102.0');
     const prior = release('@fieldnotes/core', '0.101.0');
 
-    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
-    expect(current.slice(1, 4)).toMatchObject([
+    expect(current.slice(0, 3)).toMatchObject([
+      { npmName: '@fieldnotes/core', version: '0.107.0' },
+      { npmName: '@fieldnotes/sync', version: '0.30.3' },
+      { npmName: '@fieldnotes/sync-server', version: '0.30.3' },
+    ]);
+    expect(current[3]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
+    expect(current.slice(4, 7)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.106.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.2' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.2' },
@@ -200,6 +208,19 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(
       current.filter(
         (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.106.0',
+      ),
+    ).toHaveLength(1);
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.107.0',
+      ),
+    ).toHaveLength(1);
+    expect(
+      current.filter((entry) => entry.npmName === '@fieldnotes/sync' && entry.version === '0.30.3'),
+    ).toHaveLength(1);
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/sync-server' && entry.version === '0.30.3',
       ),
     ).toHaveLength(1);
     expect(
@@ -220,6 +241,9 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(frames).toBeDefined();
     expect(prior).toBeDefined();
     if (
+      !elbowCore ||
+      !elbowSync ||
+      !elbowServer ||
       !editorFocus ||
       !boundTextCore ||
       !boundTextSync ||
@@ -232,6 +256,9 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
       !prior
     )
       return;
+    expect(elbowCore.date).toBeUndefined();
+    expect(elbowSync.date).toBeUndefined();
+    expect(elbowServer.date).toBeUndefined();
     expect(editorFocus.date).toBeUndefined();
     expect(boundTextCore.date).toBeUndefined();
     expect(boundTextSync.date).toBeUndefined();

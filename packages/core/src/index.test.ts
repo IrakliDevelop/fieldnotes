@@ -65,7 +65,7 @@ describe('core public surface', () => {
       expect(name in FN).toBe(false);
   });
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.106.1');
+    expect(FN.VERSION).toBe('0.107.0');
   });
 
   it('exports the elbow arrow document model without routing helpers', () => {
@@ -415,9 +415,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.106.1', async () => {
+  it('reports VERSION 0.107.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.106.1');
+    expect(VERSION).toBe('0.107.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

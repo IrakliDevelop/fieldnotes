@@ -7,7 +7,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Infinite canvas** — pan, zoom, pinch-to-zoom
 - **Freehand drawing** — pencil tool with stroke smoothing and pressure-sensitive width
 - **Sticky notes** — editable text notes with customizable colors
-- **Arrows** — curved bezier arrows with element binding
+- **Arrows** — curved bezier and elbow arrows with element binding
 - **Shapes** — rectangles, ellipses with fill and stroke
 - **Frames**: explicit, non-nested groups that clip their children
 - **Text** — standalone text elements with font size and alignment
@@ -628,6 +628,41 @@ An extension element definition can implement `boundTextLayout(el)`, returning t
 Loading a board turns each `label` into a text element on its arrow, and the next save stores that
 element instead.
 
+### Elbow arrows
+
+Create an elbow arrow with `routing: 'elbow'`. `fixedSegments` pins a vertical segment at an `x`
+value or a horizontal segment at a `y` value. An arrow accepts up to
+`MAX_ARROW_FIXED_SEGMENTS` pins. `resetArrowRoute` removes the pins in one undo step.
+
+```typescript
+const arrow = createArrow({
+  from: { x: 0, y: 0 },
+  to: { x: 240, y: 160 },
+  routing: 'elbow',
+  fixedSegments: [{ axis: 'x', value: 120 }],
+});
+viewport.store.add(arrow);
+viewport.resetArrowRoute(arrow.id);
+```
+
+An elbow route uses visible nearby shapes and bounded search. If its search cannot find a route,
+the arrow draws its authored orthogonal path, which can cross a shape. Readers with different
+visible elements can see different detours. Bound labels use the authored path, so a label can sit
+away from a local detour.
+
+Old clients draw the bezier approximation and preserve elbow fields while editing existing arrows.
+An old client that reconstructs an arrow with `createArrow` can drop `routing` and
+`fixedSegments`.
+
+Undo restores local gesture fields without reverting external edits received during that gesture.
+Cancelling an arrow endpoint, curved midpoint, or elbow segment handle restores its own fields and
+keeps external edits.
+
+When an external container geometry update arrives during a gesture, a bound label can retain its
+last local layout until an authoritative label or layout update arrives. Direct-store hosts provide
+that update. Label geometry edits made locally in that transaction are not recorded as a separate
+undo step; text and style edits remain undoable.
+
 ```typescript
 const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
 viewport.store.add(arrow);
@@ -657,7 +692,7 @@ interface BaseElement {
 | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `stroke` | `points: StrokePoint[]`, `color`, `width`, `opacity`                                                                                         |
 | `note`   | `size`, `text`, `backgroundColor`, `textColor`                                                                                               |
-| `arrow`  | `from`, `to`, `bend`, `color`, `width`, `fromBinding`, `toBinding`                                                                           |
+| `arrow`  | `from`, `to`, `bend`, `routing`, `fixedSegments`, `color`, `width`, `fromBinding`, `toBinding`                                               |
 | `image`  | `size`, `src`                                                                                                                                |
 | `shape`  | `size`, `shape` (`rectangle` \| `ellipse` \| `line`), `strokeColor`, `fillColor`, `flip` (`boolean` — which bbox diagonal a line runs along) |
 | `text`   | `size`, `text`, `fontSize`, `color`, `textAlign`                                                                                             |

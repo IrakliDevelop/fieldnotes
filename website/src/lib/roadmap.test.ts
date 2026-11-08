@@ -54,7 +54,7 @@ describe('parseRoadmap', () => {
     );
   });
 
-  it('keeps bound text last in Built and the two remaining sections as single items', () => {
+  it('keeps elbow arrows last in Built and the two remaining sections as single items', () => {
     const roadmap = parseRoadmap(
       readFileSync(new URL('../../content/roadmap.md', import.meta.url), 'utf8'),
     );
@@ -77,9 +77,7 @@ describe('parseRoadmap', () => {
     expect(shortcuts).toBeGreaterThanOrEqual(0);
     expect(camera).toBeLessThan(frames);
     expect(frames).toBeLessThan(shortcuts);
-    expect(roadmap.built.at(-1)).toBe(
-      'Text inside shapes and arrow labels as text elements, with wrapping and auto-resize',
-    );
+    expect(roadmap.built.at(-1)).toBe('Elbow arrows that route around shapes');
     expect(roadmap.built).toContain('React bindings: a canvas component and hooks');
     expect(roadmap.built.indexOf('React bindings: a canvas component and hooks')).toBeLessThan(
       roadmap.built.indexOf(
@@ -87,7 +85,9 @@ describe('parseRoadmap', () => {
       ),
     );
     expect(roadmap.built).toHaveLength(new Set(roadmap.built).size);
-    expect(roadmap.next).toEqual(["I'm adding elbow arrows that route around shapes."]);
+    expect(roadmap.next).toEqual([
+      "I'm adding clipboard support and more ways to drop files onto the board.",
+    ]);
     expect(roadmap.notBuilt).toEqual([
       'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
     ]);
