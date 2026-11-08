@@ -1,7 +1,6 @@
 import type { CanvasElement, HtmlElement } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
-import { getArrowBounds } from '../elements/arrow-geometry';
 import { getElementBounds } from '../elements/element-bounds';
 import { withRotation } from '../elements/rotate-canvas';
 import { rotatedAABB } from '../core/geometry';
@@ -161,7 +160,8 @@ function getElementRect(
       return r ? rotatedAABB(r, el.rotation ?? 0) : r;
     }
     case 'arrow': {
-      const b = getArrowBounds(el.from, el.to, el.bend);
+      const b = getElementBounds(el, registry);
+      if (!b) return null;
       const pad = el.width / 2 + 14;
       return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
     }

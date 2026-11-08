@@ -1,6 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import { distSqToSegment } from '../core/geometry';
 import type { ArrowElement } from './types';
+import { routeElbowArrow } from './elbow-routing';
 
 export interface ArrowCurve {
   from: Point;
@@ -72,6 +73,34 @@ export function getArrowLabelAnchor(
   arrow: ArrowElement,
   resolveBounds: (id: string) => Bounds | null,
 ): Point {
+  if (arrow.routing === 'elbow') {
+    const route = routeElbowArrow(
+      arrow,
+      arrow.fromBinding ? resolveBounds(arrow.fromBinding.elementId) : null,
+      arrow.toBinding ? resolveBounds(arrow.toBinding.elementId) : null,
+      [],
+    );
+    let length = 0;
+    for (let index = 1; index < route.points.length; index += 1) {
+      const from = route.points[index - 1];
+      const to = route.points[index];
+      if (from && to) length += Math.hypot(to.x - from.x, to.y - from.y);
+    }
+    let remaining = length / 2;
+    for (let index = 1; index < route.points.length; index += 1) {
+      const from = route.points[index - 1];
+      const to = route.points[index];
+      if (!from || !to) continue;
+      const segment = Math.hypot(to.x - from.x, to.y - from.y);
+      if (remaining <= segment && segment > 0)
+        return {
+          x: from.x + ((to.x - from.x) * remaining) / segment,
+          y: from.y + ((to.y - from.y) * remaining) / segment,
+        };
+      remaining -= segment;
+    }
+    return route.points[0] ?? arrow.from;
+  }
   const curve = getArrowCurve(arrow, resolveBounds);
   return bezierPoint(
     arrow.from,
@@ -79,6 +108,15 @@ export function getArrowLabelAnchor(
     arrow.to,
     (curve.t0 + curve.t1) / 2,
   );
+}
+
+export function isNearPolyline(point: Point, points: readonly Point[], threshold: number): boolean {
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1];
+    const to = points[index];
+    if (from && to && isNearLine(point, from, to, threshold)) return true;
+  }
+  return false;
 }
 
 export function getBendFromPoint(from: Point, to: Point, dragPoint: Point): number {

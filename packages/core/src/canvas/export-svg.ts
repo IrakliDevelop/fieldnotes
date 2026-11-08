@@ -43,6 +43,7 @@ import type { ElementRegistry } from '../elements/element-registry';
 import type { RenderHooks } from './render-hooks';
 import { resolveFrameExport } from './frame-export';
 import { getBoundText } from '../elements/bound-text';
+import { getElbowRoute } from '../elements/elbow-cache';
 
 export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
   frameId?: string;
@@ -154,10 +155,15 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
     return element ? getElementBounds(element) : null;
   };
   const curve = getArrowCurve(arrow, resolveBounds);
+  const route = getElbowRoute(store, arrow);
   const { from, to } = curve;
 
   let d: string;
-  if (arrow.bend !== 0) {
+  if (route) {
+    d = route.points
+      .map((point, index) => `${index === 0 ? 'M' : 'L'}${n(point.x)} ${n(point.y)}`)
+      .join(' ');
+  } else if (arrow.bend !== 0) {
     d = `M${n(from.x)} ${n(from.y)} Q${n(curve.control.x)} ${n(curve.control.y)} ${n(to.x)} ${n(to.y)}`;
   } else {
     d = `M${n(from.x)} ${n(from.y)} L${n(to.x)} ${n(to.y)}`;
@@ -167,12 +173,17 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
   const dash = pattern.length > 0 ? ` stroke-dasharray="${pattern.join(' ')}"` : '';
   let out = `<path d="${d}" fill="none" stroke="${esc(arrow.color)}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
 
-  const angle = getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1);
-  const p1x = to.x - ARROWHEAD_LENGTH * Math.cos(angle - ARROWHEAD_ANGLE);
-  const p1y = to.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);
-  const p2x = to.x - ARROWHEAD_LENGTH * Math.cos(angle + ARROWHEAD_ANGLE);
-  const p2y = to.y - ARROWHEAD_LENGTH * Math.sin(angle + ARROWHEAD_ANGLE);
-  out += `<polygon points="${n(to.x)},${n(to.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${esc(arrow.color)}" />`;
+  const last = route?.points.at(-1) ?? to;
+  const previous = route?.points.at(-2);
+  const angle = previous
+    ? Math.atan2(last.y - previous.y, last.x - previous.x)
+    : getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1);
+  const tip = last;
+  const p1x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle - ARROWHEAD_ANGLE);
+  const p1y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);
+  const p2x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle + ARROWHEAD_ANGLE);
+  const p2y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle + ARROWHEAD_ANGLE);
+  out += `<polygon points="${n(tip.x)},${n(tip.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${esc(arrow.color)}" />`;
 
   const boundText = getBoundText(arrow, store);
   if (boundText) {

@@ -10,6 +10,7 @@ import { Background } from './background';
 import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
+import { setElbowVisibleLayers } from '../elements/elbow-cache';
 import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, HtmlElement, ShapeKind } from '../elements/types';
@@ -263,6 +264,7 @@ export class Viewport {
       options.elementRegistry ?? new ElementRegistry(getDefaultElementRegistry());
     this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
+    setElbowVisibleLayers(this.store, (id) => this.layerManager.isLayerVisible(id));
     this.toolManager = new ToolManager();
     this.actionRegistry = new ActionRegistry(() => this.currentActionContext());
     const unsubToolRegister = this.toolManager.onRegister((tool) => {
@@ -672,6 +674,7 @@ export class Viewport {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
         this.renderLoop.markLayerDirty(el.layerId);
+        this.renderLoop.markAllLayersDirty();
         this.requestRender();
       }),
       this.store.on('remove', (el, meta) => {
@@ -679,6 +682,7 @@ export class Viewport {
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
+        this.renderLoop.markAllLayersDirty();
         this.renderLoop.forgetElement(el.id, el.layerId);
         this.requestRender();
         this.handleRemovedElement(el.id);
@@ -689,6 +693,7 @@ export class Viewport {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
         this.renderLoop.noteElementUpdate(previous, current);
+        this.renderLoop.markAllLayersDirty();
         this.requestRender();
       }),
       this.store.on('clear', () => {
@@ -712,6 +717,7 @@ export class Viewport {
 
     this.disposers.push(
       this.layerManager.on('change', () => {
+        setElbowVisibleLayers(this.store, (id) => this.layerManager.isLayerVisible(id));
         this.toolContext.activeLayerId = this.layerManager.activeLayerId;
         // Snapshot loads replace layers without per-layer remove events, so prune on every change.
         this.layerCache.retain((id) => this.layerManager.getLayer(id) !== undefined);

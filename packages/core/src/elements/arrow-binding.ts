@@ -5,6 +5,7 @@ import { getArrowCurve } from './arrow-geometry';
 import { getElementBounds } from './element-bounds';
 import type { ElementRegistry } from './element-registry';
 import { getBoundText } from './bound-text';
+import { getElbowRoute } from './elbow-cache';
 
 const BINDABLE_TYPES = new Set(['note', 'text', 'image', 'html', 'shape']);
 
@@ -156,16 +157,17 @@ export function unbindArrowsFrom(
       const element = store.getById(id);
       return element ? getElementBounds(element, registry) : null;
     });
+    const route = getElbowRoute(store, arrow);
 
     if (arrow.fromBinding?.elementId === removed.id) {
       updates.fromBinding = undefined;
-      updates.from = curve.from;
-      updates.position = curve.from;
+      updates.from = route?.points[0] ?? curve.from;
+      updates.position = route?.points[0] ?? curve.from;
     }
 
     if (arrow.toBinding?.elementId === removed.id) {
       updates.toBinding = undefined;
-      updates.to = curve.to;
+      updates.to = route?.points.at(-1) ?? curve.to;
     }
 
     if (Object.keys(updates).length > 0) {

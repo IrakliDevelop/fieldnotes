@@ -16,6 +16,7 @@ import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache'
 import type { CanvasElement, ElementType } from './types';
 import { getRegistryToken, type ElementRegistry } from './element-registry';
 import { getDefaultElementRegistry } from './default-registry';
+import { invalidateElbowRoutes } from './elbow-cache';
 import {
   compareElementOrder,
   ElementHierarchy,
@@ -245,6 +246,7 @@ export class ElementStore {
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
     this.refreshRegistry();
     element = stampDataVersion(sanitizeRichText(element), this.registry);
+    if (element.type === 'arrow') element = { ...element };
     validateExtensionEnvelope(element, this.registry);
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
@@ -336,6 +338,7 @@ export class ElementStore {
     this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
+    invalidateElbowRoutes(this, bounds);
     this.bus.emit('add', element, meta);
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
@@ -707,12 +710,15 @@ export class ElementStore {
       if (rank !== undefined && this.sceneCache) this.sceneCache[rank] = updated;
     }
 
+    const oldBounds = this.indexBounds(existing);
     const newBounds = this.indexBounds(updated);
     if (newBounds) {
       this.spatialIndex.update(existing.id, newBounds);
     } else {
       this.spatialIndex.remove(existing.id);
     }
+    invalidateElbowRoutes(this, oldBounds);
+    invalidateElbowRoutes(this, newBounds);
   }
 
   remove(id: string, meta?: ElementChangeMeta): void {
@@ -728,6 +734,7 @@ export class ElementStore {
     this.elements.delete(id);
     this.hierarchyKnownValid = this.strict(meta);
     this.spatialIndex.remove(id);
+    invalidateElbowRoutes(this, this.indexBounds(element));
     this.bus.emit('remove', element, meta);
   }
 
@@ -738,6 +745,7 @@ export class ElementStore {
     this.elements.clear();
     this.hierarchyKnownValid = true;
     this.spatialIndex.clear();
+    invalidateElbowRoutes(this, null);
     this.bus.emit('clear', null, meta);
   }
 
@@ -753,7 +761,8 @@ export class ElementStore {
       if (el.index !== '' && (top === undefined || el.index > top)) tops.set(el.layerId, el.index);
     }
     const sanitizedElements = elements.map((el) => {
-      const element = stampDataVersion(sanitizeRichText(el), this.registry);
+      let element = stampDataVersion(sanitizeRichText(el), this.registry);
+      if (element.type === 'arrow') element = { ...element };
       validateExtensionEnvelope(element, this.registry);
       if (element.index !== '') return element;
       const index = generateKeyBetween(tops.get(element.layerId) ?? null, null);
@@ -779,6 +788,7 @@ export class ElementStore {
       }
     }
     this.hierarchyKnownValid = this.strict(meta);
+    invalidateElbowRoutes(this, null);
     this.bus.emit('clear', null, meta);
     for (const el of sanitizedElements) {
       this.bus.emit('add', el, meta);

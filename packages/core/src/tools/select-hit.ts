@@ -3,7 +3,8 @@ import { normalizeConstraintStep } from '../core/constraint-service';
 import type { ToolContext } from './types';
 import { distSqToSegment, rotatePoint, rotatedAABB } from '../core/geometry';
 import type { CanvasElement } from '../elements/types';
-import { isNearArrowCurve } from '../elements/arrow-geometry';
+import { isNearArrowCurve, isNearPolyline } from '../elements/arrow-geometry';
+import { getElbowRoute } from '../elements/elbow-cache';
 import { getElementBounds } from '../elements/element-bounds';
 import { hasSize } from '../elements/element-size';
 import { hitTestStroke } from '../elements/stroke-hit';
@@ -95,6 +96,8 @@ export function isInsideBounds(point: Point, el: CanvasElement, ctx?: ToolContex
   }
 
   if (el.type === 'arrow') {
+    const route = getElbowRoute(ctx?.store ?? null, el);
+    if (route) return isNearPolyline(point, route.points, tolerance);
     return isNearArrowCurve(point, el, tolerance, (id) => {
       const bound = ctx?.store.getById(id);
       return bound ? getElementBounds(bound) : null;

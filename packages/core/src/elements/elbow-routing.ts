@@ -1,7 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import type { ArrowFixedSegment } from './types';
 
-const ELBOW_ROUTE_MARGIN = 256;
+export const ELBOW_ROUTE_MARGIN = 256;
 const ELBOW_ROUTE_CLEARANCE = 12;
 const MAX_AXES = 140;
 const MAX_EXPANDED_STATES = 20_000;
@@ -13,9 +13,13 @@ interface ElbowArrowData {
   readonly width?: number;
 }
 
-interface ElbowRoute {
+export interface ElbowRoute {
   points: Point[];
   segments: { fixedIndex?: number }[];
+}
+
+export function getElbowRouteBounds(arrow: ElbowArrowData): Bounds {
+  return routeRegion(buildAuthoredElbowPath(arrow).points);
 }
 
 interface Segment {
