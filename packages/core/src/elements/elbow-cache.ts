@@ -39,16 +39,23 @@ export function getElbowRoute(store: ElementStore | null, arrow: ArrowElement) {
   const cached = cache.get(arrow);
   if (cached && !cached.dirty) return cached.route;
   const region = getElbowRouteBounds(arrow);
-  const obstacles: Bounds[] = [];
+  const obstacles: { id: string; bounds: Bounds; distance: number }[] = [];
   for (const element of store.queryRect(region)) {
     if (!(visibleLayers.get(store)?.(element.layerId) ?? true)) continue;
-    if (!isObstacle(element, arrow)) continue;
-    const bounds = getElementVisualBounds(element, store.elementRegistry);
-    if (bounds) obstacles.push(bounds);
+    if (!isObstacle(store, element, arrow)) continue;
+    const bounds = clippedBounds(store, element);
+    if (!bounds) continue;
+    obstacles.push({ id: element.id, bounds, distance: distanceToBounds(bounds, region) });
   }
+  obstacles.sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id));
   const fromBounds = arrow.fromBinding ? getBounds(store, arrow.fromBinding.elementId) : null;
   const toBounds = arrow.toBinding ? getBounds(store, arrow.toBinding.elementId) : null;
-  const route = routeElbowArrow(arrow, fromBounds, toBounds, obstacles);
+  const route = routeElbowArrow(
+    arrow,
+    fromBounds,
+    toBounds,
+    obstacles.slice(0, 32).map((obstacle) => obstacle.bounds),
+  );
   cache.set(arrow, { route, region, dirty: false });
   return route;
 }
@@ -58,11 +65,34 @@ function getBounds(store: ElementStore, id: string): Bounds | null {
   return element ? getElementBounds(element, store.elementRegistry) : null;
 }
 
-function isObstacle(element: CanvasElement, arrow: ArrowElement): boolean {
+function isObstacle(store: ElementStore, element: CanvasElement, arrow: ArrowElement): boolean {
   if (element.type === 'arrow' || element.type === 'stroke') return false;
+  if (element.type === 'shape' && element.shape === 'line') return false;
   if (element.id === arrow.fromBinding?.elementId || element.id === arrow.toBinding?.elementId)
     return false;
+  if (element.parentId === arrow.id || element.id === arrow.id) return false;
+  for (let parent = arrow.parentId; parent; parent = store.getById(parent)?.parentId) {
+    if (parent === element.id) return false;
+  }
   return true;
+}
+
+function clippedBounds(store: ElementStore, element: CanvasElement): Bounds | null {
+  const bounds = getElementVisualBounds(element, store.elementRegistry);
+  const clip = store.getEffectiveClip(element.id);
+  if (!bounds || clip === undefined) return null;
+  if (!clip) return bounds;
+  const x = Math.max(bounds.x, clip.x);
+  const y = Math.max(bounds.y, clip.y);
+  const right = Math.min(bounds.x + bounds.w, clip.x + clip.w);
+  const bottom = Math.min(bounds.y + bounds.h, clip.y + clip.h);
+  return x < right && y < bottom ? { x, y, w: right - x, h: bottom - y } : null;
+}
+
+function distanceToBounds(bounds: Bounds, region: Bounds): number {
+  const x = Math.max(region.x, Math.min(bounds.x + bounds.w, region.x + region.w));
+  const y = Math.max(region.y, Math.min(bounds.y + bounds.h, region.y + region.h));
+  return Math.hypot(bounds.x + bounds.w / 2 - x, bounds.y + bounds.h / 2 - y);
 }
 
 /** Marks cached local routes affected by a scene change stale. */

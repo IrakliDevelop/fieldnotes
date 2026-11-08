@@ -54,14 +54,16 @@ export function renderArrow(
 
   const last = route?.points.at(-1) ?? curve.to;
   const previous = route?.points.at(-2);
-  renderArrowhead(
-    ctx,
-    arrow,
-    last,
-    previous
-      ? Math.atan2(last.y - previous.y, last.x - previous.x)
-      : getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1),
-  );
+  if (!route || previous) {
+    renderArrowhead(
+      ctx,
+      arrow,
+      last,
+      previous
+        ? Math.atan2(last.y - previous.y, last.x - previous.x)
+        : getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1),
+    );
+  }
   ctx.restore();
   renderArrowLabel(ctx, arrow, store, resolveBounds);
 }

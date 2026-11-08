@@ -505,7 +505,9 @@ export class ElementStore {
         (updated.type === 'shape' &&
           ['position', 'size', 'rotation', 'shape'].some((key) => key in partial)) ||
         (updated.type === 'arrow' &&
-          ['from', 'to', 'bend', 'fromBinding', 'toBinding'].some((key) => key in partial)) ||
+          ['from', 'to', 'bend', 'routing', 'fixedSegments', 'fromBinding', 'toBinding'].some(
+            (key) => key in partial,
+          )) ||
         (updated.type === 'extension' && ['position', 'size', 'data'].some((key) => key in partial))
       )
         geometry.add(updated.id);

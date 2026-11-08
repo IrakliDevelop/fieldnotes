@@ -175,15 +175,17 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
 
   const last = route?.points.at(-1) ?? to;
   const previous = route?.points.at(-2);
-  const angle = previous
-    ? Math.atan2(last.y - previous.y, last.x - previous.x)
-    : getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1);
-  const tip = last;
-  const p1x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle - ARROWHEAD_ANGLE);
-  const p1y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);
-  const p2x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle + ARROWHEAD_ANGLE);
-  const p2y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle + ARROWHEAD_ANGLE);
-  out += `<polygon points="${n(tip.x)},${n(tip.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${esc(arrow.color)}" />`;
+  if (!route || previous) {
+    const angle = previous
+      ? Math.atan2(last.y - previous.y, last.x - previous.x)
+      : getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1);
+    const tip = last;
+    const p1x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle - ARROWHEAD_ANGLE);
+    const p1y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);
+    const p2x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle + ARROWHEAD_ANGLE);
+    const p2y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle + ARROWHEAD_ANGLE);
+    out += `<polygon points="${n(tip.x)},${n(tip.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${esc(arrow.color)}" />`;
+  }
 
   const boundText = getBoundText(arrow, store);
   if (boundText) {

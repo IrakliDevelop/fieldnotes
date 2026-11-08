@@ -674,7 +674,6 @@ export class Viewport {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
         this.renderLoop.markLayerDirty(el.layerId);
-        this.renderLoop.markAllLayersDirty();
         this.requestRender();
       }),
       this.store.on('remove', (el, meta) => {
@@ -682,7 +681,6 @@ export class Viewport {
         this.domNodeManager.removeDomNode(el.id);
         this.htmlDiagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
-        this.renderLoop.markAllLayersDirty();
         this.renderLoop.forgetElement(el.id, el.layerId);
         this.requestRender();
         this.handleRemovedElement(el.id);
@@ -693,7 +691,6 @@ export class Viewport {
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
         }
         this.renderLoop.noteElementUpdate(previous, current);
-        this.renderLoop.markAllLayersDirty();
         this.requestRender();
       }),
       this.store.on('clear', () => {
