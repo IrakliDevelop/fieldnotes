@@ -56,10 +56,11 @@ export class ArrowTool implements Tool {
   }
 
   setOptions(options: ArrowToolOptions): void {
+    const routing = options.routing === undefined ? undefined : validateRouting(options.routing);
     if (options.color !== undefined) this.color = options.color;
     if (options.width !== undefined) this.width = options.width;
     if (options.strokeStyle !== undefined) this.strokeStyle = options.strokeStyle;
-    if (options.routing !== undefined) this.routing = validateRouting(options.routing);
+    if (routing !== undefined) this.routing = routing;
     this.notifyOptionsChange();
   }
 

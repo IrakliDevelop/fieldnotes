@@ -3,6 +3,8 @@ import { createArrow, createShape, createStroke, createText } from './element-fa
 import { getElbowRoute, setElbowVisibleLayers, takeAffectedElbowLayers } from './elbow-cache';
 import { ElementStore } from './element-store';
 import { ElementRegistry } from './element-registry';
+import { HistoryRecorder } from '../history/history-recorder';
+import { HistoryStack } from '../history/history-stack';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 
 function elbow(store: ElementStore) {
@@ -78,19 +80,34 @@ describe('elbow route cache', () => {
       shape: 'rectangle',
     });
     store.add(obstacle);
+    const owned = elbow(store);
+    const history = new HistoryStack();
+    new HistoryRecorder(store, history);
     const changes: string[] = [];
     store.on('add', (current) => changes.push(current.id));
     store.on('update', ({ current }) => changes.push(current.id));
 
+    getElbowRoute(store, owned);
+    takeAffectedElbowLayers(store);
     const before = getElbowRoute(store, draft);
+    expect(changes).toEqual([]);
+    expect(takeAffectedElbowLayers(store)).toEqual([]);
+    expect(history.undoCount).toBe(0);
+
     changes.length = 0;
-    store.update(obstacle.id, { position: { x: 80, y: 80 } });
+    store.update(obstacle.id, { position: { x: 80, y: 80 } }, { origin: 'remote' });
+    expect(changes).toEqual([obstacle.id]);
+    expect(takeAffectedElbowLayers(store)).toEqual([owned.layerId]);
+    expect(history.undoCount).toBe(0);
+
     changes.length = 0;
     const after = getElbowRoute(store, draft);
 
     expect(detours(before)).toBe(true);
     expect(detours(after)).toBe(false);
     expect(changes).toEqual([]);
+    expect(takeAffectedElbowLayers(store)).toEqual([]);
+    expect(history.undoCount).toBe(0);
     expect(store.getById(draft.id)).toBeUndefined();
   });
 

@@ -302,6 +302,29 @@ describe('ArrowTool getOptions/onOptionsChange', () => {
     );
   });
 
+  it('leaves every option unchanged when mixed options include invalid routing', () => {
+    const tool = new ArrowTool({ color: '#000000', width: 2, strokeStyle: 'solid' });
+    const listener = vi.fn();
+    const invalidOptions: unknown = {
+      color: '#ff0000',
+      width: 5,
+      strokeStyle: 'dotted',
+      routing: 'spline',
+    };
+    tool.onOptionsChange(listener);
+
+    expect(() => Reflect.apply(tool.setOptions, tool, [invalidOptions])).toThrow(
+      'Invalid arrow routing',
+    );
+    expect(tool.getOptions()).toEqual({
+      color: '#000000',
+      width: 2,
+      strokeStyle: 'solid',
+      routing: 'bezier',
+    });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it('fires listener when setOptions is called', () => {
     const tool = new ArrowTool();
     const listener = vi.fn();
