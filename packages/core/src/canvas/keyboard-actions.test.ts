@@ -605,6 +605,8 @@ describe('KeyboardActions.cut', () => {
     };
     const text = { ...createBoundText(arrow, { text: 'route' }), id: 'text' };
     for (const element of [parent, source, target, arrow, text]) ctx.store.add(element);
+    const originalScene = structuredClone(ctx.store.getAll());
+    const originalIds = new Set(originalScene.map((element) => element.id));
     tool.setSelection([parent.id]);
 
     actions.duplicate();
@@ -651,6 +653,9 @@ describe('KeyboardActions.cut', () => {
       ],
     });
     expect(tool.selectedIds).toEqual([cloneParent?.id]);
+    expect(ctx.store.getAll().filter((element) => originalIds.has(element.id))).toEqual(
+      originalScene,
+    );
 
     tool.setSelection([parent.id]);
     actions.copy();
@@ -682,6 +687,9 @@ describe('KeyboardActions.cut', () => {
     expect(pastedArrow.fixedSegments).not.toBe(arrow.fixedSegments);
     expect(pastedArrow.fixedSegments?.[0]).not.toBe(arrow.fixedSegments?.[0]);
     expect(ctx.store.getById(arrow.id)).toMatchObject({ parentId: parent.id, routing: 'elbow' });
+    expect(ctx.store.getAll().filter((element) => originalIds.has(element.id))).toEqual(
+      originalScene,
+    );
   });
 
   it('duplicates a selected child closure as a detached tree', () => {

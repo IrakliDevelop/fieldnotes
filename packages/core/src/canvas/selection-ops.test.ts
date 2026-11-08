@@ -700,10 +700,11 @@ describe('rotateSelection', () => {
       ],
     });
     const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
-    const { store, stack, ops } = setup([arrow.id, shape.id]);
+    const { store, stack, recorder, ops } = setup([arrow.id, shape.id]);
     store.add(arrow);
     store.add(shape);
     stack.clear();
+    const originalScene = structuredClone(store.getAll());
 
     ops.rotateSelection('cw');
 
@@ -715,18 +716,7 @@ describe('rotateSelection', () => {
       ],
     });
     expect(store.getById(shape.id)?.rotation).toBe(Math.PI / 2);
-    expect(stack.undo(store)).toBe(true);
-    expect(store.getById(arrow.id)).toMatchObject({
-      fixedSegments: [
-        { axis: 'x', value: 30 },
-        { axis: 'y', value: 40 },
-      ],
-    });
-    expect(store.getById(shape.id)?.rotation ?? 0).toBe(0);
-
-    stack.clear();
-    ops.rotateSelection('cw');
-    expect(stack.undoCount).toBe(1);
+    const clockwiseScene = structuredClone(store.getAll());
     ops.rotateSelection('ccw');
     expect(stack.undoCount).toBe(2);
     expect(store.getById(arrow.id)).toMatchObject({
@@ -736,10 +726,55 @@ describe('rotateSelection', () => {
       ],
     });
     expect(store.getById(shape.id)?.rotation ?? 0).toBe(0);
+    const inverseArrow = store.getById(arrow.id);
+    const originalArrow = originalScene.find((element) => element.id === arrow.id);
+    if (inverseArrow?.type !== 'arrow' || originalArrow?.type !== 'arrow') {
+      throw new Error('expected inverse arrow');
+    }
+    expect(inverseArrow.from.x).toBeCloseTo(0, 10);
+    expect(inverseArrow.from.y).toBeCloseTo(0, 10);
+    expect(inverseArrow.to.x).toBeCloseTo(100, 10);
+    expect(inverseArrow.to.y).toBeCloseTo(100, 10);
+    expect({
+      ...inverseArrow,
+      from: undefined,
+      to: undefined,
+      version: undefined,
+      editor: undefined,
+    }).toEqual({
+      ...originalArrow,
+      from: undefined,
+      to: undefined,
+      version: undefined,
+      editor: undefined,
+    });
+    const inverseShape = store.getById(shape.id);
+    const originalShape = originalScene.find((element) => element.id === shape.id);
+    if (!inverseShape || !originalShape) throw new Error('expected inverse shape');
+    expect(inverseShape.position).toEqual(originalShape.position);
+    expect(inverseShape.rotation ?? 0).toBe(originalShape.rotation ?? 0);
+    expect({ ...inverseShape, rotation: undefined, version: undefined, editor: undefined }).toEqual(
+      {
+        ...originalShape,
+        rotation: undefined,
+        version: undefined,
+        editor: undefined,
+      },
+    );
+    recorder.pause();
     expect(stack.undo(store)).toBe(true);
+    recorder.resume();
     expect(store.getById(shape.id)?.rotation).toBe(Math.PI / 2);
+    expect(
+      store.getAll().map(({ version: _version, editor: _editor, ...element }) => element),
+    ).toEqual(clockwiseScene.map(({ version: _version, editor: _editor, ...element }) => element));
+    recorder.pause();
     expect(stack.undo(store)).toBe(true);
+    recorder.resume();
     expect(store.getById(shape.id)?.rotation ?? 0).toBe(0);
+    expect(
+      store.getAll().map(({ version: _version, editor: _editor, ...element }) => element),
+    ).toEqual(originalScene.map(({ version: _version, editor: _editor, ...element }) => element));
   });
 
   it('lone selected arrow orbits its own bbox center', () => {

@@ -2133,21 +2133,22 @@ describe('Viewport', () => {
       expect(viewport.resetArrowRoute(arrow.id)).toBe(true);
       expect(viewport.store.getById(arrow.id)).toMatchObject({ fixedSegments: undefined });
       expect(viewport.history.undoCount).toBe(2);
+      const noOpScene = structuredClone(viewport.store.getAll());
+      const noOpHistory = viewport.history.undoCount;
+      const update = vi.spyOn(viewport.store, 'update');
+      expect(viewport.resetArrowRoute('missing')).toBe(false);
+      expect(viewport.resetArrowRoute(note.id)).toBe(false);
       expect(viewport.resetArrowRoute(arrow.id)).toBe(false);
+      expect(update).not.toHaveBeenCalled();
+      expect(viewport.history.undoCount).toBe(noOpHistory);
+      expect(viewport.store.getAll()).toEqual(noOpScene);
+      update.mockRestore();
       expect(viewport.undo()).toBe(true);
       expect(viewport.store.getById(arrow.id)).toMatchObject({
         fixedSegments: [{ axis: 'x', value: 50 }],
       });
       expect(viewport.undo()).toBe(true);
       expect(viewport.store.getById(note.id)?.position.x).toBe(100);
-      const noOpScene = structuredClone(viewport.store.getAll());
-      const noOpHistory = viewport.history.undoCount;
-      const update = vi.spyOn(viewport.store, 'update');
-      expect(viewport.resetArrowRoute('missing')).toBe(false);
-      expect(viewport.resetArrowRoute(note.id)).toBe(false);
-      expect(update).not.toHaveBeenCalled();
-      expect(viewport.history.undoCount).toBe(noOpHistory);
-      expect(viewport.store.getAll()).toEqual(noOpScene);
       vi.useRealTimers();
       viewport.destroy();
     });

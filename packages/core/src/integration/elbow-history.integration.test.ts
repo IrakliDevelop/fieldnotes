@@ -236,6 +236,8 @@ describe('Integration: elbow arrow history', () => {
     harness.viewport.store.add(arrow);
     harness.viewport.store.add(label);
     const before = structuredClone(harness.viewport.store.getAll());
+    const originalLabel = before.find((element) => element.id === label.id);
+    if (originalLabel?.type !== 'text') throw new Error('expected original label');
     const select = harness.viewport.toolManager.getTool<SelectTool>('select');
     if (!select) throw new Error('expected select tool');
     select.setSelection([parent.id]);
@@ -249,11 +251,21 @@ describe('Integration: elbow arrow history', () => {
         { axis: 'y', value: 156 },
       ],
     });
+    const nudgedLabel = harness.viewport.store.getById(label.id);
+    if (nudgedLabel?.type !== 'text') throw new Error('expected nudged label');
+    expect(nudgedLabel.position).toEqual({
+      x: originalLabel.position.x + 4,
+      y: originalLabel.position.y + 6,
+    });
+    expect(nudgedLabel.size).toEqual(originalLabel.size);
+    expect(nudgedLabel.rotation).toBe(originalLabel.rotation);
     expect(harness.viewport.history.undoCount).toBe(1);
     expect(harness.viewport.undo()).toBe(true);
     expect(
-      harness.viewport.store.getAll().map(({ version: _version, ...element }) => element),
-    ).toEqual(before.map(({ version: _version, ...element }) => element));
+      harness.viewport.store
+        .getAll()
+        .map(({ version: _version, editor: _editor, ...element }) => element),
+    ).toEqual(before.map(({ version: _version, editor: _editor, ...element }) => element));
   });
 
   it('keeps one captured pin across repeated completed drags', () => {
