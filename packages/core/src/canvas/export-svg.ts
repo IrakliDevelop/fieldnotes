@@ -16,6 +16,7 @@ import {
   getArrowCurve,
   getArrowLabelAnchor,
   getArrowTangentAngle,
+  getPolylineEndTangent,
 } from '../elements/arrow-geometry';
 import { getArrowDashPattern } from '../elements/renderers/arrow-renderer';
 import { getElementBounds } from '../elements/element-bounds';
@@ -174,11 +175,12 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
   let out = `<path d="${d}" fill="none" stroke="${esc(arrow.color)}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
 
   const last = route?.points.at(-1) ?? to;
-  const previous = route?.points.at(-2);
-  if (!route || previous) {
-    const angle = previous
-      ? Math.atan2(last.y - previous.y, last.x - previous.x)
-      : getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1);
+  const routeAngle = route ? getPolylineEndTangent(route.points) : null;
+  if (!route || routeAngle !== null) {
+    const angle =
+      routeAngle !== null
+        ? routeAngle
+        : getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1);
     const tip = last;
     const p1x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle - ARROWHEAD_ANGLE);
     const p1y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);

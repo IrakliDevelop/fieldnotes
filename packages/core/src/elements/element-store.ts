@@ -16,7 +16,7 @@ import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache'
 import type { CanvasElement, ElementType } from './types';
 import { getRegistryToken, type ElementRegistry } from './element-registry';
 import { getDefaultElementRegistry } from './default-registry';
-import { invalidateElbowRoutes } from './elbow-cache';
+import { invalidateElbowRoutes, transferElbowRoute } from './elbow-cache';
 import {
   compareElementOrder,
   ElementHierarchy,
@@ -69,6 +69,13 @@ function sameDerivedValue(a: unknown, b: unknown): boolean {
   return (
     aKeys.length === Object.keys(bRecord).length &&
     aKeys.every((key) => sameDerivedValue(aRecord[key], bRecord[key]))
+  );
+}
+
+function sameBounds(a: Bounds | null, b: Bounds | null): boolean {
+  return (
+    a === b ||
+    (a !== null && b !== null && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h)
   );
 }
 
@@ -143,6 +150,7 @@ export class ElementStore {
       const bounds = this.indexBounds(element);
       if (bounds) this.spatialIndex.insert(element.id, bounds);
     }
+    invalidateElbowRoutes(this, null, true);
   }
 
   get count(): number {
@@ -198,6 +206,7 @@ export class ElementStore {
     this.registryToken = token;
     this.hierarchyKnownValid = false;
     this.resetHierarchy();
+    invalidateElbowRoutes(this, null, true);
   }
 
   private topIndex(layerId: string): string | null {
@@ -338,7 +347,7 @@ export class ElementStore {
     this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
-    invalidateElbowRoutes(this, bounds);
+    invalidateElbowRoutes(this, bounds, element.parentId !== undefined);
     this.bus.emit('add', element, meta);
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
@@ -361,6 +370,7 @@ export class ElementStore {
     for (const item of prepared) this.installUpdate(item.existing, item.updated);
     if (validated) this.hierarchyKnownValid = true;
     else if (structural) this.hierarchyKnownValid = false;
+    if (structural) invalidateElbowRoutes(this, null, true);
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
   }
@@ -404,6 +414,7 @@ export class ElementStore {
     if (structural) this.resetHierarchy();
     if (structural) this.getHierarchy();
     if (validated) this.hierarchyKnownValid = true;
+    if (structural) invalidateElbowRoutes(this, null, true);
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
   }
@@ -719,8 +730,14 @@ export class ElementStore {
     } else {
       this.spatialIndex.remove(existing.id);
     }
-    invalidateElbowRoutes(this, oldBounds);
-    invalidateElbowRoutes(this, newBounds);
+    const reusedRoute =
+      existing.type === 'arrow' &&
+      updated.type === 'arrow' &&
+      transferElbowRoute(this, existing, updated);
+    if (!reusedRoute && !sameBounds(oldBounds, newBounds)) {
+      invalidateElbowRoutes(this, oldBounds);
+      invalidateElbowRoutes(this, newBounds);
+    }
   }
 
   remove(id: string, meta?: ElementChangeMeta): void {
@@ -736,7 +753,7 @@ export class ElementStore {
     this.elements.delete(id);
     this.hierarchyKnownValid = this.strict(meta);
     this.spatialIndex.remove(id);
-    invalidateElbowRoutes(this, this.indexBounds(element));
+    invalidateElbowRoutes(this, this.indexBounds(element), element.parentId !== undefined);
     this.bus.emit('remove', element, meta);
   }
 
@@ -747,7 +764,7 @@ export class ElementStore {
     this.elements.clear();
     this.hierarchyKnownValid = true;
     this.spatialIndex.clear();
-    invalidateElbowRoutes(this, null);
+    invalidateElbowRoutes(this, null, true);
     this.bus.emit('clear', null, meta);
   }
 
@@ -790,7 +807,7 @@ export class ElementStore {
       }
     }
     this.hierarchyKnownValid = this.strict(meta);
-    invalidateElbowRoutes(this, null);
+    invalidateElbowRoutes(this, null, true);
     this.bus.emit('clear', null, meta);
     for (const el of sanitizedElements) {
       this.bus.emit('add', el, meta);

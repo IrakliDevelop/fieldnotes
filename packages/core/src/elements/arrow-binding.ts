@@ -157,7 +157,11 @@ export function unbindArrowsFrom(
       const element = store.getById(id);
       return element ? getElementBounds(element, registry) : null;
     });
-    const route = getElbowRoute(store, arrow);
+    const removedBounds = getElementBounds(removed, registry);
+    const route = getElbowRoute(store, arrow, {
+      fromBounds: arrow.fromBinding?.elementId === removed.id ? removedBounds : undefined,
+      toBounds: arrow.toBinding?.elementId === removed.id ? removedBounds : undefined,
+    });
 
     if (arrow.fromBinding?.elementId === removed.id) {
       updates.fromBinding = undefined;

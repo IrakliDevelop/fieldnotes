@@ -174,6 +174,15 @@ export function routeElbowArrow(
   return trimRoute(simplifyRoute(result), fromBounds, toBounds);
 }
 
+/** Builds the persisted-data path used for elbow labels without obstacle routing. */
+export function getAuthoredElbowRoute(
+  arrow: ElbowArrowData,
+  fromBounds: Bounds | null,
+  toBounds: Bounds | null,
+): ElbowRoute {
+  return trimRoute(buildAuthoredElbowPath(arrow), fromBounds, toBounds);
+}
+
 function trimRoute(
   route: ElbowRoute,
   fromBounds: Bounds | null,

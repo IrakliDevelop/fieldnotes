@@ -1,7 +1,7 @@
 import type { Bounds, Point } from '../core/types';
 import { distSqToSegment } from '../core/geometry';
 import type { ArrowElement } from './types';
-import { routeElbowArrow } from './elbow-routing';
+import { getAuthoredElbowRoute } from './elbow-routing';
 
 export interface ArrowCurve {
   from: Point;
@@ -74,11 +74,10 @@ export function getArrowLabelAnchor(
   resolveBounds: (id: string) => Bounds | null,
 ): Point {
   if (arrow.routing === 'elbow') {
-    const route = routeElbowArrow(
+    const route = getAuthoredElbowRoute(
       arrow,
       arrow.fromBinding ? resolveBounds(arrow.fromBinding.elementId) : null,
       arrow.toBinding ? resolveBounds(arrow.toBinding.elementId) : null,
-      [],
     );
     let length = 0;
     for (let index = 1; index < route.points.length; index += 1) {
@@ -108,6 +107,18 @@ export function getArrowLabelAnchor(
     arrow.to,
     (curve.t0 + curve.t1) / 2,
   );
+}
+
+/** Finds the final non-zero segment direction, if the polyline has one. */
+export function getPolylineEndTangent(points: readonly Point[]): number | null {
+  const last = points.at(-1);
+  if (!last) return null;
+  for (let index = points.length - 2; index >= 0; index -= 1) {
+    const point = points[index];
+    if (point && (point.x !== last.x || point.y !== last.y))
+      return Math.atan2(last.y - point.y, last.x - point.x);
+  }
+  return null;
 }
 
 export function isNearPolyline(point: Point, points: readonly Point[], threshold: number): boolean {
