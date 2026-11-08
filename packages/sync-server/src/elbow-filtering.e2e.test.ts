@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket as WsClient } from 'ws';
-import type { AddressInfo } from 'net';
 import { ElementStore, createArrow, createShape, createText, exportSvg } from '@fieldnotes/core';
 import { SyncClient, WebSocketTransport, createCurrentCapabilities } from '@fieldnotes/sync';
-import type { WebSocketTransportOptions } from '@fieldnotes/sync';
 import { createSyncServer } from './create-sync-server';
 import { MemoryHubBackend } from './memory-hub-backend';
 
@@ -15,28 +13,82 @@ interface Peer {
   readonly transport: WebSocketTransport;
 }
 
-function authored(element: ReturnType<ElementStore['getById']>) {
-  if (!element) throw new Error('missing admitted element');
-  return Object.fromEntries(Object.entries(element).filter(([key]) => key !== 'editor'));
-}
-
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('expected object');
   return Object.fromEntries(Object.entries(value));
 }
 
-function expectNoRouteBytes(frame: string): void {
+const ARROW_KEYS = [
+  'bend',
+  'cachedControlPoint',
+  'color',
+  'editor',
+  'fixedSegments',
+  'from',
+  'fromBinding',
+  'id',
+  'index',
+  'layerId',
+  'locked',
+  'position',
+  'routing',
+  'to',
+  'toBinding',
+  'type',
+  'version',
+  'width',
+];
+const TEXT_KEYS = [
+  'color',
+  'containerId',
+  'editor',
+  'fontSize',
+  'id',
+  'index',
+  'layerId',
+  'locked',
+  'parentId',
+  'position',
+  'size',
+  'text',
+  'textAlign',
+  'type',
+  'version',
+];
+
+function expectExactDocumentBytes(
+  frame: string,
+  phase: 'snapshot' | 'upsert' | 'correction',
+  version: number,
+): void {
   const op = record(record(JSON.parse(frame)).op);
   const values = op.kind === 'snapshot' ? op.elements : [op.element];
   if (!Array.isArray(values)) throw new Error('expected element bytes');
+  const documents = values
+    .map(record)
+    .filter((element) => element.type === 'arrow' || element.type === 'text');
+  if (phase === 'snapshot') expect(documents).toHaveLength(2);
   for (const value of values) {
     const element = record(value);
-    if (element.type !== 'arrow' && element.type !== 'text') continue;
-    expect(Object.keys(element)).not.toEqual(
-      expect.arrayContaining(['routePoints', 'cachedRoute', 'routeCache', 'obstacleIds']),
-    );
+    if (element.type === 'arrow') {
+      expect(Object.keys(element).sort()).toEqual(ARROW_KEYS);
+      expect(element).toMatchObject({
+        version,
+        editor: 'gm-client',
+        routing: 'elbow',
+        fixedSegments: [{ axis: 'x', value: 170 }],
+      });
+    }
+    if (element.type === 'text') expect(Object.keys(element).sort()).toEqual(TEXT_KEYS);
   }
+}
+
+function arrowPath(svg: string, color: string): string {
+  const paths = [...svg.matchAll(/<path d="([^"]+)"[^>]*stroke="([^"]+)"/g)];
+  const match = paths.filter((item) => item[2] === color);
+  if (match.length !== 1 || !match[0]?.[1]) throw new Error('missing arrow path');
+  return match[0][1];
 }
 
 async function waitFor(
@@ -56,10 +108,11 @@ describe('filtered elbow documents (end-to-end)', () => {
   const transports: WebSocketTransport[] = [];
   const sockets: WsClient[] = [];
 
-  function startServer(): { server: Server; port: number } {
+  function startServer(): { server: Server; port: number; backend: MemoryHubBackend } {
+    const backend = new MemoryHubBackend();
     const server = createSyncServer({
       port: 0,
-      backend: new MemoryHubBackend(),
+      backend,
       authenticate: ({ req }) => {
         const params = new URL(req.url ?? '', 'http://x').searchParams;
         const role = params.get('role');
@@ -71,18 +124,19 @@ describe('filtered elbow documents (end-to-end)', () => {
       resolveAudience: ({ element }) => element.audience,
     });
     servers.push(server);
-    return { server, port: (server.wss.address() as AddressInfo).port };
+    const address = server.wss.address();
+    if (!address || typeof address === 'string' || !Number.isInteger(address.port))
+      throw new Error('missing server port');
+    return { server, port: address.port, backend };
   }
 
-  function connect(port: number, role: 'gm' | 'player'): Peer {
-    const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=elbow&role=${role}`, {
-      WebSocket: WsClient as unknown as typeof WebSocket,
-    } satisfies WebSocketTransportOptions);
+  function connect(port: number, role: 'gm' | 'player', clientId: string): Peer {
+    const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=elbow&role=${role}`);
     const store = new ElementStore();
     const client = new SyncClient({
       store,
       transport,
-      clientId: `${role}-client`,
+      clientId,
       flushIntervalMs: 0,
     });
     transports.push(transport);
@@ -124,8 +178,9 @@ describe('filtered elbow documents (end-to-end)', () => {
 
   it('keeps authored elbow documents stable while filtered readers export their admitted routes', async () => {
     const { port } = startServer();
-    const gm = connect(port, 'gm');
-    const player = connect(port, 'player');
+    const writer = connect(port, 'gm', 'gm-writer');
+    const gm = connect(port, 'gm', 'gm-reader');
+    const player = connect(port, 'player', 'player-reader');
 
     const source = {
       ...createShape({ position: { x: 0, y: 0 }, size: { w: 40, h: 40 } }),
@@ -142,8 +197,10 @@ describe('filtered elbow documents (end-to-end)', () => {
         fromBinding: { elementId: source.id },
         toBinding: { elementId: target.id },
         routing: 'elbow',
+        color: '#13579b',
       }),
       id: 'arrow',
+      ownerId: 'gm',
     };
     const label = {
       ...createText({ position: { x: 140, y: 10 }, size: { w: 80, h: 20 }, text: '' }),
@@ -158,21 +215,25 @@ describe('filtered elbow documents (end-to-end)', () => {
       ownerId: 'gm',
     };
 
-    gm.store.add(source);
-    gm.store.add(target);
-    gm.store.add(arrow);
-    gm.store.add(label);
-    gm.store.add(obstacle);
+    writer.store.add(source);
+    writer.store.add(target);
+    writer.store.add(arrow);
+    writer.store.add(label);
+    writer.store.add(obstacle);
 
-    await waitFor(() => player.store.getById(label.id)?.type === 'text');
+    await waitFor(
+      () =>
+        gm.store.getById(label.id)?.type === 'text' &&
+        player.store.getById(label.id)?.type === 'text',
+    );
     expect(player.store.getById(obstacle.id)).toBeUndefined();
 
     const gmArrow = gm.store.getById(arrow.id);
     const playerArrow = player.store.getById(arrow.id);
     const gmLabel = gm.store.getById(label.id);
     const playerLabel = player.store.getById(label.id);
-    expect(authored(gmArrow)).toEqual(authored(playerArrow));
-    expect(authored(gmLabel)).toEqual(authored(playerLabel));
+    expect(gmArrow).toEqual(playerArrow);
+    expect(gmLabel).toEqual(playerLabel);
     expect(gmArrow).toMatchObject({ routing: 'elbow' });
     expect(gmArrow).not.toHaveProperty('fixedSegments');
 
@@ -180,21 +241,33 @@ describe('filtered elbow documents (end-to-end)', () => {
       exportSvg(gm.store),
       exportSvg(player.store),
     ]);
-    expect(blockedSvg).not.toEqual(clearSvg);
-    expect(blockedSvg).not.toContain('private-obstacle');
-    expect(clearSvg).not.toContain('private-obstacle');
+    const blockedPath = arrowPath(blockedSvg, arrow.color);
+    const clearPath = arrowPath(clearSvg, arrow.color);
+    expect(clearPath).toBe('M40 20 L300 20');
+    expect(blockedPath).not.toBe(clearPath);
 
-    const updates: string[] = [];
-    const unsubscribe = gm.store.on('update', ({ current }) => updates.push(current.id));
+    const updates: { id: string; origin: string | undefined }[] = [];
+    const playerUpdates: { id: string; origin: string | undefined }[] = [];
+    const unsubscribe = gm.store.on('update', ({ current }, meta) =>
+      updates.push({ id: current.id, origin: meta.origin }),
+    );
+    const unsubscribePlayer = player.store.on('update', ({ current }, meta) =>
+      playerUpdates.push({ id: current.id, origin: meta.origin }),
+    );
     const arrowBefore = structuredClone(gm.store.getById(arrow.id));
     const labelBefore = structuredClone(gm.store.getById(label.id));
-    gm.store.update(obstacle.id, { position: { x: 140, y: 80 } });
+    writer.store.update(obstacle.id, { position: { x: 140, y: 80 } });
     await waitFor(() => gm.store.getById(obstacle.id)?.version === 2);
     unsubscribe();
+    unsubscribePlayer();
 
-    expect(updates).toEqual([obstacle.id]);
+    expect(updates).toEqual([{ id: obstacle.id, origin: 'remote' }]);
+    expect(playerUpdates).toEqual([]);
     expect(gm.store.getById(arrow.id)).toEqual(arrowBefore);
     expect(gm.store.getById(label.id)).toEqual(labelBefore);
+    const [movedSvg, playerSvg] = await Promise.all([exportSvg(gm.store), exportSvg(player.store)]);
+    expect(arrowPath(movedSvg, arrow.color)).toBe(clearPath);
+    expect(arrowPath(playerSvg, arrow.color)).toBe(clearPath);
 
     gm.store.update(arrow.id, { fixedSegments: [{ axis: 'x', value: 170 }] });
     await waitFor(
@@ -209,8 +282,8 @@ describe('filtered elbow documents (end-to-end)', () => {
   });
 
   it('filters snapshot, upsert, correction and reconnect bytes without route data', async () => {
-    const { server, port } = startServer();
-    const gm = connect(port, 'gm');
+    const { server, port, backend } = startServer();
+    const gm = connect(port, 'gm', 'gm-client');
     const source = {
       ...createShape({ position: { x: 0, y: 0 }, size: { w: 40, h: 40 } }),
       id: 'source',
@@ -247,6 +320,10 @@ describe('filtered elbow documents (end-to-end)', () => {
     gm.store.add(arrow);
     gm.store.add(label);
     gm.store.add(obstacle);
+    await waitFor(async () => (await backend.getRecord('elbow', arrow.id))?.kind === 'element');
+    const stored = await backend.getRecord('elbow', arrow.id);
+    if (!stored || stored.kind !== 'element') throw new Error('missing canonical arrow');
+    expect(stored.element.ownerId).toBe('gm');
 
     const raw = await connectRaw(port);
     raw.socket.send(JSON.stringify({ from: 'player-bytes', op: { kind: 'request-snapshot' } }));
@@ -255,7 +332,7 @@ describe('filtered elbow documents (end-to-end)', () => {
     expect(snapshot).not.toContain(obstacle.id);
     expect(snapshot).not.toContain('ownerId');
     expect(snapshot).not.toMatch(/route(?:Points|Cache)?/i);
-    expectNoRouteBytes(snapshot);
+    expectExactDocumentBytes(snapshot, 'snapshot', 1);
 
     raw.frames.length = 0;
     gm.store.update(arrow.id, { bend: 25 });
@@ -264,7 +341,7 @@ describe('filtered elbow documents (end-to-end)', () => {
     expect(upsert).not.toContain(obstacle.id);
     expect(upsert).not.toContain('ownerId');
     expect(upsert).not.toMatch(/route(?:Points|Cache)?/i);
-    expectNoRouteBytes(upsert);
+    expectExactDocumentBytes(upsert, 'upsert', 2);
 
     const canonical = gm.store.getById(arrow.id);
     if (!canonical || canonical.type !== 'arrow') throw new Error('missing canonical arrow');
@@ -281,7 +358,7 @@ describe('filtered elbow documents (end-to-end)', () => {
     expect(correction).not.toContain(obstacle.id);
     expect(correction).not.toContain('ownerId');
     expect(correction).not.toMatch(/route(?:Points|Cache)?/i);
-    expectNoRouteBytes(correction);
+    expectExactDocumentBytes(correction, 'correction', 2);
 
     const closed = new Promise<void>((resolve) => raw.socket.once('close', resolve));
     raw.socket.close();
@@ -296,7 +373,7 @@ describe('filtered elbow documents (end-to-end)', () => {
     expect(reconnectSnapshot).not.toContain(obstacle.id);
     expect(reconnectSnapshot).not.toContain('ownerId');
     expect(reconnectSnapshot).not.toMatch(/route(?:Points|Cache)?/i);
-    expectNoRouteBytes(reconnectSnapshot);
+    expectExactDocumentBytes(reconnectSnapshot, 'snapshot', 2);
     expect(reconnectSnapshot).toContain('"routing":"elbow"');
     expect(reconnectSnapshot).toContain('"fixedSegments":[{"axis":"x","value":170}]');
     expect(reconnectSnapshot).toContain('"version":2');
@@ -306,8 +383,8 @@ describe('filtered elbow documents (end-to-end)', () => {
 
   it('preserves optional elbow fields through an old-style spread and emits no writes for obstacle routing', async () => {
     const { port } = startServer();
-    const gm = connect(port, 'gm');
-    const player = connect(port, 'player');
+    const gm = connect(port, 'gm', 'gm-client');
+    const player = connect(port, 'player', 'player-client');
     const arrow = {
       ...createArrow({
         from: { x: 20, y: 20 },
@@ -346,6 +423,9 @@ describe('filtered elbow documents (end-to-end)', () => {
       return updated?.type === 'arrow' && updated.to.x === 340;
     });
     expect(gm.store.getById(arrow.id)).toMatchObject({
+      to: { x: 340, y: 20 },
+      version: 2,
+      editor: 'player-client',
       routing: 'elbow',
       fixedSegments: [{ axis: 'y', value: 20 }],
     });
