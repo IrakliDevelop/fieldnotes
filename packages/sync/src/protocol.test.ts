@@ -53,6 +53,7 @@ describe('isValidElement', () => {
     expect(legacy).not.toHaveProperty('routing');
     expect(Object.hasOwn(arrow, 'routing')).toBe(true);
     expect(isValidElement(arrow)).toBe(true);
+    expect(isValidElement({ ...arrow, routing: 'bezier' })).toBe(true);
     expect(
       isValidElement({
         ...arrow,
@@ -65,12 +66,15 @@ describe('isValidElement', () => {
 
     const sparse = JSON.stringify({ ...arrow, fixedSegments: new Array(1) });
     expect(sparse).toContain('"fixedSegments":[null]');
+    const rawSparse = { ...arrow, fixedSegments: new Array<unknown>(1) };
     for (const malformed of [
       { ...arrow, routing: 'spline' },
       { ...arrow, fixedSegments: Array.from({ length: 17 }, () => ({ axis: 'x', value: 0 })) },
       { ...arrow, fixedSegments: [{ axis: 'z', value: 0 }] },
       { ...arrow, fixedSegments: [null] },
+      { ...arrow, fixedSegments: [0] },
       { ...arrow, fixedSegments: [{}] },
+      rawSparse,
       JSON.parse(sparse),
       { ...arrow, fixedSegments: [{ axis: 'x', value: Number.NaN }] },
       { ...arrow, fixedSegments: [{ axis: 'x', value: Number.POSITIVE_INFINITY }] },
@@ -80,6 +84,12 @@ describe('isValidElement', () => {
   });
 
   it('enforces elbow fixed-segment limits independently from structural validation', () => {
+    const atLimit = createArrow({
+      index: 'a0',
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      fixedSegments: Array.from({ length: 16 }, () => ({ axis: 'x' as const, value: 0 })),
+    });
     const arrow = {
       ...createArrow({
         index: 'a0',
@@ -89,6 +99,7 @@ describe('isValidElement', () => {
       fixedSegments: Array.from({ length: 17 }, () => ({ axis: 'x' as const, value: 0 })),
     };
 
+    expect(isWithinSyncLimits({ from: 'A', op: { kind: 'upsert', element: atLimit } })).toBe(true);
     expect(isValidElement(arrow)).toBe(false);
     expect(elementWithinLimits(arrow, SYNC_LIMITS)).toBe(false);
     expect(isWithinSyncLimits({ from: 'A', op: { kind: 'upsert', element: arrow } })).toBe(false);
