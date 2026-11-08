@@ -15,6 +15,12 @@ import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolContext } from './types';
 import { Camera } from '../canvas/camera';
 
+function storedArrow(store: ElementStore, id: string) {
+  const element = store.getById(id);
+  if (!element || element.type !== 'arrow') throw new Error('expected arrow');
+  return element;
+}
+
 function makeCtx(store: ElementStore): ToolContext {
   return {
     camera: new Camera(),
@@ -78,10 +84,10 @@ describe('applyArrowHandleDrag binding', () => {
     });
     store.add(arrow);
     const ctx = makeCtx(store);
-    const route = getElbowRoute(store, store.getById(arrow.id) as typeof arrow);
+    const route = getElbowRoute(store, storedArrow(store, arrow.id));
     const index = route?.segments.findIndex((segment) => segment.fixedIndex === 1);
     if (index === undefined || index < 0) throw new Error('expected tagged segment');
-    const handle = `segment:${index}` as const;
+    const handle: `segment:${number}` = `segment:${index}`;
     const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
     if (!drag) throw new Error('expected segment drag');
     store.add(createNote({ position: { x: 45, y: 0 }, size: { w: 10, h: 100 } }));
@@ -98,7 +104,10 @@ describe('applyArrowHandleDrag binding', () => {
   });
 
   it('does not create a seventeenth pin or edit protected arrows', () => {
-    const pins = Array.from({ length: 16 }, (_, index) => ({ axis: 'x' as const, value: index }));
+    const pins: { axis: 'x'; value: number }[] = Array.from({ length: 16 }, (_, index) => ({
+      axis: 'x',
+      value: index,
+    }));
     const store = new ElementStore();
     const arrow = createArrow({
       from: { x: 0, y: 0 },
@@ -115,6 +124,37 @@ describe('applyArrowHandleDrag binding', () => {
     const locked = { ...arrow, id: 'locked', locked: true };
     store.add(locked);
     expect(captureArrowHandleDrag('segment:1', locked.id, ctx)).toBeNull();
+
+    const layerLocked = { ...makeCtx(store), isLayerLocked: (id: string) => id === arrow.layerId };
+    expect(captureArrowHandleDrag('segment:1', arrow.id, layerLocked)).toBeNull();
+  });
+
+  it('edits fixed slot zero at the cap without adding another pin', () => {
+    const fixedSegments: { axis: 'x' | 'y'; value: number }[] = Array.from(
+      { length: 16 },
+      (_, index) => ({ axis: index % 2 === 0 ? 'x' : 'y', value: index * 10 + 20 }),
+    );
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 200, y: 200 },
+      routing: 'elbow',
+      fixedSegments,
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const route = getElbowRoute(store, storedArrow(store, arrow.id));
+    const index = route?.segments.findIndex((segment) => segment.fixedIndex === 0);
+    if (index === undefined || index < 1) throw new Error('expected interior fixed segment');
+    const handle: `segment:${number}` = `segment:${index}`;
+    const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+    if (!drag) throw new Error('expected fixed segment drag');
+
+    applyArrowHandleDrag(handle, arrow.id, { x: 35, y: 45 }, ctx, drag);
+
+    const updated = storedArrow(store, arrow.id);
+    expect(updated.fixedSegments).toHaveLength(16);
+    expect(updated.fixedSegments?.[0]).toEqual({ axis: 'x', value: 35 });
   });
 
   it('keeps fixed pins while endpoint binding and rebinding changes', () => {
@@ -354,8 +394,9 @@ describe('getArrowHandlePositions', () => {
     store.add(target);
     store.add(arrow);
 
-    const route = getElbowRoute(store, store.getById(arrow.id) as typeof arrow);
-    expect(getArrowHandlePositions(store.getById(arrow.id) as typeof arrow, store)).toEqual([
+    const installed = storedArrow(store, arrow.id);
+    const route = getElbowRoute(store, installed);
+    expect(getArrowHandlePositions(installed, store)).toEqual([
       ['start', route?.points[0]],
       ['segment:1', { x: 50, y: 50 }],
       ['end', route?.points.at(-1)],

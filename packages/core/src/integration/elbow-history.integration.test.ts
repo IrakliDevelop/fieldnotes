@@ -184,6 +184,32 @@ describe('Integration: elbow arrow history', () => {
     expect(harness.viewport.store.getById(label.id)).toMatchObject(originalLabel);
   });
 
+  it('keeps one captured pin across repeated completed drags', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    harness.viewport.store.add(arrow);
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([arrow.id]);
+    harness.viewport.toolManager.setTool('select', harness.viewport.toolContext);
+    harness.viewport.history.clear();
+
+    drag(harness.wrapper, [50, 50], [70, 50]);
+    drag(harness.wrapper, [70, 50], [75, 50]);
+
+    expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [{ axis: 'x', value: 75 }],
+    });
+    expect(harness.viewport.history.undoCount).toBe(2);
+    harness.viewport.undo();
+    expect(harness.viewport.store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [{ axis: 'x', value: 70 }],
+    });
+  });
+
   it('cancels a loaded elbow without a cached control point without history', () => {
     const snapshotArrow = createArrow({
       from: { x: 0, y: 0 },
@@ -191,8 +217,8 @@ describe('Integration: elbow arrow history', () => {
       bend: 0,
       routing: 'elbow',
     });
-    delete (snapshotArrow as { cachedControlPoint?: unknown }).cachedControlPoint;
-    harness.viewport.store.loadSnapshot([snapshotArrow]);
+    harness.viewport.store.add(snapshotArrow);
+    harness.viewport.loadState(harness.viewport.exportState());
     const arrow = harness.viewport.store.getById(snapshotArrow.id);
     if (!arrow || arrow.type !== 'arrow') throw new Error('expected loaded arrow');
     expect(arrow.cachedControlPoint).toBeUndefined();

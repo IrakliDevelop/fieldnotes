@@ -136,6 +136,31 @@ describe('HistoryRecorder', () => {
     expect(stack.undoCount).toBe(1);
   });
 
+  it('records a reordered fixed-segment array', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      fixedSegments: [
+        { axis: 'x', value: 20 },
+        { axis: 'y', value: 40 },
+      ],
+    });
+    store.add(arrow);
+    stack.clear();
+
+    recorder.run(() =>
+      store.update(arrow.id, {
+        fixedSegments: [
+          { axis: 'y', value: 40 },
+          { axis: 'x', value: 20 },
+        ],
+      }),
+    );
+
+    expect(stack.undoCount).toBe(1);
+  });
+
   it('replays multi-element hierarchy updates atomically', () => {
     const { store, stack, recorder } = setup();
     const parent = { ...createNote({ position: { x: 0, y: 0 }, layerId: 'a' }), id: 'parent' };
