@@ -79,6 +79,24 @@ describe('elbow route cache', () => {
       store.add(arrow);
       store.add(label);
     }
+    const persist = (store: ElementStore) =>
+      JSON.stringify(
+        exportState(
+          [store.getById(arrow.id), store.getById(label.id)].filter(
+            (element): element is NonNullable<typeof element> => element !== undefined,
+          ),
+          { position: { x: 0, y: 0 }, zoom: 1 },
+        ),
+      );
+    const document = persist(publicStore);
+    const versions = [
+      privateStore.getById(arrow.id)?.version,
+      privateStore.getById(label.id)?.version,
+    ];
+    const updates: string[] = [];
+    privateStore.on('update', ({ current }) => {
+      if (current.id === arrow.id || current.id === label.id) updates.push(current.id);
+    });
     const obstacle = {
       ...createShape({ position: { x: 80, y: -20 }, size: { w: 40, h: 40 }, shape: 'rectangle' }),
       id: 'private-obstacle',
@@ -91,28 +109,23 @@ describe('elbow route cache', () => {
     const publicRoute = getElbowRoute(publicStore, publicArrow);
     const privateRoute = getElbowRoute(privateStore, privateArrow);
     expect(privateRoute?.points).not.toEqual(publicRoute?.points);
-    const persist = (store: ElementStore) =>
-      JSON.stringify(
-        exportState(
-          [store.getById(arrow.id), store.getById(label.id)].filter(
-            (element): element is NonNullable<typeof element> => element !== undefined,
-          ),
-          { position: { x: 0, y: 0 }, zoom: 1 },
-        ),
-      );
-    const before = persist(privateStore);
-    const arrowVersion = privateStore.getById(arrow.id)?.version;
-    const labelVersion = privateStore.getById(label.id)?.version;
-    const updates: string[] = [];
-    privateStore.on('update', ({ current }) => updates.push(current.id));
+    expect(persist(publicStore)).toBe(document);
+    expect(persist(privateStore)).toBe(document);
+    expect([
+      privateStore.getById(arrow.id)?.version,
+      privateStore.getById(label.id)?.version,
+    ]).toEqual(versions);
+    expect(updates).toEqual([]);
 
     privateStore.update(obstacle.id, { position: { x: 80, y: 80 } });
 
     expect(getElbowRoute(privateStore, privateArrow)?.points).not.toEqual(privateRoute?.points);
-    expect(persist(privateStore)).toBe(before);
-    expect(privateStore.getById(arrow.id)?.version).toBe(arrowVersion);
-    expect(privateStore.getById(label.id)?.version).toBe(labelVersion);
-    expect(updates).not.toContain(arrow.id);
-    expect(updates).not.toContain(label.id);
+    expect(persist(publicStore)).toBe(document);
+    expect(persist(privateStore)).toBe(document);
+    expect([
+      privateStore.getById(arrow.id)?.version,
+      privateStore.getById(label.id)?.version,
+    ]).toEqual(versions);
+    expect(updates).toEqual([]);
   });
 });
