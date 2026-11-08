@@ -4,6 +4,7 @@ import type { Tool, ToolContext, PointerState } from './types';
 import { createArrow } from '../elements/element-factory';
 import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { getElbowRoute } from '../elements/elbow-cache';
 import { DEFAULT_SELECTION_COLOR } from './selection-color';
 
 const BIND_THRESHOLD = 20;
@@ -12,6 +13,7 @@ export interface ArrowToolOptions {
   color?: string;
   width?: number;
   strokeStyle?: ArrowStrokeStyle;
+  routing?: 'bezier' | 'elbow';
 }
 
 export class ArrowTool implements Tool {
@@ -22,21 +24,30 @@ export class ArrowTool implements Tool {
   private color: string;
   private width: number;
   private strokeStyle: ArrowStrokeStyle;
+  private routing: 'bezier' | 'elbow';
   private fromBinding: Binding | undefined;
   private fromTarget: CanvasElement | null = null;
   private toTarget: CanvasElement | null = null;
   // renderOverlay gets no ToolContext, so keep the colour from the gesture's context.
   private selectionColor = DEFAULT_SELECTION_COLOR;
+  private previewArrow: ReturnType<typeof createArrow> | null = null;
+  private previewRoute: ReturnType<typeof getElbowRoute> = null;
   private optionListeners = new Set<() => void>();
 
   constructor(options: ArrowToolOptions = {}) {
     this.color = options.color ?? '#000000';
     this.width = options.width ?? 2;
     this.strokeStyle = options.strokeStyle ?? 'solid';
+    this.routing = validateRouting(options.routing ?? 'bezier');
   }
 
   getOptions(): ArrowToolOptions {
-    return { color: this.color, width: this.width, strokeStyle: this.strokeStyle };
+    return {
+      color: this.color,
+      width: this.width,
+      strokeStyle: this.strokeStyle,
+      routing: this.routing,
+    };
   }
 
   onOptionsChange(listener: () => void): () => void {
@@ -48,6 +59,7 @@ export class ArrowTool implements Tool {
     if (options.color !== undefined) this.color = options.color;
     if (options.width !== undefined) this.width = options.width;
     if (options.strokeStyle !== undefined) this.strokeStyle = options.strokeStyle;
+    if (options.routing !== undefined) this.routing = validateRouting(options.routing);
     this.notifyOptionsChange();
   }
 
@@ -86,6 +98,21 @@ export class ArrowTool implements Tool {
     }
     this.end = { ...this.start };
     this.toTarget = null;
+    this.previewArrow =
+      this.routing === 'elbow'
+        ? createArrow({
+            from: this.start,
+            to: this.end,
+            position: this.start,
+            color: this.color,
+            width: this.width,
+            strokeStyle: this.strokeStyle,
+            fromBinding: this.fromBinding,
+            routing: 'elbow',
+            layerId: ctx.activeLayerId ?? '',
+          })
+        : null;
+    this.previewRoute = null;
   }
 
   onPointerMove(state: PointerState, ctx: ToolContext): void {
@@ -104,6 +131,11 @@ export class ArrowTool implements Tool {
       this.end = cs?.isActive ? cs.constrainPoint(world) : world;
       this.toTarget = null;
     }
+    if (this.previewArrow) {
+      this.previewArrow.to = this.end;
+      this.previewArrow.toBinding = this.toTarget ? { elementId: this.toTarget.id } : undefined;
+      this.previewRoute = getElbowRoute(ctx.store, this.previewArrow);
+    }
     ctx.requestOverlayRender();
   }
 
@@ -111,7 +143,11 @@ export class ArrowTool implements Tool {
     if (!this.drawing) return;
     this.drawing = false;
 
-    if (this.start.x === this.end.x && this.start.y === this.end.y) return;
+    if (this.start.x === this.end.x && this.start.y === this.end.y) {
+      this.previewArrow = null;
+      this.previewRoute = null;
+      return;
+    }
 
     const arrow = createArrow({
       from: this.start,
@@ -120,6 +156,7 @@ export class ArrowTool implements Tool {
       color: this.color,
       width: this.width,
       strokeStyle: this.strokeStyle,
+      routing: this.routing === 'elbow' ? 'elbow' : undefined,
       fromBinding: this.fromBinding,
       toBinding: this.toTarget ? { elementId: this.toTarget.id } : undefined,
       layerId: ctx.activeLayerId ?? '',
@@ -127,6 +164,8 @@ export class ArrowTool implements Tool {
     ctx.store.add(arrow);
     this.fromTarget = null;
     this.toTarget = null;
+    this.previewArrow = null;
+    this.previewRoute = null;
     ctx.requestRender();
     ctx.switchTool?.('select');
   }
@@ -138,6 +177,8 @@ export class ArrowTool implements Tool {
     this.fromTarget = null;
     this.toTarget = null;
     this.fromBinding = undefined;
+    this.previewArrow = null;
+    this.previewRoute = null;
     ctx.requestOverlayRender();
   }
 
@@ -173,27 +214,41 @@ export class ArrowTool implements Tool {
     ctx.globalAlpha = 0.6;
 
     ctx.beginPath();
-    ctx.moveTo(this.start.x, this.start.y);
-    ctx.lineTo(this.end.x, this.end.y);
+    const points = this.previewRoute?.points;
+    const routeStart = points?.[0] ?? this.start;
+    const routeEnd = points?.at(-1) ?? this.end;
+    ctx.moveTo(routeStart.x, routeStart.y);
+    if (points) {
+      for (let index = 1; index < points.length; index++) {
+        const point = points[index];
+        if (point) ctx.lineTo(point.x, point.y);
+      }
+    } else ctx.lineTo(this.end.x, this.end.y);
     ctx.stroke();
 
-    const angle = Math.atan2(this.end.y - this.start.y, this.end.x - this.start.x);
+    const beforeEnd = points?.at(-2) ?? this.start;
+    const angle = Math.atan2(routeEnd.y - beforeEnd.y, routeEnd.x - beforeEnd.x);
     const headLen = 12;
     const headAngle = Math.PI / 6;
 
     ctx.fillStyle = this.color;
     ctx.beginPath();
-    ctx.moveTo(this.end.x, this.end.y);
+    ctx.moveTo(routeEnd.x, routeEnd.y);
     ctx.lineTo(
-      this.end.x - headLen * Math.cos(angle - headAngle),
-      this.end.y - headLen * Math.sin(angle - headAngle),
+      routeEnd.x - headLen * Math.cos(angle - headAngle),
+      routeEnd.y - headLen * Math.sin(angle - headAngle),
     );
     ctx.lineTo(
-      this.end.x - headLen * Math.cos(angle + headAngle),
-      this.end.y - headLen * Math.sin(angle + headAngle),
+      routeEnd.x - headLen * Math.cos(angle + headAngle),
+      routeEnd.y - headLen * Math.sin(angle + headAngle),
     );
     ctx.closePath();
     ctx.fill();
     ctx.restore();
   }
+}
+
+function validateRouting(routing: unknown): 'bezier' | 'elbow' {
+  if (routing === 'bezier' || routing === 'elbow') return routing;
+  throw new TypeError('Invalid arrow routing');
 }

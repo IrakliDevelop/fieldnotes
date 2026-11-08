@@ -20,6 +20,7 @@ import type { ActionContext } from '../actions/types';
 import type { Viewport } from './viewport';
 import { createToolAction, DEFAULT_TOOL_SHORTCUTS } from '../actions/builtin-actions';
 import { FrameTool } from '../tools/frame-tool';
+import { ArrowTool } from '../tools/arrow-tool';
 
 function wheel(
   el: HTMLElement,
@@ -1401,6 +1402,59 @@ describe('InputHandler', () => {
       expect(store.count).toBe(1);
       expect(history.undoCount).toBe(1);
       expect(select.ids).toHaveLength(1);
+    });
+
+    it('creates one elbow arrow and one undo step from a pen gesture', () => {
+      const store = new ElementStore();
+      const manager = new RealToolManager();
+      const history = new RealHistoryStack();
+      const recorder = new RealHistoryRecorder(store, history);
+      const ctx: ToolContext = {
+        camera,
+        store,
+        requestRender: vi.fn(),
+        requestOverlayRender: vi.fn(),
+        activeLayerId: 'layer',
+        isLayerLocked: () => false,
+        switchTool: vi.fn(),
+      };
+      const arrow = new ArrowTool({ routing: 'elbow' });
+      manager.register(arrow);
+      manager.setTool('arrow', ctx);
+      handler.destroy();
+      handler = new InputHandler(element, camera, {
+        toolManager: manager,
+        toolContext: ctx,
+        historyRecorder: recorder,
+        actions: stubActionRegistry(),
+      });
+
+      pointerDown(element, {
+        bubbles: true,
+        button: 0,
+        pointerId: 4,
+        clientX: 10,
+        clientY: 20,
+        pointerType: 'pen',
+      });
+      pointerMove(element, {
+        bubbles: true,
+        button: 0,
+        pointerId: 4,
+        clientX: 110,
+        clientY: 120,
+        pointerType: 'pen',
+      });
+      pointerUp(element, {
+        button: 0,
+        pointerId: 4,
+        clientX: 110,
+        clientY: 120,
+        pointerType: 'pen',
+      });
+
+      expect(store.getElementsByType('arrow')[0]?.routing).toBe('elbow');
+      expect(history.undoCount).toBe(1);
     });
 
     it('forwards pen pressure, Shift, and local coordinates unchanged', () => {

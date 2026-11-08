@@ -65,6 +65,35 @@ function boundsDefinition(clip = false): ElementTypeDefinition<ExtensionElementE
 }
 
 describe('elbow route cache', () => {
+  it('recomputes the same non-store-owned draft after an obstacle changes without document writes', () => {
+    const store = new ElementStore();
+    const draft = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 200, y: 0 },
+      routing: 'elbow',
+    });
+    const obstacle = createShape({
+      position: { x: 80, y: -20 },
+      size: { w: 40, h: 40 },
+      shape: 'rectangle',
+    });
+    store.add(obstacle);
+    const changes: string[] = [];
+    store.on('add', (current) => changes.push(current.id));
+    store.on('update', ({ current }) => changes.push(current.id));
+
+    const before = getElbowRoute(store, draft);
+    changes.length = 0;
+    store.update(obstacle.id, { position: { x: 80, y: 80 } });
+    changes.length = 0;
+    const after = getElbowRoute(store, draft);
+
+    expect(detours(before)).toBe(true);
+    expect(detours(after)).toBe(false);
+    expect(changes).toEqual([]);
+    expect(store.getById(draft.id)).toBeUndefined();
+  });
+
   it('reuses a route for obstacle and arrow style-only updates', () => {
     const store = new ElementStore();
     const arrow = createArrow({

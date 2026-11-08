@@ -114,6 +114,17 @@ describe('ArrowTool', () => {
     expect(arrow.strokeStyle).toBe('dotted');
   });
 
+  it('creates elbow arrows from the routing option', () => {
+    const tool = new ArrowTool({ routing: 'elbow' });
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(100, 100), ctx);
+    tool.onPointerUp(pt(100, 100), ctx);
+
+    expect((ctx.store.getAll()[0] as ArrowElement).routing).toBe('elbow');
+  });
+
   it('snaps start and end to grid when not binding', () => {
     const tool = new ArrowTool();
     const ctx = makeCtx();
@@ -217,6 +228,20 @@ describe('ArrowTool', () => {
       expect(canvas.stroke).toHaveBeenCalled();
     });
 
+    it('renders an orthogonal elbow preview', () => {
+      const tool = new ArrowTool({ routing: 'elbow' });
+      const ctx = makeCtx();
+      const canvas = mockCanvas();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 100), ctx);
+      tool.renderOverlay?.(canvas);
+
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(1, 50, 0);
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(2, 50, 100);
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(3, 100, 100);
+    });
+
     it('does not render overlay when not drawing', () => {
       const tool = new ArrowTool();
       const canvas = mockCanvas();
@@ -248,7 +273,33 @@ describe('ArrowTool', () => {
 describe('ArrowTool getOptions/onOptionsChange', () => {
   it('returns current options', () => {
     const tool = new ArrowTool({ color: '#ff0000', width: 4 });
-    expect(tool.getOptions()).toEqual({ color: '#ff0000', width: 4, strokeStyle: 'solid' });
+    expect(tool.getOptions()).toEqual({
+      color: '#ff0000',
+      width: 4,
+      strokeStyle: 'solid',
+      routing: 'bezier',
+    });
+  });
+
+  it('updates routing and notifies option listeners', () => {
+    const tool = new ArrowTool();
+    const listener = vi.fn();
+    tool.onOptionsChange(listener);
+
+    tool.setOptions({ routing: 'elbow' });
+
+    expect(tool.getOptions().routing).toBe('elbow');
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it('rejects invalid routing before a gesture starts', () => {
+    const invalidOptions: unknown = { routing: 'spline' };
+    const tool = new ArrowTool();
+
+    expect(() => Reflect.construct(ArrowTool, [invalidOptions])).toThrow('Invalid arrow routing');
+    expect(() => Reflect.apply(tool.setOptions, tool, [invalidOptions])).toThrow(
+      'Invalid arrow routing',
+    );
   });
 
   it('fires listener when setOptions is called', () => {

@@ -102,7 +102,8 @@ export function getElbowRoute(
   if (!store) return routeElbowArrow(arrow, null, null, []);
   store.getAll();
   const cache = cacheFor(store);
-  const cached = cache.entries.get(arrow);
+  const isStoreOwned = store.getById(arrow.id) === arrow;
+  const cached = isStoreOwned ? cache.entries.get(arrow) : undefined;
   if (!override && cached && !cached.dirty) {
     if (cached.checkedGeneration !== cache.geometryGeneration)
       cached.checkedGeneration = cache.geometryGeneration;
@@ -134,7 +135,7 @@ export function getElbowRoute(
     toBounds,
     obstacles.map((obstacle) => obstacle.bounds),
   );
-  if (!override)
+  if (!override && isStoreOwned)
     cache.entries.set(arrow, {
       route,
       region,
