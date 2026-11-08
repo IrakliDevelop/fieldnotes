@@ -4,6 +4,7 @@ import type {
   StrokeElement,
   NoteElement,
   ArrowElement,
+  ArrowFixedSegment,
   ArrowStrokeStyle,
   ImageElement,
   HtmlElement,
@@ -11,6 +12,7 @@ import type {
   ShapeElement,
   ShapeKind,
 } from './types';
+import { MAX_ARROW_FIXED_SEGMENTS } from './types';
 import { createId } from './create-id';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
@@ -59,6 +61,8 @@ interface ArrowInput extends BaseDefaults {
   /** @deprecated Migrated to a bound `TextElement` on load. */
   label?: string;
   strokeStyle?: ArrowStrokeStyle;
+  routing?: 'bezier' | 'elbow';
+  fixedSegments?: readonly ArrowFixedSegment[];
 }
 
 interface ImageInput extends BaseDefaults {
@@ -129,6 +133,19 @@ export function createNote(input: NoteInput): NoteElement {
 }
 
 export function createArrow(input: ArrowInput): ArrowElement {
+  if (input.routing !== undefined && input.routing !== 'bezier' && input.routing !== 'elbow') {
+    throw new TypeError('Invalid arrow routing');
+  }
+  if (
+    input.fixedSegments !== undefined &&
+    (input.fixedSegments.length > MAX_ARROW_FIXED_SEGMENTS ||
+      input.fixedSegments.some(
+        (segment) =>
+          (segment.axis !== 'x' && segment.axis !== 'y') || !Number.isFinite(segment.value),
+      ))
+  ) {
+    throw new TypeError('Invalid arrow fixed segments');
+  }
   const bend = input.bend ?? 0;
   const result: ArrowElement = {
     id: createId('arrow'),
@@ -149,6 +166,8 @@ export function createArrow(input: ArrowInput): ArrowElement {
   if (input.toBinding) result.toBinding = input.toBinding;
   if (input.label !== undefined) result.label = input.label;
   if (input.strokeStyle !== undefined) result.strokeStyle = input.strokeStyle;
+  if (input.routing !== undefined) result.routing = input.routing;
+  if (input.fixedSegments !== undefined) result.fixedSegments = input.fixedSegments;
   return addParent(result, input.parentId);
 }
 

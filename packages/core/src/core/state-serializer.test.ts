@@ -128,6 +128,39 @@ describe('exportState', () => {
     }
   });
 
+  it('round-trips elbow routing and fixed segments and rejects malformed constraints', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      index: 'a0',
+      layerId: 'default-layer',
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 20 },
+        { axis: 'x', value: 40 },
+      ],
+    });
+    const state = exportState([arrow], makeCamera(), [
+      { id: 'default-layer', name: 'Layer', visible: true, locked: false, order: 0, opacity: 1 },
+    ]);
+
+    expect(parseState(JSON.stringify(state)).elements[0]).toMatchObject({
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 20 },
+        { axis: 'x', value: 40 },
+      ],
+    });
+
+    const malformed = JSON.parse(JSON.stringify(state)) as {
+      elements: Record<string, unknown>[];
+    };
+    const rawArrow = malformed.elements[0];
+    if (!rawArrow) throw new Error('missing arrow');
+    rawArrow.fixedSegments = [{ axis: 'z', value: 20 }];
+    expect(() => parseState(JSON.stringify(malformed))).toThrow('malformed arrow data');
+  });
+
   it('exportState omits transient html elements', () => {
     const normal = createHtmlElement({
       position: { x: 0, y: 0 },

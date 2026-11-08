@@ -47,6 +47,15 @@ export interface Binding {
 
 export type ArrowStrokeStyle = 'solid' | 'dashed' | 'dotted';
 
+/** A user-fixed axis in an orthogonal arrow route. */
+export interface ArrowFixedSegment {
+  readonly axis: 'x' | 'y';
+  readonly value: number;
+}
+
+/** Maximum number of user-fixed axes allowed on one arrow. */
+export const MAX_ARROW_FIXED_SEGMENTS = 16;
+
 export interface ArrowElement extends BaseElement {
   type: 'arrow';
   from: Point;
@@ -62,6 +71,10 @@ export interface ArrowElement extends BaseElement {
   label?: string;
   /** Line dash appearance. Absent = solid. Decoupled from binding. */
   strokeStyle?: ArrowStrokeStyle;
+  /** Absent means the legacy bezier route. */
+  routing?: 'bezier' | 'elbow';
+  /** Ordered user-fixed axes for an elbow route. */
+  fixedSegments?: readonly ArrowFixedSegment[];
 }
 
 export interface ImageElement extends BaseElement {

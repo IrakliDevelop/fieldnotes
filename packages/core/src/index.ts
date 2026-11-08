@@ -287,6 +287,7 @@ export type {
   StrokeElement,
   NoteElement,
   ArrowElement,
+  ArrowFixedSegment,
   ArrowStrokeStyle,
   ImageElement,
   HtmlElement,
@@ -302,6 +303,7 @@ export type {
   ElementTypeKey,
   BoundTextLayout,
 } from './elements/types';
+export { MAX_ARROW_FIXED_SEGMENTS } from './elements/types';
 export type { BoundTextContainer, CreateBoundTextOptions } from './elements/bound-text';
 export { ElementRegistry } from './elements/element-registry';
 export { getDefaultElementRegistry, setDefaultElementRegistry } from './elements/default-registry';

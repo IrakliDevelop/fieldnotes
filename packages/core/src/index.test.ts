@@ -68,6 +68,13 @@ describe('core public surface', () => {
     expect(FN.VERSION).toBe('0.106.1');
   });
 
+  it('exports the elbow arrow document model without routing helpers', () => {
+    const fixed: FN.ArrowFixedSegment = { axis: 'x', value: 24 };
+    expect([FN.MAX_ARROW_FIXED_SEGMENTS, fixed]).toEqual([16, { axis: 'x', value: 24 }]);
+    expect('routeElbowArrow' in FN).toBe(false);
+    expect('buildAuthoredElbowPath' in FN).toBe(false);
+  });
+
   it('exports text measurement helpers', () => {
     expect(typeof FN.measureText).toBe('function');
     expect(typeof FN.setTextMeasurer).toBe('function');
