@@ -382,7 +382,6 @@ export class ElementStore {
     for (const item of prepared) this.installUpdate(item.existing, item.updated);
     if (validated) this.hierarchyKnownValid = true;
     else if (structural) this.hierarchyKnownValid = false;
-    if (structural) invalidateElbowRoutes(this, null, true);
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
   }
@@ -763,7 +762,7 @@ export class ElementStore {
         }
       }
     }
-    if (clipChanged) {
+    if ((structural && !deferStructuralReset) || clipChanged) {
       invalidateElbowRoutes(this, null, true);
     } else if (!reusedRoute && (!sameBounds(oldBounds, newBounds) || eligibilityChanged)) {
       invalidateElbowRoutes(this, oldBounds);

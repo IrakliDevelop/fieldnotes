@@ -145,6 +145,48 @@ describe('elbow route cache', () => {
     expect(detours(getElbowRoute(store, arrow))).toBe(false);
   });
 
+  it('remote same-bounds reparenting invalidates projected descendants', () => {
+    const store = new ElementStore();
+    const arrow = elbow(store);
+    const arrowVersion = arrow.version;
+    const arrowUpdates: string[] = [];
+    store.on('update', ({ current }) => {
+      if (current.id === arrow.id) arrowUpdates.push(current.id);
+    });
+    const container = createShape({
+      position: { x: 1_000, y: 1_000 },
+      size: { w: 10, h: 10 },
+      shape: 'rectangle',
+    });
+    container.id = 'container';
+    const child = createShape({
+      position: { x: 40, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    child.parentId = container.id;
+    store.add(container, { origin: 'remote' });
+    store.add(child, { origin: 'remote' });
+    expect(detours(getElbowRoute(store, arrow))).toBe(true);
+
+    store.update(container.id, { parentId: 'missing' }, { origin: 'remote' });
+    expect(detours(getElbowRoute(store, arrow))).toBe(false);
+
+    const parent = createShape({
+      position: { x: 2_000, y: 2_000 },
+      size: { w: 10, h: 10 },
+      shape: 'rectangle',
+    });
+    parent.id = 'parent';
+    store.add(parent, { origin: 'remote' });
+    store.updateMany([{ id: container.id, partial: { parentId: parent.id } }], {
+      origin: 'remote',
+    });
+    expect(detours(getElbowRoute(store, arrow))).toBe(true);
+    expect(store.getById(arrow.id)?.version).toBe(arrowVersion);
+    expect(arrowUpdates).toEqual([]);
+  });
+
   it('invalidates same-bounds eligibility and effective clips', () => {
     const store = new ElementStore();
     const arrow = elbow(store);
