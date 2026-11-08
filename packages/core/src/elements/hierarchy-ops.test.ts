@@ -273,6 +273,7 @@ describe('hierarchy operations', () => {
         position: { x: 15, y: 25 },
         from: { x: 15, y: 25 },
         to: { x: 30, y: 40 },
+        fixedSegments: [{ axis: 'x', value: 20 }],
         fromBinding: { elementId: 'parent' },
         parentId: 'parent',
         layerId: 'a',
@@ -285,6 +286,7 @@ describe('hierarchy operations', () => {
         position: { x: 0, y: 0 },
         from: { x: 0, y: 0 },
         to: { x: 100, y: 100 },
+        fixedSegments: [{ axis: 'x', value: 50 }],
         fromBinding: { elementId: 'parent' },
         layerId: 'a',
         index: 'c',
@@ -307,11 +309,13 @@ describe('hierarchy operations', () => {
       position: { x: 22, y: 33 },
       from: { x: 22, y: 33 },
       to: { x: 37, y: 48 },
+      fixedSegments: [{ axis: 'x', value: 27 }],
     });
     expect(store.getById('external')).toMatchObject({
       position: { x: 57, y: 58 },
       from: { x: 57, y: 58 },
       to: { x: 100, y: 100 },
+      fixedSegments: [{ axis: 'x', value: 50 }],
     });
     restoreHierarchyOrigins(origins, store);
     updateExternalBoundArrows(origins.positions.keys(), store);
@@ -319,12 +323,40 @@ describe('hierarchy operations', () => {
       position: { x: 15, y: 25 },
       from: { x: 15, y: 25 },
       to: { x: 30, y: 40 },
+      fixedSegments: [{ axis: 'x', value: 20 }],
     });
     expect(store.getVersion('external')).toBe(2);
     expect(store.getById('external')).toMatchObject({
       position: { x: 50, y: 50 },
       from: { x: 50, y: 50 },
       to: { x: 100, y: 100 },
+    });
+  });
+
+  it('restores fixed axes after a cancelled hierarchy move', () => {
+    const store = new ElementStore();
+    const arrow = {
+      ...createArrow({
+        from: { x: 10, y: 20 },
+        to: { x: 40, y: 50 },
+        fixedSegments: [{ axis: 'x', value: 30 }],
+      }),
+      id: 'arrow',
+    };
+    store.add(arrow);
+    const move = getHierarchyMove([arrow.id], store);
+    const origins = captureHierarchyOrigins(move.elements);
+
+    moveHierarchy([arrow.id], 4, 6, store);
+    expect(store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [{ axis: 'x', value: 34 }],
+    });
+    restoreHierarchyOrigins(origins, store);
+
+    expect(store.getById(arrow.id)).toMatchObject({
+      from: { x: 10, y: 20 },
+      to: { x: 40, y: 50 },
+      fixedSegments: [{ axis: 'x', value: 30 }],
     });
   });
 

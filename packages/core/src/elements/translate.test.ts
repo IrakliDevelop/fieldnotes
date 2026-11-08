@@ -19,6 +19,23 @@ describe('translateElementPatch', () => {
     expect(patch.to).toEqual({ x: 14, y: 16 });
     expect(patch.position).toEqual({ x: arrow.position.x + 4, y: arrow.position.y + 6 });
   });
+  it('translates fixed axes with their matching world coordinate', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 10, y: 10 },
+      fixedSegments: [
+        { axis: 'x', value: 30 },
+        { axis: 'y', value: 40 },
+      ],
+    });
+
+    expect(translateElementPatch(arrow, 4, 6)).toMatchObject({
+      fixedSegments: [
+        { axis: 'x', value: 34 },
+        { axis: 'y', value: 46 },
+      ],
+    });
+  });
   it('translates a stroke by position only (points untouched)', () => {
     const stroke = createStroke({
       points: [{ x: 0, y: 0, pressure: 1 }],

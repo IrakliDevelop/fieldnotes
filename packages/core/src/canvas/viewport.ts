@@ -1701,6 +1701,15 @@ export class Viewport {
     this.transaction(() => this.selectionOps.rotateSelection(direction));
   }
 
+  /** Clears authored elbow route axes and returns whether an arrow changed. */
+  resetArrowRoute(id: string): boolean {
+    const arrow = this.store.getById(id);
+    if (arrow?.type !== 'arrow' || !arrow.fixedSegments?.length) return false;
+    this.transaction(() => this.store.update(id, { fixedSegments: undefined }));
+    this.requestRender();
+    return true;
+  }
+
   getRenderStats(): RenderStatsSnapshot {
     return this.renderLoop.getStats();
   }

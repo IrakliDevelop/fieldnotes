@@ -1,6 +1,6 @@
 import type { Point } from '../core/types';
 import { translateElementPatch } from './translate';
-import type { CanvasElement } from './types';
+import type { ArrowFixedSegment, CanvasElement } from './types';
 import type { ElementStore } from './element-store';
 import { findBoundArrows, updateBoundArrow } from './arrow-binding';
 
@@ -131,17 +131,25 @@ export function updateExternalBoundArrows(movedIds: Iterable<string>, store: Ele
 export interface HierarchyOrigins {
   readonly positions: ReadonlyMap<string, Point>;
   readonly arrowEnds: ReadonlyMap<string, { readonly from: Point; readonly to: Point }>;
+  readonly arrowFixedSegments: ReadonlyMap<string, readonly ArrowFixedSegment[] | undefined>;
 }
 
 /** Captures enough geometry to restore a move without reading later state. */
 export function captureHierarchyOrigins(elements: readonly CanvasElement[]): HierarchyOrigins {
   const positions = new Map<string, Point>();
   const arrowEnds = new Map<string, { from: Point; to: Point }>();
+  const arrowFixedSegments = new Map<string, readonly ArrowFixedSegment[] | undefined>();
   for (const element of elements) {
     positions.set(element.id, element.position);
-    if (element.type === 'arrow') arrowEnds.set(element.id, { from: element.from, to: element.to });
+    if (element.type === 'arrow') {
+      arrowEnds.set(element.id, { from: element.from, to: element.to });
+      arrowFixedSegments.set(
+        element.id,
+        element.fixedSegments?.map((segment) => ({ ...segment })),
+      );
+    }
   }
-  return { positions, arrowEnds };
+  return { positions, arrowEnds, arrowFixedSegments };
 }
 
 /** Restores a captured hierarchy move atomically. */
@@ -150,7 +158,13 @@ export function restoreHierarchyOrigins(origins: HierarchyOrigins, store: Elemen
   store.updateMany(
     [...origins.positions].map(([id, position]) => ({
       id,
-      partial: { position, ...origins.arrowEnds.get(id) },
+      partial: {
+        position,
+        ...origins.arrowEnds.get(id),
+        ...(origins.arrowFixedSegments.has(id)
+          ? { fixedSegments: origins.arrowFixedSegments.get(id) }
+          : {}),
+      },
     })),
   );
 }

@@ -87,4 +87,46 @@ describe('rotateElementPatch', () => {
     }
     expect(patch.rotation).toBeUndefined();
   });
+
+  it('rotates fixed axes exactly on a clockwise quarter turn', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 10, y: 10 },
+      fixedSegments: [
+        { axis: 'x', value: 30 },
+        { axis: 'y', value: 40 },
+      ],
+    });
+    const bounds = getElementBounds(arrow);
+    if (!bounds) throw new Error('no bounds');
+    const patch = rotateElementPatch(arrow, bounds, { x: 0, y: 0 }, CW);
+
+    expect(patch).toMatchObject({
+      fixedSegments: [
+        { axis: 'y', value: 30 },
+        { axis: 'x', value: -40 },
+      ],
+    });
+  });
+
+  it('rotates fixed axes exactly on a counterclockwise quarter turn', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 10, y: 10 },
+      fixedSegments: [
+        { axis: 'x', value: 30 },
+        { axis: 'y', value: 40 },
+      ],
+    });
+    const bounds = getElementBounds(arrow);
+    if (!bounds) throw new Error('no bounds');
+    const patch = rotateElementPatch(arrow, bounds, { x: 0, y: 0 }, CCW);
+
+    expect(patch).toMatchObject({
+      fixedSegments: [
+        { axis: 'y', value: -30 },
+        { axis: 'x', value: 40 },
+      ],
+    });
+  });
 });

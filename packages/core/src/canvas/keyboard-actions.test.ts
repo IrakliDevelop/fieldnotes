@@ -371,6 +371,27 @@ describe('KeyboardActions.duplicate', () => {
     }
   });
 
+  it('duplicates authored axes at the clone offset without aliasing them', () => {
+    const { actions, ctx, tool } = makeActions();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 10, y: 10 },
+      fixedSegments: [{ axis: 'x', value: 30 }],
+    });
+    ctx.store.add(arrow);
+    tool.setSelection([arrow.id]);
+
+    actions.duplicate();
+
+    const clone = ctx.store.getAll().find((element) => element.id !== arrow.id);
+    expect(clone).toMatchObject({
+      type: 'arrow',
+      fixedSegments: [{ axis: 'x', value: 50 }],
+    });
+    if (clone?.type !== 'arrow') throw new Error('expected arrow clone');
+    expect(clone.fixedSegments).not.toBe(arrow.fixedSegments);
+  });
+
   it('does not touch the copy/paste clipboard', () => {
     const { actions, ctx, tool } = makeActions();
     const a = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });

@@ -2106,6 +2106,43 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
+    it('resets authored axes in a transaction separate from a pending nudge', () => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 0 },
+        fixedSegments: [{ axis: 'x', value: 50 }],
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.store.add(arrow);
+      viewport.history.clear();
+      selectTool.setSelection([note.id]);
+      focusCanvas(container);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+      expect(viewport.resetArrowRoute(arrow.id)).toBe(true);
+      expect(viewport.store.getById(arrow.id)).toMatchObject({ fixedSegments: undefined });
+      expect(viewport.history.undoCount).toBe(2);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(arrow.id)).toMatchObject({
+        fixedSegments: [{ axis: 'x', value: 50 }],
+      });
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(note.id)?.position.x).toBe(100);
+      expect(viewport.resetArrowRoute('missing')).toBe(false);
+      vi.useRealTimers();
+      viewport.destroy();
+    });
+
     it.each([
       ['alignSelection', (v: Viewport) => v.alignSelection('left')],
       ['addShape', (v: Viewport) => void v.addShape({ position: { x: 500, y: 500 } })],
