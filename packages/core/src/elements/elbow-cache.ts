@@ -114,7 +114,7 @@ export function getElbowRoute(
       distance: distanceToBounds(bounds, authoredBounds),
     });
   }
-  obstacles.sort((a, b) => a.distance - b.distance || a.id.localeCompare(b.id));
+  obstacles.sort(compareObstacles);
   const fromBounds =
     override?.fromBounds ??
     (arrow.fromBinding ? getBounds(store, arrow.fromBinding.elementId) : null);
@@ -173,11 +173,21 @@ function boundsOf(points: readonly { x: number; y: number }[]): Bounds {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
+function compareObstacles(
+  a: { id: string; distance: number },
+  b: { id: string; distance: number },
+): number {
+  if (a.distance !== b.distance) return a.distance - b.distance;
+  if (a.id < b.id) return -1;
+  if (a.id > b.id) return 1;
+  return 0;
+}
+
 function farther(
   a: { id: string; distance: number },
   b: { id: string; distance: number },
 ): boolean {
-  return a.distance > b.distance || (a.distance === b.distance && a.id > b.id);
+  return compareObstacles(a, b) > 0;
 }
 
 function pushNearest<T extends { id: string; distance: number }>(heap: T[], value: T): void {
@@ -223,9 +233,9 @@ function clippedBounds(store: ElementStore, element: CanvasElement): Bounds | nu
 }
 
 function distanceToBounds(bounds: Bounds, region: Bounds): number {
-  const x = Math.max(region.x, Math.min(bounds.x + bounds.w, region.x + region.w));
-  const y = Math.max(region.y, Math.min(bounds.y + bounds.h, region.y + region.h));
-  return Math.hypot(bounds.x + bounds.w / 2 - x, bounds.y + bounds.h / 2 - y);
+  const x = Math.max(region.x - (bounds.x + bounds.w), bounds.x - (region.x + region.w), 0);
+  const y = Math.max(region.y - (bounds.y + bounds.h), bounds.y - (region.y + region.h), 0);
+  return Math.hypot(x, y);
 }
 
 /** Marks cached local routes affected by a scene change stale. */

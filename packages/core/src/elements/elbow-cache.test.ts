@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createArrow, createShape } from './element-factory';
-import { getElbowRoute } from './elbow-cache';
+import { createArrow, createShape, createText } from './element-factory';
+import { getElbowRoute, setElbowVisibleLayers } from './elbow-cache';
 import { ElementStore } from './element-store';
 import { ElementRegistry } from './element-registry';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
@@ -55,9 +55,11 @@ function boundsDefinition(clip = false): ElementTypeDefinition<ExtensionElementE
     ...(clip
       ? {
           clipBounds: (element: ExtensionElementEnvelope) =>
-            element.data['visible'] === true
-              ? { x: 40, y: -10, w: 20, h: 20 }
-              : { x: 200, y: 200, w: 20, h: 20 },
+            element.data['clip'] === 'partial'
+              ? { x: 50, y: -10, w: 10, h: 20 }
+              : element.data['visible'] === true
+                ? { x: 40, y: -10, w: 20, h: 20 }
+                : { x: 200, y: 200, w: 20, h: 20 },
         }
       : {}),
   };
@@ -279,4 +281,158 @@ describe('elbow route cache', () => {
       );
     },
   );
+
+  it('ranks mixed-size rectangles by AABB distance rather than center', () => {
+    const store = new ElementStore();
+    const arrow = elbow(store);
+    for (let index = 0; index < 32; index += 1) {
+      const nearby = createShape({
+        position: { x: 45, y: 40 },
+        size: { w: 10, h: 1 },
+        shape: 'rectangle',
+      });
+      nearby.id = `near-${index}`;
+      store.add(nearby);
+    }
+    const touching = createShape({
+      position: { x: 40, y: -1_000 },
+      size: { w: 20, h: 1_000 },
+      shape: 'rectangle',
+    });
+    touching.id = 'touching';
+    store.add(touching);
+
+    const route = getElbowRoute(store, arrow);
+    expect(route?.points).toEqual([
+      { x: 0, y: 0 },
+      { x: 0, y: 13 },
+      { x: 100, y: 13 },
+      { x: 100, y: 0 },
+    ]);
+  });
+
+  it('breaks equal-distance ties by raw id consistently across insertion orders', () => {
+    const candidates = Array.from({ length: 33 }, (_, index) => ({
+      id: index === 0 ? 'A0' : index === 1 ? 'a0' : `B${String(index).padStart(2, '0')}`,
+      position: index === 1 ? { x: 60, y: -13 } : { x: 20, y: 12 },
+    }));
+    const routeFor = (order: readonly (typeof candidates)[number][]) => {
+      const store = new ElementStore();
+      const arrow = elbow(store);
+      for (const candidate of order) {
+        const obstacle = createShape({
+          position: candidate.position,
+          size: { w: 1, h: 1 },
+          shape: 'rectangle',
+        });
+        obstacle.id = candidate.id;
+        store.add(obstacle);
+      }
+      return getElbowRoute(store, arrow);
+    };
+
+    const forward = routeFor(candidates);
+    expect(forward).toEqual(routeFor([...candidates].reverse()));
+    expect(forward?.points).toEqual([
+      { x: 0, y: 0 },
+      { x: 0, y: -1 },
+      { x: 100, y: -1 },
+      { x: 100, y: 0 },
+    ]);
+  });
+
+  it('excludes its own label, descendants, ancestors and endpoint targets', () => {
+    const store = new ElementStore();
+    const ancestor = createShape({
+      position: { x: 40, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    ancestor.id = 'ancestor';
+    const source = createShape({
+      position: { x: -20, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    source.id = 'source';
+    const target = createShape({
+      position: { x: 80, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    target.id = 'target';
+    store.add(ancestor);
+    store.add(source);
+    store.add(target);
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 0 },
+      routing: 'elbow',
+      parentId: ancestor.id,
+      fromBinding: { elementId: source.id, focus: 0, gap: 0 },
+      toBinding: { elementId: target.id, focus: 0, gap: 0 },
+    });
+    arrow.id = 'arrow';
+    store.add(arrow);
+    const installed = store.getById(arrow.id);
+    if (!installed || installed.type !== 'arrow') throw new Error('expected arrow');
+    expect(detours(getElbowRoute(store, installed))).toBe(false);
+    const label = createText({
+      position: { x: 40, y: -10 },
+      parentId: arrow.id,
+      containerId: arrow.id,
+    });
+    const child = createShape({
+      position: { x: 40, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+      parentId: arrow.id,
+    });
+    store.add(label);
+    expect(detours(getElbowRoute(store, installed))).toBe(false);
+    store.remove(label.id);
+    expect(detours(getElbowRoute(store, installed))).toBe(false);
+    store.add(label);
+    store.add(child);
+    expect(detours(getElbowRoute(store, installed))).toBe(false);
+    store.remove(child.id);
+    expect(detours(getElbowRoute(store, installed))).toBe(false);
+  });
+
+  it('uses effective clipped rotated bounds and visible layers', () => {
+    const registry = new ElementRegistry();
+    registry.register(boundsDefinition(true));
+    const store = new ElementStore(registry);
+    const arrow = elbow(store);
+    const clipParent = extension('clip-parent', { data: { clip: 'partial' } });
+    const clipped = extension('clipped', {
+      parentId: clipParent.id,
+      data: { obstacle: true },
+    });
+    store.add(clipParent);
+    store.add(clipped);
+    expect(detours(getElbowRoute(store, arrow))).toBe(true);
+    store.update(clipParent.id, { data: { clip: 'hidden' } });
+    expect(detours(getElbowRoute(store, arrow))).toBe(false);
+
+    const rotated = createShape({
+      position: { x: 30, y: 14 },
+      size: { w: 40, h: 10 },
+      shape: 'rectangle',
+      layerId: 'other',
+    });
+    rotated.rotation = Math.PI / 2;
+    store.add(rotated);
+    let otherVisible = true;
+    const isVisible = (layerId: string) => layerId !== 'other' || otherVisible;
+    setElbowVisibleLayers(store, isVisible);
+    const visibleRoute = getElbowRoute(store, arrow);
+    expect(detours(visibleRoute)).toBe(true);
+
+    otherVisible = false;
+    setElbowVisibleLayers(store, isVisible);
+    const hiddenRoute = getElbowRoute(store, arrow);
+    expect(detours(hiddenRoute)).toBe(false);
+    expect(hiddenRoute).not.toBe(visibleRoute);
+  });
 });
