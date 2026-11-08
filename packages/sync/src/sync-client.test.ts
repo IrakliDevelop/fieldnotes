@@ -3,6 +3,7 @@ import {
   ElementStore,
   ElementRegistry,
   createNote,
+  createArrow,
   createStroke,
   createShape,
   createHtmlElement,
@@ -734,6 +735,49 @@ describe('SyncClient', () => {
     expect(storeB.count).toBe(before);
   });
 
+  it('rejects malformed elbow upserts while preserving valid additive arrow fields through endpoint edits', () => {
+    const arrow = {
+      ...createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        routing: 'elbow',
+        fixedSegments: [{ axis: 'x' as const, value: 50 }],
+      }),
+      version: 7,
+      editor: 'peer',
+      futureArrowField: 'kept',
+    };
+
+    transportA.send(envelope('X', { kind: 'upsert', element: arrow }));
+    const admitted = storeB.getById(arrow.id);
+    expect(admitted).toMatchObject({
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'x', value: 50 }],
+      version: 7,
+      editor: 'peer',
+      futureArrowField: 'kept',
+    });
+
+    storeB.update(arrow.id, { to: { x: 120, y: 100 } });
+    expect(storeA.getById(arrow.id)).toMatchObject({
+      to: { x: 120, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'x', value: 50 }],
+      version: 8,
+      editor: 'B',
+      futureArrowField: 'kept',
+    });
+
+    const malformed = {
+      ...arrow,
+      version: 9,
+      fixedSegments: [{ axis: 'x', value: Number.NaN }],
+    };
+    transportA.send(JSON.stringify({ from: 'X', op: { kind: 'upsert', element: malformed } }));
+    expect(storeB.getById(arrow.id)).toMatchObject({ to: { x: 120, y: 100 }, version: 8 });
+  });
+
   it('stops sending after stop() and tolerates a double stop', () => {
     clientA.stop();
     const before = transportA.sent.length;
@@ -949,14 +993,37 @@ describe('SyncClient snapshot-on-join', () => {
 
     expect(storeB.count).toBe(before);
 
-    // Mixed batch: one valid element + one object with no id -> only the valid one is applied.
+    // Mixed batch: valid old and elbow elements survive while malformed members are skipped.
     const valid = shape(7);
+    const elbow = createArrow({
+      index: 'a0',
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'y', value: 40 }],
+    });
     transportX.send(
-      JSON.stringify({ from: 'X', op: { kind: 'snapshot', to: 'B', elements: [valid, {}] } }),
+      JSON.stringify({
+        from: 'X',
+        op: {
+          kind: 'snapshot',
+          to: 'B',
+          elements: [
+            valid,
+            elbow,
+            { ...elbow, id: 'malformed', fixedSegments: [{ axis: 'x', value: NaN }] },
+          ],
+        },
+      }),
     );
 
-    expect(storeB.count).toBe(1);
+    expect(storeB.count).toBe(2);
     expect(storeB.getById(valid.id)).toBeDefined();
+    expect(storeB.getById(elbow.id)).toMatchObject({
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'y', value: 40 }],
+    });
+    expect(storeB.getById('malformed')).toBeUndefined();
   });
 
   it('responds to a request-snapshot with exactly one addressed snapshot envelope', () => {
