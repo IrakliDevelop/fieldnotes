@@ -240,6 +240,26 @@ describe('ArrowTool', () => {
       expect(canvas.lineTo).toHaveBeenNthCalledWith(1, 50, 0);
       expect(canvas.lineTo).toHaveBeenNthCalledWith(2, 50, 100);
       expect(canvas.lineTo).toHaveBeenNthCalledWith(3, 100, 100);
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(4, 89.60769515458674, 106);
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(5, 89.60769515458674, 94);
+    });
+
+    it('does not render a head for a collapsed elbow preview', () => {
+      const tool = new ArrowTool({ routing: 'elbow' });
+      const store = new ElementStore();
+      const ctx = makeCtx({ store });
+      const canvas = Object.assign(mockCanvas(), { strokeRect: vi.fn(), setLineDash: vi.fn() });
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
+
+      tool.onPointerDown(pt(50, 50), ctx);
+      tool.onPointerMove(pt(60, 50), ctx);
+      tool.renderOverlay?.(canvas);
+
+      expect(canvas.stroke).toHaveBeenCalledOnce();
+      expect(canvas.fill).not.toHaveBeenCalled();
+      expect(canvas.closePath).not.toHaveBeenCalled();
+      expect(canvas.save).toHaveBeenCalledOnce();
+      expect(canvas.restore).toHaveBeenCalledOnce();
     });
 
     it('does not render overlay when not drawing', () => {

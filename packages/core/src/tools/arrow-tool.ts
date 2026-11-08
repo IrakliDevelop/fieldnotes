@@ -4,6 +4,7 @@ import type { Tool, ToolContext, PointerState } from './types';
 import { createArrow } from '../elements/element-factory';
 import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { getPolylineEndTangent } from '../elements/arrow-geometry';
 import { getElbowRoute } from '../elements/elbow-cache';
 import { DEFAULT_SELECTION_COLOR } from './selection-color';
 
@@ -227,24 +228,27 @@ export class ArrowTool implements Tool {
     } else ctx.lineTo(this.end.x, this.end.y);
     ctx.stroke();
 
-    const beforeEnd = points?.at(-2) ?? this.start;
-    const angle = Math.atan2(routeEnd.y - beforeEnd.y, routeEnd.x - beforeEnd.x);
-    const headLen = 12;
-    const headAngle = Math.PI / 6;
+    const angle = points
+      ? getPolylineEndTangent(points)
+      : Math.atan2(this.end.y - this.start.y, this.end.x - this.start.x);
+    if (angle !== null) {
+      const headLen = 12;
+      const headAngle = Math.PI / 6;
 
-    ctx.fillStyle = this.color;
-    ctx.beginPath();
-    ctx.moveTo(routeEnd.x, routeEnd.y);
-    ctx.lineTo(
-      routeEnd.x - headLen * Math.cos(angle - headAngle),
-      routeEnd.y - headLen * Math.sin(angle - headAngle),
-    );
-    ctx.lineTo(
-      routeEnd.x - headLen * Math.cos(angle + headAngle),
-      routeEnd.y - headLen * Math.sin(angle + headAngle),
-    );
-    ctx.closePath();
-    ctx.fill();
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.moveTo(routeEnd.x, routeEnd.y);
+      ctx.lineTo(
+        routeEnd.x - headLen * Math.cos(angle - headAngle),
+        routeEnd.y - headLen * Math.sin(angle - headAngle),
+      );
+      ctx.lineTo(
+        routeEnd.x - headLen * Math.cos(angle + headAngle),
+        routeEnd.y - headLen * Math.sin(angle + headAngle),
+      );
+      ctx.closePath();
+      ctx.fill();
+    }
     ctx.restore();
   }
 }
