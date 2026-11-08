@@ -451,7 +451,13 @@ describe('Integration: elbow arrow history', () => {
       fixedSegments: undefined,
       to: { x: 200, y: 100 },
     });
-    expect(harness.viewport.store.getById(label.id)?.position).not.toEqual(localLabelPosition);
+    const relaid = harness.viewport.store.getById(label.id);
+    if (!relaid || relaid.type !== 'text') throw new Error('expected relaid label');
+    expect(localLabelPosition).not.toEqual(relaid.position);
+    expect({
+      x: relaid.position.x + relaid.size.w / 2,
+      y: relaid.position.y + relaid.size.h / 2,
+    }).toEqual({ x: 100, y: 50 });
     expect(harness.viewport.history.undoCount).toBe(0);
   });
 

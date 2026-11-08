@@ -8,13 +8,52 @@ import { createBoundText } from '../elements/bound-text';
 import { setTextMeasurer } from '../elements/text-measure';
 import { createFrame } from '../elements/frame-element';
 import { LayerManager } from '../layers/layer-manager';
-import type { ExtensionElementEnvelope } from '../elements/types';
+import { ElementRegistry } from '../elements/element-registry';
+import type {
+  ArrowElement,
+  ElementTypeDefinition,
+  ExtensionElementEnvelope,
+  ShapeElement,
+} from '../elements/types';
 
 function setup() {
   const store = new ElementStore();
   const stack = new HistoryStack();
   const recorder = new HistoryRecorder(store, stack);
   return { store, stack, recorder };
+}
+
+function boundExtension(id: string): ExtensionElementEnvelope {
+  return {
+    id,
+    type: 'extension',
+    extensionType: 'test:bound',
+    position: { x: 0, y: 0 },
+    index: '',
+    version: 1,
+    locked: false,
+    layerId: '',
+    data: {},
+  };
+}
+
+function setupBoundExtension() {
+  const registry = new ElementRegistry();
+  const boundTextLayout: ElementTypeDefinition<ExtensionElementEnvelope>['boundTextLayout'] =
+    () => ({ box: { x: 0, y: 0, w: 100, h: 40 } });
+  registry.register({
+    type: 'test:bound',
+    legacyTypes: [],
+    decodeLegacy: () => boundExtension('legacy'),
+    validateData: () => true,
+    unwrap: (element) => element,
+    wrap: (element) => element,
+    bounds: () => null,
+    boundTextLayout,
+  });
+  const store = new ElementStore(registry);
+  const stack = new HistoryStack();
+  return { store, stack, recorder: new HistoryRecorder(store, stack), registry };
 }
 
 describe('HistoryRecorder', () => {
@@ -129,7 +168,7 @@ describe('HistoryRecorder', () => {
 
   it('does not record derived label geometry after an external arrow rebase', () => {
     const { store, stack, recorder } = setup();
-    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
     const label = createBoundText(arrow, { text: 'label' });
     store.add(arrow);
     store.add(label);
@@ -145,7 +184,7 @@ describe('HistoryRecorder', () => {
 
   it('keeps a local label text edit while excluding its geometry after an external arrow rebase', () => {
     const { store, stack, recorder } = setup();
-    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
     const label = createBoundText(arrow, { text: 'before' });
     store.add(arrow);
     store.add(label);
@@ -167,7 +206,7 @@ describe('HistoryRecorder', () => {
 
   it('keeps label geometry in history for an external non-geometry arrow change', () => {
     const { store, stack, recorder } = setup();
-    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
     const label = createBoundText(arrow, { text: 'label' });
     store.add(arrow);
     store.add(label);
@@ -183,12 +222,12 @@ describe('HistoryRecorder', () => {
     stack.undo(store);
     recorder.resume();
     expect(store.getById(label.id)?.position).not.toEqual(changed);
-    expect(store.getById(arrow.id)?.color).toBe('#ff0000');
+    expect(store.getById(arrow.id)).toMatchObject({ color: '#ff0000' });
   });
 
   it('excludes a derived label when an external update removes its snapshotted container', () => {
     const { store, stack, recorder } = setup();
-    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
     const label = createBoundText(arrow, { text: 'label' });
     store.add(arrow);
     store.add(label);
@@ -204,7 +243,7 @@ describe('HistoryRecorder', () => {
 
   it('does not leak an external label rebase into the next transaction', () => {
     const { store, stack, recorder } = setup();
-    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
     const label = createBoundText(arrow, { text: 'label' });
     store.add(arrow);
     store.add(label);
@@ -221,9 +260,84 @@ describe('HistoryRecorder', () => {
     expect(stack.undoCount).toBe(1);
   });
 
+  it('clears an external label rebase on rollback', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const label = createBoundText(arrow, { text: 'label' });
+    store.add(arrow);
+    store.add(label);
+    stack.clear();
+    recorder.begin();
+    store.update(arrow.id, { to: { x: 160, y: 0 } });
+    store.update(arrow.id, { ...arrow, version: 100, editor: 'peer' }, { origin: 'remote' });
+    recorder.rollback();
+    recorder.begin();
+    store.update(label.id, { position: { x: 7, y: 9 } });
+    recorder.commit();
+
+    expect(stack.undoCount).toBe(1);
+  });
+
+  const arrowExternalCases: readonly (readonly [string, Partial<ArrowElement>])[] = [
+    ['routing', { routing: 'bezier' }],
+    ['fixedSegments', { fixedSegments: [{ axis: 'x' as const, value: 60 }] }],
+  ];
+  it.each(arrowExternalCases)('uses arrow %s as external geometry', (_name, external) => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    const label = createBoundText(arrow, { text: 'label' });
+    store.add(arrow);
+    store.add(label);
+    stack.clear();
+    recorder.begin();
+    store.update(arrow.id, { from: { x: 20, y: 0 } });
+    store.update(arrow.id, external, { origin: 'remote' });
+    recorder.commit();
+
+    expect(stack.snapshot().undo[0]).toBeInstanceOf(UpdateElementCommand);
+  });
+
+  const shapeExternalCases: readonly (readonly [string, Partial<ShapeElement>])[] = [
+    ['size', { size: { w: 120, h: 60 } }],
+    ['rotation', { rotation: Math.PI / 4 }],
+  ];
+  it.each(shapeExternalCases)('uses shape %s as external geometry', (_name, external) => {
+    const { store, stack, recorder } = setup();
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } });
+    const label = createBoundText(shape, { text: 'label' });
+    store.add(shape);
+    store.add(label);
+    stack.clear();
+    recorder.begin();
+    store.update(shape.id, { position: { x: 20, y: 0 } });
+    store.update(shape.id, external, { origin: 'remote' });
+    recorder.commit();
+
+    expect(stack.snapshot().undo[0]).toBeInstanceOf(UpdateElementCommand);
+  });
+
+  it('uses extension data as external geometry', () => {
+    const { store, stack, recorder, registry } = setupBoundExtension();
+    const extension = boundExtension('extension');
+    const label = createBoundText(extension, { text: 'label' }, registry);
+    store.add(extension);
+    store.add(label);
+    stack.clear();
+    recorder.begin();
+    store.update(extension.id, { position: { x: 20, y: 0 } });
+    store.update(extension.id, { data: { remote: true } }, { origin: 'remote' });
+    recorder.commit();
+
+    expect(stack.snapshot().undo[0]).toBeInstanceOf(UpdateElementCommand);
+  });
+
   it('keeps an external arrow key while undoing the remaining local arrow key', () => {
     const { store, stack, recorder } = setup();
-    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
     const label = createBoundText(arrow, { text: 'label' });
     store.add(arrow);
     store.add(label);
@@ -245,7 +359,7 @@ describe('HistoryRecorder', () => {
 
   it('drops a shape label delta when an external size rebase outlives a cancelled position drag', () => {
     const { store, stack, recorder } = setup();
-    const shape = createShape({ id: 'shape', position: { x: 0, y: 0 }, size: { w: 100, h: 60 } });
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 60 } });
     const label = createBoundText(shape, { text: 'label' });
     store.add(shape);
     store.add(label);
@@ -257,15 +371,15 @@ describe('HistoryRecorder', () => {
     store.update(shape.id, { position: { x: 0, y: 0 } });
     recorder.commit();
 
-    expect(store.getById(shape.id)?.size).toEqual({ w: 120, h: 60 });
+    expect(store.getById(shape.id)).toMatchObject({ size: { w: 120, h: 60 } });
     expect(stack.undoCount).toBe(0);
   });
 
   it('keeps the rebase mark through an intermediate snapshot flush and paused external update', () => {
     const { store, stack, recorder } = setup();
-    const arrow = createArrow({ id: 'arrow', from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } });
     const label = createBoundText(arrow, { text: 'label' });
-    const other = createNote({ id: 'other', position: { x: 0, y: 0 } });
+    const other = createNote({ position: { x: 0, y: 0 } });
     store.add(arrow);
     store.add(label);
     store.add(other);
