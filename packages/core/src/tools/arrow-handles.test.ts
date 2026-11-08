@@ -7,6 +7,7 @@ import {
   renderArrowHandles,
   getArrowHandleDragTarget,
   captureArrowHandleDrag,
+  restoreArrowHandleDrag,
 } from './arrow-handles';
 import { getElbowRoute } from '../elements/elbow-cache';
 import { ElementStore } from '../elements/element-store';
@@ -180,6 +181,58 @@ describe('applyArrowHandleDrag binding', () => {
       toBinding: { elementId: second.id },
     });
   });
+
+  it('restores only the segment fields it last wrote after an external colour update', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      color: '#111111',
+    });
+    store.add(arrow);
+    const installed = storedArrow(store, arrow.id);
+    const ctx = makeCtx(store);
+    const drag = captureArrowHandleDrag('segment:1', arrow.id, ctx);
+    if (!drag) throw new Error('expected segment drag');
+    applyArrowHandleDrag('segment:1', arrow.id, { x: 70, y: 50 }, ctx, drag);
+    store.update(arrow.id, { color: '#ff0000' }, { origin: 'remote' });
+
+    restoreArrowHandleDrag(arrow.id, drag, ctx);
+
+    expect(storedArrow(store, arrow.id)).toMatchObject({
+      color: '#ff0000',
+      fixedSegments: undefined,
+      index: installed.index,
+      layerId: installed.layerId,
+    });
+  });
+
+  it.each([
+    ['segment', 'segment:1', { x: 70, y: 50 }, { fixedSegments: [{ axis: 'x', value: 88 }] }],
+    ['start', 'start', { x: 20, y: 20 }, { to: { x: 90, y: 90 } }],
+    ['mid', 'mid', { x: 50, y: 80 }, { bend: 12 }],
+  ] as const)(
+    'keeps an externally replaced owned %s field on cancel',
+    (_name, handle, point, external) => {
+      const store = new ElementStore();
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        routing: handle === 'segment:1' ? 'elbow' : undefined,
+      });
+      store.add(arrow);
+      const ctx = makeCtx(store);
+      const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+      if (!drag) throw new Error('expected handle drag');
+      applyArrowHandleDrag(handle, arrow.id, point, ctx, drag);
+      store.update(arrow.id, external, { origin: 'remote' });
+
+      restoreArrowHandleDrag(arrow.id, drag, ctx);
+
+      expect(storedArrow(store, arrow.id)).toMatchObject(external);
+    },
+  );
   it('binds start handle when dragged near an element', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
