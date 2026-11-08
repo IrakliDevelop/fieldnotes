@@ -689,6 +689,51 @@ describe('rotateSelection', () => {
     expect(boundAfter.to).not.toEqual(boundToOld);
   });
 
+  it('rotates elbow pins and the selected scene in one reversible transaction', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 30 },
+        { axis: 'y', value: 40 },
+      ],
+    });
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    const { store, stack, ops } = setup([arrow.id, shape.id]);
+    store.add(arrow);
+    store.add(shape);
+    stack.clear();
+
+    ops.rotateSelection('cw');
+
+    expect(stack.undoCount).toBe(1);
+    expect(store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [
+        { axis: 'y', value: 30 },
+        { axis: 'x', value: 60 },
+      ],
+    });
+    expect(store.getById(shape.id)?.rotation).toBe(Math.PI / 2);
+    expect(stack.undo(store)).toBe(true);
+    expect(store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [
+        { axis: 'x', value: 30 },
+        { axis: 'y', value: 40 },
+      ],
+    });
+    expect(store.getById(shape.id)?.rotation).toBeUndefined();
+
+    ops.rotateSelection('cw');
+    ops.rotateSelection('ccw');
+    expect(store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [
+        { axis: 'x', value: 30 },
+        { axis: 'y', value: 40 },
+      ],
+    });
+  });
+
   it('lone selected arrow orbits its own bbox center', () => {
     // bbox of (0,0)-(10,0) is x:[0,10] y:[0,0], center (5,0).
     // y-down CW: (x,y)-pivot -> (-dy,dx)+pivot. from (0,0): d=(-5,0) -> (0,-5) -> (5,-5).

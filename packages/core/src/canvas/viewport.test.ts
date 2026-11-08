@@ -2119,6 +2119,7 @@ describe('Viewport', () => {
       const arrow = createArrow({
         from: { x: 0, y: 0 },
         to: { x: 100, y: 0 },
+        routing: 'elbow',
         fixedSegments: [{ axis: 'x', value: 50 }],
         layerId: viewport.layerManager.activeLayerId,
       });
@@ -2132,6 +2133,7 @@ describe('Viewport', () => {
       expect(viewport.resetArrowRoute(arrow.id)).toBe(true);
       expect(viewport.store.getById(arrow.id)).toMatchObject({ fixedSegments: undefined });
       expect(viewport.history.undoCount).toBe(2);
+      expect(viewport.resetArrowRoute(arrow.id)).toBe(false);
       expect(viewport.undo()).toBe(true);
       expect(viewport.store.getById(arrow.id)).toMatchObject({
         fixedSegments: [{ axis: 'x', value: 50 }],
@@ -2139,7 +2141,37 @@ describe('Viewport', () => {
       expect(viewport.undo()).toBe(true);
       expect(viewport.store.getById(note.id)?.position.x).toBe(100);
       expect(viewport.resetArrowRoute('missing')).toBe(false);
+      expect(viewport.resetArrowRoute(note.id)).toBe(false);
       vi.useRealTimers();
+      viewport.destroy();
+    });
+
+    it('resets and restores an elbow label with authored pins', () => {
+      const viewport = new Viewport(container);
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 0 },
+        routing: 'elbow',
+        fixedSegments: [{ axis: 'y', value: 50 }],
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(arrow);
+      const textId = viewport.setBoundText(arrow.id, 'route');
+      if (!textId) throw new Error('expected bound text');
+      viewport.history.clear();
+      const before = viewport.store.getById(textId);
+      if (before?.type !== 'text') throw new Error('expected bound text');
+
+      expect(viewport.resetArrowRoute(arrow.id)).toBe(true);
+      expect(viewport.store.getById(textId)?.position).not.toEqual(before.position);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(arrow.id)).toMatchObject({
+        fixedSegments: [{ axis: 'y', value: 50 }],
+      });
+      const restored = viewport.store.getById(textId);
+      if (restored?.type !== 'text') throw new Error('expected restored bound text');
+      expect(restored.position).toEqual(before.position);
+      expect(restored.size).toEqual(before.size);
       viewport.destroy();
     });
 

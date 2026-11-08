@@ -6,6 +6,7 @@ import type { ViewportHarness } from '../test-helpers/viewport-harness';
 import type { ArrowTool } from '../tools/arrow-tool';
 import type { SelectTool } from '../tools/select-tool';
 import { createArrow } from '../elements/element-factory';
+import { createNote } from '../elements/element-factory';
 import { createBoundText } from '../elements/bound-text';
 import { getElbowRoute } from '../elements/elbow-cache';
 import { hitTestArrowHandles } from '../tools/arrow-handles';
@@ -184,6 +185,38 @@ describe('Integration: elbow arrow history', () => {
     harness.viewport.undo();
     expect(harness.viewport.store.getById(arrow.id)).toMatchObject({ fixedSegments: undefined });
     expect(harness.viewport.store.getById(label.id)).toMatchObject(originalLabel);
+  });
+
+  it('cancels a parent drag without leaving translated elbow pins or label geometry', () => {
+    const parent = createNote({ position: { x: 100, y: 100 }, size: { w: 100, h: 80 } });
+    const arrow = createArrow({
+      from: { x: 110, y: 120 },
+      to: { x: 190, y: 160 },
+      parentId: parent.id,
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 140 },
+        { axis: 'y', value: 150 },
+      ],
+    });
+    const label = createBoundText(arrow, { text: 'label' });
+    harness.viewport.store.add(parent);
+    harness.viewport.store.add(arrow);
+    harness.viewport.store.add(label);
+    const original = structuredClone(harness.viewport.store.getAll());
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([parent.id]);
+    harness.viewport.history.clear();
+
+    pointerDown(harness.wrapper, 120, 120);
+    pointerMove(harness.wrapper, 124, 126);
+    harness.wrapper.dispatchEvent(
+      new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }),
+    );
+
+    expect(harness.viewport.store.getAll()).toEqual(original);
+    expect(harness.viewport.history.undoCount).toBe(0);
   });
 
   it('keeps one captured pin across repeated completed drags', () => {
