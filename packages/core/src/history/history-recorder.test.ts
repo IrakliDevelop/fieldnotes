@@ -8,6 +8,7 @@ import { createBoundText } from '../elements/bound-text';
 import { setTextMeasurer } from '../elements/text-measure';
 import { createFrame } from '../elements/frame-element';
 import { LayerManager } from '../layers/layer-manager';
+import type { ExtensionElementEnvelope } from '../elements/types';
 
 function setup() {
   const store = new ElementStore();
@@ -160,6 +161,38 @@ describe('HistoryRecorder', () => {
     );
 
     expect(stack.undoCount).toBe(1);
+  });
+
+  it('records an explicit undefined array entry changed to an absent entry', () => {
+    const { store, stack, recorder } = setup();
+    const extension: ExtensionElementEnvelope = {
+      id: 'unknown-extension',
+      type: 'extension',
+      extensionType: 'test:unknown',
+      data: { values: ['first', undefined] },
+      position: { x: 0, y: 0 },
+      index: '',
+      version: 1,
+      locked: false,
+      layerId: '',
+    };
+    store.add(extension);
+    const admitted = store.getById(extension.id);
+    if (!admitted || admitted.type !== 'extension') throw new Error('expected admitted extension');
+    expect(admitted.data.values).toEqual(['first', undefined]);
+    stack.clear();
+
+    recorder.run(() => store.update(extension.id, { data: { values: ['first'] } }));
+
+    expect(stack.undoCount).toBe(1);
+    stack.undo(store);
+    const restored = store.getById(extension.id);
+    if (!restored || restored.type !== 'extension') throw new Error('expected restored extension');
+    const values = restored.data.values;
+    if (!Array.isArray(values)) throw new Error('expected restored array');
+    expect(values).toHaveLength(2);
+    expect(1 in values).toBe(true);
+    expect(values[1]).toBeUndefined();
   });
 
   describe('external changes during a transaction', () => {

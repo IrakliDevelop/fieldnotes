@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { drag, pointerDown, pointerMove, pointerUp } from '../test-helpers/pointer-helpers';
 import type { ViewportHarness } from '../test-helpers/viewport-harness';
@@ -7,6 +7,8 @@ import type { ArrowTool } from '../tools/arrow-tool';
 import type { SelectTool } from '../tools/select-tool';
 import { createArrow } from '../elements/element-factory';
 import { createBoundText } from '../elements/bound-text';
+import { getElbowRoute } from '../elements/elbow-cache';
+import { hitTestArrowHandles } from '../tools/arrow-handles';
 
 describe('Integration: elbow arrow history', () => {
   let harness: ViewportHarness;
@@ -270,11 +272,13 @@ describe('Integration: elbow arrow history', () => {
       fixedSegments: undefined,
     };
     harness.viewport.store.update(arrow.id, remote, { origin: 'remote' });
+    const update = vi.spyOn(harness.viewport.store, 'update');
     harness.wrapper.dispatchEvent(
       new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 }),
     );
 
     expect(harness.viewport.store.getById(arrow.id)).toEqual(remote);
+    expect(update).not.toHaveBeenCalled();
     expect(harness.viewport.history.canUndo).toBe(false);
   });
 
@@ -361,7 +365,10 @@ describe('Integration: elbow arrow history', () => {
       routing: 'elbow',
       color: '#111111',
     });
+    const label = createBoundText(arrow, { text: 'label' });
     harness.viewport.store.add(arrow);
+    harness.viewport.store.add(label);
+    const originalLabel = { position: { ...label.position }, size: { ...label.size } };
     const select = harness.viewport.toolManager.getTool<SelectTool>('select');
     if (!select) throw new Error('expected select tool');
     select.setSelection([arrow.id]);
@@ -370,6 +377,7 @@ describe('Integration: elbow arrow history', () => {
 
     pointerDown(harness.wrapper, 50, 50);
     pointerMove(harness.wrapper, 70, 50);
+    expect(harness.viewport.store.getById(label.id)).not.toMatchObject(originalLabel);
     harness.viewport.store.update(arrow.id, { color: '#ff0000' }, { origin: 'remote' });
     pointerUp(harness.wrapper, 70, 50);
     expect(harness.viewport.history.undoCount).toBe(1);
@@ -379,5 +387,51 @@ describe('Integration: elbow arrow history', () => {
       color: '#ff0000',
       fixedSegments: undefined,
     });
+    expect(harness.viewport.store.getById(label.id)).toMatchObject(originalLabel);
+  });
+
+  it('does not write or record an untagged segment drag at the pin cap', () => {
+    const fixedSegments = Array.from({ length: 16 }, (_, index) => ({
+      axis: 'x' as const,
+      value: (index + 1) * 100,
+    }));
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 1700, y: 1700 },
+      routing: 'elbow',
+      fixedSegments,
+    });
+    harness.viewport.store.add(arrow);
+    const installed = harness.viewport.store.getById(arrow.id);
+    if (!installed || installed.type !== 'arrow') throw new Error('expected installed arrow');
+    const original = structuredClone(installed);
+    const route = getElbowRoute(harness.viewport.store, installed);
+    const index = route?.segments.findIndex(
+      (segment, candidate) =>
+        candidate > 0 && candidate < route.segments.length - 1 && segment.fixedIndex === undefined,
+    );
+    if (index === undefined || index < 0 || !route) throw new Error('expected untagged segment');
+    const from = route.points[index];
+    const to = route.points[index + 1];
+    if (!from || !to) throw new Error('expected untagged segment points');
+    const point = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+    const select = harness.viewport.toolManager.getTool<SelectTool>('select');
+    if (!select) throw new Error('expected select tool');
+    select.setSelection([arrow.id]);
+    harness.viewport.toolManager.setTool('select', harness.viewport.toolContext);
+    harness.viewport.history.clear();
+
+    expect(hitTestArrowHandles(point, [arrow.id], harness.viewport.toolContext)).toEqual({
+      elementId: arrow.id,
+      handle: `segment:${index}`,
+    });
+    const update = vi.spyOn(harness.viewport.store, 'update');
+    pointerDown(harness.wrapper, point.x, point.y);
+    pointerMove(harness.wrapper, point.x, point.y + 15);
+    pointerUp(harness.wrapper, point.x, point.y + 15);
+
+    expect(update).not.toHaveBeenCalled();
+    expect(harness.viewport.store.getById(arrow.id)).toEqual(original);
+    expect(harness.viewport.history.canUndo).toBe(false);
   });
 });

@@ -15,6 +15,8 @@ import { getArrowMidpoint } from '../elements/arrow-geometry';
 import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolContext } from './types';
 import { Camera } from '../canvas/camera';
+import { HistoryRecorder } from '../history/history-recorder';
+import { HistoryStack } from '../history/history-stack';
 
 function storedArrow(store: ElementStore, id: string) {
   const element = store.getById(id);
@@ -102,6 +104,33 @@ describe('applyArrowHandleDrag binding', () => {
         { axis: 'x', value: 80 },
       ],
     });
+  });
+
+  it('inserts into the captured untagged bridge slot after rerouting', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 30 },
+        { axis: 'x', value: 70 },
+      ],
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const drag = captureArrowHandleDrag('segment:2', arrow.id, ctx);
+    if (!drag) throw new Error('expected untagged bridge drag');
+    store.add(createNote({ position: { x: 45, y: 40 }, size: { w: 10, h: 20 } }));
+
+    applyArrowHandleDrag('segment:2', arrow.id, { x: 50, y: 60 }, ctx, drag);
+    applyArrowHandleDrag('segment:2', arrow.id, { x: 50, y: 65 }, ctx, drag);
+
+    expect(storedArrow(store, arrow.id).fixedSegments).toEqual([
+      { axis: 'x', value: 30 },
+      { axis: 'y', value: 65 },
+      { axis: 'x', value: 70 },
+    ]);
   });
 
   it('does not create a seventeenth pin or edit protected arrows', () => {
@@ -257,6 +286,39 @@ describe('applyArrowHandleDrag binding', () => {
         });
         expect(storedArrow(store, arrow.id).to).toEqual({ x: 90, y: 90 });
       }
+    },
+  );
+
+  it.each([
+    ['segment', 'segment:1', { x: 70, y: 50 }, { fixedSegments: [{ axis: 'x', value: 88 }] }],
+    ['mid', 'mid', { x: 50, y: 80 }, { bend: 12 }],
+  ] as const)(
+    'does not record a same-owned external %s replacement on cancellation',
+    (_name, handle, point, external) => {
+      const store = new ElementStore();
+      const stack = new HistoryStack();
+      const recorder = new HistoryRecorder(store, stack);
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        routing: handle === 'segment:1' ? 'elbow' : undefined,
+      });
+      store.add(arrow);
+      stack.clear();
+      const ctx = makeCtx(store);
+      const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+      if (!drag) throw new Error('expected handle drag');
+      const update = vi.spyOn(store, 'update');
+
+      recorder.begin();
+      applyArrowHandleDrag(handle, arrow.id, point, ctx, drag);
+      store.update(arrow.id, external, { origin: 'remote' });
+      update.mockClear();
+      restoreArrowHandleDrag(arrow.id, drag, ctx);
+      recorder.commit();
+
+      expect(update).not.toHaveBeenCalled();
+      expect(stack.canUndo).toBe(false);
     },
   );
 
