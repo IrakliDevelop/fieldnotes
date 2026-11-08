@@ -259,14 +259,46 @@ test.describe('elbow connectors', () => {
       { history: historyBeforePin + 1, pin: expectedPin },
     );
 
+    const historyBeforeRoutingChange = await page.evaluate(
+      () => window.__fieldnotes_viewport?.history.undoCount,
+    );
+    const expectedFixedSegments = Object.freeze([expectedPin]);
+    expect(
+      await page.evaluate(
+        () => window.__fieldnotes_viewport?.store.getElementsByType('arrow')[0]?.fixedSegments,
+      ),
+    ).toEqual(expectedFixedSegments);
     await routing.selectOption('bezier');
     await page.waitForFunction(
       () => window.__fieldnotes_viewport?.store.getElementsByType('arrow')[0]?.routing === 'bezier',
     );
     await expect(routing).toHaveValue('bezier');
+    expect(
+      await page.evaluate(
+        () => window.__fieldnotes_viewport?.store.getElementsByType('arrow')[0]?.fixedSegments,
+      ),
+    ).toEqual(expectedFixedSegments);
+    expect(await page.evaluate(() => window.__fieldnotes_viewport?.history.undoCount)).toBe(
+      historyBeforeRoutingChange + 1,
+    );
+    await expect(resetRoute).toBeDisabled();
+
+    await routing.selectOption('elbow');
+    await page.waitForFunction(
+      () => window.__fieldnotes_viewport?.store.getElementsByType('arrow')[0]?.routing === 'elbow',
+    );
+    await expect(routing).toHaveValue('elbow');
+    expect(
+      await page.evaluate(
+        () => window.__fieldnotes_viewport?.store.getElementsByType('arrow')[0]?.fixedSegments,
+      ),
+    ).toEqual(expectedFixedSegments);
+    expect(await page.evaluate(() => window.__fieldnotes_viewport?.history.undoCount)).toBe(
+      historyBeforeRoutingChange + 2,
+    );
+    await expect(resetRoute).toBeEnabled();
 
     if (touch) {
-      await routing.selectOption('elbow');
       const currentRoute = await readRoute();
       const currentFrom = currentRoute.points[1];
       const currentTo = currentRoute.points[2];
