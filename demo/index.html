@@ -148,6 +148,7 @@
       padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; background: white;
       cursor: pointer; font: inherit;
     }
+    #arrow-panel .arrow-option { display: inline-flex; align-items: center; gap: 6px; }
     #arrow-panel button:disabled { opacity: 0.35; cursor: default; }
     @media (max-width: 1024px) {
       #arrow-panel {
@@ -460,17 +461,21 @@
     <button id="shape-no-fill">No Fill</button>
   </div>
   <div id="arrow-panel">
-    <label for="arrow-stroke-style">Arrow line:</label>
-    <select id="arrow-stroke-style">
-      <option value="solid" selected>Solid</option>
-      <option value="dashed">Dashed</option>
-      <option value="dotted">Dotted</option>
-    </select>
-    <label for="arrow-routing">Routing:</label>
-    <select id="arrow-routing">
-      <option value="bezier" selected>Curved</option>
-      <option value="elbow">Elbow</option>
-    </select>
+    <span class="arrow-option">
+      <label for="arrow-stroke-style">Arrow line:</label>
+      <select id="arrow-stroke-style">
+        <option value="solid" selected>Solid</option>
+        <option value="dashed">Dashed</option>
+        <option value="dotted">Dotted</option>
+      </select>
+    </span>
+    <span class="arrow-option">
+      <label for="arrow-routing">Routing:</label>
+      <select id="arrow-routing">
+        <option value="bezier" selected>Curved</option>
+        <option value="elbow">Elbow</option>
+      </select>
+    </span>
     <button id="arrow-reset-segments" disabled>Reset route</button>
   </div>
   <div id="template-panel" style="display:none;position:fixed;top:70px;left:50%;transform:translateX(-50%);align-items:center;gap:6px;padding:6px 10px;background:white;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.15);z-index:10;font-size:13px;">
