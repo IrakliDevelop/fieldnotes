@@ -114,6 +114,119 @@ describe('elbow route cache', () => {
     expect(getElbowRoute(store, installed)).toBe(route);
   });
 
+  it('shared input arrow objects do not share cache ownership', () => {
+    const shared = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 200, y: 0 },
+      routing: 'elbow',
+    });
+    shared.id = 'arrow';
+    const first = new ElementStore();
+    const second = new ElementStore();
+    const firstObstacle = createShape({
+      position: { x: 80, y: -20 },
+      size: { w: 40, h: 40 },
+      shape: 'rectangle',
+    });
+    const secondObstacle = createShape({
+      position: { x: 120, y: 80 },
+      size: { w: 40, h: 40 },
+      shape: 'rectangle',
+    });
+    first.add(shared);
+    first.add(firstObstacle);
+    second.loadSnapshot([shared, secondObstacle]);
+    const firstArrow = first.getById(shared.id);
+    const secondArrow = second.getById(shared.id);
+    if (firstArrow?.type !== 'arrow' || secondArrow?.type !== 'arrow')
+      throw new Error('expected arrows');
+
+    const firstRoute = getElbowRoute(first, firstArrow);
+    const secondRoute = getElbowRoute(second, secondArrow);
+
+    expect(firstArrow).not.toBe(shared);
+    expect(secondArrow).not.toBe(shared);
+    expect(secondArrow).not.toBe(firstArrow);
+    expect(firstRoute?.points).not.toEqual(secondRoute?.points);
+    first.update(firstObstacle.id, { position: { x: 80, y: 80 } });
+    expect(getElbowRoute(first, firstArrow)?.points).not.toEqual(firstRoute?.points);
+    expect(getElbowRoute(second, secondArrow)).toBe(secondRoute);
+  });
+
+  it('updateMany and loadSnapshot invalidate final-scene routes coherently', () => {
+    const store = new ElementStore();
+    const arrow = elbow(store);
+    const left = createShape({
+      position: { x: 25, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    const right = createShape({
+      position: { x: 55, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    store.add(left);
+    store.add(right);
+    const initial = getElbowRoute(store, arrow);
+    const eventRoutes: string[] = [];
+    const updates: string[] = [];
+    store.on('update', ({ current }) => {
+      updates.push(current.id);
+      const installed = store.getById(arrow.id);
+      if (installed?.type === 'arrow')
+        eventRoutes.push(JSON.stringify(getElbowRoute(store, installed)));
+    });
+
+    store.updateMany([
+      { id: left.id, partial: { position: { x: 25, y: 80 } } },
+      { id: right.id, partial: { position: { x: 55, y: 80 } } },
+    ]);
+
+    const final = getElbowRoute(store, arrow);
+    expect(final?.points).not.toEqual(initial?.points);
+    expect(eventRoutes).toEqual([JSON.stringify(final), JSON.stringify(final)]);
+    expect(updates).not.toContain(arrow.id);
+
+    const registry = new ElementRegistry();
+    registry.register(boundsDefinition(true));
+    const clipped = new ElementStore(registry);
+    const clippedArrow = elbow(clipped);
+    const parent = extension('parent', { data: { visible: true } });
+    const child = extension('child', { parentId: parent.id, data: { obstacle: true } });
+    clipped.add(parent);
+    clipped.add(child);
+    expect(detours(getElbowRoute(clipped, clippedArrow))).toBe(true);
+    const snapshotRoutes: string[] = [];
+    const clippedUpdates: string[] = [];
+    clipped.on('update', ({ current }) => clippedUpdates.push(current.id));
+    clipped.on('add', () => {
+      const installed = clipped.getById(clippedArrow.id);
+      if (installed?.type === 'arrow')
+        snapshotRoutes.push(JSON.stringify(getElbowRoute(clipped, installed)));
+    });
+
+    clipped.loadSnapshot(
+      [
+        clippedArrow,
+        extension(parent.id, { data: { visible: false } }),
+        extension(child.id, { parentId: parent.id, data: { obstacle: true } }),
+      ],
+      { origin: 'remote' },
+    );
+
+    const reloadedArrow = clipped.getById(clippedArrow.id);
+    if (reloadedArrow?.type !== 'arrow') throw new Error('expected arrow');
+    const reloaded = getElbowRoute(clipped, reloadedArrow);
+    expect(detours(reloaded)).toBe(false);
+    expect(snapshotRoutes).toEqual([
+      JSON.stringify(reloaded),
+      JSON.stringify(reloaded),
+      JSON.stringify(reloaded),
+    ]);
+    expect(clippedUpdates).not.toContain(clippedArrow.id);
+  });
+
   it('admits a child-first obstacle when its far-away root arrives and removes it with that root', () => {
     const store = new ElementStore();
     const arrow = elbow(store);
