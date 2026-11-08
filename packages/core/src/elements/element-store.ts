@@ -154,7 +154,7 @@ export class ElementStore {
       const bounds = this.indexBounds(element);
       if (bounds) this.spatialIndex.insert(element.id, bounds);
     }
-    invalidateElbowRoutes(this, null, true);
+    invalidateElbowRoutes(this, { projectionChanged: true });
   }
 
   get count(): number {
@@ -215,7 +215,7 @@ export class ElementStore {
       const bounds = this.indexBounds(element);
       if (bounds) this.spatialIndex.insert(element.id, bounds);
     }
-    invalidateElbowRoutes(this, null, true);
+    invalidateElbowRoutes(this, { projectionChanged: true });
   }
 
   private topIndex(layerId: string): string | null {
@@ -349,6 +349,8 @@ export class ElementStore {
       for (const item of prepared) candidate.set(item.updated.id, item.updated);
       this.validateCandidate(candidate, meta);
     }
+    const existing = this.elements.get(element.id);
+    const previousBounds = existing ? this.indexBounds(existing) : undefined;
     this.resetHierarchy();
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
@@ -356,10 +358,17 @@ export class ElementStore {
     this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
-    const admitsDescendants =
-      !this.strict(meta) &&
+    const projectionChanged =
+      element.parentId !== undefined ||
+      existing?.parentId !== undefined ||
       [...this.elements.values()].some((child) => child.parentId === element.id);
-    invalidateElbowRoutes(this, bounds, element.parentId !== undefined || admitsDescendants);
+    invalidateElbowRoutes(this, {
+      previous: existing,
+      current: element,
+      previousBounds,
+      currentBounds: bounds,
+      projectionChanged,
+    });
     this.bus.emit('add', element, meta);
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
@@ -425,7 +434,6 @@ export class ElementStore {
     if (structural) this.resetHierarchy();
     if (structural) this.getHierarchy();
     if (validated) this.hierarchyKnownValid = true;
-    if (structural) invalidateElbowRoutes(this, null, true);
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
   }
@@ -762,11 +770,17 @@ export class ElementStore {
         }
       }
     }
-    if ((structural && !deferStructuralReset) || clipChanged) {
-      invalidateElbowRoutes(this, null, true);
-    } else if (!reusedRoute && (!sameBounds(oldBounds, newBounds) || eligibilityChanged)) {
-      invalidateElbowRoutes(this, oldBounds);
-      invalidateElbowRoutes(this, newBounds);
+    if (
+      (!reusedRoute || structural || clipChanged) &&
+      (!sameBounds(oldBounds, newBounds) || eligibilityChanged || structural || clipChanged)
+    ) {
+      invalidateElbowRoutes(this, {
+        previous: existing,
+        current: updated,
+        previousBounds: oldBounds,
+        currentBounds: newBounds,
+        projectionChanged: structural || clipChanged,
+      });
     }
   }
 
@@ -783,14 +797,14 @@ export class ElementStore {
     this.elements.delete(id);
     this.hierarchyKnownValid = this.strict(meta);
     this.spatialIndex.remove(id);
-    const removesDescendants =
-      !this.strict(meta) &&
+    const projectionChanged =
+      element.parentId !== undefined ||
       [...this.elements.values()].some((child) => child.parentId === element.id);
-    invalidateElbowRoutes(
-      this,
-      this.indexBounds(element),
-      element.parentId !== undefined || removesDescendants,
-    );
+    invalidateElbowRoutes(this, {
+      previous: element,
+      previousBounds: this.indexBounds(element),
+      projectionChanged,
+    });
     this.bus.emit('remove', element, meta);
   }
 
@@ -801,7 +815,7 @@ export class ElementStore {
     this.elements.clear();
     this.hierarchyKnownValid = true;
     this.spatialIndex.clear();
-    invalidateElbowRoutes(this, null, true);
+    invalidateElbowRoutes(this, { projectionChanged: true });
     this.bus.emit('clear', null, meta);
   }
 
@@ -844,7 +858,7 @@ export class ElementStore {
       }
     }
     this.hierarchyKnownValid = this.strict(meta);
-    invalidateElbowRoutes(this, null, true);
+    invalidateElbowRoutes(this, { projectionChanged: true });
     this.bus.emit('clear', null, meta);
     for (const el of sanitizedElements) {
       this.bus.emit('add', el, meta);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createArrow, createShape, createText } from './element-factory';
-import { getElbowRoute, setElbowVisibleLayers } from './elbow-cache';
+import { getElbowRoute, setElbowVisibleLayers, takeAffectedElbowLayers } from './elbow-cache';
 import { ElementStore } from './element-store';
 import { ElementRegistry } from './element-registry';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
@@ -257,6 +257,121 @@ describe('elbow route cache', () => {
 
     store.remove(parent.id, { origin: 'remote' });
     expect(detours(getElbowRoute(store, arrow))).toBe(false);
+  });
+
+  it.each(['local', 'host'] as const)(
+    'local and host parent additions repair cached child-first obstacles: %s',
+    (origin) => {
+      const store = new ElementStore();
+      const arrow = elbow(store);
+      const child = createShape({
+        position: { x: 40, y: -10 },
+        size: { w: 20, h: 20 },
+        shape: 'rectangle',
+        parentId: 'parent',
+      });
+      store.add(child, { origin: 'remote' });
+      const before = getElbowRoute(store, arrow);
+      const parent = createShape({
+        position: { x: 1_000, y: 1_000 },
+        size: { w: 10, h: 10 },
+        shape: 'rectangle',
+      });
+      parent.id = 'parent';
+
+      store.add(parent, origin === 'host' ? { origin } : undefined);
+
+      expect(detours(before)).toBe(false);
+      expect(detours(getElbowRoute(store, arrow))).toBe(true);
+    },
+  );
+
+  it('excluded root elements leave unrelated cached routes and layers clean', () => {
+    const store = new ElementStore();
+    const first = elbow(store);
+    const second = createArrow({
+      from: { x: 0, y: 40 },
+      to: { x: 100, y: 40 },
+      routing: 'elbow',
+      layerId: 'other',
+    });
+    store.add(second);
+    const installed = store.getById(second.id);
+    if (installed?.type !== 'arrow') throw new Error('expected arrow');
+    const firstRoute = getElbowRoute(store, first);
+    const secondRoute = getElbowRoute(store, installed);
+    takeAffectedElbowLayers(store);
+    const excluded = [
+      createShape({ position: { x: 40, y: -10 }, size: { w: 20, h: 20 }, shape: 'line' }),
+    ];
+    for (const element of excluded) {
+      store.add(element);
+      store.update(element.id, { position: { x: 45, y: -10 } });
+      store.remove(element.id);
+    }
+    expect(getElbowRoute(store, first)).toBe(firstRoute);
+    expect(getElbowRoute(store, installed)).toBe(secondRoute);
+    expect(takeAffectedElbowLayers(store)).toEqual([]);
+  });
+
+  it('excluded bound line targets still invalidate only their dependent elbow', () => {
+    const store = new ElementStore();
+    const target = createShape({
+      position: { x: -10, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'line',
+    });
+    target.id = 'target';
+    const dependent = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 0 },
+      routing: 'elbow',
+      fromBinding: { elementId: target.id, focus: 0, gap: 0 },
+    });
+    const unrelated = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 0 },
+      routing: 'elbow',
+      layerId: 'other',
+    });
+    store.add(target);
+    store.add(dependent);
+    store.add(unrelated);
+    const a = store.getById(dependent.id);
+    const b = store.getById(unrelated.id);
+    if (a?.type !== 'arrow' || b?.type !== 'arrow') throw new Error('expected arrows');
+    const first = getElbowRoute(store, a);
+    const other = getElbowRoute(store, b);
+    takeAffectedElbowLayers(store);
+
+    store.update(target.id, { size: { w: 60, h: 20 } });
+
+    expect(getElbowRoute(store, store.getById(a.id) as typeof a)).not.toBe(first);
+    expect(getElbowRoute(store, b)).toBe(other);
+    expect(takeAffectedElbowLayers(store)).toEqual([a.layerId]);
+  });
+
+  it('an excluded parent can still admit eligible descendants', () => {
+    const store = new ElementStore();
+    const arrow = elbow(store);
+    const child = createShape({
+      position: { x: 40, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+      parentId: 'line-parent',
+    });
+    store.add(child, { origin: 'remote' });
+    expect(detours(getElbowRoute(store, arrow))).toBe(false);
+    const parent = createShape({
+      position: { x: 1_000, y: 1_000 },
+      size: { w: 10, h: 10 },
+      shape: 'line',
+    });
+    parent.id = 'line-parent';
+
+    store.add(parent);
+
+    expect(detours(getElbowRoute(store, arrow))).toBe(true);
   });
 
   it('remote same-bounds reparenting invalidates projected descendants', () => {

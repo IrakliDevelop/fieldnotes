@@ -17,6 +17,14 @@ interface StoreCache {
   geometryGeneration: number;
 }
 
+export interface ElbowRouteChange {
+  readonly previous?: CanvasElement;
+  readonly current?: CanvasElement;
+  readonly previousBounds?: Bounds | null;
+  readonly currentBounds?: Bounds | null;
+  readonly projectionChanged?: boolean;
+}
+
 const caches = new WeakMap<ElementStore, StoreCache>();
 const visibleLayers = new WeakMap<ElementStore, (id: string) => boolean>();
 
@@ -31,7 +39,7 @@ export function setElbowVisibleLayers(
   isVisible: (id: string) => boolean,
 ): void {
   visibleLayers.set(store, isVisible);
-  invalidateElbowRoutes(store, null);
+  invalidateElbowRoutes(store, { projectionChanged: true });
 }
 
 function cacheFor(store: ElementStore): StoreCache {
@@ -239,20 +247,50 @@ function distanceToBounds(bounds: Bounds, region: Bounds): number {
 }
 
 /** Marks cached local routes affected by a scene change stale. */
-export function invalidateElbowRoutes(
-  store: ElementStore,
-  bounds: Bounds | null,
-  all = false,
-): void {
+export function invalidateElbowRoutes(store: ElementStore, change: ElbowRouteChange): void {
   const cache = caches.get(store);
   if (!cache) return;
   cache.geometryGeneration += 1;
   for (const arrow of store.getElementsByType('arrow')) {
     if (arrow.routing !== 'elbow') continue;
     const entry = cache.entries.get(arrow);
-    if (entry && (all || !bounds || boundsIntersect(entry.region, bounds))) {
+    const changedArrow =
+      (change.previous?.type === 'arrow' && change.previous.id === arrow.id) ||
+      (change.current?.type === 'arrow' && change.current.id === arrow.id);
+    const boundTarget =
+      (change.previous !== undefined &&
+        (arrow.fromBinding?.elementId === change.previous.id ||
+          arrow.toBinding?.elementId === change.previous.id)) ||
+      (change.current !== undefined &&
+        (arrow.fromBinding?.elementId === change.current.id ||
+          arrow.toBinding?.elementId === change.current.id));
+    const obstacleChanged =
+      isOrdinaryObstacle(change.previous) || isOrdinaryObstacle(change.current);
+    const intersects =
+      (change.previousBounds !== undefined &&
+        entry !== undefined &&
+        change.previousBounds !== null &&
+        boundsIntersect(entry.region, change.previousBounds)) ||
+      (change.currentBounds !== undefined &&
+        entry !== undefined &&
+        change.currentBounds !== null &&
+        boundsIntersect(entry.region, change.currentBounds));
+    if (
+      entry &&
+      (change.projectionChanged || changedArrow || boundTarget || (obstacleChanged && intersects))
+    ) {
       entry.dirty = true;
       cache.affectedLayers.add(arrow.layerId);
     }
+    if (!entry && changedArrow) cache.affectedLayers.add(arrow.layerId);
   }
+}
+
+function isOrdinaryObstacle(element: CanvasElement | undefined): boolean {
+  return (
+    element !== undefined &&
+    element.type !== 'arrow' &&
+    element.type !== 'stroke' &&
+    !(element.type === 'shape' && element.shape === 'line')
+  );
 }
