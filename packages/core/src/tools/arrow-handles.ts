@@ -1,5 +1,6 @@
 import type { Point } from '../core/types';
 import type { ArrowElement, CanvasElement } from '../elements/types';
+import { MAX_ARROW_FIXED_SEGMENTS } from '../elements/types';
 import type { ElementStore } from '../elements/element-store';
 import type { ToolContext } from './types';
 import { getArrowMidpoint, getBendFromPoint } from '../elements/arrow-geometry';
@@ -204,7 +205,8 @@ export function captureArrowHandleDrag(
   const to = route?.points[index + 1];
   if (!route || !from || !to || (from.x === to.x && from.y === to.y)) return null;
   const fixedIndex = route.segments[index]?.fixedIndex;
-  if (fixedIndex === undefined && (arrow.fixedSegments?.length ?? 0) >= 16) return null;
+  if (fixedIndex === undefined && (arrow.fixedSegments?.length ?? 0) >= MAX_ARROW_FIXED_SEGMENTS)
+    return null;
   return {
     handle,
     owned,
