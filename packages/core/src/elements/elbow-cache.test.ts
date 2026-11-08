@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createArrow, createShape, createText } from './element-factory';
+import { createArrow, createShape, createStroke, createText } from './element-factory';
 import { getElbowRoute, setElbowVisibleLayers, takeAffectedElbowLayers } from './elbow-cache';
 import { ElementStore } from './element-store';
 import { ElementRegistry } from './element-registry';
@@ -302,6 +302,13 @@ describe('elbow route cache', () => {
     const secondRoute = getElbowRoute(store, installed);
     takeAffectedElbowLayers(store);
     const excluded = [
+      createArrow({ from: { x: 20, y: 0 }, to: { x: 80, y: 0 }, routing: 'bezier' }),
+      createStroke({
+        points: [
+          { x: 40, y: -10, pressure: 0.5 },
+          { x: 60, y: 10, pressure: 0.5 },
+        ],
+      }),
       createShape({ position: { x: 40, y: -10 }, size: { w: 20, h: 20 }, shape: 'line' }),
     ];
     for (const element of excluded) {
@@ -312,6 +319,32 @@ describe('elbow route cache', () => {
     expect(getElbowRoute(store, first)).toBe(firstRoute);
     expect(getElbowRoute(store, installed)).toBe(secondRoute);
     expect(takeAffectedElbowLayers(store)).toEqual([]);
+
+    store.update(first.id, { from: { x: 10, y: 0 } });
+    const moved = store.getById(first.id);
+    if (moved?.type !== 'arrow') throw new Error('expected arrow');
+    expect(getElbowRoute(store, moved)).not.toBe(firstRoute);
+    expect(getElbowRoute(store, installed)).toBe(secondRoute);
+    expect(takeAffectedElbowLayers(store)).toEqual([first.layerId]);
+
+    const obstacle = createShape({
+      position: { x: 40, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    obstacle.id = 'replacement';
+    store.add(obstacle);
+    expect(detours(getElbowRoute(store, moved))).toBe(true);
+    const line = createShape({
+      position: obstacle.position,
+      size: obstacle.size,
+      shape: 'line',
+    });
+    line.id = obstacle.id;
+    store.add(line);
+    expect(detours(getElbowRoute(store, moved))).toBe(false);
+    store.add(obstacle);
+    expect(detours(getElbowRoute(store, moved))).toBe(true);
   });
 
   it('excluded bound line targets still invalidate only their dependent elbow', () => {
@@ -326,7 +359,7 @@ describe('elbow route cache', () => {
       from: { x: 0, y: 0 },
       to: { x: 100, y: 0 },
       routing: 'elbow',
-      fromBinding: { elementId: target.id, focus: 0, gap: 0 },
+      fromBinding: { elementId: target.id },
     });
     const unrelated = createArrow({
       from: { x: 0, y: 0 },
