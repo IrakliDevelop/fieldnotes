@@ -111,6 +111,31 @@ describe('HistoryRecorder', () => {
     expect(store.getById(note.id)?.position).toEqual({ x: 0, y: 0 });
   });
 
+  it('does not record an optional field restored to absent', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+    store.add(arrow);
+    stack.clear();
+
+    recorder.begin();
+    store.update(arrow.id, { fixedSegments: [{ axis: 'x', value: 70 }] });
+    store.update(arrow.id, { fixedSegments: undefined });
+    recorder.commit();
+
+    expect(stack.undoCount).toBe(0);
+  });
+
+  it('records a meaningful optional-field value', () => {
+    const { store, stack, recorder } = setup();
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+    store.add(arrow);
+    stack.clear();
+
+    recorder.run(() => store.update(arrow.id, { fixedSegments: [{ axis: 'x', value: 70 }] }));
+
+    expect(stack.undoCount).toBe(1);
+  });
+
   it('replays multi-element hierarchy updates atomically', () => {
     const { store, stack, recorder } = setup();
     const parent = { ...createNote({ position: { x: 0, y: 0 }, layerId: 'a' }), id: 'parent' };

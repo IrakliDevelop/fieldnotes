@@ -6,7 +6,9 @@ import {
   hitTestArrowHandles,
   renderArrowHandles,
   getArrowHandleDragTarget,
+  captureArrowHandleDrag,
 } from './arrow-handles';
+import { getElbowRoute } from '../elements/elbow-cache';
 import { ElementStore } from '../elements/element-store';
 import { getArrowMidpoint } from '../elements/arrow-geometry';
 import { createNote, createArrow } from '../elements/element-factory';
@@ -26,6 +28,118 @@ function makeCtx(store: ElementStore): ToolContext {
 }
 
 describe('applyArrowHandleDrag binding', () => {
+  it('pins the captured middle vertical segment and replaces the same slot on later moves', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const drag = captureArrowHandleDrag('segment:1', arrow.id, ctx);
+    if (!drag) throw new Error('expected segment drag');
+
+    applyArrowHandleDrag('segment:1', arrow.id, { x: 70, y: 50 }, ctx, drag);
+    expect(store.getById(arrow.id)).toMatchObject({ fixedSegments: [{ axis: 'x', value: 70 }] });
+
+    applyArrowHandleDrag('segment:1', arrow.id, { x: 75, y: 50 }, ctx, drag);
+    expect(store.getById(arrow.id)).toMatchObject({ fixedSegments: [{ axis: 'x', value: 75 }] });
+  });
+
+  it('pins y for a captured middle horizontal segment', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 200 },
+      routing: 'elbow',
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const drag = captureArrowHandleDrag('segment:1', arrow.id, ctx);
+    if (!drag) throw new Error('expected segment drag');
+
+    applyArrowHandleDrag('segment:1', arrow.id, { x: 50, y: 70 }, ctx, drag);
+
+    expect(store.getById(arrow.id)).toMatchObject({ fixedSegments: [{ axis: 'y', value: 70 }] });
+  });
+
+  it('updates only a tagged captured slot after route changes', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 20 },
+        { axis: 'y', value: 40 },
+        { axis: 'x', value: 80 },
+      ],
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const route = getElbowRoute(store, store.getById(arrow.id) as typeof arrow);
+    const index = route?.segments.findIndex((segment) => segment.fixedIndex === 1);
+    if (index === undefined || index < 0) throw new Error('expected tagged segment');
+    const handle = `segment:${index}` as const;
+    const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+    if (!drag) throw new Error('expected segment drag');
+    store.add(createNote({ position: { x: 45, y: 0 }, size: { w: 10, h: 100 } }));
+
+    applyArrowHandleDrag(handle, arrow.id, { x: 50, y: 65 }, ctx, drag);
+
+    expect(store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [
+        { axis: 'x', value: 20 },
+        { axis: 'y', value: 65 },
+        { axis: 'x', value: 80 },
+      ],
+    });
+  });
+
+  it('does not create a seventeenth pin or edit protected arrows', () => {
+    const pins = Array.from({ length: 16 }, (_, index) => ({ axis: 'x' as const, value: index }));
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: pins,
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+
+    expect(captureArrowHandleDrag('segment:1', arrow.id, ctx)).toBeNull();
+    expect(store.getById(arrow.id)).toMatchObject({ fixedSegments: pins });
+
+    const locked = { ...arrow, id: 'locked', locked: true };
+    store.add(locked);
+    expect(captureArrowHandleDrag('segment:1', locked.id, ctx)).toBeNull();
+  });
+
+  it('keeps fixed pins while endpoint binding and rebinding changes', () => {
+    const store = new ElementStore();
+    const first = createNote({ position: { x: 200, y: 0 }, size: { w: 100, h: 100 } });
+    const second = createNote({ position: { x: 400, y: 0 }, size: { w: 100, h: 100 } });
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'x', value: 70 }],
+    });
+    store.add(first);
+    store.add(second);
+    store.add(arrow);
+    const ctx = makeCtx(store);
+
+    applyArrowHandleDrag('end', arrow.id, { x: 205, y: 5 }, ctx);
+    applyArrowHandleDrag('end', arrow.id, { x: 405, y: 5 }, ctx);
+
+    expect(store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [{ axis: 'x', value: 70 }],
+      toBinding: { elementId: second.id },
+    });
+  });
   it('binds start handle when dragged near an element', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
@@ -211,6 +325,63 @@ describe('getArrowHandleCursor', () => {
 });
 
 describe('getArrowHandlePositions', () => {
+  it('uses only endpoint and interior route-segment handles for elbow arrows', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+
+    expect(getArrowHandlePositions(arrow)).toEqual([
+      ['start', { x: 0, y: 0 }],
+      ['segment:1', { x: 50, y: 50 }],
+      ['end', { x: 100, y: 100 }],
+    ]);
+  });
+
+  it('uses routed visible ports and omits bezier mid handles from elbow arrows', () => {
+    const store = new ElementStore();
+    const source = createNote({ position: { x: -20, y: -20 }, size: { w: 40, h: 40 } });
+    const target = createNote({ position: { x: 80, y: 80 }, size: { w: 40, h: 40 } });
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fromBinding: { elementId: source.id },
+      toBinding: { elementId: target.id },
+    });
+    store.add(source);
+    store.add(target);
+    store.add(arrow);
+
+    const route = getElbowRoute(store, store.getById(arrow.id) as typeof arrow);
+    expect(getArrowHandlePositions(store.getById(arrow.id) as typeof arrow, store)).toEqual([
+      ['start', route?.points[0]],
+      ['segment:1', { x: 50, y: 50 }],
+      ['end', route?.points.at(-1)],
+    ]);
+  });
+
+  it('hides first and last elbow segments and keeps bezier midpoint behavior', () => {
+    const elbow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    const bezier = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+
+    expect(getArrowHandlePositions(elbow).map(([handle]) => handle)).toEqual([
+      'start',
+      'segment:1',
+      'end',
+    ]);
+    expect(getArrowHandlePositions(bezier).map(([handle]) => handle)).toEqual([
+      'start',
+      'mid',
+      'end',
+    ]);
+  });
+
   it('returns start, mid, and end positions', () => {
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
     const handles = getArrowHandlePositions(arrow);
