@@ -19,6 +19,11 @@ import { CreateLayerCommand, RemoveLayerCommand, UpdateLayerCommand } from './la
 
 // Every local store.update bumps version and drops editor, so neither marks a real change.
 const VOLATILE_KEYS: ReadonlySet<string> = new Set(['version', 'editor']);
+const ARROW_VOLATILE_KEYS: ReadonlySet<string> = new Set([
+  'version',
+  'editor',
+  'cachedControlPoint',
+]);
 
 export class HistoryRecorder {
   private recording = true;
@@ -274,7 +279,11 @@ export class HistoryRecorder {
         this.updateSnapshots.set(id, rebased);
         previous = rebased;
       }
-      if (current && !jsonEqual(previous, current, VOLATILE_KEYS)) {
+      const skip =
+        current?.type === 'arrow' && previous.type === 'arrow'
+          ? ARROW_VOLATILE_KEYS
+          : VOLATILE_KEYS;
+      if (current && !jsonEqual(previous, current, skip)) {
         updates.push({ previous, current });
       }
     }

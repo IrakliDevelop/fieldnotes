@@ -2,22 +2,12 @@ export function jsonEqual(a: unknown, b: unknown, skip?: ReadonlySet<string>): b
   if (a === b) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
-  const ignoreCachedControlPoint =
-    !Array.isArray(a) &&
-    Object.entries(a).some(([key, value]) => key === 'type' && value === 'arrow') &&
-    Object.entries(b).some(([key, value]) => key === 'type' && value === 'arrow');
   const entries: [string, unknown][] = Object.entries(a).filter(
-    ([key, value]) =>
-      !skip?.has(key) &&
-      (!ignoreCachedControlPoint || key !== 'cachedControlPoint') &&
-      (Array.isArray(a) || value !== undefined),
+    ([key, value]) => !skip?.has(key) && (Array.isArray(a) || value !== undefined),
   );
   const other = new Map<string, unknown>(
     Object.entries(b).filter(
-      ([key, value]) =>
-        !skip?.has(key) &&
-        (!ignoreCachedControlPoint || key !== 'cachedControlPoint') &&
-        (Array.isArray(b) || value !== undefined),
+      ([key, value]) => !skip?.has(key) && (Array.isArray(b) || value !== undefined),
     ),
   );
   return (

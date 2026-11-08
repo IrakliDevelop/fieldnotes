@@ -413,6 +413,45 @@ describe('HistoryRecorder', () => {
     expect(stack.undoCount).toBe(1);
   });
 
+  it('records nested extension data that resembles an arrow', () => {
+    const { store, stack, recorder } = setup();
+    const extension: ExtensionElementEnvelope = {
+      id: 'unknown-extension',
+      type: 'extension',
+      extensionType: 'test:unknown',
+      data: {
+        type: 'arrow',
+        version: 3,
+        editor: 'author',
+        cachedControlPoint: { x: 1, y: 2 },
+      },
+      position: { x: 0, y: 0 },
+      index: '',
+      version: 1,
+      locked: false,
+      layerId: '',
+    };
+    const originalData = extension.data;
+    const changedData = {
+      ...originalData,
+      cachedControlPoint: { x: 5, y: 8 },
+    };
+    store.add(extension);
+    stack.clear();
+
+    recorder.run(() => store.update(extension.id, { data: changedData }));
+
+    expect(stack.undoCount).toBe(1);
+    expect(stack.undo(store)).toBe(true);
+    const restored = store.getById(extension.id);
+    if (!restored || restored.type !== 'extension') throw new Error('expected restored extension');
+    expect(restored.data).toEqual(originalData);
+    expect(stack.redo(store)).toBe(true);
+    const redone = store.getById(extension.id);
+    if (!redone || redone.type !== 'extension') throw new Error('expected redone extension');
+    expect(redone.data).toEqual(changedData);
+  });
+
   it('records a reordered fixed-segment array', () => {
     const { store, stack, recorder } = setup();
     const arrow = createArrow({
