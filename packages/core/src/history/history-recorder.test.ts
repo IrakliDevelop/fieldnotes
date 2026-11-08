@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { HistoryRecorder } from './history-recorder';
 import { HistoryStack } from './history-stack';
+import { UpdateElementCommand } from './commands';
 import { ElementStore } from '../elements/element-store';
 import { createArrow, createNote, createShape } from '../elements/element-factory';
 import { createBoundText } from '../elements/bound-text';
@@ -159,6 +160,101 @@ describe('HistoryRecorder', () => {
     );
 
     expect(stack.undoCount).toBe(1);
+  });
+
+  describe('external changes during a transaction', () => {
+    it('keeps an external color change when a local edit is restored', () => {
+      const { store, stack, recorder } = setup();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+      store.add(arrow);
+      stack.clear();
+
+      recorder.begin();
+      store.update(arrow.id, { from: { x: 20, y: 20 } });
+      store.update(arrow.id, { color: 'red' }, { origin: 'remote' });
+      store.update(arrow.id, { from: { x: 0, y: 0 } });
+      recorder.commit();
+
+      expect(stack.undoCount).toBe(0);
+      expect(store.getById(arrow.id)).toMatchObject({ color: 'red' });
+    });
+
+    it('undos a local edit without reverting an external color change', () => {
+      const { store, stack, recorder } = setup();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+      store.add(arrow);
+      stack.clear();
+
+      recorder.begin();
+      store.update(arrow.id, { from: { x: 20, y: 20 } });
+      store.update(arrow.id, { color: 'red' }, { origin: 'remote' });
+      recorder.commit();
+
+      expect(stack.undoCount).toBe(1);
+      expect(stack.snapshot().undo.at(0)).toBeInstanceOf(UpdateElementCommand);
+      recorder.pause();
+      stack.undo(store);
+      recorder.resume();
+      expect(store.getById(arrow.id)).toMatchObject({ from: { x: 0, y: 0 }, color: 'red' });
+    });
+
+    it('does not record an external replacement of a locally changed key', () => {
+      const { store, stack, recorder } = setup();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+      store.add(arrow);
+      stack.clear();
+
+      recorder.begin();
+      store.update(arrow.id, { from: { x: 20, y: 20 } });
+      store.update(arrow.id, { from: { x: 40, y: 40 } }, { origin: 'remote' });
+      recorder.commit();
+
+      expect(stack.undoCount).toBe(0);
+      expect(store.getById(arrow.id)).toMatchObject({ from: { x: 40, y: 40 } });
+    });
+
+    it('discards a removed element snapshot even when the id is re-added', () => {
+      const { store, stack, recorder } = setup();
+      const note = { ...createNote({ position: { x: 0, y: 0 } }), id: 'note' };
+      store.add(note);
+      stack.clear();
+
+      recorder.begin();
+      store.update(note.id, { position: { x: 20, y: 20 } });
+      store.remove(note.id, { origin: 'remote' });
+      store.add({ ...note, position: { x: 40, y: 40 } }, { origin: 'remote' });
+      recorder.commit();
+
+      expect(stack.undoCount).toBe(0);
+      expect(store.getById(note.id)).toMatchObject({ position: { x: 40, y: 40 } });
+    });
+
+    it('rebases external changes while paused before a local restore', () => {
+      const { store, stack, recorder } = setup();
+      const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+      store.add(arrow);
+      stack.clear();
+
+      recorder.begin();
+      store.update(arrow.id, { from: { x: 20, y: 20 } });
+      recorder.pause();
+      store.update(arrow.id, { color: 'red' }, { origin: 'remote' });
+      recorder.resume();
+      store.update(arrow.id, { from: { x: 0, y: 0 } });
+      recorder.commit();
+
+      expect(stack.undoCount).toBe(0);
+      expect(store.getById(arrow.id)).toMatchObject({ color: 'red' });
+
+      recorder.begin();
+      store.update(arrow.id, { from: { x: 20, y: 20 } });
+      recorder.pause();
+      store.remove(arrow.id, { origin: 'remote' });
+      recorder.resume();
+      recorder.commit();
+
+      expect(stack.undoCount).toBe(0);
+    });
   });
 
   it('replays multi-element hierarchy updates atomically', () => {

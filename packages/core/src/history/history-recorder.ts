@@ -6,6 +6,7 @@ import type { Command } from './types';
 import type { HistoryStack } from './history-stack';
 import type { LayerManager } from '../layers/layer-manager';
 import type { Layer } from '../layers/types';
+import { jsonEqual } from '../core/json-equal';
 import {
   AddElementCommand,
   RemoveElementCommand,
@@ -17,34 +18,6 @@ import { CreateLayerCommand, RemoveLayerCommand, UpdateLayerCommand } from './la
 
 // Every local store.update bumps version and drops editor, so neither marks a real change.
 const VOLATILE_KEYS: ReadonlySet<string> = new Set(['version', 'editor']);
-
-function jsonEqual(a: unknown, b: unknown, skip?: ReadonlySet<string>): boolean {
-  if (a === b) return true;
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  const ignoreCachedControlPoint =
-    !Array.isArray(a) &&
-    Object.entries(a).some(([key, value]) => key === 'type' && value === 'arrow') &&
-    Object.entries(b).some(([key, value]) => key === 'type' && value === 'arrow');
-  const entries: [string, unknown][] = Object.entries(a).filter(
-    ([key, value]) =>
-      !skip?.has(key) &&
-      (!ignoreCachedControlPoint || key !== 'cachedControlPoint') &&
-      (Array.isArray(a) || value !== undefined),
-  );
-  const other = new Map<string, unknown>(
-    Object.entries(b).filter(
-      ([key, value]) =>
-        !skip?.has(key) &&
-        (!ignoreCachedControlPoint || key !== 'cachedControlPoint') &&
-        (Array.isArray(b) || value !== undefined),
-    ),
-  );
-  return (
-    entries.length === other.size &&
-    entries.every(([k, v]) => other.has(k) && jsonEqual(v, other.get(k)))
-  );
-}
 
 export class HistoryRecorder {
   private recording = true;
@@ -198,7 +171,10 @@ export class HistoryRecorder {
   }
 
   private onRemove(element: CanvasElement, meta: EventMeta): void {
-    if (isExternalChange(meta)) return;
+    if (isExternalChange(meta)) {
+      if (this.transaction) this.updateSnapshots.delete(element.id);
+      return;
+    }
     if (!this.recording) return;
     if (this.transaction) this.transactionIds.add(element.id);
     if (this.transaction) this.removedIds.add(element.id);
@@ -215,7 +191,21 @@ export class HistoryRecorder {
   }
 
   private onUpdate(previous: CanvasElement, current: CanvasElement, meta: EventMeta): void {
-    if (isExternalChange(meta)) return;
+    if (isExternalChange(meta)) {
+      const snapshot = this.transaction ? this.updateSnapshots.get(current.id) : undefined;
+      if (snapshot) {
+        const previousValues = new Map(Object.entries(previous));
+        const currentValues = new Map(Object.entries(current));
+        for (const key of new Set([...previousValues.keys(), ...currentValues.keys()])) {
+          const previousValue = previousValues.get(key);
+          const currentValue = currentValues.get(key);
+          if (jsonEqual(previousValue, currentValue)) continue;
+          if (currentValue === undefined) Reflect.deleteProperty(snapshot, key);
+          else Reflect.set(snapshot, key, currentValue);
+        }
+      }
+      return;
+    }
     if (!this.recording) return;
 
     if (this.transaction) {
