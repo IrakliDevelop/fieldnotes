@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 **Added**
 
-- Elbow arrows route around visible shapes. `ArrowFixedSegment`,
+- Elbow arrows use bounded search to route around visible shapes and fall back to the authored orthogonal path when no route is found. `ArrowFixedSegment`,
   `MAX_ARROW_FIXED_SEGMENTS`, `routing`, `fixedSegments`, and `Viewport.resetArrowRoute` define
   authored route axes.
 
@@ -36,7 +36,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 **Changed**
 
-- Depends on `@fieldnotes/sync` 0.30.3 and requires core 0.107.0 or newer.
+- Depends on `@fieldnotes/sync` 0.30.3 and requires `@fieldnotes/core` `>=0.107.0 <1.0.0`.
 
 ### Core 0.106.1 — editor focus
 

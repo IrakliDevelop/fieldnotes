@@ -39,7 +39,7 @@
 
 ## Next
 
-- I'm adding clipboard support and more ways to drop files onto the board.
+- I'm adding clipboard paste for text and links, and drop support for non-image files.
 
 ## Not built yet
 

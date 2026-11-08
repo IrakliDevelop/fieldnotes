@@ -86,7 +86,7 @@ describe('parseRoadmap', () => {
     );
     expect(roadmap.built).toHaveLength(new Set(roadmap.built).size);
     expect(roadmap.next).toEqual([
-      "I'm adding clipboard support and more ways to drop files onto the board.",
+      "I'm adding clipboard paste for text and links, and drop support for non-image files.",
     ]);
     expect(roadmap.notBuilt).toEqual([
       'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',

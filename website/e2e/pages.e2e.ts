@@ -27,7 +27,9 @@ const BUILT = [
   'Elbow arrows that route around shapes',
 ];
 
-const NEXT = ["I'm adding clipboard support and more ways to drop files onto the board."];
+const NEXT = [
+  "I'm adding clipboard paste for text and links, and drop support for non-image files.",
+];
 
 const BUILT_FRAMES = 'Frames that group and clip elements';
 
