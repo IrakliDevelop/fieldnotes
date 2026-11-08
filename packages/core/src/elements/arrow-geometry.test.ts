@@ -4,6 +4,7 @@ import {
   getArrowMidpoint,
   getBendFromPoint,
   getArrowTangentAngle,
+  getArrowEndTangent,
   getArrowCurve,
   getArrowLabelAnchor,
   isNearBezier,
@@ -130,6 +131,22 @@ describe('getArrowCurve', () => {
     expect(curve.t0).toBeGreaterThan(0);
     expect(curve.from.x).toBeCloseTo(100, 2);
     expect(curve.to.x).toBeCloseTo(300, 2);
+  });
+});
+
+describe('getArrowEndTangent', () => {
+  it('uses the final nonzero tangent and omits a wholly degenerate head', () => {
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 0, y: 0 } });
+    const routed = createArrow({ from: { x: 0, y: 0 }, to: { x: 40, y: 20 } });
+
+    expect(getArrowEndTangent(arrow, 1)).toBeNull();
+    expect(
+      getArrowEndTangent(routed, 1, [
+        { x: 0, y: 0 },
+        { x: 40, y: 20 },
+        { x: 40, y: 20 },
+      ]),
+    ).toBeCloseTo(Math.atan2(20, 40));
   });
 });
 

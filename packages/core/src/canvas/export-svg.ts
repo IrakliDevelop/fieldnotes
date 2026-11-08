@@ -12,12 +12,7 @@ import type { ElementStore } from '../elements/element-store';
 import type { LayerManager } from '../layers/layer-manager';
 import { getStrokeRenderData } from '../elements/stroke-cache';
 import { lineEndpoints } from '../elements/shape-geometry';
-import {
-  getArrowCurve,
-  getArrowLabelAnchor,
-  getArrowTangentAngle,
-  getPolylineEndTangent,
-} from '../elements/arrow-geometry';
+import { getArrowCurve, getArrowEndTangent, getArrowLabelAnchor } from '../elements/arrow-geometry';
 import { getArrowDashPattern } from '../elements/renderers/arrow-renderer';
 import { getElementBounds } from '../elements/element-bounds';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
@@ -175,12 +170,8 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
   let out = `<path d="${d}" fill="none" stroke="${esc(arrow.color)}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
 
   const last = route?.points.at(-1) ?? to;
-  const routeAngle = route ? getPolylineEndTangent(route.points) : null;
-  if (!route || routeAngle !== null) {
-    const angle =
-      routeAngle !== null
-        ? routeAngle
-        : getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1);
+  const angle = getArrowEndTangent(arrow, curve.t1, route?.points);
+  if (angle !== null) {
     const tip = last;
     const p1x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle - ARROWHEAD_ANGLE);
     const p1y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);

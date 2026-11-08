@@ -74,6 +74,40 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it('uses final nonzero tangent and omits a wholly degenerate head', async () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 40, y: 40 },
+      to: { x: 40, y: 40 },
+    });
+    store.add(arrow);
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('<path d="M40 40 L40 40"');
+    expect(svg).not.toContain('<polygon');
+  });
+
+  it('SVG exports local orthogonal detour and authored label', async () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 200, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'x', value: 80 }],
+      label: 'turn',
+    });
+    store.add(arrow);
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('d="M0 0 L80 0 L80 100 L200 100"');
+    expect(svg).toContain('<polygon points="200,100 189.608,106 189.608,94"');
+    expect(svg).toContain('<text x="80" y="70"');
+    expect(svg).not.toContain(' Q');
+    expect(svg).not.toContain('cachedRoute');
+  });
+
   it('emits a bound arrow text pill and the text in scene order', async () => {
     const store = new ElementStore();
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'legacy' });

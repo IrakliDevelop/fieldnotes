@@ -1,11 +1,6 @@
 import type { ArrowElement, ArrowStrokeStyle } from '../types';
 import type { ElementStore } from '../element-store';
-import {
-  getArrowCurve,
-  getArrowLabelAnchor,
-  getArrowTangentAngle,
-  getPolylineEndTangent,
-} from '../arrow-geometry';
+import { getArrowCurve, getArrowEndTangent, getArrowLabelAnchor } from '../arrow-geometry';
 import { getElementBounds } from '../element-bounds';
 import { getBoundText } from '../bound-text';
 import { getElbowRoute } from '../elbow-cache';
@@ -58,16 +53,9 @@ export function renderArrow(
   ctx.stroke();
 
   const last = route?.points.at(-1) ?? curve.to;
-  const routeAngle = route ? getPolylineEndTangent(route.points) : null;
-  if (!route || routeAngle !== null) {
-    renderArrowhead(
-      ctx,
-      arrow,
-      last,
-      routeAngle !== null
-        ? routeAngle
-        : getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1),
-    );
+  const angle = getArrowEndTangent(arrow, curve.t1, route?.points);
+  if (angle !== null) {
+    renderArrowhead(ctx, arrow, last, angle);
   }
   ctx.restore();
   renderArrowLabel(ctx, arrow, store, resolveBounds);

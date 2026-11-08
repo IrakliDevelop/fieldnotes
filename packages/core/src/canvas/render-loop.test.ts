@@ -2103,6 +2103,50 @@ describe('RenderLoop', () => {
       dirty.mockRestore();
     });
 
+    it('boards without elbows retain cached unrelated layers during live edits', () => {
+      const otherLayer = layers.createLayer().id;
+      store.add(shape('active', 1));
+      store.add(shape('unrelated', 1, otherLayer));
+      frame();
+      const dirty = vi.spyOn(cache, 'markDirty');
+
+      move('active', 20);
+      frame();
+
+      expect(dirty).toHaveBeenCalledWith(layerId);
+      expect(dirty).not.toHaveBeenCalledWith(otherLayer);
+      dirty.mockRestore();
+    });
+
+    it('out-of-region mutations leave cached elbow and unrelated layers clean', () => {
+      const elbowLayer = layers.createLayer().id;
+      const unrelatedLayer = layers.createLayer().id;
+      const arrow = {
+        ...createArrow({
+          from: { x: 0, y: 0 },
+          to: { x: 200, y: 0 },
+          routing: 'elbow',
+          layerId: elbowLayer,
+        }),
+        id: 'arrow',
+      };
+      store.add(arrow);
+      store.add({ ...shape('near', 1), position: { x: 80, y: -20 } });
+      store.add({ ...shape('far', 1, unrelatedLayer), position: { x: 10_000, y: 10_000 } });
+      const installed = store.getById(arrow.id);
+      if (!installed || installed.type !== 'arrow') throw new Error('expected arrow');
+      getElbowRoute(store, installed);
+      frame();
+      const dirty = vi.spyOn(cache, 'markDirty');
+
+      move('far', 10_100);
+      frame();
+
+      expect(dirty).toHaveBeenCalledWith(unrelatedLayer);
+      expect(dirty).not.toHaveBeenCalledWith(elbowLayer);
+      dirty.mockRestore();
+    });
+
     it('keeps paint order', () => {
       store.add(shape('A', 1));
       store.add(shape('B', 2));

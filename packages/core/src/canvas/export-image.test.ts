@@ -52,6 +52,18 @@ function extensionFixture(): {
 }
 
 describe('getElementRect', () => {
+  it('PNG export bounds cover the conservative authored region and local route', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 200, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'x', value: 80 }],
+      width: 2,
+    });
+
+    expect(getElementRect(arrow)).toEqual({ x: -271, y: -271, w: 742, h: 642 });
+  });
+
   it('returns bounds for a note', () => {
     const note = createNote({ position: { x: 10, y: 20 }, size: { w: 200, h: 100 } });
     const rect = getElementRect(note);

@@ -121,6 +121,17 @@ export function getPolylineEndTangent(points: readonly Point[]): number | null {
   return null;
 }
 
+/** Returns the visible arrow end direction, or null when it has no length. */
+export function getArrowEndTangent(
+  arrow: ArrowElement,
+  t: number,
+  routePoints?: readonly Point[],
+): number | null {
+  if (routePoints) return getPolylineEndTangent(routePoints);
+  if (arrow.from.x === arrow.to.x && arrow.from.y === arrow.to.y) return null;
+  return getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, t);
+}
+
 export function isNearPolyline(point: Point, points: readonly Point[], threshold: number): boolean {
   for (let index = 1; index < points.length; index += 1) {
     const from = points[index - 1];

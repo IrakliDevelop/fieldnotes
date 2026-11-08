@@ -143,6 +143,26 @@ describe('isInsideBounds', () => {
     expect(hitTest({ x: 140, y: 75.2 }, ctx)?.id).toBe(arrow.id);
   });
 
+  it('hits a detour and misses the obsolete chord', () => {
+    const ctx = makeCtx();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 200, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'x', value: 80 }],
+    });
+    const blocker = createShape({
+      shape: 'rectangle',
+      position: { x: 90, y: 20 },
+      size: { w: 40, h: 40 },
+    });
+    ctx.store.add(blocker);
+    ctx.store.add(arrow);
+
+    expect(hitTest({ x: 80, y: 75 }, ctx)?.id).toBe(arrow.id);
+    expect(hitTest({ x: 130, y: 65 }, ctx)).toBeNull();
+  });
+
   it('falls through a clipped top candidate to the lower visible element', () => {
     const ctx = makeCtx();
     const lower = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 }, index: 'a' });
