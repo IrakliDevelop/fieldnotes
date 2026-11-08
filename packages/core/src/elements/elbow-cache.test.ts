@@ -54,12 +54,11 @@ function boundsDefinition(clip = false): ElementTypeDefinition<ExtensionElementE
         : { x: element.position.x, y: element.position.y, w: 10, h: 10 },
     ...(clip
       ? {
-          clipBounds: (element: ExtensionElementEnvelope) =>
-            element.data['clip'] === 'partial'
-              ? { x: 50, y: -10, w: 10, h: 20 }
-              : element.data['visible'] === true
-                ? { x: 40, y: -10, w: 20, h: 20 }
-                : { x: 200, y: 200, w: 20, h: 20 },
+          clipBounds: (element: ExtensionElementEnvelope) => {
+            if (element.data['clip'] === 'partial') return { x: 50, y: -10, w: 10, h: 20 };
+            if (element.data['visible'] === true) return { x: 40, y: -10, w: 20, h: 20 };
+            return { x: 200, y: 200, w: 20, h: 20 };
+          },
         }
       : {}),
   };
@@ -341,62 +340,147 @@ describe('elbow route cache', () => {
     ]);
   });
 
-  it('excludes its own label, descendants, ancestors and endpoint targets', () => {
+  it('excludes its own bound label when it is added, removed and readded', () => {
     const store = new ElementStore();
-    const ancestor = createShape({
-      position: { x: 40, y: -10 },
-      size: { w: 20, h: 20 },
-      shape: 'rectangle',
-    });
-    ancestor.id = 'ancestor';
-    const source = createShape({
-      position: { x: -20, y: -10 },
-      size: { w: 20, h: 20 },
-      shape: 'rectangle',
-    });
-    source.id = 'source';
-    const target = createShape({
-      position: { x: 80, y: -10 },
-      size: { w: 20, h: 20 },
-      shape: 'rectangle',
-    });
-    target.id = 'target';
-    store.add(ancestor);
-    store.add(source);
-    store.add(target);
-    const arrow = createArrow({
-      from: { x: 0, y: 0 },
-      to: { x: 100, y: 0 },
-      routing: 'elbow',
-      parentId: ancestor.id,
-      fromBinding: { elementId: source.id, focus: 0, gap: 0 },
-      toBinding: { elementId: target.id, focus: 0, gap: 0 },
-    });
-    arrow.id = 'arrow';
-    store.add(arrow);
-    const installed = store.getById(arrow.id);
-    if (!installed || installed.type !== 'arrow') throw new Error('expected arrow');
-    expect(detours(getElbowRoute(store, installed))).toBe(false);
+    const arrow = elbow(store);
     const label = createText({
       position: { x: 40, y: -10 },
+      size: { w: 10, h: 10 },
       parentId: arrow.id,
       containerId: arrow.id,
     });
+    store.add(label);
+    expect(detours(getElbowRoute(store, arrow))).toBe(false);
+    store.remove(label.id);
+    expect(detours(getElbowRoute(store, arrow))).toBe(false);
+    store.add(label);
+    expect(detours(getElbowRoute(store, arrow))).toBe(false);
+  });
+
+  it('excludes non-text descendants when they are added, removed and readded', () => {
+    const store = new ElementStore();
+    const arrow = elbow(store);
     const child = createShape({
       position: { x: 40, y: -10 },
       size: { w: 20, h: 20 },
       shape: 'rectangle',
       parentId: arrow.id,
     });
-    store.add(label);
-    expect(detours(getElbowRoute(store, installed))).toBe(false);
-    store.remove(label.id);
-    expect(detours(getElbowRoute(store, installed))).toBe(false);
-    store.add(label);
     store.add(child);
-    expect(detours(getElbowRoute(store, installed))).toBe(false);
+    expect(detours(getElbowRoute(store, arrow))).toBe(false);
     store.remove(child.id);
-    expect(detours(getElbowRoute(store, installed))).toBe(false);
+    expect(detours(getElbowRoute(store, arrow))).toBe(false);
+    store.add(child);
+    expect(detours(getElbowRoute(store, arrow))).toBe(false);
+  });
+
+  it('treats an ancestor as an obstacle only while the arrow is detached', () => {
+    const store = new ElementStore();
+    const parent = createShape({
+      position: { x: 40, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    parent.id = 'parent';
+    store.add(parent);
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 0 },
+      routing: 'elbow',
+      parentId: parent.id,
+    });
+    store.add(arrow);
+    const currentArrow = () => {
+      const current = store.getById(arrow.id);
+      if (!current || current.type !== 'arrow') throw new Error('expected arrow');
+      return current;
+    };
+
+    expect(detours(getElbowRoute(store, currentArrow()))).toBe(false);
+    store.update(arrow.id, { parentId: undefined });
+    expect(detours(getElbowRoute(store, currentArrow()))).toBe(true);
+    store.remove(parent.id);
+    expect(detours(getElbowRoute(store, currentArrow()))).toBe(false);
+    store.add(parent);
+    expect(detours(getElbowRoute(store, currentArrow()))).toBe(true);
+    store.update(arrow.id, { parentId: parent.id });
+    expect(detours(getElbowRoute(store, currentArrow()))).toBe(false);
+  });
+
+  it('excludes endpoint targets while routing around a third blocker', () => {
+    const store = new ElementStore();
+    const source = createShape({
+      position: { x: -10, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    source.id = 'source';
+    const target = createShape({
+      position: { x: 90, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    target.id = 'target';
+    const blocker = createShape({
+      position: { x: 40, y: -10 },
+      size: { w: 20, h: 20 },
+      shape: 'rectangle',
+    });
+    store.add(source);
+    store.add(target);
+    store.add(blocker);
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 0 },
+      routing: 'elbow',
+      fromBinding: { elementId: source.id },
+      toBinding: { elementId: target.id },
+    });
+    store.add(arrow);
+    const currentArrow = () => {
+      const current = store.getById(arrow.id);
+      if (!current || current.type !== 'arrow') throw new Error('expected arrow');
+      return current;
+    };
+    const route = () => getElbowRoute(store, currentArrow());
+    const expectDetour = () => {
+      const points = route()?.points ?? [];
+      expect(detours(route())).toBe(true);
+      expect(
+        points.some((point, index) => {
+          const previous = points[index - 1];
+          if (!previous) return false;
+          if (point.y === previous.y)
+            return (
+              point.y > -10 &&
+              point.y < 10 &&
+              Math.max(point.x, previous.x) > 40 &&
+              Math.min(point.x, previous.x) < 60
+            );
+          return (
+            point.x > 40 &&
+            point.x < 60 &&
+            Math.max(point.y, previous.y) > -10 &&
+            Math.min(point.y, previous.y) < 10
+          );
+        }),
+      ).toBe(false);
+    };
+
+    expectDetour();
+    expect(route()?.points[0]).toEqual({ x: 0, y: -10 });
+    store.remove(source.id);
+    expectDetour();
+    expect(route()?.points[0]).toEqual({ x: 0, y: 0 });
+    store.add(source);
+    expectDetour();
+    expect(route()?.points.at(-1)).toEqual({ x: 100, y: -10 });
+    store.remove(target.id);
+    expectDetour();
+    expect(route()?.points.at(-1)).toEqual({ x: 100, y: 0 });
+    store.add(target);
+    expectDetour();
+    expect(route()?.points.at(-1)).toEqual({ x: 100, y: -10 });
   });
 
   it('uses effective clipped rotated bounds and visible layers', () => {

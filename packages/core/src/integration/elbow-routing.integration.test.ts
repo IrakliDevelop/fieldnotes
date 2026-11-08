@@ -23,9 +23,13 @@ describe('elbow route cache', () => {
     const updates: string[] = [];
     store.on('update', ({ current }) => updates.push(current.id));
 
-    const first = getElbowRoute(store, installed).points;
+    const firstRoute = getElbowRoute(store, installed);
+    if (!firstRoute) throw new Error('expected elbow route');
+    const first = firstRoute.points;
     store.update(obstacle.id, { position: { x: 80, y: 80 } });
-    const second = getElbowRoute(store, installed).points;
+    const secondRoute = getElbowRoute(store, installed);
+    if (!secondRoute) throw new Error('expected elbow route');
+    const second = secondRoute.points;
 
     expect(second).not.toEqual(first);
     expect(store.getById(arrow.id)?.version).toBe(1);

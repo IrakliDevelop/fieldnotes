@@ -191,9 +191,11 @@ function trimRoute(
   const points = route.points.map((point) => ({ ...point }));
   if (fromBounds && points[0] && points[1])
     points[0] = trimEndpoint(points[0], points[1], fromBounds);
-  const last = points.length - 1;
-  if (toBounds && points[last] && points[last - 1]) {
-    points[last] = trimEndpoint(points[last], points[last - 1], toBounds);
+  const lastIndex = points.length - 1;
+  const last = points[lastIndex];
+  const penultimate = points[lastIndex - 1];
+  if (toBounds && last && penultimate) {
+    points[lastIndex] = trimEndpoint(last, penultimate, toBounds);
   }
   return dedupeRoute({ points, segments: route.segments });
 }
