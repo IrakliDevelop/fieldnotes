@@ -139,7 +139,7 @@ describe('getArrowEndTangent', () => {
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 0, y: 0 } });
     const routed = createArrow({ from: { x: 0, y: 0 }, to: { x: 40, y: 20 } });
 
-    expect(getArrowEndTangent(arrow, 1)).toBeNull();
+    expect(getArrowEndTangent(arrow, 1, [{ x: 0, y: 0 }])).toBeNull();
     expect(
       getArrowEndTangent(routed, 1, [
         { x: 0, y: 0 },

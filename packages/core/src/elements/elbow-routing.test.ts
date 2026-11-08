@@ -2,6 +2,26 @@ import { describe, expect, it } from 'vitest';
 import { buildAuthoredElbowPath, routeElbowArrow } from './elbow-routing';
 
 describe('routeElbowArrow', () => {
+  it('routes an automatic Z gap around its blocked authored corner', () => {
+    const route = routeElbowArrow(
+      { from: { x: 120, y: 220 }, to: { x: 560, y: 300 }, width: 4 },
+      null,
+      null,
+      [{ x: 300, y: 180, w: 90, h: 80 }],
+    );
+    const inflated = { x: 286, y: 166, w: 118, h: 108 };
+
+    expect(route.points).not.toContainEqual({ x: 340, y: 220 });
+    for (let index = 1; index < route.points.length; index += 1) {
+      const from = route.points[index - 1];
+      const to = route.points[index];
+      if (!from || !to) throw new Error('expected route segment');
+      if (from.x === to.x)
+        expect(from.x <= inflated.x || from.x >= inflated.x + inflated.w).toBe(true);
+      else expect(from.y <= inflated.y || from.y >= inflated.y + inflated.h).toBe(true);
+    }
+  });
+
   it('routes around a blocking rectangle without diagonal segments', () => {
     const route = routeElbowArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 } }, null, null, [
       { x: 40, y: -10, w: 20, h: 20 },

@@ -159,17 +159,32 @@ export function routeElbowArrow(
   const authoredSegments = toSegments(authored);
   let expanded = 0;
 
-  for (const segment of authoredSegments) {
+  for (let index = 0; index < authoredSegments.length;) {
+    const segment = authoredSegments[index];
+    if (!segment) break;
     if (segment.fixedIndex !== undefined) {
       appendRoute(result, [segment.from, segment.to], segment.fixedIndex);
+      index += 1;
       continue;
     }
-    const path = findPath(segment.from, segment.to, blocked, region, () => {
+    let end = index + 1;
+    while (end < authoredSegments.length && authoredSegments[end]?.fixedIndex === undefined)
+      end += 1;
+    const gap = authoredSegments.slice(index, end);
+    const last = gap.at(-1);
+    if (!last) return trimRoute(authored, fromBounds, toBounds);
+    if (!gap.some((part) => crossesObstacle(part.from, part.to, blocked))) {
+      appendRoute(result, [segment.from, ...gap.map((part) => part.to)]);
+      index = end;
+      continue;
+    }
+    const path = findPath(segment.from, last.to, blocked, region, () => {
       expanded += 1;
       return expanded <= MAX_EXPANDED_STATES;
     });
     if (!path) return trimRoute(authored, fromBounds, toBounds);
     appendRoute(result, path);
+    index = end;
   }
   return trimRoute(simplifyRoute(result), fromBounds, toBounds);
 }

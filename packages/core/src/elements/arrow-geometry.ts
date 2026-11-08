@@ -128,7 +128,6 @@ export function getArrowEndTangent(
   routePoints?: readonly Point[],
 ): number | null {
   if (routePoints) return getPolylineEndTangent(routePoints);
-  if (arrow.from.x === arrow.to.x && arrow.from.y === arrow.to.y) return null;
   return getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, t);
 }
 
