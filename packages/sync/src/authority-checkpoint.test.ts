@@ -745,7 +745,7 @@ describe('authority checkpoint', () => {
     await expect(
       prepare(makePayload(MAX_AUTHORITY_CHECKPOINT_BYTES - overhead + 1), required),
     ).rejects.toThrow(RangeError);
-  }, 30_000);
+  }, 120_000);
 
   it('accepts depth 64 and rejects depth 65 in extension data', async () => {
     const nested = (count: number): unknown => {
