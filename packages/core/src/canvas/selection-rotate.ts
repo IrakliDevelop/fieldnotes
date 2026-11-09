@@ -1,5 +1,5 @@
 import type { Bounds, Point } from '../core/types';
-import type { CanvasElement } from '../elements/types';
+import type { ArrowFixedSegment, CanvasElement } from '../elements/types';
 import { normalizeAngle, rotatePoint, rotatedAABB } from '../core/geometry';
 import type { ElementRegistry } from '../elements/element-registry';
 
@@ -48,6 +48,20 @@ export function rotateElementPatch(
       position: { x: el.position.x + moved.x - center.x, y: el.position.y + moved.y - center.y },
       from: rotatePoint(el.from, pivot, delta),
       to: rotatePoint(el.to, pivot, delta),
+      ...(el.fixedSegments
+        ? {
+            fixedSegments: el.fixedSegments.map((segment): ArrowFixedSegment => {
+              if (delta > 0) {
+                return segment.axis === 'x'
+                  ? { axis: 'y', value: pivot.y + segment.value - pivot.x }
+                  : { axis: 'x', value: pivot.x - segment.value + pivot.y };
+              }
+              return segment.axis === 'x'
+                ? { axis: 'y', value: pivot.y - segment.value + pivot.x }
+                : { axis: 'x', value: pivot.x + segment.value - pivot.y };
+            }),
+          }
+        : {}),
     };
   }
   if (el.type === 'extension') {

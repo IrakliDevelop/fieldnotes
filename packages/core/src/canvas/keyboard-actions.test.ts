@@ -371,6 +371,28 @@ describe('KeyboardActions.duplicate', () => {
     }
   });
 
+  it('duplicates authored axes at the clone offset without aliasing them', () => {
+    const { actions, ctx, tool } = makeActions();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 10, y: 10 },
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'x', value: 30 }],
+    });
+    ctx.store.add(arrow);
+    tool.setSelection([arrow.id]);
+
+    actions.duplicate();
+
+    const clone = ctx.store.getAll().find((element) => element.id !== arrow.id);
+    expect(clone).toMatchObject({
+      type: 'arrow',
+      fixedSegments: [{ axis: 'x', value: 50 }],
+    });
+    if (clone?.type !== 'arrow') throw new Error('expected arrow clone');
+    expect(clone.fixedSegments).not.toBe(arrow.fixedSegments);
+  });
+
   it('does not touch the copy/paste clipboard', () => {
     const { actions, ctx, tool } = makeActions();
     const a = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
@@ -552,37 +574,122 @@ describe('KeyboardActions.cut', () => {
     expect(ctx.store.count).toBe(0);
   });
 
-  it('duplicates a selected parent tree with remapped ownership and only selects the clone root', () => {
+  it('duplicates and pastes elbow trees with remapped authored route ownership', () => {
     const { actions, ctx, tool } = makeActions();
     const parent = {
       ...createNote({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 } }),
       id: 'parent',
     };
-    const child = {
+    const source = {
       ...createNote({ position: { x: 5, y: 5 }, size: { w: 10, h: 10 }, parentId: parent.id }),
-      id: 'child',
+      id: 'source',
     };
-    ctx.store.add(parent);
-    ctx.store.add(child);
-    tool.setSelection([parent.id, child.id]);
+    const target = {
+      ...createNote({ position: { x: 35, y: 25 }, size: { w: 10, h: 10 }, parentId: parent.id }),
+      id: 'target',
+    };
+    const arrow = {
+      ...createArrow({
+        from: { x: 10, y: 10 },
+        to: { x: 40, y: 30 },
+        fromBinding: { elementId: source.id },
+        toBinding: { elementId: target.id },
+        parentId: parent.id,
+        routing: 'elbow',
+        fixedSegments: [
+          { axis: 'x', value: 30 },
+          { axis: 'y', value: 40 },
+        ],
+      }),
+      id: 'arrow',
+    };
+    const text = { ...createBoundText(arrow, { text: 'route' }), id: 'text' };
+    for (const element of [parent, source, target, arrow, text]) ctx.store.add(element);
+    const originalScene = structuredClone(ctx.store.getAll());
+    const originalIds = new Set(originalScene.map((element) => element.id));
+    tool.setSelection([parent.id]);
 
     actions.duplicate();
 
     const clones = ctx.store
       .getAll()
-      .filter((element) => element.id !== parent.id && element.id !== child.id);
+      .filter(
+        (element) => ![parent.id, source.id, target.id, arrow.id, text.id].includes(element.id),
+      );
     const [cloneParent] = clones.filter((element) => !element.parentId);
-    const [cloneChild] = clones.filter((element) => element.parentId === cloneParent?.id);
-    expect(ctx.store.count).toBe(4);
-    expect(clones).toHaveLength(2);
-    expect(clones.map((element) => element.position)).toEqual([
-      { x: 20, y: 20 },
-      { x: 25, y: 25 },
-    ]);
-    expect(new Set(clones.map((element) => element.id))).toHaveLength(2);
+    const cloneArrow = clones.find((element) => element.type === 'arrow');
+    const cloneText = clones.find((element) => element.type === 'text');
+    const cloneSource = clones.find(
+      (element) =>
+        element.type === 'note' && element.id !== cloneParent?.id && element.position.x === 25,
+    );
+    const cloneTarget = clones.find(
+      (element) => element.type === 'note' && element.position.x === 55,
+    );
+    expect(ctx.store.count).toBe(10);
+    expect(clones).toHaveLength(5);
     expect(cloneParent).toBeDefined();
-    expect(cloneChild).toBeDefined();
+    expect(cloneArrow).toMatchObject({
+      parentId: cloneParent?.id,
+      routing: 'elbow',
+      from: { x: 30, y: 30 },
+      to: { x: 60, y: 50 },
+      fixedSegments: [
+        { axis: 'x', value: 50 },
+        { axis: 'y', value: 60 },
+      ],
+      fromBinding: { elementId: cloneSource?.id },
+      toBinding: { elementId: cloneTarget?.id },
+    });
+    expect(cloneText).toMatchObject({ parentId: cloneArrow?.id, containerId: cloneArrow?.id });
+    if (cloneArrow?.type !== 'arrow') throw new Error('expected cloned arrow');
+    expect(cloneArrow.fixedSegments).not.toBe(arrow.fixedSegments);
+    expect(cloneArrow.fixedSegments?.[0]).not.toBe(arrow.fixedSegments?.[0]);
+    expect(arrow).toMatchObject({
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 30 },
+        { axis: 'y', value: 40 },
+      ],
+    });
     expect(tool.selectedIds).toEqual([cloneParent?.id]);
+    expect(ctx.store.getAll().filter((element) => originalIds.has(element.id))).toEqual(
+      originalScene,
+    );
+
+    tool.setSelection([parent.id]);
+    actions.copy();
+    actions.paste();
+    const pastedParent = tool.selectedIds[0];
+    const pastedChildren = ctx.store.getChildren(pastedParent ?? '');
+    const pastedArrow = pastedChildren.find((element) => element.type === 'arrow');
+    const pastedSource = pastedChildren.find(
+      (element) => element.type === 'note' && element.position.x === 25,
+    );
+    const pastedTarget = pastedChildren.find(
+      (element) => element.type === 'note' && element.position.x === 55,
+    );
+    const pastedText =
+      pastedArrow &&
+      ctx.store.getChildren(pastedArrow.id).find((element) => element.type === 'text');
+    expect(pastedArrow).toMatchObject({
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 50 },
+        { axis: 'y', value: 60 },
+      ],
+      parentId: pastedParent,
+      fromBinding: { elementId: pastedSource?.id },
+      toBinding: { elementId: pastedTarget?.id },
+    });
+    expect(pastedText).toMatchObject({ parentId: pastedArrow?.id, containerId: pastedArrow?.id });
+    if (pastedArrow?.type !== 'arrow') throw new Error('expected pasted arrow');
+    expect(pastedArrow.fixedSegments).not.toBe(arrow.fixedSegments);
+    expect(pastedArrow.fixedSegments?.[0]).not.toBe(arrow.fixedSegments?.[0]);
+    expect(ctx.store.getById(arrow.id)).toMatchObject({ parentId: parent.id, routing: 'elbow' });
+    expect(ctx.store.getAll().filter((element) => originalIds.has(element.id))).toEqual(
+      originalScene,
+    );
   });
 
   it('duplicates a selected child closure as a detached tree', () => {

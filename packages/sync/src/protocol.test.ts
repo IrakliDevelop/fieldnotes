@@ -36,6 +36,75 @@ function shape(x = 0): CanvasElement {
 }
 
 describe('isValidElement', () => {
+  it('validates additive elbow routing and fixed segments at the raw boundary', () => {
+    const arrow = createArrow({
+      index: 'a0',
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: Array.from({ length: 16 }, (_, index) => ({
+        axis: index % 2 === 0 ? ('x' as const) : ('y' as const),
+        value: 50,
+      })),
+    });
+
+    const legacy = createArrow({ index: 'a0', from: { x: 0, y: 0 }, to: { x: 1, y: 1 } });
+    expect(isValidElement(legacy)).toBe(true);
+    expect(legacy).not.toHaveProperty('routing');
+    expect(Object.hasOwn(arrow, 'routing')).toBe(true);
+    expect(isValidElement(arrow)).toBe(true);
+    expect(isValidElement({ ...arrow, routing: 'bezier' })).toBe(true);
+    expect(
+      isValidElement({
+        ...arrow,
+        fixedSegments: [
+          { axis: 'x', value: 50 },
+          { axis: 'x', value: 50 },
+        ],
+      }),
+    ).toBe(true);
+
+    const sparse = JSON.stringify({ ...arrow, fixedSegments: new Array(1) });
+    expect(sparse).toContain('"fixedSegments":[null]');
+    const rawSparse = { ...arrow, fixedSegments: new Array<unknown>(1) };
+    for (const malformed of [
+      { ...arrow, routing: 'spline' },
+      { ...arrow, fixedSegments: Array.from({ length: 17 }, () => ({ axis: 'x', value: 0 })) },
+      { ...arrow, fixedSegments: [{ axis: 'z', value: 0 }] },
+      { ...arrow, fixedSegments: [null] },
+      { ...arrow, fixedSegments: [0] },
+      { ...arrow, fixedSegments: [{}] },
+      rawSparse,
+      JSON.parse(sparse),
+      { ...arrow, fixedSegments: [{ axis: 'x', value: Number.NaN }] },
+      { ...arrow, fixedSegments: [{ axis: 'x', value: Number.POSITIVE_INFINITY }] },
+    ]) {
+      expect(isValidElement(malformed)).toBe(false);
+    }
+  });
+
+  it('enforces elbow fixed-segment limits independently from structural validation', () => {
+    const atLimit = createArrow({
+      index: 'a0',
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      fixedSegments: Array.from({ length: 16 }, () => ({ axis: 'x' as const, value: 0 })),
+    });
+    const arrow = {
+      ...createArrow({
+        index: 'a0',
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+      }),
+      fixedSegments: Array.from({ length: 17 }, () => ({ axis: 'x' as const, value: 0 })),
+    };
+
+    expect(isWithinSyncLimits({ from: 'A', op: { kind: 'upsert', element: atLimit } })).toBe(true);
+    expect(isValidElement(arrow)).toBe(false);
+    expect(elementWithinLimits(arrow, SYNC_LIMITS)).toBe(false);
+    expect(isWithinSyncLimits({ from: 'A', op: { kind: 'upsert', element: arrow } })).toBe(false);
+  });
+
   it('accepts every runtime element variant including extension envelopes', () => {
     const elements: CanvasElement[] = [
       createStroke({ index: 'a0', points: [{ x: 0, y: 0, pressure: 0.5 }] }),

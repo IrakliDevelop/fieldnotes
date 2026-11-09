@@ -10,6 +10,7 @@ import { Background } from './background';
 import type { BackgroundOptions } from './background';
 import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
+import { setElbowVisibleLayers } from '../elements/elbow-cache';
 import { NoteEditor } from '../elements/note-editor';
 import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, HtmlElement, ShapeKind } from '../elements/types';
@@ -263,6 +264,7 @@ export class Viewport {
       options.elementRegistry ?? new ElementRegistry(getDefaultElementRegistry());
     this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
+    setElbowVisibleLayers(this.store, (id) => this.layerManager.isLayerVisible(id));
     this.toolManager = new ToolManager();
     this.actionRegistry = new ActionRegistry(() => this.currentActionContext());
     const unsubToolRegister = this.toolManager.onRegister((tool) => {
@@ -712,6 +714,7 @@ export class Viewport {
 
     this.disposers.push(
       this.layerManager.on('change', () => {
+        setElbowVisibleLayers(this.store, (id) => this.layerManager.isLayerVisible(id));
         this.toolContext.activeLayerId = this.layerManager.activeLayerId;
         // Snapshot loads replace layers without per-layer remove events, so prune on every change.
         this.layerCache.retain((id) => this.layerManager.getLayer(id) !== undefined);
@@ -1696,6 +1699,15 @@ export class Viewport {
 
   rotateSelection(direction: RotateDirection): void {
     this.transaction(() => this.selectionOps.rotateSelection(direction));
+  }
+
+  /** Clears authored elbow route axes and returns whether an arrow changed. */
+  resetArrowRoute(id: string): boolean {
+    const arrow = this.store.getById(id);
+    if (arrow?.type !== 'arrow' || !arrow.fixedSegments?.length) return false;
+    this.transaction(() => this.store.update(id, { fixedSegments: undefined }));
+    this.requestRender();
+    return true;
   }
 
   getRenderStats(): RenderStatsSnapshot {

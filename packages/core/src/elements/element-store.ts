@@ -16,12 +16,20 @@ import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache'
 import type { CanvasElement, ElementType } from './types';
 import { getRegistryToken, type ElementRegistry } from './element-registry';
 import { getDefaultElementRegistry } from './default-registry';
+import { invalidateElbowRoutes, transferElbowRoute } from './elbow-cache';
 import {
   compareElementOrder,
   ElementHierarchy,
   validateAddedElement,
   validateHierarchy,
 } from './element-hierarchy';
+
+export const BOUND_TEXT_GEOMETRY_KEYS: Record<'shape' | 'arrow' | 'extension', readonly string[]> =
+  {
+    shape: ['position', 'size', 'rotation', 'shape'],
+    arrow: ['from', 'to', 'bend', 'fromBinding', 'toBinding', 'routing', 'fixedSegments'],
+    extension: ['position', 'size', 'data'],
+  };
 
 function sanitizeRichText(element: CanvasElement): CanvasElement {
   if (element.type !== 'note' && element.type !== 'text') return element;
@@ -69,6 +77,17 @@ function sameDerivedValue(a: unknown, b: unknown): boolean {
     aKeys.length === Object.keys(bRecord).length &&
     aKeys.every((key) => sameDerivedValue(aRecord[key], bRecord[key]))
   );
+}
+
+function sameBounds(a: Bounds | null, b: Bounds | null): boolean {
+  return (
+    a === b ||
+    (a !== null && b !== null && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h)
+  );
+}
+
+function sameEffectiveClip(a: Bounds | null | undefined, b: Bounds | null | undefined): boolean {
+  return a === undefined || b === undefined ? a === b : sameBounds(a, b);
 }
 
 export interface ElementUpdateEvent {
@@ -142,6 +161,7 @@ export class ElementStore {
       const bounds = this.indexBounds(element);
       if (bounds) this.spatialIndex.insert(element.id, bounds);
     }
+    invalidateElbowRoutes(this, { projectionChanged: true });
   }
 
   get count(): number {
@@ -197,6 +217,12 @@ export class ElementStore {
     this.registryToken = token;
     this.hierarchyKnownValid = false;
     this.resetHierarchy();
+    this.spatialIndex.clear();
+    for (const element of this.elements.values()) {
+      const bounds = this.indexBounds(element);
+      if (bounds) this.spatialIndex.insert(element.id, bounds);
+    }
+    invalidateElbowRoutes(this, { projectionChanged: true });
   }
 
   private topIndex(layerId: string): string | null {
@@ -245,6 +271,7 @@ export class ElementStore {
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
     this.refreshRegistry();
     element = stampDataVersion(sanitizeRichText(element), this.registry);
+    if (element.type === 'arrow') element = { ...element };
     validateExtensionEnvelope(element, this.registry);
     if (element.index === '') {
       element = { ...element, index: generateKeyBetween(this.topIndex(element.layerId), null) };
@@ -329,6 +356,8 @@ export class ElementStore {
       for (const item of prepared) candidate.set(item.updated.id, item.updated);
       this.validateCandidate(candidate, meta);
     }
+    const existing = this.elements.get(element.id);
+    const previousBounds = existing ? this.indexBounds(existing) : undefined;
     this.resetHierarchy();
     this._versions.set(element.id, 0);
     this.elements.set(element.id, element);
@@ -336,6 +365,17 @@ export class ElementStore {
     this.hierarchyKnownValid = this.strict(meta);
     const bounds = this.indexBounds(element);
     if (bounds) this.spatialIndex.insert(element.id, bounds);
+    const projectionChanged =
+      element.parentId !== undefined ||
+      existing?.parentId !== undefined ||
+      [...this.elements.values()].some((child) => child.parentId === element.id);
+    invalidateElbowRoutes(this, {
+      previous: existing,
+      current: element,
+      previousBounds,
+      currentBounds: bounds,
+      projectionChanged,
+    });
     this.bus.emit('add', element, meta);
     for (const item of prepared)
       this.bus.emit('update', { previous: item.existing, current: item.updated }, meta);
@@ -499,11 +539,8 @@ export class ElementStore {
     for (const item of prepared) {
       const { partial, updated } = item;
       if (
-        (updated.type === 'shape' &&
-          ['position', 'size', 'rotation', 'shape'].some((key) => key in partial)) ||
-        (updated.type === 'arrow' &&
-          ['from', 'to', 'bend', 'fromBinding', 'toBinding'].some((key) => key in partial)) ||
-        (updated.type === 'extension' && ['position', 'size', 'data'].some((key) => key in partial))
+        (updated.type === 'shape' || updated.type === 'arrow' || updated.type === 'extension') &&
+        BOUND_TEXT_GEOMETRY_KEYS[updated.type].some((key) => key in partial)
       )
         geometry.add(updated.id);
       if (
@@ -697,6 +734,12 @@ export class ElementStore {
     updated: CanvasElement,
     deferStructuralReset = false,
   ): void {
+    const previousClips = new Map<string, Bounds | null | undefined>();
+    if (existing.type === 'extension' && !deferStructuralReset) {
+      for (const child of this.getDescendants(existing.id)) {
+        previousClips.set(child.id, this.getEffectiveClip(child.id));
+      }
+    }
     this._versions.set(existing.id, (this._versions.get(existing.id) ?? 0) + 1);
     this.elements.set(existing.id, updated);
     const structural = this.isStructural(existing, updated);
@@ -707,11 +750,39 @@ export class ElementStore {
       if (rank !== undefined && this.sceneCache) this.sceneCache[rank] = updated;
     }
 
+    const oldBounds = this.indexBounds(existing);
     const newBounds = this.indexBounds(updated);
     if (newBounds) {
       this.spatialIndex.update(existing.id, newBounds);
     } else {
       this.spatialIndex.remove(existing.id);
+    }
+    const reusedRoute =
+      existing.type === 'arrow' &&
+      updated.type === 'arrow' &&
+      transferElbowRoute(this, existing, updated);
+    const eligibilityChanged =
+      existing.type === 'shape' && updated.type === 'shape' && existing.shape !== updated.shape;
+    let clipChanged = false;
+    if (previousClips.size > 0) {
+      for (const [id, clip] of previousClips) {
+        if (!sameEffectiveClip(clip, this.getEffectiveClip(id))) {
+          clipChanged = true;
+          break;
+        }
+      }
+    }
+    if (
+      (!reusedRoute || structural || clipChanged) &&
+      (!sameBounds(oldBounds, newBounds) || eligibilityChanged || structural || clipChanged)
+    ) {
+      invalidateElbowRoutes(this, {
+        previous: existing,
+        current: updated,
+        previousBounds: oldBounds,
+        currentBounds: newBounds,
+        projectionChanged: structural || clipChanged,
+      });
     }
   }
 
@@ -728,6 +799,14 @@ export class ElementStore {
     this.elements.delete(id);
     this.hierarchyKnownValid = this.strict(meta);
     this.spatialIndex.remove(id);
+    const projectionChanged =
+      element.parentId !== undefined ||
+      [...this.elements.values()].some((child) => child.parentId === element.id);
+    invalidateElbowRoutes(this, {
+      previous: element,
+      previousBounds: this.indexBounds(element),
+      projectionChanged,
+    });
     this.bus.emit('remove', element, meta);
   }
 
@@ -738,6 +817,7 @@ export class ElementStore {
     this.elements.clear();
     this.hierarchyKnownValid = true;
     this.spatialIndex.clear();
+    invalidateElbowRoutes(this, { projectionChanged: true });
     this.bus.emit('clear', null, meta);
   }
 
@@ -753,7 +833,8 @@ export class ElementStore {
       if (el.index !== '' && (top === undefined || el.index > top)) tops.set(el.layerId, el.index);
     }
     const sanitizedElements = elements.map((el) => {
-      const element = stampDataVersion(sanitizeRichText(el), this.registry);
+      let element = stampDataVersion(sanitizeRichText(el), this.registry);
+      if (element.type === 'arrow') element = { ...element };
       validateExtensionEnvelope(element, this.registry);
       if (element.index !== '') return element;
       const index = generateKeyBetween(tops.get(element.layerId) ?? null, null);
@@ -779,6 +860,7 @@ export class ElementStore {
       }
     }
     this.hierarchyKnownValid = this.strict(meta);
+    invalidateElbowRoutes(this, { projectionChanged: true });
     this.bus.emit('clear', null, meta);
     for (const el of sanitizedElements) {
       this.bus.emit('add', el, meta);

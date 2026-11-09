@@ -4,6 +4,7 @@ import type {
   StrokeElement,
   NoteElement,
   ArrowElement,
+  ArrowFixedSegment,
   ArrowStrokeStyle,
   ImageElement,
   HtmlElement,
@@ -11,6 +12,7 @@ import type {
   ShapeElement,
   ShapeKind,
 } from './types';
+import { MAX_ARROW_FIXED_SEGMENTS } from './types';
 import { createId } from './create-id';
 import { getArrowControlPoint } from './arrow-geometry';
 import { sanitizeNoteHtml } from './note-sanitizer';
@@ -59,6 +61,8 @@ interface ArrowInput extends BaseDefaults {
   /** @deprecated Migrated to a bound `TextElement` on load. */
   label?: string;
   strokeStyle?: ArrowStrokeStyle;
+  routing?: 'bezier' | 'elbow';
+  fixedSegments?: readonly ArrowFixedSegment[];
 }
 
 interface ImageInput extends BaseDefaults {
@@ -129,6 +133,18 @@ export function createNote(input: NoteInput): NoteElement {
 }
 
 export function createArrow(input: ArrowInput): ArrowElement {
+  if (input.routing !== undefined && input.routing !== 'bezier' && input.routing !== 'elbow') {
+    throw new TypeError('Invalid arrow routing');
+  }
+  const fixedSegments = input.fixedSegments;
+  if (fixedSegments !== undefined) {
+    if (!Array.isArray(fixedSegments) || fixedSegments.length > MAX_ARROW_FIXED_SEGMENTS) {
+      throw new TypeError('Invalid arrow fixed segments');
+    }
+    for (const segment of fixedSegments) {
+      if (!isArrowFixedSegment(segment)) throw new TypeError('Invalid arrow fixed segments');
+    }
+  }
   const bend = input.bend ?? 0;
   const result: ArrowElement = {
     id: createId('arrow'),
@@ -149,7 +165,16 @@ export function createArrow(input: ArrowInput): ArrowElement {
   if (input.toBinding) result.toBinding = input.toBinding;
   if (input.label !== undefined) result.label = input.label;
   if (input.strokeStyle !== undefined) result.strokeStyle = input.strokeStyle;
+  if (input.routing !== undefined) result.routing = input.routing;
+  if (input.fixedSegments !== undefined) result.fixedSegments = input.fixedSegments;
   return addParent(result, input.parentId);
+}
+
+function isArrowFixedSegment(value: unknown): value is ArrowFixedSegment {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const axis = Reflect.get(value, 'axis');
+  const coordinate = Reflect.get(value, 'value');
+  return (axis === 'x' || axis === 'y') && Number.isFinite(coordinate);
 }
 
 export function createImage(input: ImageInput): ImageElement {

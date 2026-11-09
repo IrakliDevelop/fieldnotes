@@ -2691,6 +2691,49 @@ describe('ElementStore order keys and versions', () => {
     expect(store.getById('n')?.position).toEqual({ x: 10, y: 0 });
   });
 
+  it('routing and fixedSegments re-layout the bound label in the same undo step', () => {
+    const store = new ElementStore();
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(store, stack);
+    const arrow = {
+      ...createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } }),
+      id: 'arrow',
+    };
+    const label = {
+      ...createBoundText(arrow, { text: 'label' }),
+      id: 'label',
+      size: { w: 20, h: 10 },
+    };
+    recorder.pause();
+    store.add(arrow);
+    store.add(label);
+    recorder.resume();
+
+    recorder.run(() => {
+      store.update(arrow.id, { routing: 'elbow' });
+      expect(textOf(store, label.id).position).toEqual({ x: 40, y: 45 });
+      store.update(arrow.id, { fixedSegments: [{ axis: 'x', value: 70 }] });
+    });
+
+    expect(textOf(store, label.id).position).toEqual({ x: 60, y: 25 });
+    expect(store.getById(arrow.id)).toMatchObject({
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'x', value: 70 }],
+      version: 3,
+    });
+    expect(textOf(store, label.id).version).toBe(2);
+    expect(stack.undoCount).toBe(1);
+
+    recorder.pause();
+    expect(stack.undo(store)).toBe(true);
+    recorder.resume();
+    expect(store.getById(arrow.id)).toMatchObject({ routing: undefined, fixedSegments: undefined });
+    expect(textOf(store, label.id).position).toEqual({ x: 40, y: 45 });
+    expect(stack.undo(store)).toBe(false);
+    expect(store.getById(arrow.id)?.version).toBe(4);
+    expect(textOf(store, label.id).version).toBe(3);
+  });
+
   it('remote update takes version verbatim, including lower and equal', () => {
     const store = new ElementStore();
     store.add(makeNote({ id: 'n', index: 'a0', version: 5, editor: 'a' }));

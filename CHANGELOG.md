@@ -6,6 +6,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.107.0 — elbow arrows
+
+**Added**
+
+- Elbow arrows use bounded search to route around visible shapes and fall back to the authored orthogonal path when no route is found. `ArrowFixedSegment`,
+  `MAX_ARROW_FIXED_SEGMENTS`, `routing`, `fixedSegments`, and `Viewport.resetArrowRoute` define
+  authored route axes.
+
+**Changed**
+
+- Undo for every tool keeps external edits received during a local gesture. Cancelling an arrow
+  endpoint, curved midpoint, or elbow segment handle restores the handle's fields and keeps
+  external edits.
+
+**Compatibility**
+
+- Canvas state stays at v6 and the sync protocol stays at 3. Older clients draw an elbow arrow as
+  a bezier and preserve its additive fields while editing it. Reconstructing an arrow with an old
+  `createArrow` can drop those fields.
+
+### Sync 0.30.3 — elbow fields
+
+**Changed**
+
+- Sync validates elbow arrow routing and up to 16 fixed segments. The core peer floor is 0.107.0.
+
+### Sync server 0.30.3 — sync pin
+
+**Changed**
+
+- Depends on `@fieldnotes/sync` 0.30.3 and requires `@fieldnotes/core` `>=0.107.0 <1.0.0`.
+
 ### Core 0.106.1 — editor focus
 
 **Fixed**

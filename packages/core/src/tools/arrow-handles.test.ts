@@ -6,12 +6,23 @@ import {
   hitTestArrowHandles,
   renderArrowHandles,
   getArrowHandleDragTarget,
+  captureArrowHandleDrag,
+  restoreArrowHandleDrag,
 } from './arrow-handles';
+import { getElbowRoute } from '../elements/elbow-cache';
 import { ElementStore } from '../elements/element-store';
 import { getArrowMidpoint } from '../elements/arrow-geometry';
 import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolContext } from './types';
 import { Camera } from '../canvas/camera';
+import { HistoryRecorder } from '../history/history-recorder';
+import { HistoryStack } from '../history/history-stack';
+
+function storedArrow(store: ElementStore, id: string) {
+  const element = store.getById(id);
+  if (!element || element.type !== 'arrow') throw new Error('expected arrow');
+  return element;
+}
 
 function makeCtx(store: ElementStore): ToolContext {
   return {
@@ -26,6 +37,319 @@ function makeCtx(store: ElementStore): ToolContext {
 }
 
 describe('applyArrowHandleDrag binding', () => {
+  it('pins the captured middle vertical segment and replaces the same slot on later moves', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const drag = captureArrowHandleDrag('segment:1', arrow.id, ctx);
+    if (!drag) throw new Error('expected segment drag');
+
+    applyArrowHandleDrag('segment:1', arrow.id, { x: 70, y: 50 }, ctx, drag);
+    expect(store.getById(arrow.id)).toMatchObject({ fixedSegments: [{ axis: 'x', value: 70 }] });
+
+    applyArrowHandleDrag('segment:1', arrow.id, { x: 75, y: 50 }, ctx, drag);
+    expect(store.getById(arrow.id)).toMatchObject({ fixedSegments: [{ axis: 'x', value: 75 }] });
+  });
+
+  it('pins y for a captured middle horizontal segment', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 200 },
+      routing: 'elbow',
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const drag = captureArrowHandleDrag('segment:1', arrow.id, ctx);
+    if (!drag) throw new Error('expected segment drag');
+
+    applyArrowHandleDrag('segment:1', arrow.id, { x: 50, y: 70 }, ctx, drag);
+
+    expect(store.getById(arrow.id)).toMatchObject({ fixedSegments: [{ axis: 'y', value: 70 }] });
+  });
+
+  it('updates only a tagged captured slot after route changes', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 20 },
+        { axis: 'y', value: 40 },
+        { axis: 'x', value: 80 },
+      ],
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const route = getElbowRoute(store, storedArrow(store, arrow.id));
+    const index = route?.segments.findIndex((segment) => segment.fixedIndex === 1);
+    if (index === undefined || index < 0) throw new Error('expected tagged segment');
+    const handle: `segment:${number}` = `segment:${index}`;
+    const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+    if (!drag) throw new Error('expected segment drag');
+    store.add(createNote({ position: { x: 45, y: 0 }, size: { w: 10, h: 100 } }));
+
+    applyArrowHandleDrag(handle, arrow.id, { x: 50, y: 65 }, ctx, drag);
+
+    expect(store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [
+        { axis: 'x', value: 20 },
+        { axis: 'y', value: 65 },
+        { axis: 'x', value: 80 },
+      ],
+    });
+  });
+
+  it('inserts into the captured untagged bridge slot after rerouting', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [
+        { axis: 'x', value: 30 },
+        { axis: 'x', value: 70 },
+      ],
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const drag = captureArrowHandleDrag('segment:2', arrow.id, ctx);
+    if (!drag) throw new Error('expected untagged bridge drag');
+    store.add(createNote({ position: { x: 45, y: 40 }, size: { w: 10, h: 20 } }));
+
+    applyArrowHandleDrag('segment:2', arrow.id, { x: 50, y: 60 }, ctx, drag);
+    applyArrowHandleDrag('segment:2', arrow.id, { x: 50, y: 65 }, ctx, drag);
+
+    expect(storedArrow(store, arrow.id).fixedSegments).toEqual([
+      { axis: 'x', value: 30 },
+      { axis: 'y', value: 65 },
+      { axis: 'x', value: 70 },
+    ]);
+  });
+
+  it('does not create a seventeenth pin or edit protected arrows', () => {
+    const pins: { axis: 'x'; value: number }[] = Array.from({ length: 16 }, (_, index) => ({
+      axis: 'x',
+      value: index,
+    }));
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: pins,
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+
+    expect(captureArrowHandleDrag('segment:1', arrow.id, ctx)).toBeNull();
+    expect(store.getById(arrow.id)).toMatchObject({ fixedSegments: pins });
+
+    const locked = { ...arrow, id: 'locked', locked: true };
+    store.add(locked);
+    expect(captureArrowHandleDrag('segment:1', locked.id, ctx)).toBeNull();
+
+    const layerLocked = { ...makeCtx(store), isLayerLocked: (id: string) => id === arrow.layerId };
+    expect(captureArrowHandleDrag('segment:1', arrow.id, layerLocked)).toBeNull();
+  });
+
+  it('edits fixed slot zero at the cap without adding another pin', () => {
+    const fixedSegments: { axis: 'x' | 'y'; value: number }[] = Array.from(
+      { length: 16 },
+      (_, index) => ({ axis: index % 2 === 0 ? 'x' : 'y', value: index * 10 + 20 }),
+    );
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 200, y: 200 },
+      routing: 'elbow',
+      fixedSegments,
+    });
+    store.add(arrow);
+    const ctx = makeCtx(store);
+    const route = getElbowRoute(store, storedArrow(store, arrow.id));
+    const index = route?.segments.findIndex((segment) => segment.fixedIndex === 0);
+    if (index === undefined || index < 1) throw new Error('expected interior fixed segment');
+    const handle: `segment:${number}` = `segment:${index}`;
+    const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+    if (!drag) throw new Error('expected fixed segment drag');
+
+    applyArrowHandleDrag(handle, arrow.id, { x: 35, y: 45 }, ctx, drag);
+
+    const updated = storedArrow(store, arrow.id);
+    expect(updated.fixedSegments).toHaveLength(16);
+    expect(updated.fixedSegments?.[0]).toEqual({ axis: 'x', value: 35 });
+  });
+
+  it('keeps fixed pins while endpoint binding and rebinding changes', () => {
+    const store = new ElementStore();
+    const first = createNote({ position: { x: 200, y: 0 }, size: { w: 100, h: 100 } });
+    const second = createNote({ position: { x: 400, y: 0 }, size: { w: 100, h: 100 } });
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fixedSegments: [{ axis: 'x', value: 70 }],
+    });
+    store.add(first);
+    store.add(second);
+    store.add(arrow);
+    const ctx = makeCtx(store);
+
+    applyArrowHandleDrag('end', arrow.id, { x: 205, y: 5 }, ctx);
+    applyArrowHandleDrag('end', arrow.id, { x: 405, y: 5 }, ctx);
+
+    expect(store.getById(arrow.id)).toMatchObject({
+      fixedSegments: [{ axis: 'x', value: 70 }],
+      toBinding: { elementId: second.id },
+    });
+  });
+
+  it('restores only the segment fields it last wrote after an external colour update', () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      color: '#111111',
+    });
+    store.add(arrow);
+    const installed = storedArrow(store, arrow.id);
+    const ctx = makeCtx(store);
+    const drag = captureArrowHandleDrag('segment:1', arrow.id, ctx);
+    if (!drag) throw new Error('expected segment drag');
+    applyArrowHandleDrag('segment:1', arrow.id, { x: 70, y: 50 }, ctx, drag);
+    store.update(arrow.id, { color: '#ff0000' }, { origin: 'remote' });
+
+    restoreArrowHandleDrag(arrow.id, drag, ctx);
+
+    expect(storedArrow(store, arrow.id)).toMatchObject({
+      color: '#ff0000',
+      fixedSegments: undefined,
+      index: installed.index,
+      layerId: installed.layerId,
+    });
+  });
+
+  it.each([
+    [
+      'start',
+      'start',
+      { x: 20, y: 30 },
+      ['from', 'position', 'fromBinding'],
+      { to: { x: 90, y: 90 } },
+    ],
+    ['end', 'end', { x: 80, y: 70 }, ['to', 'toBinding'], { from: { x: 10, y: 10 } }],
+    ['mid', 'mid', { x: 50, y: 80 }, ['bend'], { to: { x: 90, y: 90 } }],
+    ['segment', 'segment:1', { x: 70, y: 50 }, ['fixedSegments'], { to: { x: 90, y: 90 } }],
+  ] as const)(
+    'restores exactly the owned %s fields after cancellation',
+    (_name, handle, point, expectedKeys, external) => {
+      const store = new ElementStore();
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        routing: handle === 'segment:1' ? 'elbow' : undefined,
+        color: '#111111',
+        width: 7,
+        strokeStyle: 'dashed',
+      });
+      store.add(arrow);
+      const ctx = makeCtx(store);
+      const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+      if (!drag) throw new Error('expected handle drag');
+      const update = vi.spyOn(store, 'update');
+
+      applyArrowHandleDrag(handle, arrow.id, point, ctx, drag);
+      store.update(arrow.id, { color: '#ff0000', ...external }, { origin: 'remote' });
+      update.mockClear();
+      restoreArrowHandleDrag(arrow.id, drag, ctx);
+
+      const restore = update.mock.calls[0];
+      expect(restore).toBeDefined();
+      if (!restore) throw new Error('expected restore update');
+      expect(Object.keys(restore[1]).sort()).toEqual([...expectedKeys].sort());
+      expect(Object.keys(restore[1])).not.toEqual(
+        expect.arrayContaining(['index', 'layerId', 'parentId', 'color', 'width', 'strokeStyle']),
+      );
+      if (handle === 'start') {
+        expect(restore[1]).toEqual({
+          from: arrow.from,
+          position: arrow.position,
+          fromBinding: arrow.fromBinding,
+        });
+        expect(storedArrow(store, arrow.id).to).toEqual({ x: 90, y: 90 });
+      }
+    },
+  );
+
+  it.each([
+    ['segment', 'segment:1', { x: 70, y: 50 }, { fixedSegments: [{ axis: 'x', value: 88 }] }],
+    ['mid', 'mid', { x: 50, y: 80 }, { bend: 12 }],
+  ] as const)(
+    'does not record a same-owned external %s replacement on cancellation',
+    (_name, handle, point, external) => {
+      const store = new ElementStore();
+      const stack = new HistoryStack();
+      const recorder = new HistoryRecorder(store, stack);
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        routing: handle === 'segment:1' ? 'elbow' : undefined,
+      });
+      store.add(arrow);
+      stack.clear();
+      const ctx = makeCtx(store);
+      const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+      if (!drag) throw new Error('expected handle drag');
+      const update = vi.spyOn(store, 'update');
+
+      recorder.begin();
+      applyArrowHandleDrag(handle, arrow.id, point, ctx, drag);
+      store.update(arrow.id, external, { origin: 'remote' });
+      update.mockClear();
+      restoreArrowHandleDrag(arrow.id, drag, ctx);
+      recorder.commit();
+
+      expect(update).not.toHaveBeenCalled();
+      expect(stack.canUndo).toBe(false);
+    },
+  );
+
+  it.each([
+    ['segment', 'segment:1', { x: 70, y: 50 }, { fixedSegments: [{ axis: 'x', value: 88 }] }],
+    ['start', 'start', { x: 20, y: 20 }, { to: { x: 90, y: 90 } }],
+    ['mid', 'mid', { x: 50, y: 80 }, { bend: 12 }],
+  ] as const)(
+    'keeps an externally replaced owned %s field on cancel',
+    (_name, handle, point, external) => {
+      const store = new ElementStore();
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        routing: handle === 'segment:1' ? 'elbow' : undefined,
+      });
+      store.add(arrow);
+      const ctx = makeCtx(store);
+      const drag = captureArrowHandleDrag(handle, arrow.id, ctx);
+      if (!drag) throw new Error('expected handle drag');
+      const update = vi.spyOn(store, 'update');
+      applyArrowHandleDrag(handle, arrow.id, point, ctx, drag);
+      store.update(arrow.id, external, { origin: 'remote' });
+      update.mockClear();
+
+      restoreArrowHandleDrag(arrow.id, drag, ctx);
+
+      expect(storedArrow(store, arrow.id)).toMatchObject(external);
+      if (handle === 'mid' || handle === 'segment:1') expect(update).not.toHaveBeenCalled();
+    },
+  );
   it('binds start handle when dragged near an element', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
@@ -211,6 +535,64 @@ describe('getArrowHandleCursor', () => {
 });
 
 describe('getArrowHandlePositions', () => {
+  it('uses only endpoint and interior route-segment handles for elbow arrows', () => {
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+
+    expect(getArrowHandlePositions(arrow)).toEqual([
+      ['start', { x: 0, y: 0 }],
+      ['segment:1', { x: 50, y: 50 }],
+      ['end', { x: 100, y: 100 }],
+    ]);
+  });
+
+  it('uses routed visible ports and omits bezier mid handles from elbow arrows', () => {
+    const store = new ElementStore();
+    const source = createNote({ position: { x: -20, y: -20 }, size: { w: 40, h: 40 } });
+    const target = createNote({ position: { x: 80, y: 80 }, size: { w: 40, h: 40 } });
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+      fromBinding: { elementId: source.id },
+      toBinding: { elementId: target.id },
+    });
+    store.add(source);
+    store.add(target);
+    store.add(arrow);
+
+    const installed = storedArrow(store, arrow.id);
+    const route = getElbowRoute(store, installed);
+    expect(getArrowHandlePositions(installed, store)).toEqual([
+      ['start', route?.points[0]],
+      ['segment:1', { x: 50, y: 50 }],
+      ['end', route?.points.at(-1)],
+    ]);
+  });
+
+  it('hides first and last elbow segments and keeps bezier midpoint behavior', () => {
+    const elbow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 100, y: 100 },
+      routing: 'elbow',
+    });
+    const bezier = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 } });
+
+    expect(getArrowHandlePositions(elbow).map(([handle]) => handle)).toEqual([
+      'start',
+      'segment:1',
+      'end',
+    ]);
+    expect(getArrowHandlePositions(bezier).map(([handle]) => handle)).toEqual([
+      'start',
+      'mid',
+      'end',
+    ]);
+  });
+
   it('returns start, mid, and end positions', () => {
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
     const handles = getArrowHandlePositions(arrow);

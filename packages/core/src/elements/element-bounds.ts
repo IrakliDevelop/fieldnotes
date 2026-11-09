@@ -2,6 +2,7 @@ import type { Bounds } from '../core/types';
 import { rotatedAABB } from '../core/geometry';
 import type { CanvasElement } from './types';
 import { getArrowControlPoint } from './arrow-geometry';
+import { getElbowRouteBounds } from './elbow-routing';
 import { getDefaultElementRegistry } from './default-registry';
 import type { ElementRegistry } from './element-registry';
 
@@ -54,6 +55,7 @@ export function getElementBounds(
   }
 
   if (element.type === 'arrow') {
+    if (element.routing === 'elbow') return getElbowRouteBounds(element);
     return getArrowBoundsAnalytical(element.from, element.to, element.bend);
   }
 

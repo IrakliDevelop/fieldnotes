@@ -15,6 +15,7 @@ import type { RenderStatsSnapshot } from './render-stats';
 import type { HybridRenderSurface } from './hybrid-render-surface';
 import type { RenderHooks } from './render-hooks';
 import { reportFailure } from '../core/report-failure';
+import { takeAffectedElbowLayers } from '../elements/elbow-cache';
 
 /**
  * A world-space draw callback rendered above elements on every frame,
@@ -615,6 +616,7 @@ export class RenderLoop {
     }
     const ctx = this.canvasEl.getContext('2d');
     if (!ctx) return;
+    for (const layerId of takeAffectedElbowLayers(this.store)) this.markLayerDirty(layerId);
     for (const canvas of this.staleCanvases) resetCanvas(canvas);
     this.staleCanvases.length = 0;
 

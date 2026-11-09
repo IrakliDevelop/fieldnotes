@@ -13,6 +13,14 @@ export function translateElementPatch(
       position,
       from: { x: el.from.x + dx, y: el.from.y + dy },
       to: { x: el.to.x + dx, y: el.to.y + dy },
+      ...(el.fixedSegments
+        ? {
+            fixedSegments: el.fixedSegments.map((segment) => ({
+              axis: segment.axis,
+              value: segment.value + (segment.axis === 'x' ? dx : dy),
+            })),
+          }
+        : {}),
     };
   }
   return { position };

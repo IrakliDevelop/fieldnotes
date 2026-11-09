@@ -348,6 +348,29 @@ describe('updateArrowsBoundToElements', () => {
 });
 
 describe('unbindArrowsFrom', () => {
+  it.each([
+    ['source', 'fromBinding', 'from'],
+    ['target', 'toBinding', 'to'],
+  ] as const)('keeps an elbow %s at the removed visible port', (_name, binding, endpoint) => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    const arrow = createArrow({
+      from: binding === 'fromBinding' ? { x: 50, y: 50 } : { x: 250, y: 50 },
+      to: binding === 'toBinding' ? { x: 50, y: 50 } : { x: 250, y: 50 },
+      routing: 'elbow',
+      [binding]: { elementId: note.id },
+    });
+    store.add(note);
+    store.add(arrow);
+    store.remove(note.id);
+
+    unbindArrowsFrom(store, note, undefined, store.elementRegistry);
+
+    const updated = store.getById(arrow.id);
+    if (!updated || updated.type !== 'arrow') throw new Error('expected arrow');
+    expect(updated[endpoint]).toEqual({ x: 100, y: 50 });
+  });
+
   it('releases a bent arrow at its intrinsic curve edge after removal', () => {
     const store = new ElementStore();
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });

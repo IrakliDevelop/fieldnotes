@@ -55,6 +55,12 @@ export function getBoundText(
     );
 }
 
+/** Returns the matching container id for a bound text element. */
+export function getBoundTextContainerId(element: CanvasElement): string | undefined {
+  if (element.type !== 'text' || !element.containerId) return undefined;
+  return element.parentId === element.containerId ? element.containerId : undefined;
+}
+
 export function findBoundText(
   container: BoundTextContainer,
   elements: readonly CanvasElement[],

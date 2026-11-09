@@ -216,6 +216,63 @@ describe('element factories', () => {
       const a = createArrow({ from: { x: 0, y: 0 }, to: { x: 10, y: 0 } });
       expect('strokeStyle' in a).toBe(false);
     });
+
+    it('preserves elbow routing and fixed segments', () => {
+      const fixedSegments = [{ axis: 'x' as const, value: 40 }];
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 100 },
+        routing: 'elbow',
+        fixedSegments,
+      });
+
+      expect(arrow.routing).toBe('elbow');
+      expect(arrow.fixedSegments).toEqual(fixedSegments);
+    });
+
+    it('rejects malformed elbow routing inputs', () => {
+      expect(() =>
+        createArrow({
+          from: { x: 0, y: 0 },
+          to: { x: 100, y: 100 },
+          routing: 'spline' as never,
+        }),
+      ).toThrow('Invalid arrow routing');
+      expect(() =>
+        createArrow({
+          from: { x: 0, y: 0 },
+          to: { x: 100, y: 100 },
+          fixedSegments: [{ axis: 'x', value: Number.NaN }],
+        }),
+      ).toThrow('Invalid arrow fixed segments');
+    });
+
+    it('rejects sparse fixed segments at the public boundary', () => {
+      const fixedSegments: { axis: 'x' | 'y'; value: number }[] = new Array(1);
+
+      expect(() =>
+        createArrow({
+          from: { x: 0, y: 0 },
+          to: { x: 100, y: 100 },
+          fixedSegments,
+        }),
+      ).toThrow('Invalid arrow fixed segments');
+    });
+
+    it('rejects non-record fixed segment inputs at the public boundary', () => {
+      expect(() =>
+        // @ts-expect-error Exercises the JavaScript public boundary.
+        createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, fixedSegments: null }),
+      ).toThrow('Invalid arrow fixed segments');
+      expect(() =>
+        // @ts-expect-error Exercises the JavaScript public boundary.
+        createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, fixedSegments: {} }),
+      ).toThrow('Invalid arrow fixed segments');
+      expect(() =>
+        // @ts-expect-error Exercises the JavaScript public boundary.
+        createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, fixedSegments: [{}] }),
+      ).toThrow('Invalid arrow fixed segments');
+    });
   });
 
   describe('createImage', () => {

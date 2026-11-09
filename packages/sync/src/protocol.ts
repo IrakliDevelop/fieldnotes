@@ -1,4 +1,4 @@
-import { isValidIndexKey } from '@fieldnotes/core';
+import { isValidIndexKey, MAX_ARROW_FIXED_SEGMENTS } from '@fieldnotes/core';
 import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
 import type { AuthorityExtensionManifestEntry, DeepReadonly } from './authority-protocol';
 import {
@@ -199,7 +199,9 @@ export function isValidElement(el: unknown): el is SyncElement {
         isOptional(el['toBinding'], isBinding) &&
         isOptional(el['cachedControlPoint'], isPoint) &&
         isOptional(el['label'], isString) &&
-        isOptionalEnum(el['strokeStyle'], ['solid', 'dashed', 'dotted'])
+        isOptionalEnum(el['strokeStyle'], ['solid', 'dashed', 'dotted']) &&
+        isOptionalEnum(el['routing'], ['bezier', 'elbow']) &&
+        isOptional(el['fixedSegments'], isFixedSegments)
       );
     case 'image':
       return isSize(el['size']) && typeof el['src'] === 'string';
@@ -307,6 +309,19 @@ function isStrokePoint(value: unknown): boolean {
 
 function isBinding(value: unknown): boolean {
   return isRecord(value) && typeof value['elementId'] === 'string';
+}
+
+function isFixedSegments(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_ARROW_FIXED_SEGMENTS &&
+    Array.from(value).every(
+      (segment) =>
+        isRecord(segment) &&
+        isEnum(segment['axis'], ['x', 'y']) &&
+        isFiniteNumber(segment['value']),
+    )
+  );
 }
 
 export function isValidLayerDefinition(layer: unknown): layer is Layer {
@@ -499,7 +514,8 @@ export function elementWithinLimits(el: DeepReadonly<SyncElement>, limits: Eleme
         isAtMost(el.color, maxShortStringLength) &&
         isAtMost(el.label, maxTextLength) &&
         isAtMost(el.fromBinding?.elementId, maxIdLength) &&
-        isAtMost(el.toBinding?.elementId, maxIdLength)
+        isAtMost(el.toBinding?.elementId, maxIdLength) &&
+        isOptional(el.fixedSegments, isFixedSegments)
       );
     case 'image':
       return isAtMost(el.src, maxSrcLength);

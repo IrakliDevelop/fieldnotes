@@ -74,6 +74,59 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  it('uses final nonzero tangent and omits a wholly degenerate head', async () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 40, y: 40 },
+      to: { x: 40, y: 40 },
+      routing: 'elbow',
+    });
+    store.add(arrow);
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('<path d="M40 40"');
+    expect(svg).not.toContain('<polygon');
+  });
+
+  it('retains the legacy bezier head for coincident endpoints', async () => {
+    const store = new ElementStore();
+    store.add(createArrow({ from: { x: 40, y: 40 }, to: { x: 40, y: 40 } }));
+
+    await expect(exportSvg(store)).resolves.toContain('<polygon');
+  });
+
+  it('SVG exports local orthogonal detour and authored label', async () => {
+    const store = new ElementStore();
+    const arrow = createArrow({
+      from: { x: 0, y: 0 },
+      to: { x: 200, y: 0 },
+      routing: 'elbow',
+      width: 2,
+    });
+    const blocker = createShape({
+      shape: 'rectangle',
+      position: { x: 80, y: -20 },
+      size: { w: 40, h: 40 },
+    });
+    const text = {
+      ...createBoundText(arrow, { text: 'turn' }),
+      position: { x: 70, y: -10 },
+      size: { w: 60, h: 20 },
+    };
+    store.add(blocker);
+    store.add(arrow);
+    store.add(text);
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('d="M0 0 L0 -33 L200 -33 L200 0"');
+    expect(svg).toContain('<polygon points="200,0 194,-10.392 206,-10.392"');
+    expect(svg).toContain('<rect x="66" y="-12" width="68" height="24"');
+    expect(svg).not.toContain(' Q');
+    expect(svg).not.toContain('cachedRoute');
+  });
+
   it('emits a bound arrow text pill and the text in scene order', async () => {
     const store = new ElementStore();
     const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'legacy' });

@@ -363,6 +363,12 @@ export class KeyboardActions {
         const arrow = clone;
         arrow.from = { x: arrow.from.x + offset.x, y: arrow.from.y + offset.y };
         arrow.to = { x: arrow.to.x + offset.x, y: arrow.to.y + offset.y };
+        if (arrow.fixedSegments) {
+          arrow.fixedSegments = arrow.fixedSegments.map((segment) => ({
+            axis: segment.axis,
+            value: segment.value + (segment.axis === 'x' ? offset.x : offset.y),
+          }));
+        }
         delete arrow.cachedControlPoint;
 
         if (arrow.fromBinding) {

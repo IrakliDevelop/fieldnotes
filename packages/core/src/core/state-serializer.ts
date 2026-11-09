@@ -3,6 +3,7 @@ import type {
   ElementTypeAdapter,
   ExtensionElementEnvelope,
 } from '../elements/types';
+import { MAX_ARROW_FIXED_SEGMENTS } from '../elements/types';
 import type { Point } from './types';
 import type { Layer } from '../layers/types';
 import { escapePlainTextHtml, sanitizeNoteHtml } from '../elements/note-sanitizer';
@@ -510,7 +511,9 @@ function validateTypeFields(
         isOptional(el['toBinding'], isBinding) &&
         isOptional(el['cachedControlPoint'], isPoint) &&
         isOptional(el['label'], isString) &&
-        isOptionalEnum(el['strokeStyle'], ['solid', 'dashed', 'dotted'])
+        isOptionalEnum(el['strokeStyle'], ['solid', 'dashed', 'dotted']) &&
+        isOptionalEnum(el['routing'], ['bezier', 'elbow']) &&
+        isOptional(el['fixedSegments'], isFixedSegments)
       );
     case 'image':
       return isSize(el['size']) && isString(el['src']);
@@ -655,6 +658,19 @@ function isOptionalEnum<const T extends readonly string[]>(value: unknown, value
 
 function isPoint(value: unknown): boolean {
   return isRecord(value) && isFiniteNumber(value['x']) && isFiniteNumber(value['y']);
+}
+
+function isFixedSegments(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= MAX_ARROW_FIXED_SEGMENTS &&
+    value.every(
+      (segment) =>
+        isRecord(segment) &&
+        isEnum(segment['axis'], ['x', 'y']) &&
+        isFiniteNumber(segment['value']),
+    )
+  );
 }
 
 function isSize(value: unknown): boolean {

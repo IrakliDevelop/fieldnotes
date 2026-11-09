@@ -1,30 +1,69 @@
 import type { Point } from '../core/types';
 import type { ArrowElement, CanvasElement } from '../elements/types';
+import { MAX_ARROW_FIXED_SEGMENTS } from '../elements/types';
+import type { ElementStore } from '../elements/element-store';
 import type { ToolContext } from './types';
 import { getArrowMidpoint, getBendFromPoint } from '../elements/arrow-geometry';
 import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
+import { getElbowRoute } from '../elements/elbow-cache';
+import { jsonEqual } from '../core/json-equal';
 import { DEFAULT_SELECTION_COLOR } from './selection-color';
 
 const BIND_THRESHOLD = 20;
 
-export type ArrowHandle = 'start' | 'mid' | 'end';
+export type ArrowHandle = 'start' | 'mid' | 'end' | `segment:${number}`;
+
+export interface ArrowHandleDrag {
+  readonly handle: ArrowHandle;
+  readonly owned: Partial<ArrowElement>;
+  lastWritten: Partial<ArrowElement>;
+  readonly fixedIndex?: number;
+  readonly axis?: 'x' | 'y';
+  readonly insertIndex?: number;
+}
+
+const OWNED_ARROW_FIELDS = {
+  start: ['from', 'position', 'fromBinding'],
+  end: ['to', 'toBinding'],
+  mid: ['bend'],
+  segment: ['fixedSegments'],
+} satisfies Record<'start' | 'end' | 'mid' | 'segment', readonly (keyof ArrowElement)[]>;
+
+type OwnedArrowKey =
+  'from' | 'position' | 'fromBinding' | 'to' | 'toBinding' | 'bend' | 'fixedSegments';
 
 const HANDLE_RADIUS = 5;
 const HANDLE_HIT_PADDING = 4;
 
-const ARROW_HANDLE_CURSORS: Record<ArrowHandle, string> = {
+const ARROW_HANDLE_CURSORS: Record<'start' | 'mid' | 'end', string> = {
   start: 'crosshair',
   end: 'crosshair',
   mid: 'grab',
 };
 
 export function getArrowHandleCursor(handle: ArrowHandle, active: boolean): string {
-  if (handle === 'mid' && active) return 'grabbing';
-  return ARROW_HANDLE_CURSORS[handle];
+  if (handle === 'mid' || handle.startsWith('segment:')) return active ? 'grabbing' : 'grab';
+  return handle === 'start' ? ARROW_HANDLE_CURSORS.start : ARROW_HANDLE_CURSORS.end;
 }
 
-export function getArrowHandlePositions(arrow: ArrowElement): [ArrowHandle, Point][] {
+export function getArrowHandlePositions(
+  arrow: ArrowElement,
+  store?: ElementStore,
+): [ArrowHandle, Point][] {
+  if (arrow.routing === 'elbow') {
+    const route = getElbowRoute(store ?? null, arrow);
+    if (!route) return [];
+    const handles: [ArrowHandle, Point][] = [['start', route.points[0] ?? arrow.from]];
+    for (let index = 1; index < route.points.length - 2; index += 1) {
+      const from = route.points[index];
+      const to = route.points[index + 1];
+      if (!from || !to || (from.x === to.x && from.y === to.y)) continue;
+      handles.push([`segment:${index}`, { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }]);
+    }
+    handles.push(['end', route.points.at(-1) ?? arrow.to]);
+    return handles;
+  }
   const mid = getArrowMidpoint(arrow.from, arrow.to, arrow.bend);
   return [
     ['start', arrow.from],
@@ -48,7 +87,7 @@ export function hitTestArrowHandles(
     if (!el || el.type !== 'arrow' || el.locked || (ctx.isLayerLocked?.(el.layerId) ?? false))
       continue;
 
-    const handles = getArrowHandlePositions(el);
+    const handles = getArrowHandlePositions(el, ctx.store);
     for (const [handle, pos] of handles) {
       const dx = world.x - pos.x;
       const dy = world.y - pos.y;
@@ -66,6 +105,7 @@ export function applyArrowHandleDrag(
   elementId: string,
   world: Point,
   ctx: ToolContext,
+  drag?: ArrowHandleDrag,
 ): void {
   const el = ctx.store.getById(elementId);
   if (!el || el.type !== 'arrow' || el.locked || (ctx.isLayerLocked?.(el.layerId) ?? false)) return;
@@ -73,6 +113,26 @@ export function applyArrowHandleDrag(
   const threshold = BIND_THRESHOLD / ctx.camera.zoom;
 
   const layerFilter = (candidate: CanvasElement) => candidate.layerId === el.layerId;
+  const update = (patch: Partial<ArrowElement>): void => {
+    ctx.store.update(elementId, patch);
+    if (drag) drag.lastWritten = patch;
+  };
+
+  if (handle.startsWith('segment:')) {
+    if (!drag || drag.axis === undefined || drag.insertIndex === undefined) return;
+    const value = drag.axis === 'x' ? world.x : world.y;
+    const fixed = drag.owned.fixedSegments?.map((segment) => ({ ...segment })) ?? [];
+    if (drag.fixedIndex === undefined)
+      fixed.splice(drag.insertIndex, 0, { axis: drag.axis, value });
+    else {
+      const segment = fixed[drag.fixedIndex];
+      if (!segment) return;
+      fixed[drag.fixedIndex] = { ...segment, value };
+    }
+    update({ fixedSegments: fixed });
+    ctx.requestRender();
+    return;
+  }
 
   switch (handle) {
     case 'start': {
@@ -80,13 +140,13 @@ export function applyArrowHandleDrag(
       const target = findBindTarget(world, ctx.store, threshold, excludeId, layerFilter);
       if (target) {
         const center = getElementCenter(target);
-        ctx.store.update(elementId, {
+        update({
           from: center,
           position: center,
           fromBinding: { elementId: target.id },
         });
       } else {
-        ctx.store.update(elementId, {
+        update({
           from: { x: world.x, y: world.y },
           position: { x: world.x, y: world.y },
           fromBinding: undefined,
@@ -99,12 +159,12 @@ export function applyArrowHandleDrag(
       const target = findBindTarget(world, ctx.store, threshold, excludeId, layerFilter);
       if (target) {
         const center = getElementCenter(target);
-        ctx.store.update(elementId, {
+        update({
           to: center,
           toBinding: { elementId: target.id },
         });
       } else {
-        ctx.store.update(elementId, {
+        update({
           to: { x: world.x, y: world.y },
           toBinding: undefined,
         });
@@ -113,12 +173,95 @@ export function applyArrowHandleDrag(
     }
     case 'mid': {
       const bend = getBendFromPoint(el.from, el.to, world);
-      ctx.store.update(elementId, { bend });
+      update({ bend });
       break;
     }
   }
 
   ctx.requestRender();
+}
+
+export function captureArrowHandleDrag(
+  handle: ArrowHandle,
+  elementId: string,
+  ctx: ToolContext,
+): ArrowHandleDrag | null {
+  const arrow = ctx.store.getById(elementId);
+  if (
+    !arrow ||
+    arrow.type !== 'arrow' ||
+    arrow.locked ||
+    (ctx.isLayerLocked?.(arrow.layerId) ?? false)
+  )
+    return null;
+  const owned = ownedArrowFields(handle, arrow);
+  if (!handle.startsWith('segment:')) {
+    return { handle, owned, lastWritten: {} };
+  }
+  const index = Number(handle.slice('segment:'.length));
+  if (!Number.isInteger(index) || arrow.routing !== 'elbow') return null;
+  const route = getElbowRoute(ctx.store, arrow);
+  const from = route?.points[index];
+  const to = route?.points[index + 1];
+  if (!route || !from || !to || (from.x === to.x && from.y === to.y)) return null;
+  const fixedIndex = route.segments[index]?.fixedIndex;
+  if (fixedIndex === undefined && (arrow.fixedSegments?.length ?? 0) >= MAX_ARROW_FIXED_SEGMENTS)
+    return null;
+  return {
+    handle,
+    owned,
+    lastWritten: {},
+    fixedIndex,
+    axis: from.x === to.x ? 'x' : 'y',
+    insertIndex: route.segments
+      .slice(0, index)
+      .filter((segment) => segment?.fixedIndex !== undefined).length,
+  };
+}
+
+export function restoreArrowHandleDrag(
+  elementId: string,
+  drag: ArrowHandleDrag,
+  ctx: ToolContext,
+): void {
+  const current = ctx.store.getById(elementId);
+  if (!current || current.type !== 'arrow') return;
+  const patch: Partial<ArrowElement> = {};
+  for (const key of ownedKeys(drag.handle)) {
+    if (key in drag.lastWritten && jsonEqual(current[key], drag.lastWritten[key]))
+      copyOwnedField(patch, drag.owned, key);
+  }
+  if (Object.keys(patch).length > 0) {
+    ctx.store.update(elementId, patch);
+    ctx.requestRender();
+  }
+}
+
+function ownedArrowFields(handle: ArrowHandle, arrow: ArrowElement): Partial<ArrowElement> {
+  const owned: Partial<ArrowElement> = {};
+  for (const key of ownedKeys(handle)) copyOwnedField(owned, arrow, key);
+  return owned;
+}
+
+function ownedKeys(handle: ArrowHandle): readonly OwnedArrowKey[] {
+  if (handle.startsWith('segment:')) return OWNED_ARROW_FIELDS.segment;
+  if (handle === 'start') return OWNED_ARROW_FIELDS.start;
+  if (handle === 'end') return OWNED_ARROW_FIELDS.end;
+  return OWNED_ARROW_FIELDS.mid;
+}
+
+function copyOwnedField(
+  target: Partial<ArrowElement>,
+  source: Partial<ArrowElement> | ArrowElement,
+  key: OwnedArrowKey,
+): void {
+  if (key === 'from') target.from = source.from;
+  else if (key === 'position') target.position = source.position;
+  else if (key === 'fromBinding') target.fromBinding = source.fromBinding;
+  else if (key === 'to') target.to = source.to;
+  else if (key === 'toBinding') target.toBinding = source.toBinding;
+  else if (key === 'bend') target.bend = source.bend;
+  else target.fixedSegments = source.fixedSegments;
 }
 
 export function getArrowHandleDragTarget(
@@ -127,7 +270,7 @@ export function getArrowHandleDragTarget(
   world: Point,
   ctx: ToolContext,
 ): { x: number; y: number; w: number; h: number } | null {
-  if (handle === 'mid') return null;
+  if (handle === 'mid' || handle.startsWith('segment:')) return null;
 
   const el = ctx.store.getById(elementId);
   if (!el || el.type !== 'arrow' || el.locked || (ctx.isLayerLocked?.(el.layerId) ?? false)) {
@@ -148,9 +291,10 @@ export function renderArrowHandles(
   arrow: ArrowElement,
   zoom: number,
   color = DEFAULT_SELECTION_COLOR,
+  store?: ElementStore,
 ): void {
   const radius = HANDLE_RADIUS / zoom;
-  const handles = getArrowHandlePositions(arrow);
+  const handles = getArrowHandlePositions(arrow, store);
 
   canvasCtx.setLineDash([]);
   canvasCtx.lineWidth = 1.5 / zoom;
@@ -170,15 +314,18 @@ export function renderArrowHoverHandle(
   canvasCtx: CanvasRenderingContext2D,
   arrow: ArrowElement,
   zoom: number,
+  store?: ElementStore,
   color = DEFAULT_SELECTION_COLOR,
 ): void {
-  const mid = getArrowMidpoint(arrow.from, arrow.to, arrow.bend);
   const radius = HANDLE_RADIUS / zoom;
   canvasCtx.fillStyle = color;
   canvasCtx.strokeStyle = color;
   canvasCtx.lineWidth = 1.5 / zoom;
-  canvasCtx.beginPath();
-  canvasCtx.arc(mid.x, mid.y, radius, 0, Math.PI * 2);
-  canvasCtx.fill();
-  canvasCtx.stroke();
+  for (const [handle, position] of getArrowHandlePositions(arrow, store)) {
+    if (handle === 'start' || handle === 'end') continue;
+    canvasCtx.beginPath();
+    canvasCtx.arc(position.x, position.y, radius, 0, Math.PI * 2);
+    canvasCtx.fill();
+    canvasCtx.stroke();
+  }
 }

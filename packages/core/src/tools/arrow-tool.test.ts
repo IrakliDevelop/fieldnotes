@@ -114,6 +114,17 @@ describe('ArrowTool', () => {
     expect(arrow.strokeStyle).toBe('dotted');
   });
 
+  it('creates elbow arrows from the routing option', () => {
+    const tool = new ArrowTool({ routing: 'elbow' });
+    const ctx = makeCtx();
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(100, 100), ctx);
+    tool.onPointerUp(pt(100, 100), ctx);
+
+    expect((ctx.store.getAll()[0] as ArrowElement).routing).toBe('elbow');
+  });
+
   it('snaps start and end to grid when not binding', () => {
     const tool = new ArrowTool();
     const ctx = makeCtx();
@@ -217,6 +228,40 @@ describe('ArrowTool', () => {
       expect(canvas.stroke).toHaveBeenCalled();
     });
 
+    it('renders an orthogonal elbow preview', () => {
+      const tool = new ArrowTool({ routing: 'elbow' });
+      const ctx = makeCtx();
+      const canvas = mockCanvas();
+
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 100), ctx);
+      tool.renderOverlay?.(canvas);
+
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(1, 50, 0);
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(2, 50, 100);
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(3, 100, 100);
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(4, 89.60769515458674, 106);
+      expect(canvas.lineTo).toHaveBeenNthCalledWith(5, 89.60769515458674, 94);
+    });
+
+    it('does not render a head for a collapsed elbow preview', () => {
+      const tool = new ArrowTool({ routing: 'elbow' });
+      const store = new ElementStore();
+      const ctx = makeCtx({ store });
+      const canvas = Object.assign(mockCanvas(), { strokeRect: vi.fn(), setLineDash: vi.fn() });
+      store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
+
+      tool.onPointerDown(pt(50, 50), ctx);
+      tool.onPointerMove(pt(60, 50), ctx);
+      tool.renderOverlay?.(canvas);
+
+      expect(canvas.stroke).toHaveBeenCalledOnce();
+      expect(canvas.fill).not.toHaveBeenCalled();
+      expect(canvas.closePath).not.toHaveBeenCalled();
+      expect(canvas.save).toHaveBeenCalledOnce();
+      expect(canvas.restore).toHaveBeenCalledOnce();
+    });
+
     it('does not render overlay when not drawing', () => {
       const tool = new ArrowTool();
       const canvas = mockCanvas();
@@ -248,7 +293,56 @@ describe('ArrowTool', () => {
 describe('ArrowTool getOptions/onOptionsChange', () => {
   it('returns current options', () => {
     const tool = new ArrowTool({ color: '#ff0000', width: 4 });
-    expect(tool.getOptions()).toEqual({ color: '#ff0000', width: 4, strokeStyle: 'solid' });
+    expect(tool.getOptions()).toEqual({
+      color: '#ff0000',
+      width: 4,
+      strokeStyle: 'solid',
+      routing: 'bezier',
+    });
+  });
+
+  it('updates routing and notifies option listeners', () => {
+    const tool = new ArrowTool();
+    const listener = vi.fn();
+    tool.onOptionsChange(listener);
+
+    tool.setOptions({ routing: 'elbow' });
+
+    expect(tool.getOptions().routing).toBe('elbow');
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it('rejects invalid routing before a gesture starts', () => {
+    const invalidOptions: unknown = { routing: 'spline' };
+    const tool = new ArrowTool();
+
+    expect(() => Reflect.construct(ArrowTool, [invalidOptions])).toThrow('Invalid arrow routing');
+    expect(() => Reflect.apply(tool.setOptions, tool, [invalidOptions])).toThrow(
+      'Invalid arrow routing',
+    );
+  });
+
+  it('leaves every option unchanged when mixed options include invalid routing', () => {
+    const tool = new ArrowTool({ color: '#000000', width: 2, strokeStyle: 'solid' });
+    const listener = vi.fn();
+    const invalidOptions: unknown = {
+      color: '#ff0000',
+      width: 5,
+      strokeStyle: 'dotted',
+      routing: 'spline',
+    };
+    tool.onOptionsChange(listener);
+
+    expect(() => Reflect.apply(tool.setOptions, tool, [invalidOptions])).toThrow(
+      'Invalid arrow routing',
+    );
+    expect(tool.getOptions()).toEqual({
+      color: '#000000',
+      width: 2,
+      strokeStyle: 'solid',
+      routing: 'bezier',
+    });
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it('fires listener when setOptions is called', () => {

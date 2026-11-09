@@ -2106,6 +2106,82 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
+    it('resets authored axes in a transaction separate from a pending nudge', () => {
+      vi.useFakeTimers();
+      const viewport = new Viewport(container);
+      const selectTool = new SelectTool();
+      viewport.toolManager.register(selectTool);
+      viewport.toolManager.setTool('select', viewport.toolContext);
+      const note = createNote({
+        position: { x: 100, y: 100 },
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 0 },
+        routing: 'elbow',
+        fixedSegments: [{ axis: 'x', value: 50 }],
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(note);
+      viewport.store.add(arrow);
+      viewport.history.clear();
+      selectTool.setSelection([note.id]);
+      focusCanvas(container);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+
+      expect(viewport.resetArrowRoute(arrow.id)).toBe(true);
+      expect(viewport.store.getById(arrow.id)).toMatchObject({ fixedSegments: undefined });
+      expect(viewport.history.undoCount).toBe(2);
+      const noOpScene = structuredClone(viewport.store.getAll());
+      const noOpHistory = viewport.history.undoCount;
+      const update = vi.spyOn(viewport.store, 'update');
+      expect(viewport.resetArrowRoute('missing')).toBe(false);
+      expect(viewport.resetArrowRoute(note.id)).toBe(false);
+      expect(viewport.resetArrowRoute(arrow.id)).toBe(false);
+      expect(update).not.toHaveBeenCalled();
+      expect(viewport.history.undoCount).toBe(noOpHistory);
+      expect(viewport.store.getAll()).toEqual(noOpScene);
+      update.mockRestore();
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(arrow.id)).toMatchObject({
+        fixedSegments: [{ axis: 'x', value: 50 }],
+      });
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(note.id)?.position.x).toBe(100);
+      vi.useRealTimers();
+      viewport.destroy();
+    });
+
+    it('resets and restores an elbow label with authored pins', () => {
+      const viewport = new Viewport(container);
+      const arrow = createArrow({
+        from: { x: 0, y: 0 },
+        to: { x: 100, y: 0 },
+        routing: 'elbow',
+        fixedSegments: [{ axis: 'y', value: 50 }],
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      viewport.store.add(arrow);
+      const textId = viewport.setBoundText(arrow.id, 'route');
+      if (!textId) throw new Error('expected bound text');
+      viewport.history.clear();
+      const before = viewport.store.getById(textId);
+      if (before?.type !== 'text') throw new Error('expected bound text');
+
+      expect(viewport.resetArrowRoute(arrow.id)).toBe(true);
+      expect(viewport.store.getById(textId)?.position).not.toEqual(before.position);
+      expect(viewport.undo()).toBe(true);
+      expect(viewport.store.getById(arrow.id)).toMatchObject({
+        fixedSegments: [{ axis: 'y', value: 50 }],
+      });
+      const restored = viewport.store.getById(textId);
+      if (restored?.type !== 'text') throw new Error('expected restored bound text');
+      expect(restored.position).toEqual(before.position);
+      expect(restored.size).toEqual(before.size);
+      viewport.destroy();
+    });
+
     it.each([
       ['alignSelection', (v: Viewport) => v.alignSelection('left')],
       ['addShape', (v: Viewport) => void v.addShape({ position: { x: 500, y: 500 } })],

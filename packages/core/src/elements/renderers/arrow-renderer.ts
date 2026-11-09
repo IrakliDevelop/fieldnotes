@@ -1,8 +1,9 @@
 import type { ArrowElement, ArrowStrokeStyle } from '../types';
 import type { ElementStore } from '../element-store';
-import { getArrowCurve, getArrowLabelAnchor, getArrowTangentAngle } from '../arrow-geometry';
+import { getArrowCurve, getArrowEndTangent, getArrowLabelAnchor } from '../arrow-geometry';
 import { getElementBounds } from '../element-bounds';
 import { getBoundText } from '../bound-text';
+import { getElbowRoute } from '../elbow-cache';
 
 const ARROWHEAD_LENGTH = 12;
 const ARROWHEAD_ANGLE = Math.PI / 6;
@@ -28,6 +29,7 @@ export function renderArrow(
     const element = store?.getById(id);
     return element ? getElementBounds(element) : null;
   };
+  const route = getElbowRoute(store, arrow);
   const curve = getArrowCurve(arrow, resolveBounds);
 
   ctx.save();
@@ -39,21 +41,22 @@ export function renderArrow(
   if (dash.length > 0) ctx.setLineDash(dash);
 
   ctx.beginPath();
-  ctx.moveTo(curve.from.x, curve.from.y);
+  ctx.moveTo(route?.points[0]?.x ?? curve.from.x, route?.points[0]?.y ?? curve.from.y);
 
-  if (arrow.bend !== 0) {
+  if (route) {
+    for (const point of route.points.slice(1)) ctx.lineTo(point.x, point.y);
+  } else if (arrow.bend !== 0) {
     ctx.quadraticCurveTo(curve.control.x, curve.control.y, curve.to.x, curve.to.y);
   } else {
     ctx.lineTo(curve.to.x, curve.to.y);
   }
   ctx.stroke();
 
-  renderArrowhead(
-    ctx,
-    arrow,
-    curve.to,
-    getArrowTangentAngle(arrow.from, arrow.to, arrow.bend, curve.t1),
-  );
+  const last = route?.points.at(-1) ?? curve.to;
+  const angle = getArrowEndTangent(arrow, curve.t1, route?.points);
+  if (angle !== null) {
+    renderArrowhead(ctx, arrow, last, angle);
+  }
   ctx.restore();
   renderArrowLabel(ctx, arrow, store, resolveBounds);
 }

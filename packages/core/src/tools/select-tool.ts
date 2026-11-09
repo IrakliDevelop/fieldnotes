@@ -25,6 +25,9 @@ import {
   applyArrowHandleDrag,
   getArrowHandleCursor,
   getArrowHandleDragTarget,
+  captureArrowHandleDrag,
+  restoreArrowHandleDrag,
+  type ArrowHandleDrag,
   renderArrowHoverHandle,
 } from './arrow-handles';
 import { computeSnapGuides } from '../elements/snap-guides';
@@ -57,7 +60,7 @@ type Mode =
   | { type: 'marquee'; start: Point }
   | { type: 'resizing'; elementId: string; handle: HandlePosition }
   | { type: 'extension-handle'; elementId: string; handleId: string; cursor: string }
-  | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle }
+  | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle; drag: ArrowHandleDrag | null }
   | { type: 'line-handle'; elementId: string; fixed: Point }
   | {
       type: 'rotating';
@@ -185,6 +188,7 @@ export class SelectTool implements Tool {
         type: 'arrow-handle',
         elementId: arrowHit.elementId,
         handle: arrowHit.handle,
+        drag: captureArrowHandleDrag(arrowHit.handle, arrowHit.elementId, ctx),
       };
       ctx.requestRender();
       return;
@@ -275,7 +279,13 @@ export class SelectTool implements Tool {
 
     if (this.mode.type === 'arrow-handle') {
       ctx.setCursor?.(getArrowHandleCursor(this.mode.handle, true));
-      applyArrowHandleDrag(this.mode.handle, this.mode.elementId, world, ctx);
+      applyArrowHandleDrag(
+        this.mode.handle,
+        this.mode.elementId,
+        world,
+        ctx,
+        this.mode.drag ?? undefined,
+      );
       return;
     }
 
@@ -452,7 +462,18 @@ export class SelectTool implements Tool {
     }
   }
 
+  onPointerCancel(state: PointerState, ctx: ToolContext): void {
+    if (this.mode.type === 'arrow-handle' && this.mode.drag)
+      restoreArrowHandleDrag(this.mode.elementId, this.mode.drag, ctx);
+    this.onPointerUp(state, ctx);
+  }
+
   onKeyDown(e: KeyboardEvent, ctx: ToolContext): boolean {
+    if (e.key === 'Escape' && this.mode.type === 'arrow-handle' && this.mode.drag) {
+      restoreArrowHandleDrag(this.mode.elementId, this.mode.drag, ctx);
+      this.mode = { type: 'cancelled' };
+      return true;
+    }
     const drag = this.drag;
     if (!drag) return false;
     const info = this.dragInfo(drag);
@@ -516,7 +537,13 @@ export class SelectTool implements Tool {
           canvasCtx.save();
           canvasCtx.globalAlpha = 0.35;
           canvasCtx.setLineDash([]);
-          renderArrowHoverHandle(canvasCtx, el, this.ctx.camera.zoom, this.ctx.selectionColor);
+          renderArrowHoverHandle(
+            canvasCtx,
+            el,
+            this.ctx.camera.zoom,
+            this.ctx.store,
+            this.ctx.selectionColor,
+          );
           canvasCtx.restore();
         } else if (el) {
           const b = getElementBounds(el, this.ctx.elementRegistry);

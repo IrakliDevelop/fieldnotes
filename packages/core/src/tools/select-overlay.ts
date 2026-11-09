@@ -175,7 +175,7 @@ export function renderSelectionBoxes(
     const locked = el.locked || (p.isLayerLocked?.(el.layerId) ?? false);
 
     if (el.type === 'arrow') {
-      if (!locked) renderArrowHandles(ctx, el, zoom, color);
+      if (!locked) renderArrowHandles(ctx, el, zoom, color, p.store);
       renderBindingHighlights(ctx, el, zoom, p.store, color);
       continue;
     }
