@@ -739,6 +739,8 @@ describe('authority checkpoint', () => {
     expect(prepared.manifest.chunkCount).toBe(40);
     const frames = [...prepared.frames];
     expect(frames.filter((frame) => frame.kind === 'checkpoint-chunk')).toHaveLength(40);
+    // Freeze the assembler's deadline clock: this test covers the byte budget, not CPU speed.
+    vi.useFakeTimers();
     expect(await deliver(frames, assembler(required))).toMatchObject({ status: 'complete' });
     await expect(
       prepare(makePayload(MAX_AUTHORITY_CHECKPOINT_BYTES - overhead + 1), required),
