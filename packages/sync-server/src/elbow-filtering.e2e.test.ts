@@ -11,6 +11,7 @@ interface Peer {
   readonly store: ElementStore;
   readonly client: SyncClient;
   readonly transport: WebSocketTransport;
+  readonly joined: () => boolean;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -155,16 +156,21 @@ describe('filtered elbow documents (end-to-end)', () => {
   function connect(port: number, role: 'gm' | 'player', clientId: string): Peer {
     const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=elbow&role=${role}`);
     const store = new ElementStore();
+    let joined = false;
     const client = new SyncClient({
       store,
       transport,
       clientId,
       flushIntervalMs: 0,
+      resolveLocalOnly: () => {
+        joined = true;
+        return undefined;
+      },
     });
     transports.push(transport);
     clients.push(client);
     client.start();
-    return { store, client, transport };
+    return { store, client, transport, joined: () => joined };
   }
 
   async function connectRaw(port: number): Promise<{ socket: WsClient; frames: string[] }> {
@@ -203,6 +209,8 @@ describe('filtered elbow documents (end-to-end)', () => {
     const writer = connect(port, 'gm', 'gm-writer');
     const gm = connect(port, 'gm', 'gm-reader');
     const player = connect(port, 'player', 'player-reader');
+    // A snapshot landing after the update listeners re-applies elements as remote updates.
+    await waitFor(() => writer.joined() && gm.joined() && player.joined());
 
     const source = {
       ...createShape({ position: { x: 0, y: 0 }, size: { w: 40, h: 40 } }),
@@ -417,6 +425,7 @@ describe('filtered elbow documents (end-to-end)', () => {
     const { port } = startServer();
     const gm = connect(port, 'gm', 'gm-client');
     const player = connect(port, 'player', 'player-client');
+    await waitFor(() => gm.joined() && player.joined());
     const arrow = {
       ...createArrow({
         from: { x: 20, y: 20 },
