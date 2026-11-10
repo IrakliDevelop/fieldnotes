@@ -390,11 +390,13 @@ describe('authority checkpoint', () => {
       opacity: 1,
     };
     const value = { ...empty, elements: [stroke] };
+    // Freeze the assembler's deadline clock: this test covers element caps, not CPU speed.
+    vi.useFakeTimers();
     expect(await deliver([...(await prepare(value)).frames])).toEqual({
       status: 'complete',
       checkpoint: value,
     });
-  }, 30_000);
+  }, 120_000);
 
   it('uses exact contiguous chunks and each serialized frame remains within one MiB', async () => {
     const data = {
