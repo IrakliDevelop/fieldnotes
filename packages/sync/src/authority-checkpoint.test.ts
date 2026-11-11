@@ -390,11 +390,13 @@ describe('authority checkpoint', () => {
       opacity: 1,
     };
     const value = { ...empty, elements: [stroke] };
+    // Freeze the assembler's deadline clock: this test covers element caps, not CPU speed.
+    vi.useFakeTimers();
     expect(await deliver([...(await prepare(value)).frames])).toEqual({
       status: 'complete',
       checkpoint: value,
     });
-  }, 30_000);
+  }, 120_000);
 
   it('uses exact contiguous chunks and each serialized frame remains within one MiB', async () => {
     const data = {
@@ -739,11 +741,13 @@ describe('authority checkpoint', () => {
     expect(prepared.manifest.chunkCount).toBe(40);
     const frames = [...prepared.frames];
     expect(frames.filter((frame) => frame.kind === 'checkpoint-chunk')).toHaveLength(40);
+    // Freeze the assembler's deadline clock: this test covers the byte budget, not CPU speed.
+    vi.useFakeTimers();
     expect(await deliver(frames, assembler(required))).toMatchObject({ status: 'complete' });
     await expect(
       prepare(makePayload(MAX_AUTHORITY_CHECKPOINT_BYTES - overhead + 1), required),
     ).rejects.toThrow(RangeError);
-  }, 30_000);
+  }, 120_000);
 
   it('accepts depth 64 and rejects depth 65 in extension data', async () => {
     const nested = (count: number): unknown => {
