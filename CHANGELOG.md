@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### VTT 0.17.2 — maps without fog stay visible
+
+**Fixed**
+
+- A viewport that requires the `vtt:fog` capability no longer masks the map black when fog is
+  off or not set up. The fog plugin now satisfies `vtt:fog` whenever it is running; the map still
+  masks when a fog render throws or no fog plugin is running.
+
 ### Core 0.107.0 — elbow arrows
 
 **Added**

@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Viewport } from '@fieldnotes/core';
 import type { PluginConfigureContext, PluginStartContext } from '@fieldnotes/core';
 import { createFogPlugin, FogManagerKey } from './fog-plugin';
+import type { FogPlugin } from './fog-plugin';
 import { FogManager } from './fog-manager';
+import { FogRenderer } from './fog-renderer';
 
 function configureContext() {
   const registrations = {
@@ -101,5 +104,74 @@ describe('createFogPlugin', () => {
     firstHandle?.dispose();
     secondHandle?.dispose();
     for (const dispose of [...first.disposers, ...second.disposers].reverse()) dispose();
+  });
+});
+
+describe('vtt:fog capability with a real viewport', () => {
+  const viewports: Viewport[] = [];
+  const containers: HTMLDivElement[] = [];
+  const size = { width: 800, height: 600, dpr: 1 };
+  const ctx = {} as CanvasRenderingContext2D;
+
+  afterEach(() => {
+    for (const viewport of viewports.splice(0)) viewport.destroy();
+    for (const container of containers.splice(0)) container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function mount(): { viewport: Viewport; plugin: FogPlugin } {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    containers.push(container);
+    const plugin = createFogPlugin();
+    const viewport = new Viewport(container, {
+      plugins: [plugin],
+      requiredCapabilities: { viewport: ['vtt:fog'], minimap: ['vtt:fog'] },
+    });
+    viewports.push(viewport);
+    return { viewport, plugin };
+  }
+
+  it('is satisfied on viewport and minimap when no fog state exists', () => {
+    const { viewport } = mount();
+    expect(viewport.renderHooks.viewport.isFailClosed()).toBe(false);
+    expect(viewport.renderHooks.minimap.isFailClosed()).toBe(false);
+  });
+
+  it('is satisfied when fog is initialized but the view mode is off', () => {
+    const { viewport, plugin } = mount();
+    plugin.manager.initialize({ bounds: { x: 0, y: 0, w: 128, h: 128 }, cellSize: 1 });
+    plugin.manager.setViewMode('off');
+    expect(viewport.renderHooks.viewport.isFailClosed()).toBe(false);
+  });
+
+  it('is satisfied and draws fog in player view', () => {
+    const render = vi.spyOn(FogRenderer.prototype, 'render').mockImplementation(() => undefined);
+    const { viewport, plugin } = mount();
+    plugin.manager.initialize({ bounds: { x: 0, y: 0, w: 128, h: 128 }, cellSize: 1 });
+    plugin.manager.setViewMode('player');
+    expect(viewport.renderHooks.viewport.isFailClosed()).toBe(false);
+    viewport.renderHooks.viewport.call('afterElements', ctx, viewport.camera, size);
+    expect(render).toHaveBeenCalledWith(ctx, viewport.camera, 800, 600, 1);
+  });
+
+  it('fails closed after the fog render throws, even with no fog state', () => {
+    vi.stubGlobal('reportError', vi.fn());
+    vi.spyOn(FogRenderer.prototype, 'render').mockImplementation(() => {
+      throw new Error('fog failed');
+    });
+    const { viewport } = mount();
+    expect(viewport.renderHooks.viewport.call('afterElements', ctx, viewport.camera, size)).toBe(
+      true,
+    );
+    expect(viewport.renderHooks.viewport.isFailClosed()).toBe(true);
+  });
+
+  it('is not satisfied once the fog plugin is disposed', () => {
+    const { viewport } = mount();
+    viewport.destroy();
+    expect(viewport.renderHooks.viewport.isFailClosed()).toBe(true);
+    expect(viewport.renderHooks.minimap.isFailClosed()).toBe(true);
   });
 });

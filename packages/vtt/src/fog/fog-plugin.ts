@@ -45,7 +45,7 @@ export function createFogPlugin(options?: CreateFogPluginOptions): FogPlugin {
       {
         ...hookOptions,
         slot: 'afterSceneBeforeOverlay',
-        enabled: () => renderer()?.isVisible() ?? false,
+        enabled: () => renderer() !== undefined,
       },
     );
     context.registerMinimapHooks(
