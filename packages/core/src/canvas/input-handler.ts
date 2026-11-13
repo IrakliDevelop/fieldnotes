@@ -1,4 +1,5 @@
 import type { Point } from '../core/types';
+import type { CanvasElement } from '../elements/types';
 import type { Camera } from './camera';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, PointerState } from '../tools/types';
@@ -512,6 +513,10 @@ export class InputHandler {
 
   hasClipboard(): boolean {
     return this.actions.hasClipboard();
+  }
+
+  insertElements(elements: CanvasElement[], anchor: Point): boolean {
+    return this.actions.insertElements(elements, anchor);
   }
 
   private startPinch(): void {

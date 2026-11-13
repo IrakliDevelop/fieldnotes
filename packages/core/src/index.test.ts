@@ -109,6 +109,21 @@ describe('core public surface', () => {
     expect(typeof FN.parseElementLink).toBe('function');
   });
 
+  it('exports the asset resolver types and keeps the content inserter internal', () => {
+    expectTypeOf<FN.ViewportOptions['assets']>().toEqualTypeOf<FN.AssetResolver | undefined>();
+    expectTypeOf<FN.AssetResolver['upload']>().toEqualTypeOf<
+      (file: File, context: FN.AssetUploadContext) => Promise<{ src: string }>
+    >();
+    expectTypeOf<FN.AssetUploadContext['kind']>().toEqualTypeOf<'drop' | 'paste' | 'import'>();
+    expectTypeOf<NonNullable<FN.ViewportOptions['onImageError']>>().toEqualTypeOf<
+      (info: FN.ImageErrorInfo) => void
+    >();
+    expectTypeOf<FN.ImageErrorInfo['reason']>().toEqualTypeOf<'load' | 'upload' | undefined>();
+    for (const name of ['ContentInserter', 'textHtmlFromPlain', 'MAX_PASTE_TEXT_CHARS']) {
+      expect(name in FN, `${name} should not be exported`).toBe(false);
+    }
+  });
+
   it('exports the clipboard codec without its internals', () => {
     expect(FN.FIELDNOTES_CLIPBOARD_TYPE).toBe('fieldnotes/clipboard');
     expect(typeof FN.encodeClipboard).toBe('function');

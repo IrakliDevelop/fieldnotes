@@ -30,6 +30,7 @@ import { hitTest, hitTestResizeHandle, hitTestRotateHandle } from '../tools/sele
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { InsertQueue } from './insert-queue';
+import type { AssetResolver, ImageErrorInfo } from './content-inserter';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
 import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
@@ -139,7 +140,9 @@ export interface ViewportOptions {
   ) => void;
   onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
   onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
-  onImageError?: (info: { src: string; elementIds: string[]; cause?: unknown }) => void;
+  onImageError?: (info: ImageErrorInfo) => void;
+  /** Host upload for dropped, pasted and imported images; without it images inline as base64. */
+  assets?: AssetResolver;
   /** CSS-pixel margin cached beyond the viewport. Default `256`. Set `0` to disable. */
   panBufferMargin?: number;
   /** Enable the built-in context menu. Default `true`. */
@@ -301,16 +304,16 @@ export class Viewport {
       }
       this.requestRender();
     });
+    const reportImageError = (info: ImageErrorInfo): void => {
+      if (options.onImageError) options.onImageError(info);
+      else console.warn(`[fieldnotes] image failed to ${info.reason ?? 'load'}: ${info.src}`);
+    };
     this.renderer.setOnImageError((src, cause) => {
       const elementIds: string[] = [];
       for (const el of this.store.getAll()) {
         if (el.type === 'image' && el.src === src) elementIds.push(el.id);
       }
-      if (options.onImageError) {
-        options.onImageError({ src, elementIds, cause });
-      } else {
-        console.warn(`[fieldnotes] image failed to load: ${src}`);
-      }
+      reportImageError({ src, elementIds, cause, reason: 'load' });
     });
     this.renderer.setHtmlPainters(this.htmlPainters);
     this.renderer.setDiagnosticSink((d) => {

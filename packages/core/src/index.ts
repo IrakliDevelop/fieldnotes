@@ -279,6 +279,7 @@ export {
   decodeClipboard,
 } from './canvas/clipboard-codec';
 export type { ClipboardEnvelope, ClipboardPayload } from './canvas/clipboard-codec';
+export type { AssetResolver, AssetUploadContext, ImageErrorInfo } from './canvas/content-inserter';
 export {
   getArrowControlPoint,
   getArrowMidpoint,
