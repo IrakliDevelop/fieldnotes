@@ -50,13 +50,9 @@ async function addLinkedShape(page: Page): Promise<{ id: string; corner: Point; 
     vp.setLink([id], 'https://example.com');
     vp.toolContext.switchTool('select');
     vp.toolContext.setSelection([id]);
-    // SELECTION_PAD 4 puts `ne` outside the bbox; the badge centre sits 18 px beyond it at zoom 1.
-    const ne = { x: position.x + size.w + 4, y: position.y - 4 };
-    return {
-      id,
-      corner: vp.camera.worldToScreen({ x: position.x + size.w, y: position.y }),
-      badge: vp.camera.worldToScreen({ x: ne.x + 18, y: ne.y - 18 }),
-    };
+    const corner = vp.camera.worldToScreen({ x: position.x + size.w, y: position.y });
+    // SELECTION_PAD 4 plus the 18 px badge offset, both screen pixels at any zoom.
+    return { id, corner, badge: { x: corner.x + 22, y: corner.y - 22 } };
   });
 }
 
