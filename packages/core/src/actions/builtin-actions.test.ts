@@ -11,12 +11,13 @@ import { ElementStore as Store } from '../elements/element-store';
 import { LayerManager } from '../layers/layer-manager';
 import {
   createBuiltinActions,
+  createLinkActions,
   createToolAction,
   DEFAULT_TOOL_SHORTCUTS,
   BUILTIN_MENU_GROUPS,
   NUDGE_DELTAS,
 } from './builtin-actions';
-import type { BuiltinActionDeps, ToolActionDeps } from './builtin-actions';
+import type { BuiltinActionDeps, LinkActionDeps, ToolActionDeps } from './builtin-actions';
 
 // ---------- helpers ----------
 
@@ -631,7 +632,115 @@ describe('createToolAction', () => {
 });
 
 describe('BUILTIN_MENU_GROUPS', () => {
-  it('contains the four built-in groups in order', () => {
-    expect(BUILTIN_MENU_GROUPS).toEqual(['clipboard', 'arrange', 'transform', 'lock']);
+  it('contains the five built-in groups in order with link last', () => {
+    expect(BUILTIN_MENU_GROUPS).toEqual(['clipboard', 'arrange', 'transform', 'lock', 'link']);
+  });
+});
+
+describe('createLinkActions', () => {
+  function setup() {
+    const store = new Store(new ElementRegistry());
+    const add = (id: string, extra: { link?: string; locked?: boolean; layerId?: string } = {}) =>
+      store.add({
+        ...createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, layerId: 'l1' }),
+        id,
+        ...extra,
+      });
+    add('plain');
+    add('linked', { link: 'https://a.example' });
+    add('linked2', { link: 'https://b.example' });
+    add('locked', { locked: true });
+    add('on-locked-layer', { layerId: 'locked-layer' });
+    const isLayerLocked = vi.fn((layerId: string) => layerId === 'locked-layer');
+    const viewport = { layerManager: { isLayerLocked } } as unknown as Viewport;
+    const deps: LinkActionDeps = { setLink: vi.fn(), openLink: vi.fn(), promptLink: vi.fn() };
+    const actions = createLinkActions(deps);
+    const ctx = (selectedIds: readonly string[]): ActionContext => ({
+      viewport,
+      store,
+      selectedIds,
+    });
+    return { deps, actions, ctx, isLayerLocked };
+  }
+
+  it('returns set, remove and open in the link menu group without shortcuts', () => {
+    const { actions } = setup();
+    expect(actions.map((a) => [a.id, a.menu, a.shortcut])).toEqual([
+      ['link.set', { group: 'link', order: 10 }, undefined],
+      ['link.remove', { group: 'link', order: 20 }, undefined],
+      ['link.open', { group: 'link', order: 30 }, undefined],
+    ]);
+  });
+
+  it.each([
+    [[], false],
+    [['plain'], true],
+    [['plain', 'linked'], true],
+    [['missing'], false],
+    [['plain', 'locked'], false],
+    [['plain', 'on-locked-layer'], false],
+  ])('link.set enabled for %j is %s', (ids, expected) => {
+    const { actions, ctx } = setup();
+    expect(findAction(actions, 'link.set').enabled?.(ctx(ids))).toBe(expected);
+  });
+
+  it('link.set consults the layer lock of the selected element', () => {
+    const { actions, ctx, isLayerLocked } = setup();
+    findAction(actions, 'link.set').enabled?.(ctx(['plain']));
+    expect(isLayerLocked).toHaveBeenCalledWith('l1');
+  });
+
+  it.each([
+    [['linked'], 'Edit link…'],
+    [['plain'], 'Add link…'],
+    [['linked', 'linked2'], 'Add link…'],
+  ])('link.set label for %j is %s', (ids, expected) => {
+    const { actions, ctx } = setup();
+    const label = findAction(actions, 'link.set').label;
+    expect(typeof label === 'function' ? label(ctx(ids)) : label).toBe(expected);
+  });
+
+  it.each([
+    [['linked'], 'https://a.example'],
+    [['plain'], ''],
+    [['linked', 'linked2'], ''],
+  ])('link.set for %j prompts with %j', (ids, initial) => {
+    const { actions, ctx, deps } = setup();
+    findAction(actions, 'link.set').perform(ctx(ids), defaultInvocation);
+    expect(deps.promptLink).toHaveBeenCalledWith(ids, initial);
+  });
+
+  it.each([
+    [[], false],
+    [['plain'], false],
+    [['plain', 'linked'], true],
+  ])('link.remove enabled for %j is %s', (ids, expected) => {
+    const { actions, ctx } = setup();
+    expect(findAction(actions, 'link.remove').enabled?.(ctx(ids))).toBe(expected);
+  });
+
+  it('link.remove clears only the selected elements that have a link', () => {
+    const { actions, ctx, deps } = setup();
+    findAction(actions, 'link.remove').perform(
+      ctx(['plain', 'linked', 'linked2']),
+      defaultInvocation,
+    );
+    expect(deps.setLink).toHaveBeenCalledWith(['linked', 'linked2'], null);
+  });
+
+  it.each([
+    [['plain'], false],
+    [['linked'], true],
+    [['plain', 'linked'], true],
+    [['linked', 'linked2'], false],
+  ])('link.open enabled for %j is %s', (ids, expected) => {
+    const { actions, ctx } = setup();
+    expect(findAction(actions, 'link.open').enabled?.(ctx(ids))).toBe(expected);
+  });
+
+  it('link.open opens the one linked selected element', () => {
+    const { actions, ctx, deps } = setup();
+    findAction(actions, 'link.open').perform(ctx(['plain', 'linked']), defaultInvocation);
+    expect(deps.openLink).toHaveBeenCalledWith('linked');
   });
 });

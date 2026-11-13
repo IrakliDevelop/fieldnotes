@@ -3495,9 +3495,15 @@ describe('Viewport', () => {
           !a.id.startsWith('tool.') &&
           !a.id.startsWith('presentation.') &&
           !a.id.startsWith('palette.') &&
+          !a.id.startsWith('link.') &&
           a.id !== 'selection.edit-text',
       );
       expect(builtins).toHaveLength(31);
+      expect(list.filter((a) => a.id.startsWith('link.')).map((a) => a.id)).toEqual([
+        'link.set',
+        'link.remove',
+        'link.open',
+      ]);
       expect(list.some((action) => action.id === 'selection.edit-text')).toBe(true);
       expect(list.filter((a) => a.id.startsWith('presentation.')).map((a) => a.id)).toEqual([
         'presentation.start',
@@ -3626,6 +3632,8 @@ describe('Viewport', () => {
         'Rotate 90° CCW',
         '---',
         'Lock',
+        '---',
+        'Add link…',
       ]);
       viewport.destroy();
     });
@@ -6638,5 +6646,171 @@ describe('Viewport links', () => {
     expect({ ...viewport.camera.position, zoom: viewport.camera.zoom }).toEqual(camera);
     expect(viewport.getSelectedIds()).toEqual([source]);
     expect(open).not.toHaveBeenCalled();
+  });
+
+  describe('setLink', () => {
+    it('sets a normalized link on every id in one undo step', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      const b = addShape(viewport, { x: 200, y: 0 });
+      viewport.setLink([a, b], 'example.com');
+      expect(viewport.store.getById(a)?.link).toBe('https://example.com');
+      expect(viewport.store.getById(b)?.link).toBe('https://example.com');
+      viewport.undo();
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+      expect(viewport.store.getById(b)?.link).toBeUndefined();
+    });
+
+    it('throws RangeError for a disallowed link and mutates nothing', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://keep.example');
+      expect(() => viewport.setLink([a], 'javascript:x')).toThrow(RangeError);
+      expect(viewport.store.getById(a)?.link).toBe('https://keep.example');
+    });
+
+    it('throws before mutating when an id is locked', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      const b = addShape(viewport, { x: 200, y: 0 });
+      viewport.store.update(b, { locked: true });
+      expect(() => viewport.setLink([a, b], 'https://x.y')).toThrow(b);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+    });
+
+    it('throws when an id is on a locked layer', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      const layer = viewport.layerManager.createLayer();
+      const b = addShape(viewport, { x: 200, y: 0 }, undefined, layer.id);
+      viewport.layerManager.setLayerLocked(layer.id, true);
+      expect(() => viewport.setLink([a, b], 'https://x.y')).toThrow(b);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+    });
+
+    it('throws for a missing id', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      expect(() => viewport.setLink([a, 'missing'], 'https://x.y')).toThrow(/missing/);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+    });
+
+    it('null removes the link', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+      viewport.setLink([a], null);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+    });
+  });
+
+  describe('link actions', () => {
+    function promptInput(): HTMLInputElement | null {
+      return document.querySelector<HTMLInputElement>(
+        '.fieldnotes-dialog .fieldnotes-palette-input',
+      );
+    }
+
+    it('link.set is enabled only for an unlocked selection on an unlocked layer', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      expect(viewport.actions.isEnabled('link.set')).toBe(false);
+      viewport.toolContext.setSelection?.([a]);
+      expect(viewport.actions.isEnabled('link.set')).toBe(true);
+      viewport.store.update(a, { locked: true });
+      expect(viewport.actions.isEnabled('link.set')).toBe(false);
+    });
+
+    it('link.open needs exactly one linked element; link.remove needs any', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://a.example');
+      const b = addShape(viewport, { x: 200, y: 0 }, 'https://b.example');
+      const plain = addShape(viewport, { x: 400, y: 0 });
+      viewport.toolContext.setSelection?.([plain]);
+      expect(viewport.actions.isEnabled('link.open')).toBe(false);
+      expect(viewport.actions.isEnabled('link.remove')).toBe(false);
+      viewport.toolContext.setSelection?.([a, plain]);
+      expect(viewport.actions.isEnabled('link.open')).toBe(true);
+      expect(viewport.actions.isEnabled('link.remove')).toBe(true);
+      viewport.toolContext.setSelection?.([a, b]);
+      expect(viewport.actions.isEnabled('link.open')).toBe(false);
+      expect(viewport.actions.isEnabled('link.remove')).toBe(true);
+    });
+
+    it('link.remove clears every selected link in one undo step', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://a.example');
+      const b = addShape(viewport, { x: 200, y: 0 }, 'https://b.example');
+      viewport.toolContext.setSelection?.([a, b]);
+      expect(viewport.actions.run('link.remove')).toBe(true);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+      expect(viewport.store.getById(b)?.link).toBeUndefined();
+      viewport.undo();
+      expect(viewport.store.getById(a)?.link).toBe('https://a.example');
+      expect(viewport.store.getById(b)?.link).toBe('https://b.example');
+    });
+
+    it('link.open calls onOpenLink with a null event', () => {
+      const onOpenLink = vi.fn(() => true);
+      const board = withOnOpenLink(onOpenLink);
+      const id = addShape(board.viewport, { x: 0, y: 0 }, 'https://x.y');
+      board.viewport.toolContext.setSelection?.([id]);
+      board.viewport.actions.run('link.open');
+      expect(onOpenLink).toHaveBeenCalledWith('https://x.y', null);
+      board.cleanup();
+    });
+
+    it('link.open right after a badge open still opens', () => {
+      const { viewport, wrapper } = harness;
+      const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+      viewport.toolContext.setSelection?.([id]);
+      pointerDown(wrapper, 122, -22);
+      pointerUp(wrapper, 122, -22);
+      expect(open).toHaveBeenCalledTimes(1);
+      viewport.actions.run('link.open');
+      expect(open).toHaveBeenCalledTimes(2);
+    });
+
+    it('link.set prompts with the current link and one Enter is one undo step', () => {
+      const { viewport, wrapper } = harness;
+      const id = addShape(viewport, { x: 0, y: 0 }, 'https://old.example');
+      viewport.toolContext.setSelection?.([id]);
+      viewport.actions.run('link.set');
+      const input = promptInput();
+      expect(input?.value).toBe('https://old.example');
+      if (!input) return;
+      input.value = 'new.example';
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      );
+      expect(viewport.store.getById(id)?.link).toBe('https://new.example');
+      expect(promptInput()).toBeNull();
+      expect(document.activeElement).toBe(wrapper);
+      viewport.undo();
+      expect(viewport.store.getById(id)?.link).toBe('https://old.example');
+    });
+
+    it('destroy closes an open link prompt', () => {
+      const board = withOnOpenLink(undefined);
+      const id = addShape(board.viewport, { x: 0, y: 0 });
+      board.viewport.toolContext.setSelection?.([id]);
+      board.viewport.actions.run('link.set');
+      expect(promptInput()).not.toBeNull();
+      board.cleanup();
+      expect(promptInput()).toBeNull();
+    });
+
+    it('the context menu lists the link group last', () => {
+      const { viewport } = harness;
+      const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+      viewport.toolContext.setSelection?.([id]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      const entries = Array.from(
+        document.querySelector('.fieldnotes-context-menu')?.children ?? [],
+      ).map((el) => (el.getAttribute('role') === 'separator' ? '---' : (el.textContent ?? '')));
+      expect(entries.slice(entries.lastIndexOf('---') + 1)).toEqual([
+        'Edit link…',
+        'Remove link',
+        'Open link',
+      ]);
+    });
   });
 });

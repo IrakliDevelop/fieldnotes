@@ -16,7 +16,7 @@ export interface ActionInvocation {
 }
 
 export interface ActionMenuPlacement {
-  /** Built-in groups: 'clipboard' | 'arrange' | 'transform' | 'lock'. Plugins may use any string. */
+  /** Built-in groups: 'clipboard' | 'arrange' | 'transform' | 'lock' | 'link'. Plugins may use any string. */
   readonly group: string;
   /** Ascending within a group. */
   readonly order: number;

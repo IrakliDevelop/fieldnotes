@@ -4,7 +4,7 @@ import { InputHandler } from './input-handler';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { ActionRegistry } from '../actions/action-registry';
 import type { ActionContext, ActionsApi } from '../actions/types';
-import { createToolAction } from '../actions/builtin-actions';
+import { createLinkActions, createToolAction } from '../actions/builtin-actions';
 import { buildContextMenuItems } from '../actions/context-menu-items';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
@@ -81,7 +81,8 @@ import { reportFailure } from '../core/report-failure';
 import { ContextLossGuard } from './context-loss-guard';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
 import { createId } from '../elements/create-id';
-import { parseElementLink } from '../elements/link';
+import { normalizeLink, parseElementLink } from '../elements/link';
+import { openLinkPrompt } from './link-prompt';
 import { getElementVisualBounds } from '../elements/element-bounds';
 import { CameraAnimator } from './camera-animator';
 import {
@@ -254,6 +255,7 @@ export class Viewport {
   private readonly dropHandler: ViewportOptions['onDrop'];
   private readonly onOpenLink: ViewportOptions['onOpenLink'];
   private linkAnimator: CameraAnimator | null = null;
+  private linkPromptClose: (() => void) | null = null;
   readonly constraintProxy = new ConstraintServiceProxy();
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
@@ -537,6 +539,11 @@ export class Viewport {
     const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
       (action) => this.actionRegistry.register(action),
     );
+    const unregisterLinkActions = createLinkActions({
+      setLink: (ids, link) => this.setLink(ids, link),
+      openLink: (id) => this.openElementLink(id, null),
+      promptLink: (ids, initial) => this.promptLink(ids, initial),
+    }).map((action) => this.actionRegistry.register(action));
     const unregisterEditText = this.actionRegistry.register({
       id: 'selection.edit-text',
       label: 'Edit text',
@@ -566,8 +573,12 @@ export class Viewport {
           : (this.interactions.startEditingElement(id), true);
       },
     });
-    this.disposers.push(...unregisterPresentationActions, unregisterEditText, () =>
-      this.presentationMode.destroy(),
+    this.disposers.push(
+      ...unregisterPresentationActions,
+      ...unregisterLinkActions,
+      () => this.linkPromptClose?.(),
+      unregisterEditText,
+      () => this.presentationMode.destroy(),
     );
     if (options.embedded) {
       // After InputHandler, whose touch-action: none this overrides.
@@ -1663,6 +1674,21 @@ export class Viewport {
     window.open(link, '_blank', 'noopener,noreferrer');
   }
 
+  private promptLink(ids: readonly string[], initial: string): void {
+    this.contextMenu?.close();
+    this.linkPromptClose?.();
+    const frozen = [...ids];
+    this.linkPromptClose = openLinkPrompt({
+      container: this.container,
+      wrapper: this.wrapper,
+      initialValue: initial,
+      onSubmit: (link) => this.setLink(frozen, link),
+      onClose: () => {
+        this.linkPromptClose = null;
+      },
+    });
+  }
+
   private revealElement(id: string): void {
     const el = this.store.getById(id);
     if (!el || !this.layerManager.isLayerVisible(el.layerId)) return;
@@ -1816,6 +1842,23 @@ export class Viewport {
     this.transaction(() => this.store.update(id, { fixedSegments: undefined }));
     this.requestRender();
     return true;
+  }
+
+  /** Sets or clears (null) the link on every id as one undo step; throws before mutating. */
+  setLink(ids: readonly string[], link: string | null): void {
+    const normalized = link === null ? null : normalizeLink(link);
+    if (link !== null && normalized === null) throw new RangeError('link is not allowed');
+    for (const id of ids) {
+      const el = this.store.getById(id);
+      if (!el) throw new Error(`Element not found: ${id}`);
+      if (el.locked || this.layerManager.isLayerLocked(el.layerId)) {
+        throw new Error(`Element ${id} is locked`);
+      }
+    }
+    this.transaction(() => {
+      for (const id of ids) this.store.update(id, { link: normalized ?? undefined });
+    });
+    this.requestRender();
   }
 
   getRenderStats(): RenderStatsSnapshot {
