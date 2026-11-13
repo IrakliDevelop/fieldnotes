@@ -51,9 +51,15 @@ export function buildSceneEnvelope(
   });
   const keptIds = new Set(kept.map((el) => el.id));
   const layerIds = new Set(kept.map((el) => el.layerId));
+  const known = new Set(layerManager?.getLayers().map((layer) => layer.id));
   const layers = layerManager
     ? layerManager.getLayers().filter((layer) => layerIds.has(layer.id))
     : [DEFAULT_LAYER];
+  // An element on a layer the manager lacks would make the whole scene fail validation on load.
+  const orphaned = kept.some((el) => !known.has(el.layerId));
+  if (layerManager && orphaned && !layers.some((layer) => layer.id === DEFAULT_LAYER.id)) {
+    layers.push(DEFAULT_LAYER);
+  }
   const state = exportState(
     kept,
     { position: { x: bounds.x, y: bounds.y }, zoom: 1 },
@@ -65,7 +71,7 @@ export function buildSceneEnvelope(
   for (const el of state.elements) {
     // ownerId and audience are host fields outside the element types.
     for (const key of ['editor', 'ownerId', 'audience']) Reflect.deleteProperty(el, key);
-    if (!layerManager) el.layerId = DEFAULT_LAYER.id;
+    if (!known.has(el.layerId)) el.layerId = DEFAULT_LAYER.id;
     // A frame export, filter or cull can drop a target; dangling references fail validation on load.
     if (el.parentId !== undefined && !keptIds.has(el.parentId)) delete el.parentId;
     if (el.type === 'text' && el.containerId !== undefined && !keptIds.has(el.containerId)) {

@@ -12,6 +12,8 @@ import { LayerManager } from '../layers/layer-manager';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import { CANVAS_STATE_VERSION, parseState } from '../core/state-serializer';
 import type { CanvasElement } from '../elements/types';
+import { appendItxtChunk } from './png-chunks';
+import { readSceneFile } from './scene-file';
 
 const BOUNDS = { x: 0, y: 0, w: 300, h: 300 };
 const registry = getDefaultElementRegistry();
@@ -104,6 +106,34 @@ describe('buildSceneEnvelope', () => {
     const { state } = build([onThird, onFirst], manager);
     expect(state.layers?.map((layer) => layer.id)).toEqual([first.id, third.id]);
     expect(state.layers?.map((layer) => layer.id)).not.toContain(second.id);
+  });
+
+  it('moves an element on a layer the manager does not know to a default layer that loads', async () => {
+    const manager = new LayerManager(new ElementStore());
+    const known = {
+      ...createNote({ position: { x: 10, y: 10 }, layerId: manager.activeLayer.id }),
+      index: 'a0',
+    };
+    const orphan = { ...createNote({ position: { x: 50, y: 50 }, layerId: 'gone' }), index: 'a1' };
+    const json = serializeSceneEnvelope(build([known, orphan], manager), {});
+    const png = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae,
+      0x42, 0x60, 0x82,
+    ]);
+    const file = new File([appendItxtChunk(png, 'fieldnotes:scene', json ?? '')], 'a.png', {
+      type: 'image/png',
+    });
+
+    const state = await readSceneFile(file, registry);
+
+    expect(state?.elements.map((el) => [el.id, el.layerId])).toEqual([
+      [known.id, manager.activeLayer.id],
+      [orphan.id, 'default-layer'],
+    ]);
+    expect(state?.layers?.map((layer) => layer.id)).toEqual([
+      manager.activeLayer.id,
+      'default-layer',
+    ]);
   });
 
   it('synthesizes one default layer and rewrites layer ids without a manager', () => {
