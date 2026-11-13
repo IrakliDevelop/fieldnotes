@@ -5002,5 +5002,43 @@ describe('element link sanitization', () => {
       expect(JSON.stringify(conn.sent)).not.toContain('javascript:');
       hub.close();
     });
+
+    it('a batch a plugin relays from a foreign fan-out', async () => {
+      const bus = new InMemoryHubFanout();
+      const kind = createExtensionKind<true>({
+        extensionKind: 'test:batch',
+        codec: { validate: (payload): payload is true => payload === true },
+      });
+      const hub = new SyncHub({
+        instanceId: 'B',
+        fanout: bus,
+        plugins: [
+          {
+            name: 'batcher',
+            registerExtensionKinds(registry) {
+              registry.register(kind, async () => ({ accepted: null, corrections: [] }));
+            },
+            async applyFanout() {
+              return { kind: 'batch', ops: [{ kind: 'upsert', element: old() }] };
+            },
+          },
+        ],
+      });
+      const conn = admit(hub, makeConn('b', 'R'));
+
+      bus.publish(
+        JSON.stringify({
+          o: 'A',
+          room: 'R',
+          from: 'a',
+          op: { kind: 'extension', extensionKind: 'test:batch', payload: true },
+        }),
+      );
+
+      await vi.waitFor(() => expect(relayedElements(conn.sent)).toHaveLength(1));
+      expect(relayedElements(conn.sent)[0]).not.toHaveProperty('link');
+      expect(JSON.stringify(conn.sent)).not.toContain('javascript:');
+      hub.close();
+    });
   });
 });
