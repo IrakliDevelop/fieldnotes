@@ -63,6 +63,18 @@ describe('InsertQueue', () => {
     expect(store.count).toBe(1);
   });
 
+  it('retries after the gesture flag clears post-commit', async () => {
+    const { store, recorder, state, queue, shape } = setup();
+    state.gesture = true;
+    queue.insertWhenIdle(() => store.add(shape()));
+
+    recorder.run(() => undefined);
+    state.gesture = false;
+    await Promise.resolve();
+
+    expect(store.count).toBe(1);
+  });
+
   it('drains FIFO and stops at the first item that cannot run', async () => {
     const { recorder, state, queue } = setup();
     const ran: string[] = [];
