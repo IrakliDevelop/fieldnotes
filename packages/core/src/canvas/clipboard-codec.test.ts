@@ -101,9 +101,11 @@ describe('clipboard codec', () => {
   });
 
   it('input above the cap decodes to null', { timeout: 30_000 }, () => {
-    const payload = { text: 'x'.repeat(MAX_CLIPBOARD_CHARS + 1) };
-    expect(decodeClipboard(payload)).toBeNull();
-    expect(hasClipboardMarker(payload)).toBe(false);
+    const vendor = envelope({});
+    const padded = vendor + ' '.repeat(MAX_CLIPBOARD_CHARS + 1 - vendor.length);
+    expect(decodeClipboard({ vendor: padded })).toBeNull();
+    expect(decodeClipboard({ vendor, text: padded })).toBeNull();
+    expect(hasClipboardMarker({ text: padded })).toBe(false);
   });
 
   it('encode strips transient html and writes readable text', () => {
