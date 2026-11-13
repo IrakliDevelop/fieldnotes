@@ -5,6 +5,7 @@ import {
   sanitizeNoteHtml,
   parseStyledRuns,
   isNoteContentEmpty,
+  plainTextOf,
 } from './note-sanitizer';
 
 describe('escapePlainTextHtml', () => {
@@ -291,5 +292,17 @@ describe('isNoteContentEmpty', () => {
     expect(isNoteContentEmpty('<div>x</div>')).toBe(false);
     expect(isNoteContentEmpty('hello')).toBe(false);
     expect(isNoteContentEmpty('<b>bold</b>')).toBe(false);
+  });
+});
+
+describe('plainTextOf', () => {
+  it.each([
+    ['a<br>b', 'a\nb'],
+    ['<div>a</div><div>b</div>', 'a\nb'],
+    ['&lt;x&gt; &amp; "q"', '<x> & "q"'],
+    ['<b>bold</b> text', 'bold text'],
+    ['', ''],
+  ])('reads %j as %j', (html, text) => {
+    expect(plainTextOf(html)).toBe(text);
   });
 });

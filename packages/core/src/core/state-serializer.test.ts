@@ -5,6 +5,7 @@ import {
   CANVAS_STATE_VERSION,
   migrateElementData,
   migrateState,
+  parseElements,
   parseState,
   registerLegacyStateMigrator,
   unregisterLegacyStateMigrator,
@@ -2276,5 +2277,71 @@ describe('persisted state v5', () => {
     expect(() =>
       parseState(JSON.stringify({ version: 7, camera: makeCamera(), elements: [], layers })),
     ).toThrow(/unsupported version 7/);
+  });
+});
+
+describe('parseElements', () => {
+  const registry = getDefaultElementRegistry();
+  const box = { position: { x: 0, y: 0 }, size: { w: 10, h: 10 } };
+  const extension = (id: string, type: string) => ({
+    id,
+    type: 'extension',
+    extensionType: type,
+    position: { x: 0, y: 0 },
+    index: 'a0',
+    version: 1,
+    locked: false,
+    layerId: 'L',
+    data: {},
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('rejects a stroke without points', () => {
+    const stroke = createStroke({
+      index: 'a0',
+      points: [{ x: 0, y: 0, pressure: 0.5 }],
+      layerId: 'L',
+    });
+    expect(() => parseElements([{ ...stroke, points: undefined }], 6, registry)).toThrow(
+      /malformed stroke data/,
+    );
+  });
+
+  it('rewrites every layerId to the synthetic layer', () => {
+    expect(
+      parseElements([createShape({ ...box, index: 'a0', layerId: 'whatever' })], 6, registry)[0]
+        ?.layerId,
+    ).toBe('default-layer');
+  });
+
+  it('migrates an older stateVersion', () => {
+    const parent = createShape({ ...box, index: 'a0' });
+    const child = createShape({ ...box, index: 'a1', parentId: parent.id });
+    const [, out] = parseElements([parent, child], 5, registry);
+    expect(out !== undefined && 'parentId' in out).toBe(false);
+  });
+
+  it('drops extension elements whose type has no adapter', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(parseElements([extension('e1', 'test:unknown')], 6, new ElementRegistry())).toEqual([]);
+  });
+
+  it('rejects a stateVersion above CANVAS_STATE_VERSION', () => {
+    expect(() => parseElements([], 7, registry)).toThrow(/unsupported version 7/);
+  });
+
+  it('rejects an element with an empty index', () => {
+    expect(() => parseElements([createShape(box)], 6, registry)).toThrow(
+      /missing or invalid index/,
+    );
+  });
+
+  it('rejects a v6 element whose parent is missing', () => {
+    expect(() =>
+      parseElements([{ ...createShape({ ...box, index: 'a0' }), parentId: 'ghost' }], 6, registry),
+    ).toThrow(/Invalid hierarchy/);
   });
 });

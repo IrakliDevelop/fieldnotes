@@ -274,6 +274,12 @@ export {
   parseElementLink,
 } from './elements/link';
 export {
+  FIELDNOTES_CLIPBOARD_TYPE,
+  encodeClipboard,
+  decodeClipboard,
+} from './canvas/clipboard-codec';
+export type { ClipboardEnvelope, ClipboardPayload } from './canvas/clipboard-codec';
+export {
   getArrowControlPoint,
   getArrowMidpoint,
   getBendFromPoint,

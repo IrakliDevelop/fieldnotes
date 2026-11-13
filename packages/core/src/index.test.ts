@@ -109,6 +109,28 @@ describe('core public surface', () => {
     expect(typeof FN.parseElementLink).toBe('function');
   });
 
+  it('exports the clipboard codec without its internals', () => {
+    expect(FN.FIELDNOTES_CLIPBOARD_TYPE).toBe('fieldnotes/clipboard');
+    expect(typeof FN.encodeClipboard).toBe('function');
+    expect(typeof FN.decodeClipboard).toBe('function');
+    expectTypeOf<FN.ClipboardPayload>().toEqualTypeOf<{
+      vendor: string;
+      html: string;
+      text: string;
+    }>();
+    expectTypeOf<FN.ClipboardEnvelope['type']>().toEqualTypeOf<'fieldnotes/clipboard'>();
+    for (const name of [
+      'hasClipboardMarker',
+      'MAX_CLIPBOARD_CHARS',
+      'CLIPBOARD_ENVELOPE_VERSION',
+      'parseElements',
+      'parseStateValue',
+      'plainTextOf',
+    ]) {
+      expect(name in FN, `${name} should not be exported`).toBe(false);
+    }
+  });
+
   it('exports the camera view, animator, and focus presence surface', () => {
     expect(typeof FN.captureCameraView).toBe('function');
     expect(typeof FN.fitZoomForView).toBe('function');
