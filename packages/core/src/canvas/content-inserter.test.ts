@@ -316,14 +316,10 @@ describe('ContentInserter.insertFiles scene, board and text files', () => {
   });
 
   it('a board file element lands without ownerId and audience', async () => {
-    const shape = shapeOn('l1', 'a0');
+    const shape = Object.assign(shapeOn('l1', 'a0'), { ownerId: 'u1', audience: 'dm' });
     const { calls, inserter } = setup();
 
-    inserter.insertFiles(
-      [board([{ ...shape, ownerId: 'u1', audience: 'dm' }])],
-      { x: 0, y: 0 },
-      'drop',
-    );
+    inserter.insertFiles([board([shape])], { x: 0, y: 0 }, 'drop');
     await vi.waitFor(() => expect(calls.inserted).toHaveLength(1));
 
     expect(calls.inserted[0]?.map((el) => el.id)).toEqual([shape.id]);
