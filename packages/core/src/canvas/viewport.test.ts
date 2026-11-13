@@ -6316,4 +6316,22 @@ describe('Viewport system clipboard paste', () => {
 
     expect(store.count).toBe(0);
   });
+
+  it('a paste right after an arrow-key nudge commits the nudge and inserts as its own undo step', () => {
+    const { viewport, wrapper, store } = board();
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+    store.add(shape);
+    viewport.toolManager.getTool<SelectTool>('select')?.setSelection([shape.id]);
+
+    wrapper.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    paste(wrapper, { text: 'hello' });
+
+    expect(store.getAll().filter((el) => el.type === 'text')).toHaveLength(1);
+    expect(store.getById(shape.id)?.position).toEqual({ x: 1, y: 0 });
+    viewport.undo();
+    expect(store.count).toBe(1);
+    expect(store.getById(shape.id)?.position).toEqual({ x: 1, y: 0 });
+    viewport.undo();
+    expect(store.getById(shape.id)?.position).toEqual({ x: 0, y: 0 });
+  });
 });
