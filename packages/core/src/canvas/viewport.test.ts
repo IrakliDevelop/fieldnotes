@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { Viewport } from './viewport';
 import type { PluginConfigureContext, ViewportOptions, ViewportPlugin } from './viewport';
 import { encodeClipboard, FIELDNOTES_CLIPBOARD_TYPE } from './clipboard-codec';
@@ -6435,5 +6436,180 @@ describe('Viewport drop', () => {
     await Promise.resolve();
 
     expect(texts()).toHaveLength(1);
+  });
+});
+
+describe('Viewport links', () => {
+  let harness: ReturnType<typeof createViewportHarness>;
+  let open: MockInstance<typeof window.open>;
+
+  beforeEach(() => {
+    harness = createViewportHarness();
+    open = vi.spyOn(window, 'open').mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    harness.cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function addShape(
+    viewport: Viewport,
+    position: { x: number; y: number },
+    link?: string,
+    layerId = viewport.layerManager.activeLayerId,
+  ): string {
+    const shape = {
+      ...createShape({ shape: 'rectangle', position, size: { w: 100, h: 50 }, layerId }),
+      link,
+    };
+    viewport.store.add(shape);
+    return shape.id;
+  }
+
+  function withOnOpenLink(onOpenLink: ViewportOptions['onOpenLink']) {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const viewport = new Viewport(container, { onOpenLink, tools: 'default' });
+    return {
+      viewport,
+      wrapper: wrapperOf(container),
+      cleanup: () => {
+        viewport.destroy();
+        container.remove();
+      },
+    };
+  }
+
+  it('opening an external link calls window.open with noopener', () => {
+    const { viewport } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    viewport.toolContext.openLink?.(id);
+    expect(open).toHaveBeenCalledWith('https://x.y', '_blank', 'noopener,noreferrer');
+  });
+
+  it('onOpenLink returning true suppresses window.open', () => {
+    const onOpenLink = vi.fn(() => true);
+    const board = withOnOpenLink(onOpenLink);
+    const id = addShape(board.viewport, { x: 0, y: 0 }, 'https://x.y');
+    board.viewport.toolContext.openLink?.(id);
+    expect(onOpenLink).toHaveBeenCalledWith('https://x.y', null);
+    expect(open).not.toHaveBeenCalled();
+    board.cleanup();
+  });
+
+  it('onOpenLink receives the last pointer event or null', () => {
+    const onOpenLink = vi.fn();
+    const board = withOnOpenLink(onOpenLink);
+    const id = addShape(board.viewport, { x: 0, y: 0 }, 'https://x.y');
+    board.viewport.toolContext.openLink?.(id);
+    expect(onOpenLink.mock.lastCall?.[1]).toBeNull();
+    const move = new PointerEvent('pointermove', { clientX: 10, clientY: 10, pointerId: 1 });
+    board.wrapper.dispatchEvent(move);
+    board.viewport.toolContext.openLink?.(id);
+    expect(onOpenLink.mock.lastCall?.[1]).toBe(move);
+    expect(open).toHaveBeenCalledTimes(2);
+    board.cleanup();
+  });
+
+  it('a badge press on the board opens the link of the selected element', () => {
+    const { viewport, wrapper } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    viewport.toolContext.setSelection?.([id]);
+    pointerDown(wrapper, 122, -22);
+    pointerUp(wrapper, 122, -22);
+    expect(open).toHaveBeenCalledWith('https://x.y', '_blank', 'noopener,noreferrer');
+    expect(viewport.getSelectedIds()).toEqual([id]);
+  });
+
+  it('a Ctrl+click on the board opens the link and selects like a plain click', () => {
+    const { viewport, wrapper } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    pointerDown(wrapper, 50, 25, { ctrlKey: true });
+    pointerUp(wrapper, 50, 25, { ctrlKey: true });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(viewport.getSelectedIds()).toEqual([id]);
+  });
+
+  it('a blocked popup does not throw or change the selection', () => {
+    const { viewport } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    viewport.toolContext.setSelection?.([id]);
+    expect(() => viewport.toolContext.openLink?.(id)).not.toThrow();
+    expect(open).toHaveReturnedWith(null);
+    expect(viewport.getSelectedIds()).toEqual([id]);
+  });
+
+  it('an internal link moves the camera to the target, switches to select and selects it', () => {
+    const { viewport } = harness;
+    vi.spyOn(viewport, 'getCanvasSize').mockReturnValue({ w: 800, h: 600 });
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const target = addShape(viewport, { x: 5000, y: 5000 });
+    const source = addShape(viewport, { x: 0, y: 0 }, `#fn:element=${target}`);
+    viewport.setTool('hand');
+
+    viewport.toolContext.openLink?.(source);
+
+    const visible = viewport.camera.getVisibleRect(800, 600);
+    expect(visible.x).toBeLessThanOrEqual(5000);
+    expect(visible.y).toBeLessThanOrEqual(5000);
+    expect(visible.x + visible.w).toBeGreaterThanOrEqual(5100);
+    expect(visible.y + visible.h).toBeGreaterThanOrEqual(5050);
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
+    expect(viewport.getSelectedIds()).toEqual([target]);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('the modifier click is skipped while an html element is interacting', () => {
+    const { viewport, wrapper } = harness;
+    addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    const htmlId = viewport.addHtmlElement(
+      document.createElement('div'),
+      { x: 300, y: 300 },
+      { w: 100, h: 100 },
+    );
+    const priv = viewport as unknown as {
+      renderLoop: { flush(): void };
+      interactMode: { startInteracting(id: string): void; isInteracting(): boolean };
+    };
+    priv.renderLoop.flush();
+    priv.interactMode.startInteracting(htmlId);
+    expect(priv.interactMode.isInteracting()).toBe(true);
+
+    pointerDown(wrapper, 50, 25, { ctrlKey: true });
+    pointerUp(wrapper, 50, 25, { ctrlKey: true });
+    expect(priv.interactMode.isInteracting()).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+
+    pointerDown(wrapper, 50, 25, { ctrlKey: true });
+    pointerUp(wrapper, 50, 25, { ctrlKey: true });
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['missing', () => '#fn:element=missing'],
+    [
+      'hidden',
+      (viewport: Viewport) => {
+        const layer = viewport.layerManager.createLayer();
+        const id = addShape(viewport, { x: 5000, y: 5000 }, undefined, layer.id);
+        viewport.layerManager.setLayerVisible(layer.id, false);
+        return `#fn:element=${id}`;
+      },
+    ],
+  ])('a %s target is a no-op', (_label, makeLink) => {
+    const { viewport } = harness;
+    vi.spyOn(viewport, 'getCanvasSize').mockReturnValue({ w: 800, h: 600 });
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const source = addShape(viewport, { x: 0, y: 0 }, makeLink(viewport));
+    viewport.toolContext.setSelection?.([source]);
+    const camera = { ...viewport.camera.position, zoom: viewport.camera.zoom };
+
+    viewport.toolContext.openLink?.(source);
+
+    expect({ ...viewport.camera.position, zoom: viewport.camera.zoom }).toEqual(camera);
+    expect(viewport.getSelectedIds()).toEqual([source]);
+    expect(open).not.toHaveBeenCalled();
   });
 });

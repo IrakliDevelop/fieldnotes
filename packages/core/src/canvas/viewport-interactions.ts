@@ -38,12 +38,17 @@ export interface ViewportInteractionsDeps {
   insertFiles(files: File[], anchor: Point, kind: 'drop'): boolean;
   insertWhenIdle(run: () => void): void;
   acceptsPointer?: (e: PointerEvent) => boolean;
+  isMac: () => boolean;
+  activeToolName: () => string | null;
+  openLink: (elementId: string, event: PointerEvent) => void;
 }
 
 export class ViewportInteractions {
   private readonly doubleTapDetector = new DoubleTapDetector();
   private tapDownX = 0;
   private tapDownY = 0;
+  private tapModifier = false;
+  private tapWasInteracting = false;
   private createdEdit: { id: string; transactionId: number } | null = null;
 
   constructor(private readonly deps: ViewportInteractionsDeps) {}
@@ -198,6 +203,9 @@ export class ViewportInteractions {
     if (!this.accepts(e)) return;
     this.tapDownX = e.clientX;
     this.tapDownY = e.clientY;
+    this.tapModifier = this.deps.isMac() ? e.metaKey : e.ctrlKey;
+    // Read at down: interact mode's window pointerdown listener exits it before the up.
+    this.tapWasInteracting = this.deps.interactMode.isInteracting();
   };
 
   onDoubleTap = (e: PointerEvent): void => {
@@ -206,6 +214,18 @@ export class ViewportInteractions {
     const dy = e.clientY - this.tapDownY;
     const moved = Math.sqrt(dx * dx + dy * dy);
     if (moved > 10) return;
+
+    const rect = this.deps.wrapper.getBoundingClientRect();
+    const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const world = this.deps.camera.screenToWorld(screen);
+
+    if (this.tapModifier && !this.tapWasInteracting && this.deps.activeToolName() === 'select') {
+      const hit = hitTest(world, this.deps.toolContext);
+      if (hit?.link !== undefined) {
+        this.deps.openLink(hit.id, e);
+        return;
+      }
+    }
 
     if (!this.doubleTapDetector.feed(e)) return;
     if (typeof document.elementFromPoint !== 'function') return;
@@ -223,10 +243,6 @@ export class ViewportInteractions {
         }
       }
     }
-
-    const rect = this.deps.wrapper.getBoundingClientRect();
-    const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    const world = this.deps.camera.screenToWorld(screen);
 
     // HTML embeds keep double-tap priority: you double-tapped inside the embed even if an
     // arrow's curve passes nearby. Arrow-label editing only when no embed is hit.

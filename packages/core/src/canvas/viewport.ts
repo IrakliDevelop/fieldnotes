@@ -81,6 +81,9 @@ import { reportFailure } from '../core/report-failure';
 import { ContextLossGuard } from './context-loss-guard';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
 import { createId } from '../elements/create-id';
+import { parseElementLink } from '../elements/link';
+import { getElementVisualBounds } from '../elements/element-bounds';
+import { CameraAnimator } from './camera-animator';
 import {
   planAddToFrame,
   planDissolveFrame,
@@ -97,7 +100,7 @@ import { CommandPalette, createPaletteActions } from './command-palette';
 import type { PaletteApi } from './command-palette';
 import { ShortcutsHelp } from './shortcuts-help';
 import type { ShortcutsHelpApi } from './shortcuts-help';
-import { resolvePaletteStrings } from './palette-model';
+import { resolvePaletteStrings, revealView } from './palette-model';
 import type { PaletteOptions } from './palette-model';
 export type {
   PluginConfigureContext,
@@ -110,6 +113,8 @@ export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { RotateDirection } from './selection-rotate';
 
 const EMPTY_IDS: string[] = [];
+
+const isMac = (): boolean => /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 
 function noop(): void {
   // Stable unsubscribe handle for listeners that can never fire.
@@ -186,6 +191,12 @@ export interface ViewportOptions {
    * previews. Default `#2196F3`.
    */
   selectionColor?: string;
+  /**
+   * Called before every link open; return `true` to handle it yourself, for example
+   * cross-board navigation.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- returning nothing lets core open the link
+  onOpenLink?: (link: string, event: PointerEvent | null) => boolean | void;
 }
 
 export interface HitTestOptions {
@@ -241,6 +252,8 @@ export class Viewport {
     container: HTMLDivElement,
   ) => void;
   private readonly dropHandler: ViewportOptions['onDrop'];
+  private readonly onOpenLink: ViewportOptions['onOpenLink'];
+  private linkAnimator: CameraAnimator | null = null;
   readonly constraintProxy = new ConstraintServiceProxy();
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
@@ -344,6 +357,7 @@ export class Viewport {
     );
     this.onHtmlElementMount = options.onHtmlElementMount;
     this.dropHandler = options.onDrop;
+    this.onOpenLink = options.onOpenLink;
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history, this.layerManager);
     // inputHandler is assigned later in this constructor; these closures run only at insert time.
@@ -427,6 +441,7 @@ export class Viewport {
       constraintService: this.constraintProxy,
       elementRegistry: this.elementRegistry,
       selectionColor: options.selectionColor,
+      openLink: (id: string) => this.openElementLink(id, this.inputHandler.getLastPointerEvent()),
     };
 
     const acceptsPointer = (e: PointerEvent): boolean =>
@@ -587,7 +602,6 @@ export class Viewport {
       this.shortcutsHelpDialog = null;
     } else {
       const strings = resolvePaletteStrings(options.palette?.strings);
-      const isMac = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform);
       let palette: CommandPalette | null = null;
       const help = new ShortcutsHelp({
         container: this.container,
@@ -794,6 +808,9 @@ export class Viewport {
       insertFiles: (files, anchor, kind) => this.inserter.insertFiles(files, anchor, kind),
       insertWhenIdle: (run) => this.insertQueue.insertWhenIdle(run),
       acceptsPointer,
+      isMac,
+      activeToolName: () => this.toolManager.activeTool?.name ?? null,
+      openLink: (id, e) => this.openElementLink(id, e),
     });
     // Editing commits while the recorder and store listeners are still attached.
     this.disposers.push(
@@ -1631,6 +1648,40 @@ export class Viewport {
   private stopInteractingIfLive(): void {
     const id = this.interactMode.interactingId;
     if (id !== null && this.isLiveHtml(id)) this.interactMode.stopInteracting();
+  }
+
+  private openElementLink(id: string, event: PointerEvent | null): void {
+    const link = this.store.getById(id)?.link;
+    if (link === undefined) return;
+    if (this.onOpenLink?.(link, event) === true) return;
+    const target = parseElementLink(link);
+    if (target !== null) {
+      this.revealElement(target);
+      return;
+    }
+    window.open(link, '_blank', 'noopener,noreferrer');
+  }
+
+  private revealElement(id: string): void {
+    const el = this.store.getById(id);
+    if (!el || !this.layerManager.isLayerVisible(el.layerId)) return;
+    const bounds = getElementVisualBounds(el, this.elementRegistry);
+    if (!bounds) return;
+    this.inputHandler.stopPanInertia();
+    const { w, h } = this.getCanvasSize();
+    const view = revealView(bounds, this.camera.getVisibleRect(w, h));
+    if (this.linkAnimator === null) {
+      this.linkAnimator = new CameraAnimator(this.wrapper, this.camera, {
+        getCanvasSize: () => this.getCanvasSize(),
+        interactive: true,
+      });
+      this.disposers.push(() => this.linkAnimator?.dispose());
+    }
+    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+      this.linkAnimator.jumpTo(view);
+    else this.linkAnimator.animateTo(view);
+    if (this.toolManager.activeTool?.name !== 'select') this.toolContext.switchTool?.('select');
+    this.getSelectTool()?.setSelection([id]);
   }
 
   private getSelectTool(): SelectTool | undefined {

@@ -72,13 +72,20 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
       getNode: (id: string) => nodes.get(id),
     } as never,
     noteEditor: { startEditing: vi.fn() } as never,
-    interactMode: { startInteracting: vi.fn(), stopInteracting: vi.fn() } as never,
+    interactMode: {
+      startInteracting: vi.fn(),
+      stopInteracting: vi.fn(),
+      isInteracting: () => false,
+    } as never,
     recorder: { begin: vi.fn(), commit: vi.fn() } as never,
     toolContext: { camera, store, requestRender: vi.fn(), requestOverlayRender: vi.fn() },
     requestRender: vi.fn(),
     insertText: vi.fn(),
     insertFiles: vi.fn(() => true),
     insertWhenIdle: vi.fn((run: () => void) => run()),
+    isMac: () => false,
+    activeToolName: () => 'select',
+    openLink: vi.fn(),
     ...overrides,
   };
   return { deps, nodes };
@@ -379,6 +386,82 @@ describe('ViewportInteractions', () => {
       const { interactions, deps } = setup(html);
       doubleTap(interactions, 50, 50);
       expect(deps.interactMode.startInteracting).toHaveBeenCalledWith(html.id);
+    });
+  });
+
+  describe('modifier click on a linked element', () => {
+    const originalElementFromPoint = document.elementFromPoint;
+
+    beforeEach(() => {
+      document.elementFromPoint = () => null;
+    });
+
+    afterEach(() => {
+      document.elementFromPoint = originalElementFromPoint;
+    });
+
+    function setup(overrides: Partial<ViewportInteractionsDeps> = {}) {
+      const store = new ElementStore();
+      const shape = {
+        ...createShape({ shape: 'rectangle', position: { x: 0, y: 0 }, size: { w: 100, h: 60 } }),
+        link: 'https://x.y',
+      };
+      store.add(shape);
+      const { deps } = makeDeps(store, overrides);
+      return { interactions: new ViewportInteractions(deps), deps, shape };
+    }
+
+    function click(
+      interactions: ViewportInteractions,
+      keys: { ctrlKey?: boolean; metaKey?: boolean },
+      to = { x: 50, y: 30 },
+    ): PointerEvent {
+      interactions.onTapDown({ clientX: 50, clientY: 30, ...keys } as PointerEvent);
+      const up = { clientX: to.x, clientY: to.y, ...keys } as PointerEvent;
+      interactions.onDoubleTap(up);
+      return up;
+    }
+
+    it('Ctrl+click opens a linked element when isMac is false', () => {
+      const { interactions, deps, shape } = setup();
+      const up = click(interactions, { ctrlKey: true });
+      expect(deps.openLink).toHaveBeenCalledWith(shape.id, up);
+    });
+
+    it('⌘+click opens when isMac is true and Ctrl does not', () => {
+      const { interactions, deps, shape } = setup({ isMac: () => true });
+      click(interactions, { ctrlKey: true });
+      expect(deps.openLink).not.toHaveBeenCalled();
+      const up = click(interactions, { metaKey: true });
+      expect(deps.openLink).toHaveBeenCalledWith(shape.id, up);
+    });
+
+    it('a plain click opens nothing', () => {
+      const { interactions, deps } = setup();
+      click(interactions, {});
+      expect(deps.openLink).not.toHaveBeenCalled();
+    });
+
+    it('the hand tool opens nothing', () => {
+      const { interactions, deps } = setup({ activeToolName: () => 'hand' });
+      click(interactions, { ctrlKey: true });
+      expect(deps.openLink).not.toHaveBeenCalled();
+    });
+
+    it('interact mode opens nothing', () => {
+      // The window pointerdown listener exits interact mode before the up arrives.
+      const isInteracting = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+      const { interactions, deps } = setup({
+        interactMode: { startInteracting: vi.fn(), isInteracting } as never,
+      });
+      click(interactions, { ctrlKey: true });
+      expect(deps.openLink).not.toHaveBeenCalled();
+    });
+
+    it('a modifier click that moved more than 10 px opens nothing', () => {
+      const { interactions, deps } = setup();
+      click(interactions, { ctrlKey: true }, { x: 65, y: 30 });
+      expect(deps.openLink).not.toHaveBeenCalled();
     });
   });
 

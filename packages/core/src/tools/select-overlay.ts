@@ -98,6 +98,46 @@ export function drawLockBadge(
   ctx.restore();
 }
 
+/** Screen-pixel distance of the link badge centre right of and above the `ne` corner. */
+export const LINK_BADGE_OFFSET = 18;
+/** Screen-pixel radius of the drawn link badge. */
+export const LINK_BADGE_RADIUS = 9;
+
+/** World-space centre of an element's link badge. */
+export function linkBadgeCenter(layout: OverlayLayout, zoom: number): Point {
+  const ne = layout.corners.find(([h]) => h === 'ne')?.[1] ?? layout.center;
+  return { x: ne.x + LINK_BADGE_OFFSET / zoom, y: ne.y - LINK_BADGE_OFFSET / zoom };
+}
+
+/** Draws the link badge: a filled disc with a white chain glyph. */
+export function drawLinkBadge(
+  ctx: CanvasRenderingContext2D,
+  at: Point,
+  zoom: number,
+  color = DEFAULT_SELECTION_COLOR,
+): void {
+  const offset = 2.5 / zoom;
+  const half = 1.5 / zoom;
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.arc(at.x, at.y, LINK_BADGE_RADIUS / zoom, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5 / zoom;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const sign of [-1, 1]) {
+    const cx = at.x + sign * offset;
+    const cy = at.y - sign * offset;
+    ctx.moveTo(cx - half, cy + half);
+    ctx.lineTo(cx + half, cy - half);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function renderMarquee(
   ctx: CanvasRenderingContext2D,
   rect: Bounds,

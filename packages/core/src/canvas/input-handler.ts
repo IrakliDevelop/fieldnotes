@@ -215,6 +215,10 @@ export class InputHandler {
     return this.panInertia.isCoasting() || this.coastStoppedByPointer;
   }
 
+  getLastPointerEvent(): PointerEvent | null {
+    return this.lastPointerEvent;
+  }
+
   /** Cancels any active pan inertia coast. */
   stopPanInertia(): void {
     this.panInertia.cancel();

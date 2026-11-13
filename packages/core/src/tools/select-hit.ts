@@ -17,6 +17,7 @@ import {
   HANDLE_HIT_PADDING,
   ROTATABLE_TYPES,
   getOverlayLayout,
+  linkBadgeCenter,
 } from './select-overlay';
 
 export function hitTest(
@@ -198,6 +199,28 @@ export function hitTestRotateHandle(
   const dx = world.x - layout.rotateHandle.x;
   const dy = world.y - layout.rotateHandle.y;
   return dx * dx + dy * dy <= r * r ? { elementId: id } : null;
+}
+
+/** Screen-pixel hit radius of a link badge. */
+export const LINK_BADGE_HIT_RADIUS = 12;
+
+/** The first candidate with a link whose badge is under `world`, or `null`. */
+export function hitTestLinkBadge(
+  world: Point,
+  ctx: ToolContext,
+  candidateIds: readonly string[],
+): string | null {
+  const zoom = ctx.camera.zoom;
+  const r = LINK_BADGE_HIT_RADIUS / zoom;
+  for (const id of candidateIds) {
+    const el = ctx.store.getById(id);
+    if (el?.link === undefined) continue;
+    const layout = getOverlayLayout(el, zoom, ctx.elementRegistry);
+    if (!layout) continue;
+    const c = linkBadgeCenter(layout, zoom);
+    if ((world.x - c.x) ** 2 + (world.y - c.y) ** 2 <= r * r) return id;
+  }
+  return null;
 }
 
 export function hitTestLineHandles(

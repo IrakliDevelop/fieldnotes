@@ -26,6 +26,8 @@ export interface ToolContext {
   elementRegistry?: ElementRegistry;
   /** Colour of selection chrome; tools fall back to `DEFAULT_SELECTION_COLOR`. */
   selectionColor?: string;
+  /** Opens the element's link through the viewport's open path. */
+  openLink?: (elementId: string) => void;
 }
 
 export interface PointerState {
