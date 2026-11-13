@@ -25,6 +25,7 @@ import type {
   ExtensionElementEnvelope,
 } from '../elements/types';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
+import { elementLink } from '../elements/link';
 
 function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
   const proxy = new ConstraintServiceProxy();
@@ -2149,5 +2150,160 @@ describe('KeyboardActions extension cloneRemap', () => {
     if (!pasted) throw new Error('expected paste');
     const pastedText = ctx.store.getChildren(pasted).find((element) => element.type === 'text');
     expect(pastedText?.size).toEqual({ w: 184, h: 30 });
+  });
+});
+
+describe('KeyboardActions internal link remap', () => {
+  function linkedPair() {
+    const { actions, ctx, tool } = makeActions();
+    const b = createShape({
+      shape: 'rectangle',
+      position: { x: 200, y: 0 },
+      size: { w: 50, h: 50 },
+    });
+    const a = {
+      ...createShape({ shape: 'rectangle', position: { x: 0, y: 0 }, size: { w: 50, h: 50 } }),
+      link: elementLink(b.id),
+    };
+    ctx.store.add(a);
+    ctx.store.add(b);
+    return { actions, ctx, tool, a, b };
+  }
+
+  it('duplicate remaps an internal link between copied elements', () => {
+    const { actions, ctx, tool, a, b } = linkedPair();
+    tool.setSelection([a.id, b.id]);
+
+    actions.duplicate();
+
+    const [copyA, copyB] = tool.selectedIds.map((id) => ctx.store.getById(id));
+    expect(copyA?.position).toEqual({ x: 20, y: 20 });
+    expect(copyB?.id).toBeDefined();
+    expect(copyB?.id).not.toBe(b.id);
+    expect(copyA?.link).toBe(elementLink(copyB?.id ?? ''));
+  });
+
+  it('duplicate keeps an internal link to an element outside the copied set', () => {
+    const { actions, ctx, tool, a, b } = linkedPair();
+    tool.setSelection([a.id]);
+
+    actions.duplicate();
+
+    const copyId = tool.selectedIds[0];
+    expect(copyId).not.toBe(a.id);
+    expect(ctx.store.getById(copyId ?? '')?.link).toBe(elementLink(b.id));
+  });
+});
+
+describe('KeyboardActions.insertElements', () => {
+  function pair() {
+    return [
+      createShape({ shape: 'rectangle', position: { x: 0, y: 0 }, size: { w: 100, h: 50 } }),
+      createShape({ shape: 'rectangle', position: { x: 100, y: 50 }, size: { w: 100, h: 50 } }),
+    ];
+  }
+
+  it('insertElements centres the bounding box on the anchor', () => {
+    const { actions, ctx, tool } = makeActions();
+
+    expect(actions.insertElements(pair(), { x: 500, y: 500 })).toBe(true);
+
+    expect(tool.selectedIds.map((id) => ctx.store.getById(id)?.position)).toEqual([
+      { x: 400, y: 450 },
+      { x: 500, y: 500 },
+    ]);
+  });
+
+  it('insertElements switches to the select tool first', () => {
+    const ctx = makeCtx();
+    const selectTool = new SelectTool();
+    selectTool.onActivate(ctx);
+    const tm = { activeTool: { name: 'pencil' } } as unknown as ToolManager;
+    ctx.switchTool = (name) => {
+      if (name === 'select') (tm as { activeTool: unknown }).activeTool = selectTool;
+    };
+    const actions = new KeyboardActions({
+      getToolManager: () => tm,
+      getToolContext: () => ctx,
+      getHistoryRecorder: () => null,
+      getHistoryStack: () => null,
+      isToolActive: () => false,
+    });
+
+    expect(actions.insertElements(pair(), null)).toBe(true);
+
+    expect(tm.activeTool?.name).toBe('select');
+    expect(ctx.store.count).toBe(2);
+    expect(selectTool.selectedIds).toHaveLength(2);
+    expect(selectTool.selectedIds.map((id) => ctx.store.getById(id)?.position)).toEqual([
+      { x: 0, y: 0 },
+      { x: 100, y: 50 },
+    ]);
+  });
+
+  it('insertElements returns false and inserts nothing during a gesture or with no source', () => {
+    const { actions, ctx } = makeActions({ isToolActive: () => true });
+    expect(actions.insertElements(pair(), null)).toBe(false);
+    const idle = makeActions();
+    expect(idle.actions.insertElements([], null)).toBe(false);
+    expect(ctx.store.count + idle.ctx.store.count).toBe(0);
+  });
+
+  it('insertElements inserts nothing and returns false when a clone fails preflight', () => {
+    const elementRegistry = createTestBoxRegistry();
+    elementRegistry.register<ExtensionElementEnvelope>({
+      type: 'test:rejected',
+      legacyTypes: [],
+      decodeLegacy: (raw) => raw as unknown as ExtensionElementEnvelope,
+      validateData: () => false,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+    });
+    const ctx = makeCtx({ elementRegistry, store: new ElementStore(elementRegistry) });
+    const stack = new HistoryStack();
+    const recorder = new HistoryRecorder(ctx.store, stack);
+    const { actions } = makeActions({ ctx, recorder, stack });
+    const rejected: ExtensionElementEnvelope = {
+      id: 'rejected',
+      type: 'extension',
+      extensionType: 'test:rejected',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+
+    expect(actions.insertElements([...pair(), rejected], { x: 0, y: 0 })).toBe(false);
+
+    expect(ctx.store.count).toBe(0);
+    expect(stack.undoCount).toBe(0);
+  });
+});
+
+describe('KeyboardActions.copyableElements', () => {
+  it('copyableElements returns the closure without touching memory', () => {
+    const { actions, ctx, tool } = makeActions();
+    const parent = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const child = createNote({ position: { x: 5, y: 5 }, parentId: parent.id });
+    const other = createNote({ position: { x: 300, y: 0 } });
+    ctx.store.add(parent);
+    ctx.store.add(child);
+    ctx.store.add(other);
+    tool.setSelection([parent.id]);
+
+    expect(actions.copyableElements().map((el) => el.id)).toEqual([parent.id, child.id]);
+    expect(actions.hasClipboard()).toBe(false);
+  });
+
+  it('copyableElements is empty during a gesture or without a selection', () => {
+    const busy = makeActions({ isToolActive: () => true });
+    const note = createNote({ position: { x: 0, y: 0 } });
+    busy.ctx.store.add(note);
+    busy.tool.setSelection([note.id]);
+    expect(busy.actions.copyableElements()).toEqual([]);
+    expect(makeActions().actions.copyableElements()).toEqual([]);
   });
 });

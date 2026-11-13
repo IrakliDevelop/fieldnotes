@@ -29,6 +29,7 @@ import { createDefaultTools } from '../tools/default-tools';
 import { hitTest, hitTestResizeHandle, hitTestRotateHandle } from '../tools/select-hit';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
+import { InsertQueue } from './insert-queue';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
 import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
@@ -202,6 +203,7 @@ export class Viewport {
   private readonly renderer: ElementRenderer;
   private readonly noteEditor: NoteEditor;
   readonly historyRecorder: HistoryRecorder;
+  private readonly insertQueue: InsertQueue;
   private transactionDepth = 0;
   private readonly selectionOps: SelectionOps;
   readonly toolContext: ToolContext;
@@ -332,6 +334,13 @@ export class Viewport {
     this.dropHandler = options.onDrop;
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history, this.layerManager);
+    // inputHandler is assigned later in this constructor; these closures run only at insert time.
+    this.insertQueue = new InsertQueue({
+      recorder: this.historyRecorder,
+      isGestureActive: () => this.inputHandler.isToolGestureActive,
+      flushPendingHistory: () => this.inputHandler.flushPendingHistory(),
+      transaction: (run) => this.transaction(run),
+    });
     const unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() => {
       if (!this.pendingSelectionPrune) return;
       this.pendingSelectionPrune = false;
@@ -426,7 +435,7 @@ export class Viewport {
       },
       shortcuts: options.shortcuts,
       addImage: (src, world) => this.addImage(src, world),
-      getCenteredWorld: () => this.centeredPosition({ w: 300, h: 200 }),
+      getCenteredWorld: () => this.centeredPosition({ w: 0, h: 0 }),
       onPaste: options.onPaste,
       panInertia: options.panInertia,
       isOnSelectionHandle: (clientX, clientY) => {
@@ -526,6 +535,7 @@ export class Viewport {
       // The recorder detaches before plugins dispose so their teardown is not recorded.
       unsubRecorderEnd,
       () => this.historyRecorder.destroy(),
+      () => this.insertQueue.destroy(),
     );
 
     if (options.palette === false) {
