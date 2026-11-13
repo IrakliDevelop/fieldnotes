@@ -603,7 +603,8 @@ new Viewport(container, {
   `true` or nothing means the host handled the drop.
 - `onPaste?` — called for every paste core would handle: images, text, links, board and scene
   files, and Field Notes clipboard data. Return `false` to let core handle it; `true` or nothing
-  means the host handled the paste. Core calls `preventDefault` only when the host returns `false`.
+  means the host handled the paste. When `onPaste` is set, core calls `preventDefault` only after
+  it returns `false`.
 - `assets?: AssetResolver` — `upload(file, { kind })` resolves to `{ src }` for dropped, pasted and
   imported images. Without it images are stored inline as base64.
 - `onOpenLink?` — called before an element's link opens; return `true` to open it yourself, for

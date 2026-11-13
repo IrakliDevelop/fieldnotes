@@ -38,9 +38,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 - `ViewportOptions.onPaste` runs for every paste core would handle (text, links, board and scene
   files, Field Notes clipboard data), not only images. Returning nothing or `true` means the host
-  handled the paste; returning `false` lets core handle it. Core calls `preventDefault` only after
-  the host returns `false`. A host that set `onPaste` only to block image pastes now blocks all
-  pastes.
+  handled the paste; returning `false` lets core handle it. When `onPaste` is set, core calls
+  `preventDefault` only after it returns `false`. A host that set `onPaste` only to block image
+  pastes now blocks all pastes.
 - `ViewportOptions.onDrop` returns `boolean | void` with the same meaning.
 - New paste and drop paths place content at the pointer, or at the viewport centre when there is
   no pointer; an image pasted with no pointer is now centred there too. Pasting from the in-memory
