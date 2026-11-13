@@ -320,12 +320,19 @@ describe('sanitizeElementLink', () => {
     expect(sanitizeElementLink(el)).toBe(el);
   });
 
-  it.each(['javascript:alert(1)', 5, `https://${'a'.repeat(2041)}`])(
-    'sanitizeElementLink drops %j',
-    (link) => {
-      expect('link' in sanitizeElementLink({ ...shape(), link } as SyncElement)).toBe(false);
-    },
-  );
+  it('sanitizeElementLink keeps a link of exactly 2048 characters', () => {
+    const el = { ...shape(), link: `https://${'a'.repeat(2040)}` };
+    expect(el.link).toHaveLength(2048);
+    expect(sanitizeElementLink(el)).toBe(el);
+  });
+
+  it.each([
+    ['a javascript: link', 'javascript:alert(1)'],
+    ['a number', 5],
+    ['a 2049-character link', `https://${'a'.repeat(2041)}`],
+  ])('sanitizeElementLink drops %s', (_, link) => {
+    expect('link' in sanitizeElementLink({ ...shape(), link } as SyncElement)).toBe(false);
+  });
 
   it('isValidElement and elementWithinLimits still accept a stored javascript: link', () => {
     const el = { ...shape(), link: 'javascript:alert(1)' };

@@ -544,7 +544,7 @@ export function sanitizeElementLink<T extends SyncElement>(el: T): T {
   // Wire data may carry any value here despite the static type.
   const link: unknown = el.link;
   if (link === undefined) return el;
-  if (typeof link === 'string' && link.length <= 2048 && isAllowedLink(link)) return el;
+  if (typeof link === 'string' && isAllowedLink(link)) return el;
   const rest: T = { ...el };
   delete rest.link;
   return rest;
