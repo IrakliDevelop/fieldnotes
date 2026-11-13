@@ -78,14 +78,17 @@ describe('parseRoadmap', () => {
     expect(camera).toBeLessThan(frames);
     expect(frames).toBeLessThan(shortcuts);
     expect(roadmap.built.at(-1)).toBe(
-      'Hyperlinks on elements with a badge that opens them, and exported PNG or SVG files that reopen as the board they came from',
+      'PNG and SVG exports that reopen as the board they came from',
     );
     expect(roadmap.built.at(-2)).toBe(
-      'Clipboard paste of text and links, copy between boards, and dropping board and text files',
+      'Links on elements that open from a badge or with ⌘/Ctrl+click',
+    );
+    expect(roadmap.built.at(-3)).toBe(
+      'Copying and pasting between boards, pasting text and links, and dropping board and text files on a board',
     );
     const elbow = roadmap.built.indexOf('Elbow arrows that route around shapes');
     expect(elbow).toBeGreaterThanOrEqual(0);
-    expect(elbow).toBeLessThan(roadmap.built.length - 2);
+    expect(elbow).toBeLessThan(roadmap.built.length - 3);
     expect(roadmap.built).toContain('React bindings: a canvas component and hooks');
     expect(roadmap.built.indexOf('React bindings: a canvas component and hooks')).toBeLessThan(
       roadmap.built.indexOf(
@@ -94,10 +97,10 @@ describe('parseRoadmap', () => {
     );
     expect(roadmap.built).toHaveLength(new Set(roadmap.built).size);
     expect(roadmap.next).toEqual([
-      "I'm adding PDF export and making SVG export match what the canvas draws.",
+      "I'm adding PDF export and making SVG export embed fonts and measure labels the way the canvas does.",
     ]);
     expect(roadmap.notBuilt).toEqual([
-      'Exporting a board or a selected frame as PDF, and SVG export that matches the canvas drawing',
+      'Exporting a board or a selected frame as PDF, and SVG exports that embed their fonts',
     ]);
     for (const section of [roadmap.built, roadmap.next, roadmap.notBuilt]) {
       expect(section).not.toContain(

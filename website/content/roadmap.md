@@ -36,13 +36,14 @@
 - React props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence
 - Text inside shapes and arrow labels as text elements, with wrapping and auto-resize
 - Elbow arrows that route around shapes
-- Clipboard paste of text and links, copy between boards, and dropping board and text files
-- Hyperlinks on elements with a badge that opens them, and exported PNG or SVG files that reopen as the board they came from
+- Copying and pasting between boards, pasting text and links, and dropping board and text files on a board
+- Links on elements that open from a badge or with ⌘/Ctrl+click
+- PNG and SVG exports that reopen as the board they came from
 
 ## Next
 
-- I'm adding PDF export and making SVG export match what the canvas draws.
+- I'm adding PDF export and making SVG export embed fonts and measure labels the way the canvas does.
 
 ## Not built yet
 
-- Exporting a board or a selected frame as PDF, and SVG export that matches the canvas drawing
+- Exporting a board or a selected frame as PDF, and SVG exports that embed their fonts

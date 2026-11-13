@@ -108,7 +108,7 @@ viewport.addImage('/assets/map.png', { x: 0, y: 0 }, { w: 800, h: 600 });
 // Drag & drop is handled automatically — drop images onto the canvas
 ```
 
-> **Important: Use URLs, not base64 data URLs.** Images are stored inline in the serialized state. A single base64-encoded photo can be 2-5MB, which will blow past the `localStorage` ~5MB quota and make JSON exports impractical. Upload images to your server or CDN and use the URL. For offline/local-first apps, store blobs in IndexedDB and reference them by URL.
+> **Important: Use URLs, not base64 data URLs.** Images are stored inline in the serialized state. A single base64-encoded photo can be 2-5MB, which will blow past the `localStorage` ~5MB quota and make JSON exports impractical. Upload images to your server or CDN and use the URL. For dropped, pasted and imported images, set `assets` (see the ViewportOptions reference). For offline/local-first apps, store blobs in IndexedDB and reference them by URL.
 
 ## Adding Shapes
 
@@ -607,8 +607,9 @@ new Viewport(container, {
   it returns `false`.
 - `assets?: AssetResolver` — `upload(file, { kind })` resolves to `{ src }` for dropped, pasted and
   imported images. Without it images are stored inline as base64.
-- `onOpenLink?` — called before an element's link opens; return `true` to open it yourself, for
-  example to move to another board.
+- `onOpenLink?(link, event)` — called before an element's link opens; `event` is `null` for
+  keyboard, menu and command palette opens. Return `true` to open it yourself, for example to move
+  to another board.
 - `onImageError?` — called when an image element fails to load (`reason: 'load'`) or its upload
   fails (`reason: 'upload'`).
 - `panBufferMargin?: number` (default `256`) — CSS-pixel margin cached beyond the viewport so
@@ -850,11 +851,11 @@ Hit-testing, marquee selection, and resize are all rotation-aware: resizing a ro
 
 ## Context menu & lock
 
-Right-click (desktop) or touch long-press (tablet) opens a context menu over the canvas with Cut/Copy/Paste/Duplicate/Delete, z-order (to front / forward / backward / to back), and Lock/Unlock. The menu is core-provided (plain DOM) and selects the element under the pointer if it isn't already selected. Opt out with `new Viewport(el, { contextMenu: false })`.
+Right-click (desktop) or touch long-press (tablet) opens a context menu over the canvas with Cut/Copy/Paste/Duplicate/Delete, z-order (to front / forward / backward / to back), Lock/Unlock, and Add link, Remove link and Open link. The menu is core-provided (plain DOM) and selects the element under the pointer if it isn't already selected. Opt out with `new Viewport(el, { contextMenu: false })`.
 
 Lock with **`viewport.toggleLockSelection()`** or **Ctrl/Cmd+Shift+L**; a lock badge appears on the selection. Locked elements stay selectable but can't be moved, resized, or rotated. **Ctrl/Cmd+X** cuts the selection. The shortcuts are rebindable as `arrange.toggle-lock` and `edit.cut`.
 
-You can drive any menu action programmatically with **`viewport.runAction(name)`** (e.g. `'edit.cut'`, `'edit.paste'`, `'arrange.toggle-lock'`). It returns whether the action ran. You can also use the actions API: `viewport.actions.run('edit.cut', { source: 'api' })`. **`viewport.canPaste()`** reports whether the clipboard has content.
+You can drive any menu action programmatically with **`viewport.runAction(name)`** (e.g. `'edit.cut'`, `'edit.paste'`, `'arrange.toggle-lock'`). It returns whether the action ran. You can also use the actions API: `viewport.actions.run('edit.cut', { source: 'api' })`. **`viewport.canPaste()`** reports whether the board's in-memory clipboard holds copied elements; it doesn't read the system clipboard.
 
 ## Built-in Interactions
 

@@ -45,7 +45,7 @@ describe('getFacts', () => {
       source: 'npm',
     });
     expect(facts.docs.notBuilt).toEqual([
-      'Exporting a board or a selected frame as PDF, and SVG export that matches the canvas drawing',
+      'Exporting a board or a selected frame as PDF, and SVG exports that embed their fonts',
     ]);
   });
 });
