@@ -529,7 +529,7 @@ export class InputHandler {
     return this.actions.hasClipboard();
   }
 
-  insertElements(elements: CanvasElement[], anchor: Point): boolean {
+  insertElements(elements: CanvasElement[], anchor: Point): string[] {
     return this.actions.insertElements(elements, anchor);
   }
 

@@ -210,26 +210,25 @@ export class KeyboardActions {
     this.insertClones(source, { x: 20, y: 20 }, sel);
   }
 
-  /** Inserts clones of `source` centred on `anchor` as one undo step; `false` when nothing was inserted. */
-  insertElements(source: readonly CanvasElement[], anchor: Point | null): boolean {
-    if (this.deps.isToolActive() || source.length === 0) return false;
+  /** Inserts clones of `source` centred on `anchor` as one undo step; returns the selected root ids, empty when nothing was inserted. */
+  insertElements(source: readonly CanvasElement[], anchor: Point | null): string[] {
+    if (this.deps.isToolActive() || source.length === 0) return [];
     this.flushPendingNudge();
     if (this.deps.getToolManager()?.activeTool?.name !== 'select') {
       this.deps.getToolContext()?.switchTool?.('select');
     }
     const sel = this.selectTool();
-    if (!sel) return false;
+    if (!sel) return [];
     const bbox = getElementsBoundingBox([...source], sel.ctx.elementRegistry);
     const offset =
       anchor && bbox
         ? { x: anchor.x - (bbox.x + bbox.w / 2), y: anchor.y - (bbox.y + bbox.h / 2) }
         : { x: 0, y: 0 };
     try {
-      this.insertClones(source, offset, sel);
+      return this.insertClones(source, offset, sel);
     } catch {
-      return false;
+      return [];
     }
-    return true;
   }
 
   deselect(): void {
@@ -352,7 +351,7 @@ export class KeyboardActions {
     source: readonly CanvasElement[],
     offset: Point,
     sel: { tool: SelectTool; ctx: ToolContext },
-  ): void {
+  ): string[] {
     const idMap = new Map<string, string>();
     for (const el of source) {
       idMap.set(el.id, createId(el.type));
@@ -462,5 +461,6 @@ export class KeyboardActions {
       .map((clone) => clone.id);
     sel.tool.setSelection(selectedRoots);
     sel.ctx.requestRender();
+    return selectedRoots;
   }
 }

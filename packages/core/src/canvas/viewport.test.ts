@@ -6350,6 +6350,61 @@ describe('Viewport drop', () => {
 
   const texts = () => harness.viewport.store.getAll().filter((el) => el.type === 'text');
 
+  function dropFiles(files: File[]): void {
+    const event = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+      clientX: { value: 200 },
+      clientY: { value: 150 },
+      dataTransfer: { value: { files, getData: () => '' } },
+    });
+    harness.wrapper.dispatchEvent(event);
+  }
+
+  const boardFile = (name: string, x: number) => {
+    const shape = createShape({ position: { x, y: 0 }, size: { w: 10, h: 10 }, layerId: 'l1' });
+    const layer = {
+      id: shape.layerId,
+      name: 'L',
+      visible: true,
+      locked: false,
+      order: 0,
+      opacity: 1,
+    };
+    const state = {
+      version: 6,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [{ ...shape, index: 'a0' }],
+      layers: [layer],
+    };
+    return new File([JSON.stringify(state)], name);
+  };
+
+  const allSelected = () => {
+    const { viewport } = harness;
+    expect([...viewport.getSelectedIds()].sort()).toEqual(
+      viewport.store
+        .getAll()
+        .map((el) => el.id)
+        .sort(),
+    );
+  };
+
+  it('a drop of a board file and a PNG selects both inserts', async () => {
+    const png = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' });
+
+    dropFiles([boardFile('a.fieldnotes', 0), png]);
+    await vi.waitFor(() => expect(harness.viewport.store.count).toBe(2));
+
+    allSelected();
+  });
+
+  it('a drop of two board files selects the clones of both', async () => {
+    dropFiles([boardFile('a.fieldnotes', 0), boardFile('b.fieldnotes', 100)]);
+    await vi.waitFor(() => expect(harness.viewport.store.count).toBe(2));
+
+    allSelected();
+  });
+
   it('a dropped text lands after the stroke in progress as its own undo step', async () => {
     const { viewport, wrapper } = harness;
     viewport.toolManager.setTool('pencil', viewport.toolContext);

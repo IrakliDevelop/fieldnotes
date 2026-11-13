@@ -2203,10 +2203,13 @@ describe('KeyboardActions.insertElements', () => {
     ];
   }
 
-  it('insertElements centres the bounding box on the anchor', () => {
+  it('insertElements centres the bounding box on the anchor and returns the selected roots', () => {
     const { actions, ctx, tool } = makeActions();
 
-    expect(actions.insertElements(pair(), { x: 500, y: 500 })).toBe(true);
+    const ids = actions.insertElements(pair(), { x: 500, y: 500 });
+
+    expect(ids).toHaveLength(2);
+    expect(ids).toEqual(tool.selectedIds);
 
     expect(tool.selectedIds.map((id) => ctx.store.getById(id)?.position)).toEqual([
       { x: 400, y: 450 },
@@ -2230,7 +2233,7 @@ describe('KeyboardActions.insertElements', () => {
       isToolActive: () => false,
     });
 
-    expect(actions.insertElements(pair(), null)).toBe(true);
+    expect(actions.insertElements(pair(), null)).toHaveLength(2);
 
     expect(tm.activeTool?.name).toBe('select');
     expect(ctx.store.count).toBe(2);
@@ -2241,15 +2244,15 @@ describe('KeyboardActions.insertElements', () => {
     ]);
   });
 
-  it('insertElements returns false and inserts nothing during a gesture or with no source', () => {
+  it('insertElements returns no ids and inserts nothing during a gesture or with no source', () => {
     const { actions, ctx } = makeActions({ isToolActive: () => true });
-    expect(actions.insertElements(pair(), null)).toBe(false);
+    expect(actions.insertElements(pair(), null)).toEqual([]);
     const idle = makeActions();
-    expect(idle.actions.insertElements([], null)).toBe(false);
+    expect(idle.actions.insertElements([], null)).toEqual([]);
     expect(ctx.store.count + idle.ctx.store.count).toBe(0);
   });
 
-  it('insertElements inserts nothing and returns false when a clone fails preflight', () => {
+  it('insertElements inserts nothing and returns no ids when a clone fails preflight', () => {
     const elementRegistry = createTestBoxRegistry();
     elementRegistry.register<ExtensionElementEnvelope>({
       type: 'test:rejected',
@@ -2276,7 +2279,7 @@ describe('KeyboardActions.insertElements', () => {
       data: {},
     };
 
-    expect(actions.insertElements([...pair(), rejected], { x: 0, y: 0 })).toBe(false);
+    expect(actions.insertElements([...pair(), rejected], { x: 0, y: 0 })).toEqual([]);
 
     expect(ctx.store.count).toBe(0);
     expect(stack.undoCount).toBe(0);

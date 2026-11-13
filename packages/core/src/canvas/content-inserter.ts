@@ -45,7 +45,7 @@ export interface ContentInserterDeps {
   elementRegistry: ElementRegistry;
   getActiveLayerId: () => string;
   getTextStyle: () => { fontSize: number; color: string } | null;
-  insertElements: (elements: CanvasElement[], anchor: Point) => boolean;
+  insertElements: (elements: CanvasElement[], anchor: Point) => string[];
   insertWhenIdle: (run: () => void) => void;
   transaction: (run: () => void) => void;
   switchToSelect: () => void;
@@ -140,10 +140,7 @@ export class ContentInserter {
   private async sceneJob(state: CanvasState, anchor: Point): Promise<() => string[]> {
     const hidden = new Set(state.layers?.filter((l) => l.visible === false).map((l) => l.id));
     const kept = await this.rehostAll(state.elements.filter((el) => !hidden.has(el.layerId)));
-    return () => {
-      this.deps.insertElements(kept, anchor);
-      return [];
-    };
+    return () => this.deps.insertElements(kept, anchor);
   }
 
   private async imageJob(file: File, anchor: Point, kind: InsertKind): Promise<() => string[]> {

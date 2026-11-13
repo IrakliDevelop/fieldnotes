@@ -50,7 +50,7 @@ function setup(overrides: Partial<ContentInserterDeps> = {}) {
     insertElements: (els) => {
       calls.inserted.push(els);
       recorder.run(() => els.forEach((e) => store.add(e)));
-      return true;
+      return els.map((e) => e.id);
     },
     insertWhenIdle: (run) => queue.insertWhenIdle(run),
     transaction: (run) => recorder.run(run),
