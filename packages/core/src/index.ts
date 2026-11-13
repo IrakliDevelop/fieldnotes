@@ -267,6 +267,13 @@ export {
 export { createBoundText, getBoundText, isBoundTextContainer } from './elements/bound-text';
 export { pickBaseFields } from './elements/base-fields';
 export {
+  isAllowedLink,
+  normalizeLink,
+  isPasteLink,
+  elementLink,
+  parseElementLink,
+} from './elements/link';
+export {
   getArrowControlPoint,
   getArrowMidpoint,
   getBendFromPoint,

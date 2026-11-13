@@ -20,6 +20,8 @@ export interface BaseElement {
    * Applied to note/text/image/html/shape/stroke; ignored for arrows. Extension
    * element definitions own their rotation semantics. */
   rotation?: number;
+  /** Opens from the select tool; `http(s)`, `mailto` or `#fn:element=<id>` only. */
+  link?: string;
 }
 
 export interface StrokeElement extends BaseElement {

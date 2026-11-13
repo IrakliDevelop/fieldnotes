@@ -48,4 +48,20 @@ describe('pickBaseFields', () => {
     );
     expect(Object.prototype.hasOwnProperty.call(pickBaseFields(element), 'parentId')).toBe(false);
   });
+
+  it('keeps link when present and omits the key when absent', () => {
+    const element: BaseElement = {
+      id: 'n1',
+      type: 'note',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+    };
+    expect(pickBaseFields({ ...element, link: 'https://example.com' }).link).toBe(
+      'https://example.com',
+    );
+    expect('link' in pickBaseFields(element)).toBe(false);
+  });
 });

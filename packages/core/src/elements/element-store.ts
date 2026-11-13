@@ -12,6 +12,7 @@ import { getArrowControlPoint } from './arrow-geometry';
 import { findBoundArrows, updateBoundArrow } from './arrow-binding';
 import { getBoundTextBox, isBoundTextContainer, layoutBoundText } from './bound-text';
 import { sanitizeNoteHtml } from './note-sanitizer';
+import { isAllowedLink } from './link';
 import { computeStrokeSegments, transferStrokeRenderData } from './stroke-cache';
 import type { CanvasElement, ElementType } from './types';
 import { getRegistryToken, type ElementRegistry } from './element-registry';
@@ -35,6 +36,14 @@ function sanitizeRichText(element: CanvasElement): CanvasElement {
   if (element.type !== 'note' && element.type !== 'text') return element;
   const text = sanitizeNoteHtml(element.text);
   return text === element.text ? element : { ...element, text };
+}
+
+function sanitizeLink(element: CanvasElement): CanvasElement {
+  const link = (element as { link?: unknown }).link;
+  if (link === undefined || (typeof link === 'string' && isAllowedLink(link))) return element;
+  const copy = { ...element };
+  delete copy.link;
+  return copy;
 }
 
 // Elements entering the store hold current data, so saves and sync never migrate them again.
@@ -270,7 +279,7 @@ export class ElementStore {
 
   add(element: CanvasElement, meta?: ElementChangeMeta): void {
     this.refreshRegistry();
-    element = stampDataVersion(sanitizeRichText(element), this.registry);
+    element = stampDataVersion(sanitizeLink(sanitizeRichText(element)), this.registry);
     if (element.type === 'arrow') element = { ...element };
     validateExtensionEnvelope(element, this.registry);
     if (element.index === '') {
@@ -482,6 +491,10 @@ export class ElementStore {
 
     if ((updated.type === 'note' || updated.type === 'text') && 'text' in partial) {
       updated.text = sanitizeNoteHtml(updated.text);
+    }
+
+    if ('link' in partial && (typeof updated.link !== 'string' || !isAllowedLink(updated.link))) {
+      delete updated.link;
     }
 
     return stampDataVersion(updated, this.registry);
@@ -833,7 +846,7 @@ export class ElementStore {
       if (el.index !== '' && (top === undefined || el.index > top)) tops.set(el.layerId, el.index);
     }
     const sanitizedElements = elements.map((el) => {
-      let element = stampDataVersion(sanitizeRichText(el), this.registry);
+      let element = stampDataVersion(sanitizeLink(sanitizeRichText(el)), this.registry);
       if (element.type === 'arrow') element = { ...element };
       validateExtensionEnvelope(element, this.registry);
       if (element.index !== '') return element;

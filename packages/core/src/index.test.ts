@@ -101,6 +101,14 @@ describe('core public surface', () => {
     expect(FN.frameElementDefinition.validateData(data)).toBe(true);
   });
 
+  it('exports the link helpers', () => {
+    expect(typeof FN.isAllowedLink).toBe('function');
+    expect(typeof FN.normalizeLink).toBe('function');
+    expect(typeof FN.isPasteLink).toBe('function');
+    expect(typeof FN.elementLink).toBe('function');
+    expect(typeof FN.parseElementLink).toBe('function');
+  });
+
   it('exports the camera view, animator, and focus presence surface', () => {
     expect(typeof FN.captureCameraView).toBe('function');
     expect(typeof FN.fitZoomForView).toBe('function');
