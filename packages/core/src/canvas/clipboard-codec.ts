@@ -88,8 +88,9 @@ export function decodeClipboard(
   }
   // Copying a frame child or bound text alone leaves references the envelope cannot resolve.
   dropDanglingReferences(data['elements']);
+  let elements: CanvasElement[];
   try {
-    return parseElements(
+    elements = parseElements(
       data['elements'],
       data['stateVersion'],
       registry ?? getDefaultElementRegistry(),
@@ -97,6 +98,11 @@ export function decodeClipboard(
   } catch {
     return null;
   }
+  // ownerId and audience belong to the source board's host, not this one.
+  for (const el of elements) {
+    for (const key of ['ownerId', 'audience']) Reflect.deleteProperty(el, key);
+  }
+  return elements;
 }
 
 /** Whether a payload claims to carry a Field Notes envelope, valid or not. */

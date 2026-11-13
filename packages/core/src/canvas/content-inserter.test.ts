@@ -315,6 +315,22 @@ describe('ContentInserter.insertFiles scene, board and text files', () => {
     expect(calls.inserted).toEqual([[shown]]);
   });
 
+  it('a board file element lands without ownerId and audience', async () => {
+    const shape = shapeOn('l1', 'a0');
+    const { calls, inserter } = setup();
+
+    inserter.insertFiles(
+      [board([{ ...shape, ownerId: 'u1', audience: 'dm' }])],
+      { x: 0, y: 0 },
+      'drop',
+    );
+    await vi.waitFor(() => expect(calls.inserted).toHaveLength(1));
+
+    expect(calls.inserted[0]?.map((el) => el.id)).toEqual([shape.id]);
+    expect(calls.inserted[0]?.[0]).not.toHaveProperty('ownerId');
+    expect(calls.inserted[0]?.[0]).not.toHaveProperty('audience');
+  });
+
   it('a PNG with a scene inserts editable elements, not an image', async () => {
     const shape = shapeOn('l1', 'a0');
     const { store, calls, inserter } = setup();

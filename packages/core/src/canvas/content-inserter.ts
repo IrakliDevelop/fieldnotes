@@ -139,7 +139,12 @@ export class ContentInserter {
   // The file's layers, camera and plugin state stay out: elements land on the active layer.
   private async sceneJob(state: CanvasState, anchor: Point): Promise<() => string[]> {
     const hidden = new Set(state.layers?.filter((l) => l.visible === false).map((l) => l.id));
-    const kept = await this.rehostAll(state.elements.filter((el) => !hidden.has(el.layerId)));
+    const shown = state.elements.filter((el) => !hidden.has(el.layerId));
+    // ownerId and audience belong to the source board's host, not this one.
+    for (const el of shown) {
+      for (const key of ['ownerId', 'audience']) Reflect.deleteProperty(el, key);
+    }
+    const kept = await this.rehostAll(shown);
     return () => this.deps.insertElements(kept, anchor);
   }
 

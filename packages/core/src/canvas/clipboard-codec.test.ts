@@ -93,6 +93,17 @@ describe('clipboard codec', () => {
     for (const key of dropped) expect(decoded?.[0]).not.toHaveProperty(key);
   });
 
+  it('decode drops ownerId and audience', () => {
+    const shape = createShape({ ...box, index: 'a0' });
+    const vendor = envelope({ elements: [{ ...shape, ownerId: 'u1', audience: 'dm' }] });
+
+    const decoded = decodeClipboard({ vendor }, registry);
+
+    expect(decoded?.map((d) => d.id)).toEqual([shape.id]);
+    expect(decoded?.[0]).not.toHaveProperty('ownerId');
+    expect(decoded?.[0]).not.toHaveProperty('audience');
+  });
+
   it('reads vendor before html', () => {
     const a = createNote({ position: origin, index: 'a0', text: 'A' });
     const b = createNote({ position: origin, index: 'a0', text: 'B' });
