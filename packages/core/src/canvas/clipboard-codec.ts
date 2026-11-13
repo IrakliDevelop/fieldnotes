@@ -3,6 +3,7 @@ import type { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import { escapePlainTextHtml, plainTextOf } from '../elements/note-sanitizer';
 import { CANVAS_STATE_VERSION, parseElements } from '../core/state-serializer';
+import { dropDanglingReferences } from '../elements/element-hierarchy';
 
 /** Clipboard MIME type and envelope `type` for Field Notes element payloads. */
 export const FIELDNOTES_CLIPBOARD_TYPE = 'fieldnotes/clipboard';
@@ -85,6 +86,8 @@ export function decodeClipboard(
   ) {
     return null;
   }
+  // Copying a frame child or bound text alone leaves references the envelope cannot resolve.
+  dropDanglingReferences(data['elements']);
   try {
     return parseElements(
       data['elements'],

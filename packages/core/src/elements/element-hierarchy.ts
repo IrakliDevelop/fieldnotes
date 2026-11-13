@@ -233,3 +233,23 @@ export function validateHierarchy(
     invalidHierarchy();
   }
 }
+
+/** Deletes `parentId`, text `containerId` and arrow bindings whose target is not in `elements`. */
+export function dropDanglingReferences(elements: readonly unknown[]): void {
+  const ids = new Set(elements.map((el) => (isRecord(el) ? el['id'] : undefined)));
+  const dangling = (id: unknown): boolean => typeof id === 'string' && !ids.has(id);
+  for (const el of elements) {
+    if (!isRecord(el)) continue;
+    if (dangling(el['parentId'])) delete el['parentId'];
+    if (el['type'] === 'text' && dangling(el['containerId'])) delete el['containerId'];
+    if (el['type'] !== 'arrow') continue;
+    for (const key of ['fromBinding', 'toBinding']) {
+      const binding = el[key];
+      if (isRecord(binding) && dangling(binding['elementId'])) Reflect.deleteProperty(el, key);
+    }
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}

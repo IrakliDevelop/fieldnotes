@@ -6,6 +6,7 @@ import type { Layer } from '../layers/types';
 import type { CanvasState } from '../core/state-serializer';
 import { exportState } from '../core/state-serializer';
 import { boundsIntersect } from '../elements/element-bounds';
+import { dropDanglingReferences } from '../elements/element-hierarchy';
 import { getElementRect } from './export-image';
 
 /** Envelope `type` of a scene embedded in an exported PNG or SVG. */
@@ -49,7 +50,6 @@ export function buildSceneEnvelope(
     const rect = getElementRect(el, registry);
     return rect !== null && boundsIntersect(rect, bounds);
   });
-  const keptIds = new Set(kept.map((el) => el.id));
   const layerIds = new Set(kept.map((el) => el.layerId));
   const known = new Set(layerManager?.getLayers().map((layer) => layer.id));
   const layers = layerManager
@@ -72,16 +72,9 @@ export function buildSceneEnvelope(
     // ownerId and audience are host fields outside the element types.
     for (const key of ['editor', 'ownerId', 'audience']) Reflect.deleteProperty(el, key);
     if (!known.has(el.layerId)) el.layerId = DEFAULT_LAYER.id;
-    // A frame export, filter or cull can drop a target; dangling references fail validation on load.
-    if (el.parentId !== undefined && !keptIds.has(el.parentId)) delete el.parentId;
-    if (el.type === 'text' && el.containerId !== undefined && !keptIds.has(el.containerId)) {
-      delete el.containerId;
-    }
-    if (el.type === 'arrow') {
-      if (el.fromBinding && !keptIds.has(el.fromBinding.elementId)) delete el.fromBinding;
-      if (el.toBinding && !keptIds.has(el.toBinding.elementId)) delete el.toBinding;
-    }
   }
+  // A frame export, filter or cull can drop a target; dangling references fail validation on load.
+  dropDanglingReferences(state.elements);
   return { type: SCENE_METADATA_TYPE, version: 1, state };
 }
 

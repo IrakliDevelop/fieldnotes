@@ -11,6 +11,7 @@ import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import { createNote } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
 import { ElementStore } from '../elements/element-store';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
@@ -153,7 +154,7 @@ describe.each(['focus', 'window'] as const)('KeyboardHandler (%s scope)', (scope
 });
 
 function clipboardEvent(
-  type: 'copy' | 'cut' | 'beforecopy' | 'beforecut',
+  type: 'copy' | 'cut' | 'paste' | 'beforecopy' | 'beforecut',
   data: Record<string, string> = {},
 ) {
   const written: [string, string][] = [];
@@ -204,7 +205,12 @@ function setupBoard() {
     element,
     isDisabled: () => false,
     canInsertNow: () => true,
-    host: stubHost,
+    host: {
+      ...stubHost,
+      insertElements: (els, anchor) => {
+        ka.insertElements(els, anchor);
+      },
+    },
   });
   const abort = new AbortController();
   abortControllers.add(abort);
@@ -267,6 +273,32 @@ describe('KeyboardHandler clipboard', () => {
     expect(stack.undoCount).toBe(undoBefore + 1);
     expect(written).toHaveLength(3);
   });
+
+  it.each(['copy', 'cut'] as const)(
+    'a frame child alone pastes back standalone after a native %s',
+    (kind) => {
+      const { element, store, select } = setupBoard();
+      const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 300, h: 300 } });
+      const child = createNote({
+        position: { x: 10, y: 10 },
+        size: { w: 50, h: 50 },
+        text: 'kid',
+        parentId: frame.id,
+      });
+      store.add(frame);
+      store.add(child);
+      select.setSelection([child.id]);
+      const copied = clipboardEvent(kind);
+      element.dispatchEvent(copied.event);
+      const before = new Set(store.getAll().map((el) => el.id));
+
+      element.dispatchEvent(clipboardEvent('paste', Object.fromEntries(copied.written)).event);
+
+      const added = store.getAll().filter((el) => !before.has(el.id));
+      expect(added).toEqual([expect.objectContaining({ type: 'note', text: 'kid' })]);
+      expect(added[0]).not.toHaveProperty('parentId');
+    },
+  );
 
   it('a copy event from an outside input is left to the browser', () => {
     setupBoard();

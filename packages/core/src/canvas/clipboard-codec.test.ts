@@ -15,6 +15,9 @@ import {
   createStroke,
 } from '../elements/element-factory';
 import { getDefaultElementRegistry } from '../elements/default-registry';
+import { createBoundText } from '../elements/bound-text';
+import { createFrame } from '../elements/frame-element';
+import type { CanvasElement } from '../elements/types';
 
 const registry = getDefaultElementRegistry();
 const origin = { x: 0, y: 0 };
@@ -51,6 +54,43 @@ describe('clipboard codec', () => {
     Object.assign(arrow, { audience: 'gm' });
 
     expect(decodeClipboard(encodeClipboard([note, shape, arrow]), registry)).toEqual(expected);
+  });
+
+  it.each<[string, () => CanvasElement, string[]]>([
+    [
+      'a frame child',
+      () => {
+        const frame = createFrame({ position: origin, size: { w: 200, h: 200 }, index: 'a0' });
+        return createNote({ position: origin, index: 'a1', parentId: frame.id });
+      },
+      ['parentId'],
+    ],
+    [
+      'bound text',
+      () => createBoundText(createShape({ ...box, index: 'a0' }), { text: 'x', index: 'a1' }),
+      ['parentId', 'containerId'],
+    ],
+    [
+      'an arrow bound to an absent shape',
+      () => {
+        const shape = createShape({ ...box, index: 'a0' });
+        return createArrow({
+          index: 'a1',
+          from: origin,
+          to: { x: 50, y: 50 },
+          fromBinding: { elementId: shape.id },
+          toBinding: { elementId: shape.id },
+        });
+      },
+      ['fromBinding', 'toBinding'],
+    ],
+  ])('an envelope holding only %s decodes it standalone', (_, make, dropped) => {
+    const el = make();
+
+    const decoded = decodeClipboard({ vendor: encodeClipboard([el]).vendor }, registry);
+
+    expect(decoded?.map((d) => d.id)).toEqual([el.id]);
+    for (const key of dropped) expect(decoded?.[0]).not.toHaveProperty(key);
   });
 
   it('reads vendor before html', () => {
