@@ -165,7 +165,7 @@ export class ContentInserter {
   private needsRehost(el: CanvasElement): boolean {
     if (el.type !== 'image') return false;
     return (
-      el.src.startsWith('blob:') || (this.deps.assets !== undefined && el.src.startsWith('data:'))
+      /^\s*blob:/i.test(el.src) || (this.deps.assets !== undefined && /^\s*data:/i.test(el.src))
     );
   }
 

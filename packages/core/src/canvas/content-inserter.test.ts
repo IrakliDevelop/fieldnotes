@@ -458,6 +458,31 @@ describe('ContentInserter.insertElements', () => {
     expect(contexts).toEqual([{ kind: 'import' }, { kind: 'import' }]);
   });
 
+  it.each(['DATA:image/png;base64,eA==', ' data:image/png;base64,eA==', 'Blob:https://host/1'])(
+    'import re-uploads the mixed-case or padded src %j',
+    async (src) => {
+      vi.stubGlobal('fetch', () =>
+        Promise.resolve({ blob: () => Promise.resolve(new Blob(['x'], { type: 'image/png' })) }),
+      );
+      const el = image(src);
+      const contexts: unknown[] = [];
+      const { calls, inserter } = setup({
+        assets: {
+          upload: (_file, context) => {
+            contexts.push(context);
+            return Promise.resolve({ src: 'https://cdn/a.png' });
+          },
+        },
+      });
+
+      inserter.insertElements([el], { x: 0, y: 0 });
+      await vi.waitFor(() => expect(calls.inserted).toHaveLength(1));
+
+      expect(contexts).toEqual([{ kind: 'import' }]);
+      expect(calls.inserted).toEqual([[{ ...el, src: 'https://cdn/a.png' }]]);
+    },
+  );
+
   it('import without a resolver inlines blob: and keeps data: verbatim; a failing fetch drops the element', async () => {
     const cause = new TypeError('gone');
     vi.stubGlobal('fetch', (src: string) =>
