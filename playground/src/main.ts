@@ -176,7 +176,9 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
       if (!file) return;
       const state = await readSceneFile(file, viewport.elementRegistry);
       if (!state) {
-        shell.toast("Couldn't open that file");
+        shell.toast(
+          'No board in that file. Open a .fieldnotes or JSON file, or an export with board data.',
+        );
         return;
       }
       try {
@@ -248,13 +250,13 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
         },
         {
           id: 'export-png-scene',
-          label: 'Export PNG with scene',
+          label: 'Export PNG with board data',
           icon: 'image',
           run: () => exportPng({ ...pngOptions(), embedScene: true }),
         },
         {
           id: 'export-svg-scene',
-          label: 'Export SVG with scene',
+          label: 'Export SVG with board data',
           icon: 'file',
           run: () => exportSvg({ ...svgOptions(), embedScene: true }),
         },

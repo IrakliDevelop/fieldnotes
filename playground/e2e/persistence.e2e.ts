@@ -507,7 +507,9 @@ test('opening an invalid JSON file toasts', async ({ page }) => {
     if (input instanceof HTMLInputElement) input.files = transfer.files;
     input.dispatchEvent(new Event('change'));
   });
-  await expect(page.locator('[data-chrome="toast"]')).toContainText("Couldn't open that file");
+  await expect(page.locator('[data-chrome="toast"]')).toContainText(
+    'No board in that file. Open a .fieldnotes or JSON file, or an export with board data.',
+  );
   expect(await count(page)).toBe(before);
 });
 
