@@ -113,6 +113,8 @@ export type {
 } from './canvas/export-image';
 export { exportSvg } from './canvas/export-svg';
 export type { ExportSvgOptions } from './canvas/export-svg';
+export { SCENE_METADATA_TYPE, SCENE_PNG_KEYWORD } from './canvas/scene-embed';
+export type { SceneEmbedOptions, SceneEnvelope } from './canvas/scene-embed';
 export type {
   HtmlExportError,
   HtmlExportErrorReason,

@@ -146,6 +146,25 @@ describe('core public surface', () => {
     }
   });
 
+  it('exports the scene embed constants and types without the PNG chunk helpers', () => {
+    expect(FN.SCENE_METADATA_TYPE).toBe('fieldnotes/scene');
+    expect(FN.SCENE_PNG_KEYWORD).toBe('fieldnotes:scene');
+    expectTypeOf<FN.SceneEnvelope['type']>().toEqualTypeOf<'fieldnotes/scene'>();
+    expectTypeOf<FN.SceneEnvelope['state']>().toEqualTypeOf<FN.CanvasState>();
+    expectTypeOf<FN.ExportImageOptions>().toMatchTypeOf<FN.SceneEmbedOptions>();
+    expectTypeOf<FN.ExportSvgOptions>().toMatchTypeOf<FN.SceneEmbedOptions>();
+    for (const name of [
+      'crc32',
+      'appendItxtChunk',
+      'findItxtChunk',
+      'MAX_SCENE_EMBED_BYTES',
+      'buildSceneEnvelope',
+      'serializeSceneEnvelope',
+    ]) {
+      expect(name in FN, `${name} should not be exported`).toBe(false);
+    }
+  });
+
   it('exports the camera view, animator, and focus presence surface', () => {
     expect(typeof FN.captureCameraView).toBe('function');
     expect(typeof FN.fitZoomForView).toBe('function');

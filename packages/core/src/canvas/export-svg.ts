@@ -38,10 +38,13 @@ import type { HtmlPaintDiagnostic } from './html-paint-diagnostics';
 import type { ElementRegistry } from '../elements/element-registry';
 import type { RenderHooks } from './render-hooks';
 import { resolveFrameExport } from './frame-export';
+import { buildSceneEnvelope, serializeSceneEnvelope } from './scene-embed';
+import type { SceneEmbedOptions } from './scene-embed';
 import { getBoundText } from '../elements/bound-text';
 import { getElbowRoute } from '../elements/elbow-cache';
 
-export interface ExportSvgOptions extends ExportResourceOptions, HtmlExportOptions {
+export interface ExportSvgOptions
+  extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions {
   frameId?: string;
   padding?: number;
   background?: string;
@@ -504,6 +507,14 @@ export async function exportSvg(
   body += overlaySvg;
 
   body += hookSvg.join('');
+
+  const sceneJson = options.embedScene
+    ? serializeSceneEnvelope(
+        buildSceneEnvelope(visibleElements, bounds, layerManager, registry),
+        options,
+      )
+    : null;
+  if (sceneJson !== null) body = `<metadata>${esc(sceneJson)}</metadata>${body}`;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" ` +
