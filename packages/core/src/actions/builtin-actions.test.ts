@@ -651,6 +651,8 @@ describe('createLinkActions', () => {
     add('linked2', { link: 'https://b.example' });
     add('locked', { locked: true });
     add('on-locked-layer', { layerId: 'locked-layer' });
+    add('locked-linked', { link: 'https://c.example', locked: true });
+    add('linked-on-locked-layer', { link: 'https://d.example', layerId: 'locked-layer' });
     const isLayerLocked = vi.fn((layerId: string) => layerId === 'locked-layer');
     const viewport = { layerManager: { isLayerLocked } } as unknown as Viewport;
     const deps: LinkActionDeps = { setLink: vi.fn(), openLink: vi.fn(), promptLink: vi.fn() };
@@ -714,15 +716,18 @@ describe('createLinkActions', () => {
     [[], false],
     [['plain'], false],
     [['plain', 'linked'], true],
+    [['locked-linked'], false],
+    [['linked-on-locked-layer'], false],
+    [['locked-linked', 'linked'], true],
   ])('link.remove enabled for %j is %s', (ids, expected) => {
     const { actions, ctx } = setup();
     expect(findAction(actions, 'link.remove').enabled?.(ctx(ids))).toBe(expected);
   });
 
-  it('link.remove clears only the selected elements that have a link', () => {
+  it('link.remove clears only the editable selected elements that have a link', () => {
     const { actions, ctx, deps } = setup();
     findAction(actions, 'link.remove').perform(
-      ctx(['plain', 'linked', 'linked2']),
+      ctx(['plain', 'linked', 'locked-linked', 'linked2', 'linked-on-locked-layer']),
       defaultInvocation,
     );
     expect(deps.setLink).toHaveBeenCalledWith(['linked', 'linked2'], null);

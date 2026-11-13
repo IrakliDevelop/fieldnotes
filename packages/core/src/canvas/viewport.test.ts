@@ -6748,6 +6748,38 @@ describe('Viewport links', () => {
       expect(viewport.store.getById(b)?.link).toBe('https://b.example');
     });
 
+    it('link.remove skips locked linked elements without throwing', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://a.example');
+      const locked = addShape(viewport, { x: 200, y: 0 }, 'https://b.example');
+      viewport.store.update(locked, { locked: true });
+      viewport.toolContext.setSelection?.([locked]);
+      expect(viewport.actions.isEnabled('link.remove')).toBe(false);
+      viewport.toolContext.setSelection?.([a, locked]);
+      expect(() => viewport.actions.run('link.remove')).not.toThrow();
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+      expect(viewport.store.getById(locked)?.link).toBe('https://b.example');
+    });
+
+    it('the link prompt submits to the ids that still exist and closes', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      const b = addShape(viewport, { x: 200, y: 0 });
+      viewport.toolContext.setSelection?.([a, b]);
+      viewport.actions.run('link.set');
+      viewport.store.remove(b);
+      const input = promptInput();
+      if (!input) throw new Error('link prompt not mounted');
+      input.value = 'new.example';
+      const enter = () =>
+        input.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        );
+      expect(enter).not.toThrow();
+      expect(viewport.store.getById(a)?.link).toBe('https://new.example');
+      expect(promptInput()).toBeNull();
+    });
+
     it('link.open calls onOpenLink with a null event', () => {
       const onOpenLink = vi.fn(() => true);
       const board = withOnOpenLink(onOpenLink);

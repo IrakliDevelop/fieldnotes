@@ -470,6 +470,16 @@ function linkedIds(ctx: ActionContext): string[] {
   return ctx.selectedIds.filter((id) => ctx.store.getById(id)?.link !== undefined);
 }
 
+function isEditable(ctx: ActionContext, id: string): boolean {
+  const el = ctx.store.getById(id);
+  return el !== undefined && !el.locked && !ctx.viewport.layerManager.isLayerLocked(el.layerId);
+}
+
+// setLink throws on locked ids, so removal only targets editable ones.
+function removableLinkIds(ctx: ActionContext): string[] {
+  return linkedIds(ctx).filter((id) => isEditable(ctx, id));
+}
+
 /** Set, remove and open element links; no default shortcuts. */
 export function createLinkActions(deps: LinkActionDeps): ActionDefinition[] {
   const singleLink = (ctx: ActionContext) =>
@@ -481,14 +491,7 @@ export function createLinkActions(deps: LinkActionDeps): ActionDefinition[] {
       keywords: ['link', 'url', 'hyperlink'],
       icon: 'link',
       menu: menu('link', 10),
-      enabled: (ctx) =>
-        hasSelection(ctx) &&
-        ctx.selectedIds.every((id) => {
-          const el = ctx.store.getById(id);
-          return (
-            el !== undefined && !el.locked && !ctx.viewport.layerManager.isLayerLocked(el.layerId)
-          );
-        }),
+      enabled: (ctx) => hasSelection(ctx) && ctx.selectedIds.every((id) => isEditable(ctx, id)),
       perform: (ctx) => deps.promptLink(ctx.selectedIds, singleLink(ctx) ?? ''),
     },
     {
@@ -496,8 +499,8 @@ export function createLinkActions(deps: LinkActionDeps): ActionDefinition[] {
       label: 'Remove link',
       icon: 'link-off',
       menu: menu('link', 20),
-      enabled: (ctx) => linkedIds(ctx).length > 0,
-      perform: (ctx) => deps.setLink(linkedIds(ctx), null),
+      enabled: (ctx) => removableLinkIds(ctx).length > 0,
+      perform: (ctx) => deps.setLink(removableLinkIds(ctx), null),
     },
     {
       id: 'link.open',

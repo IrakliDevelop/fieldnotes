@@ -1682,7 +1682,14 @@ export class Viewport {
       container: this.container,
       wrapper: this.wrapper,
       initialValue: initial,
-      onSubmit: (link) => this.setLink(frozen, link),
+      // A peer may delete or lock an id while the prompt is open.
+      onSubmit: (link) => {
+        const ids = frozen.filter((id) => {
+          const el = this.store.getById(id);
+          return el !== undefined && !el.locked && !this.layerManager.isLayerLocked(el.layerId);
+        });
+        if (ids.length > 0) this.setLink(ids, link);
+      },
       onClose: () => {
         this.linkPromptClose = null;
       },
