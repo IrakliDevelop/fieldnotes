@@ -48,6 +48,7 @@ export const whiteboard: Scene = {
   mount({ stage, shell }) {
     const shapeTool = new ShapeTool();
     const imageTool = new ImageTool();
+    let mounted = true;
     const viewport = new Viewport(stage, {
       ...VIEWPORT_OPTIONS,
       tools: [
@@ -70,13 +71,23 @@ export const whiteboard: Scene = {
         imageTool,
         new LaserTool(),
       ],
-      // A slow mock upload so the pending image placeholder is visible.
+      // Slow so the pending placeholder shows. A real host returns its hosted URL; a data URL
+      // stands in so images survive reload, saved files and Collaborate peers.
       assets: {
         upload: (file) =>
-          new Promise((resolve) =>
+          new Promise((resolve, reject) =>
             setTimeout(() => {
-              shell.toast(`Uploaded ${file.name}`);
-              resolve({ src: URL.createObjectURL(file) });
+              const reader = new FileReader();
+              reader.addEventListener('load', () => {
+                if (typeof reader.result !== 'string') {
+                  reject(new Error(`Couldn't read ${file.name}`));
+                  return;
+                }
+                if (mounted) shell.toast(`Uploaded ${file.name}`);
+                resolve({ src: reader.result });
+              });
+              reader.addEventListener('error', () => reject(reader.error));
+              reader.readAsDataURL(file);
             }, 600),
           ),
       },
@@ -85,6 +96,7 @@ export const whiteboard: Scene = {
     // iOS Safari only delivers change events to a file input that is in the document.
     const input = document.createElement('input');
     const dispose = (): void => {
+      mounted = false;
       unregisterWidgets();
       input.remove();
       viewport.destroy();

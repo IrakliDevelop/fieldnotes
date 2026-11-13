@@ -280,23 +280,55 @@ test('Save then Open board round-trips', async ({ page }, testInfo) => {
   await expect.poll(() => count(page)).toBe(saved);
 });
 
-test('Export PNG with scene reopens as the board', async ({ page }, testInfo) => {
-  await open(page);
-  await expectSample(page);
-  const saved = await count(page);
+for (const [item, file] of [
+  ['export-png-scene', 'board.png'],
+  ['export-svg-scene', 'board.svg'],
+] as const) {
+  test(`${item} reopens as the board`, async ({ page }, testInfo) => {
+    await open(page);
+    await expectSample(page);
+    const saved = await count(page);
 
-  const downloading = page.waitForEvent('download');
-  await runMenuItem(page, 'export-png-scene');
-  const path = testInfo.outputPath('board.png');
-  await (await downloading).saveAs(path);
+    const downloading = page.waitForEvent('download');
+    await runMenuItem(page, item);
+    const path = testInfo.outputPath(file);
+    await (await downloading).saveAs(path);
 
-  await drawStroke(page, testInfo);
-  await expect.poll(() => count(page)).toBe(saved + 1);
+    await drawStroke(page, testInfo);
+    await expect.poll(() => count(page)).toBe(saved + 1);
 
-  const choosing = page.waitForEvent('filechooser');
-  await runMenuItem(page, 'open-board');
-  await (await choosing).setFiles(path);
-  await expect.poll(() => count(page)).toBe(saved);
+    const choosing = page.waitForEvent('filechooser');
+    await runMenuItem(page, 'open-board');
+    await (await choosing).setFiles(path);
+    await expect.poll(() => count(page)).toBe(saved);
+  });
+}
+
+test('a dropped image uploads as a data URL so it survives reload', async ({ page }) => {
+  await gotoBlank(page);
+  // No Node types here, so build the file in the page instead of from a buffer.
+  await page.locator('#stage > *').evaluate(async (wrapper) => {
+    const png = await (
+      await fetch(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      )
+    ).blob();
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([png], 'dot.png', { type: 'image/png' }));
+    const { left, top } = wrapper.getBoundingClientRect();
+    const init = { dataTransfer: transfer, clientX: left + 200, clientY: top + 200 };
+    wrapper.dispatchEvent(new DragEvent('dragover', { ...init, cancelable: true }));
+    wrapper.dispatchEvent(new DragEvent('drop', { ...init, cancelable: true }));
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.__playground.viewport.store
+          .getAll()
+          .flatMap((el) => (el.type === 'image' ? [el.src.slice(0, 15)] : [])),
+      ),
+    )
+    .toEqual(['data:image/png;']);
 });
 
 test('Export PNG and SVG download non-empty files', async ({ page }) => {

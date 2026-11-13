@@ -97,7 +97,7 @@ export function buildWhiteboardSample(viewport: Viewport): void {
     const frameLink = createNote({
       position: { x: 480, y: 680 },
       size: { w: 200, h: 90 },
-      text: 'Linked to the frame below',
+      text: 'Jump to the frame',
       layerId: notesId,
     });
     frameLink.link = elementLink(frame.id);
