@@ -15,7 +15,7 @@ const newestBuilt = ROADMAP.built.at(-1);
 if (!oldestBuilt || !newestBuilt) throw new Error('roadmap.md has no Built item');
 
 const NOT_BUILT = [
-  'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
+  'Exporting a board or a selected frame as PDF, and SVG export that matches the canvas drawing',
 ];
 
 const BUILT = [
@@ -27,9 +27,7 @@ const BUILT = [
   'Elbow arrows that route around shapes',
 ];
 
-const NEXT = [
-  "I'm adding clipboard paste for text and links, and drop support for non-image files.",
-];
+const NEXT = ["I'm adding PDF export and making SVG export match what the canvas draws."];
 
 const BUILT_FRAMES = 'Frames that group and clip elements';
 
@@ -156,7 +154,7 @@ test.describe('changelog and roadmap without JavaScript', () => {
     );
     await page.goto('/roadmap/');
     await expect(page.getByRole('region', { name: 'Not built yet' })).toContainText(
-      'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
+      'Exporting a board or a selected frame as PDF, and SVG export that matches the canvas drawing',
     );
   });
 });

@@ -45,7 +45,7 @@ describe('getFacts', () => {
       source: 'npm',
     });
     expect(facts.docs.notBuilt).toEqual([
-      'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
+      'Exporting a board or a selected frame as PDF, and SVG export that matches the canvas drawing',
     ]);
   });
 });

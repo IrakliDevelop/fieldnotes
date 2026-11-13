@@ -6,6 +6,74 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.108.0 — clipboard, drag-drop and hyperlinks
+
+**Added**
+
+- Copy and cut write the system clipboard as `fieldnotes/clipboard`, `text/html` and `text/plain`,
+  so elements paste into another board. `FIELDNOTES_CLIPBOARD_TYPE`, `encodeClipboard`,
+  `decodeClipboard`, `ClipboardEnvelope` and `ClipboardPayload` read and write that format.
+- Paste creates elements from Field Notes clipboard data, image files, board files, a single URL
+  line or plain text.
+- Drop accepts board files (`.fieldnotes` or JSON), PNG or SVG exports with an embedded scene,
+  images and text files. `readSceneFile`, `FIELDNOTES_FILE_EXTENSION` and `FIELDNOTES_MIME_TYPE`
+  open and save board files.
+- `embedScene` and `onSceneOmitted` on `ExportImageOptions` and `ExportSvgOptions`
+  (`SceneEmbedOptions`, `SceneEnvelope`, `SCENE_METADATA_TYPE`, `SCENE_PNG_KEYWORD`) store the
+  exported elements in the PNG or SVG so the file reopens as a board. The scene holds every
+  element inside the export bounds, including ones that fog or hooks paint over: don't embed it in
+  an export meant for viewers who must not see those elements. Scenes over 16 MiB are left out and
+  `onSceneOmitted` is called.
+- `ViewportOptions.assets` (`AssetResolver`, `AssetUploadContext`) uploads dropped, pasted and
+  imported images so they need not live as base64 in synced state.
+- `BaseElement.link` holds an `http(s)`, `mailto` or internal `#fn:element=<id>` link.
+  `isAllowedLink`, `normalizeLink`, `isPasteLink`, `elementLink`, `parseElementLink`,
+  `Viewport.setLink` and `ViewportOptions.onOpenLink` work with it. The actions `link.set`,
+  `link.remove` and `link.open` sit in the `link` menu group. Selected and hovered linked elements
+  show a badge that opens the link, `⌘/Ctrl+click` opens it too, and an internal link moves the
+  camera to its element and selects it.
+- `onImageError` info gains `reason: 'load' | 'upload'`.
+
+**Changed**
+
+- `ViewportOptions.onPaste` runs for every paste core would handle (text, links, board and scene
+  files, Field Notes clipboard data), not only images. Returning nothing or `true` means the host
+  handled the paste; returning `false` lets core handle it. Core calls `preventDefault` only after
+  the host returns `false`. A host that set `onPaste` only to block image pastes now blocks all
+  pastes.
+- `ViewportOptions.onDrop` returns `boolean | void` with the same meaning.
+- New paste and drop paths place content at the pointer, or at the viewport centre when there is
+  no pointer; an image pasted with no pointer is now centred there too. Pasting from the in-memory
+  clipboard keeps its placement.
+- Duplicate and paste rewrite `#fn:element` links that point inside the copied set to the new
+  copies.
+
+**Compatibility**
+
+- Canvas state stays at v6 and the sync protocol stays at 3. Older clients keep an unknown `link`
+  and never render it. Relays below sync-server 0.30.4 forward it unstripped. `http(s)` image
+  srcs are copied verbatim on import.
+- `@fieldnotes/sync-redis` is not released in this cycle: it pins sync `workspace:*` and its
+  validators are unchanged.
+
+### Sync 0.30.4 — link sanitization
+
+**Added**
+
+- `sanitizeElementLink` removes a disallowed `link` from an element.
+
+**Changed**
+
+- The legacy client drops a disallowed `link` on every inbound element. The core peer floor is
+  0.108.0.
+
+### Sync server 0.30.4 — link sanitization
+
+**Changed**
+
+- Strips a disallowed `link` on admission and in every outbound frame.
+- Depends on `@fieldnotes/sync` 0.30.4 and requires `@fieldnotes/core` `>=0.108.0 <1.0.0`.
+
 ### VTT 0.17.2 — maps without fog stay visible
 
 **Fixed**

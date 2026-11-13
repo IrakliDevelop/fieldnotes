@@ -158,6 +158,17 @@ transparent; JPEG retains its opaque default.
 Remote images are requested with anonymous CORS using their original URLs; failures are omitted from
 the result and reported through `onAssetError` when supplied.
 
+`embedScene: true` stores the exported elements in the PNG or SVG, so the file can be opened again
+as a board. The scene holds every element inside the export bounds, including ones that fog or
+render hooks paint over, so never embed it in an export for viewers who must not see those
+elements. `readSceneFile` reads the scene back, and dropping the file on a board inserts it:
+
+```typescript
+const png = await viewport.exportImage({ embedScene: true });
+const state = png ? await readSceneFile(png) : null;
+if (state) viewport.loadState(state);
+```
+
 Application-owned HTML embeds require an explicit rasterization hook. Return a ready canvas-compatible
 image source; Field Notes applies the element's size, rotation, paint order, and layer opacity in both
 PNG and SVG exports:
@@ -558,13 +569,22 @@ new Viewport(container, {
     spacing: 24, // grid spacing in px (default: 24)
     color: '#d0d0d0', // dot/line color (default: '#d0d0d0')
   },
-  // Called for every drop; replaces the built-in image-drop handling
+  // Called for every drop before core acts; return false to let core handle it
   onDrop: (event, worldPosition) => {
     /* handle drop */
   },
+  // Called for every paste core would handle; return false to let core handle it
+  onPaste: (event, worldPosition) => {
+    if (readOnly) return true; // the host owns the paste, so nothing is inserted
+    return false;
+  },
+  // Uploads dropped, pasted and imported images instead of storing them as base64
+  assets: {
+    upload: async (file) => ({ src: await uploadImage(file) }), // application implementation
+  },
   // Called when an image element fails to load; failed images render a gray
   // placeholder. Falls back to console.warn when unset.
-  onImageError: ({ src, elementIds }) => {
+  onImageError: ({ src, elementIds, reason }) => {
     /* handle broken image */
   },
 });
@@ -579,8 +599,17 @@ new Viewport(container, {
 - `placeholder?: string` — placeholder text shown in empty notes.
 - `shortcuts?: ShortcutOptions` — seed the keyboard shortcut table with custom bindings (use canonical action ids like `'edit.undo'`, `'tool.pencil'`).
 - `onHtmlElementMount?` — called after `loadState` for HTML elements that need content injected.
-- `onDrop?` — called for every drop event; replaces the built-in image-drop handling.
-- `onImageError?` — called when an image element fails to load.
+- `onDrop?` — called for every drop before core acts. Return `false` to let core handle it;
+  `true` or nothing means the host handled the drop.
+- `onPaste?` — called for every paste core would handle: images, text, links, board and scene
+  files, and Field Notes clipboard data. Return `false` to let core handle it; `true` or nothing
+  means the host handled the paste. Core calls `preventDefault` only when the host returns `false`.
+- `assets?: AssetResolver` — `upload(file, { kind })` resolves to `{ src }` for dropped, pasted and
+  imported images. Without it images are stored inline as base64.
+- `onOpenLink?` — called before an element's link opens; return `true` to open it yourself, for
+  example to move to another board.
+- `onImageError?` — called when an image element fails to load (`reason: 'load'`) or its upload
+  fails (`reason: 'upload'`).
 - `panBufferMargin?: number` (default `256`) — CSS-pixel margin cached beyond the viewport so
   small pans re-composite instead of re-rasterizing the layers and grid. Larger = more pan
   reuse, more memory per layer. Set `0` to disable (exact-viewport caches) on memory-tight hosts.
