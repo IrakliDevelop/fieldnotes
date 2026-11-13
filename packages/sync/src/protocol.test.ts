@@ -28,6 +28,8 @@ import {
   isValidFogTileRecord,
   isValidFogMetaRecord,
   isValidFogSnapshot,
+  sanitizeElementLink,
+  type SyncElement,
 } from './protocol';
 import { SYNC_LIMITS } from './limits';
 
@@ -309,6 +311,26 @@ describe('isValidElement', () => {
     expect(isValidElement(null)).toBe(false);
     expect(isValidElement('shape')).toBe(false);
     expect(isValidElement(42)).toBe(false);
+  });
+});
+
+describe('sanitizeElementLink', () => {
+  it('sanitizeElementLink keeps an allowed link and the reference', () => {
+    const el = { ...shape(), link: 'https://example.com' };
+    expect(sanitizeElementLink(el)).toBe(el);
+  });
+
+  it.each(['javascript:alert(1)', 5, `https://${'a'.repeat(2041)}`])(
+    'sanitizeElementLink drops %j',
+    (link) => {
+      expect('link' in sanitizeElementLink({ ...shape(), link } as SyncElement)).toBe(false);
+    },
+  );
+
+  it('isValidElement and elementWithinLimits still accept a stored javascript: link', () => {
+    const el = { ...shape(), link: 'javascript:alert(1)' };
+    expect(isValidElement(el)).toBe(true);
+    expect(elementWithinLimits(el, SYNC_LIMITS)).toBe(true);
   });
 });
 

@@ -4910,3 +4910,97 @@ describe('unsupported reply', () => {
     expect(close).toHaveBeenCalledWith(4406);
   });
 });
+
+describe('element link sanitization', () => {
+  function relayedElements(sent: string[]): SyncElement[] {
+    return sent.flatMap((message) => {
+      const op = parseLegacyEnvelope(message)?.op;
+      if (op?.kind === 'upsert') return [op.element];
+      if (op?.kind === 'snapshot') return op.elements;
+      if (op?.kind === 'batch') {
+        return op.ops.flatMap((inner) => (inner.kind === 'upsert' ? [inner.element] : []));
+      }
+      return [];
+    });
+  }
+
+  async function relay(link: string): Promise<{ stored?: SyncElement; received: FakeConn }> {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ backend });
+    const a = admit(hub, makeConn('A', 'R'));
+    const b = admit(hub, makeConn('B', 'R'));
+    const element = { ...sampleEl(), version: 1, link };
+    await hub.handleMessage(a.id, envelope(a.id, { kind: 'upsert', element }));
+    return { stored: await storedElement(backend, 'R', element.id), received: b };
+  }
+
+  it('strips a javascript: link on admission and in the relayed frame', async () => {
+    const { stored, received } = await relay('javascript:alert(1)');
+
+    expect(stored).toBeDefined();
+    expect(stored).not.toHaveProperty('link');
+    expect(relayedElements(received.sent)).toHaveLength(1);
+    expect(relayedElements(received.sent).every((el) => !('link' in el))).toBe(true);
+    expect(JSON.stringify(received.sent)).not.toContain('javascript:');
+  });
+
+  it('keeps an https link end to end', async () => {
+    const { stored, received } = await relay('https://example.com');
+
+    expect(stored?.link).toBe('https://example.com');
+    expect(relayedElements(received.sent).map((el) => el.link)).toEqual(['https://example.com']);
+  });
+
+  describe('upgrade: a stored element with a javascript: link is sent without it on every path', () => {
+    const old = (): SyncElement => ({
+      ...sampleEl(),
+      id: 'old',
+      version: 1,
+      link: 'javascript:alert(1)',
+    });
+
+    async function seeded(): Promise<MemoryHubBackend> {
+      const backend = new MemoryHubBackend();
+      await backend.applyElement('R', { kind: 'upsert', element: old() }, null);
+      return backend;
+    }
+
+    it('snapshot', async () => {
+      const hub = new SyncHub({ backend: await seeded() });
+      const conn = admit(hub, makeConn('A', 'R'));
+
+      await hub.handleMessage(conn.id, envelope(conn.id, { kind: 'request-snapshot' }));
+
+      expect(relayedElements(conn.sent).map((el) => el.id)).toEqual(['old']);
+      expect(relayedElements(conn.sent)[0]).not.toHaveProperty('link');
+      expect(JSON.stringify(conn.sent)).not.toContain('javascript:');
+    });
+
+    it('correction', async () => {
+      const hub = new SyncHub({ backend: await seeded() });
+      const conn = admit(hub, makeConn('A', 'R'));
+      const stale = { ...old(), link: undefined };
+
+      await hub.handleMessage(conn.id, envelope(conn.id, { kind: 'upsert', element: stale }));
+
+      expect(relayedElements(conn.sent).map((el) => el.id)).toEqual(['old']);
+      expect(relayedElements(conn.sent)[0]).not.toHaveProperty('link');
+      expect(JSON.stringify(conn.sent)).not.toContain('javascript:');
+    });
+
+    it('cross-instance fan-out from an instance that did not sanitize', async () => {
+      const bus = new InMemoryHubFanout();
+      const hub = new SyncHub({ instanceId: 'B', fanout: bus });
+      const conn = admit(hub, makeConn('b', 'R'));
+
+      bus.publish(
+        JSON.stringify({ o: 'A', room: 'R', from: 'a', op: { kind: 'upsert', element: old() } }),
+      );
+
+      await vi.waitFor(() => expect(relayedElements(conn.sent)).toHaveLength(1));
+      expect(relayedElements(conn.sent)[0]).not.toHaveProperty('link');
+      expect(JSON.stringify(conn.sent)).not.toContain('javascript:');
+      hub.close();
+    });
+  });
+});

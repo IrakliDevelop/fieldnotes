@@ -56,6 +56,7 @@ export {
   isNewerVersion,
   isWithinSyncLimits,
   applyOpToMap,
+  sanitizeElementLink,
   LAYER_SYNC_PROTOCOL_VERSION,
   LEGACY_SYNC_PROTOCOL_VERSION,
   ELEMENT_HIERARCHY_CAPABILITY_VERSION,

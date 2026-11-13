@@ -10,6 +10,7 @@ import {
   isNewerVersion,
   isWithinSyncLimits,
   elementWithinLimits,
+  sanitizeElementLink,
   ELEMENT_LIMIT_NAMES,
   type BatchOp,
   type ElementLimits,
@@ -823,7 +824,7 @@ export class SyncClient {
       for (const element of op.elements) {
         // parseLegacyEnvelope leaves snapshot elements to us: skip invalid and pre-v2 ones alone.
         if (!isValidElement(element) || !('index' in element)) continue;
-        runtimeElements.push(element);
+        runtimeElements.push(sanitizeElementLink(element));
       }
       for (const tombstone of op.tombstones ?? []) this.recordTombstone(tombstone);
       const roomTombstones = new Map((op.tombstones ?? []).map((t) => [t.id, t]));
@@ -912,7 +913,7 @@ export class SyncClient {
     authoritative: boolean,
   ): void {
     if (op.kind === 'upsert') {
-      let el: CanvasElement = op.element;
+      let el: CanvasElement = sanitizeElementLink(op.element);
       const existing = this.store.getById(el.id);
       if (
         !authoritative &&
