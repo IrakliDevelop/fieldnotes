@@ -32,8 +32,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - `BaseElement.link` holds an `http(s)`, `mailto` or internal `#fn:element=<id>` link.
   `isAllowedLink`, `normalizeLink`, `isPasteLink`, `elementLink`, `parseElementLink`,
   `Viewport.setLink` and `ViewportOptions.onOpenLink` work with it. The actions `link.set`,
-  `link.remove` and `link.open` add a `link` group to the default context menu (Add link… or Edit
-  link…, Remove link, Open link). `ToolContext.openLink` opens a link from a tool. Selected and
+  `link.remove` and `link.open` add a `link` group to the default context menu (Add link or Edit
+  link, Remove link, Open link). `ToolContext.openLink` opens a link from a tool. Selected and
   hovered linked elements show a badge that opens the link, `⌘/Ctrl+click` opens it too, and an
   internal link moves the camera to its element and selects it.
 - `onImageError` info gains `reason: 'load' | 'upload'` and is exported as `ImageErrorInfo`.

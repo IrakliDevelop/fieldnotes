@@ -463,7 +463,7 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
 export interface LinkActionDeps {
   setLink(ids: readonly string[], link: string | null): void;
   openLink(elementId: string): void;
-  promptLink(ids: readonly string[], initial: string): void;
+  promptLink(ids: readonly string[], initial: string, label: string): void;
 }
 
 function linkedIds(ctx: ActionContext): string[] {
@@ -484,15 +484,17 @@ function removableLinkIds(ctx: ActionContext): string[] {
 export function createLinkActions(deps: LinkActionDeps): ActionDefinition[] {
   const singleLink = (ctx: ActionContext) =>
     ctx.selectedIds.length === 1 ? ctx.store.getById(ctx.selectedIds[0] ?? '')?.link : undefined;
+  const setLabel = (ctx: ActionContext) =>
+    singleLink(ctx) === undefined ? 'Add link' : 'Edit link';
   return [
     {
       id: 'link.set',
-      label: (ctx) => (singleLink(ctx) === undefined ? 'Add link…' : 'Edit link…'),
+      label: setLabel,
       keywords: ['link', 'url', 'hyperlink'],
       icon: 'link',
       menu: menu('link', 10),
       enabled: (ctx) => hasSelection(ctx) && ctx.selectedIds.every((id) => isEditable(ctx, id)),
-      perform: (ctx) => deps.promptLink(ctx.selectedIds, singleLink(ctx) ?? ''),
+      perform: (ctx) => deps.promptLink(ctx.selectedIds, singleLink(ctx) ?? '', setLabel(ctx)),
     },
     {
       id: 'link.remove',

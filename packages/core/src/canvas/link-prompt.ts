@@ -5,6 +5,7 @@ export interface LinkPromptDeps {
   container: HTMLElement;
   wrapper: HTMLElement;
   initialValue: string;
+  label: string;
   onSubmit: (link: string | null) => void;
   onClose: () => void;
 }
@@ -15,7 +16,7 @@ export function openLinkPrompt(deps: LinkPromptDeps): () => void {
   root.className = 'fieldnotes-palette';
   root.setAttribute('role', 'dialog');
   root.setAttribute('aria-modal', 'true');
-  root.setAttribute('aria-label', 'Link');
+  root.setAttribute('aria-label', deps.label);
   const input = document.createElement('input');
   input.className = 'fieldnotes-palette-input';
   input.type = 'text';

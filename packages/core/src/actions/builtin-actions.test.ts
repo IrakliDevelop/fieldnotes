@@ -693,9 +693,9 @@ describe('createLinkActions', () => {
   });
 
   it.each([
-    [['linked'], 'Edit link…'],
-    [['plain'], 'Add link…'],
-    [['linked', 'linked2'], 'Add link…'],
+    [['linked'], 'Edit link'],
+    [['plain'], 'Add link'],
+    [['linked', 'linked2'], 'Add link'],
   ])('link.set label for %j is %s', (ids, expected) => {
     const { actions, ctx } = setup();
     const label = findAction(actions, 'link.set').label;
@@ -703,13 +703,13 @@ describe('createLinkActions', () => {
   });
 
   it.each([
-    [['linked'], 'https://a.example'],
-    [['plain'], ''],
-    [['linked', 'linked2'], ''],
-  ])('link.set for %j prompts with %j', (ids, initial) => {
+    [['linked'], 'https://a.example', 'Edit link'],
+    [['plain'], '', 'Add link'],
+    [['linked', 'linked2'], '', 'Add link'],
+  ])('link.set for %j prompts with %j titled %s', (ids, initial, label) => {
     const { actions, ctx, deps } = setup();
     findAction(actions, 'link.set').perform(ctx(ids), defaultInvocation);
-    expect(deps.promptLink).toHaveBeenCalledWith(ids, initial);
+    expect(deps.promptLink).toHaveBeenCalledWith(ids, initial, label);
   });
 
   it.each([

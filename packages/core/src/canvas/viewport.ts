@@ -543,7 +543,7 @@ export class Viewport {
     const unregisterLinkActions = createLinkActions({
       setLink: (ids, link) => this.setLink(ids, link),
       openLink: (id) => this.openElementLink(id, null),
-      promptLink: (ids, initial) => this.promptLink(ids, initial),
+      promptLink: (ids, initial, label) => this.promptLink(ids, initial, label),
     }).map((action) => this.actionRegistry.register(action));
     const unregisterEditText = this.actionRegistry.register({
       id: 'selection.edit-text',
@@ -1675,7 +1675,7 @@ export class Viewport {
     window.open(link, '_blank', 'noopener,noreferrer');
   }
 
-  private promptLink(ids: readonly string[], initial: string): void {
+  private promptLink(ids: readonly string[], initial: string, label: string): void {
     this.contextMenu?.close();
     this.linkPromptClose?.();
     const frozen = [...ids];
@@ -1683,6 +1683,7 @@ export class Viewport {
       container: this.container,
       wrapper: this.wrapper,
       initialValue: initial,
+      label,
       // A peer may delete or lock an id while the prompt is open.
       onSubmit: (link) => {
         const ids = frozen.filter((id) => {

@@ -6,7 +6,7 @@ import { openLinkPrompt } from './link-prompt';
 
 const opened: (() => void)[] = [];
 
-function setup(initialValue = '') {
+function setup(initialValue = '', label = 'Add link') {
   const wrapper = document.createElement('div');
   wrapper.tabIndex = 0;
   document.body.append(wrapper);
@@ -16,6 +16,7 @@ function setup(initialValue = '') {
     container: document.body,
     wrapper,
     initialValue,
+    label,
     onSubmit,
     onClose,
   });
@@ -30,7 +31,7 @@ function press(target: HTMLElement, key: string): void {
 }
 
 function mounted(): Element | null {
-  return document.querySelector('[role="dialog"][aria-label="Link"]');
+  return document.querySelector('[role="dialog"][aria-label="Add link"]');
 }
 
 afterEach(() => {
@@ -94,6 +95,11 @@ describe('openLinkPrompt', () => {
     expect(input.value).toBe('https://x.y');
     expect(document.activeElement).toBe(input);
     expect(mounted()?.getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('names the dialog with the given label', () => {
+    setup('https://x.y', 'Edit link');
+    expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Edit link');
   });
 
   it('close twice calls onClose once', () => {

@@ -3638,7 +3638,7 @@ describe('Viewport', () => {
         '---',
         'Lock',
         '---',
-        'Add link…',
+        'Add link',
       ]);
       viewport.destroy();
     });
@@ -7032,7 +7032,7 @@ describe('Viewport links', () => {
         document.querySelector('.fieldnotes-context-menu')?.children ?? [],
       ).map((el) => (el.getAttribute('role') === 'separator' ? '---' : (el.textContent ?? '')));
       expect(entries.slice(entries.lastIndexOf('---') + 1)).toEqual([
-        'Edit link…',
+        'Edit link',
         'Remove link',
         'Open link',
       ]);
