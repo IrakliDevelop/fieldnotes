@@ -76,6 +76,8 @@ export function decodeClipboard(
     !isRecord(data) ||
     data['type'] !== FIELDNOTES_CLIPBOARD_TYPE ||
     typeof data['version'] !== 'number' ||
+    !Number.isInteger(data['version']) ||
+    data['version'] < 1 ||
     data['version'] > CLIPBOARD_ENVELOPE_VERSION ||
     typeof data['stateVersion'] !== 'number' ||
     data['stateVersion'] > CANVAS_STATE_VERSION ||

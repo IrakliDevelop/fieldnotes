@@ -93,6 +93,8 @@ describe('clipboard codec', () => {
 
   it.each([
     ['version 2', { version: 2 }],
+    ['version 0', { version: 0 }],
+    ['version 0.5', { version: 0.5 }],
     ['stateVersion 7', { stateVersion: 7 }],
     ['wrong type', { type: 'other/clipboard' }],
   ])('%s decodes to null', (_, fields) => {
