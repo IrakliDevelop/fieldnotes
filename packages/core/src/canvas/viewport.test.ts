@@ -1538,19 +1538,21 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('skips non-image files', () => {
+    it('skips non-image files', async () => {
       const viewport = new Viewport(container);
       const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
         .interactions;
-      const mockFile = { type: 'application/pdf' };
-      const mockEvent = {
+      const file = new File(['%PDF'], 'a.pdf', { type: 'application/pdf' });
+
+      priv.onDrop({
         preventDefault: vi.fn(),
-        dataTransfer: { files: [mockFile] },
+        dataTransfer: { files: [file] },
         clientX: 100,
         clientY: 100,
-      };
-      priv.onDrop(mockEvent);
-      expect(viewport.store.getElementsByType('image').length).toBe(0);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(viewport.store.count).toBe(0);
       viewport.destroy();
     });
 
@@ -1572,34 +1574,36 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('skips non-string FileReader results', () => {
-      const viewport = new Viewport(container);
+    it('reports a non-string FileReader result as a load error and inserts nothing', async () => {
+      vi.stubGlobal(
+        'FileReader',
+        class {
+          result = new ArrayBuffer(0);
+          onload: (() => void) | null = null;
+          readAsDataURL() {
+            queueMicrotask(() => this.onload?.());
+          }
+        },
+      );
+      const onImageError = vi.fn();
+      const viewport = new Viewport(container, { onImageError });
       const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
         .interactions;
-      const mockFile = { type: 'image/png' };
-      const captured: { onload: (() => void) | null } = { onload: null };
-      const OrigFileReader = globalThis.FileReader;
-      globalThis.FileReader = class {
-        result: unknown = new ArrayBuffer(0);
-        readAsDataURL = vi.fn();
-        set onload(fn: (() => void) | null) {
-          captured.onload = fn;
-        }
-      } as unknown as typeof FileReader;
+      const file = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' });
 
-      const mockEvent = {
+      priv.onDrop({
         preventDefault: vi.fn(),
-        dataTransfer: { files: [mockFile] },
+        dataTransfer: { files: [file] },
         clientX: 100,
         clientY: 100,
-      };
-      priv.onDrop(mockEvent);
-      if (captured.onload) {
-        captured.onload();
-      }
-      expect(viewport.store.getElementsByType('image').length).toBe(0);
+      });
+      await vi.waitFor(() =>
+        expect(onImageError).toHaveBeenCalledWith(
+          expect.objectContaining({ src: 'a.png', elementIds: [], reason: 'load' }),
+        ),
+      );
 
-      globalThis.FileReader = OrigFileReader;
+      expect(viewport.store.count).toBe(0);
       viewport.destroy();
     });
   });
