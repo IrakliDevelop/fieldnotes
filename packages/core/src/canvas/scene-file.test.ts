@@ -38,6 +38,8 @@ describe('readSceneFile', () => {
   it.each([
     ['board.fieldnotes', ''],
     ['board.json', ''],
+    ['Board.FIELDNOTES', ''],
+    ['Board.JSON', ''],
     ['board', 'application/json'],
     ['board', 'application/vnd.fieldnotes+json'],
   ])('reads a board file named %s with type %s', async (name, type) => {
@@ -50,6 +52,12 @@ describe('readSceneFile', () => {
     const file = pngFile(appendItxtChunk(minimalPng, 'fieldnotes:scene', envelope()));
 
     expect(await readSceneFile(file)).toEqual(state());
+  });
+
+  it('reads the scene from an untyped PNG named with an upper-case extension', async () => {
+    const bytes = appendItxtChunk(minimalPng, 'fieldnotes:scene', envelope());
+
+    expect(await readSceneFile(new File([bytes], 'Scene.PNG'))).toEqual(state());
   });
 
   it('returns null for a PNG without a scene or with only a foreign iTXt chunk', async () => {

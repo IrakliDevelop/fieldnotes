@@ -410,6 +410,19 @@ describe('ContentInserter.insertFiles scene, board and text files', () => {
     expect(calls.inserted).toEqual([[{ ...image, src: 'https://cdn/i.png' }]]);
   });
 
+  it.each([
+    ['Board.FIELDNOTES', () => new File([boardJson([shapeOn('l1', 'a0')])], 'Board.FIELDNOTES')],
+    ['Notes.TXT', () => new File(['hello'], 'Notes.TXT')],
+  ])(
+    'an untyped %s with an upper-case extension is claimed and inserted on drop',
+    async (_, file) => {
+      const { store, inserter } = setup();
+
+      expect(inserter.insertFiles([file()], { x: 0, y: 0 }, 'drop')).toBe(true);
+      await vi.waitFor(() => expect(store.count).toBe(1));
+    },
+  );
+
   it('two files land in one undo step', async () => {
     const { store, stack, inserter } = setup({
       assets: { upload: () => Promise.resolve({ src: 'https://cdn/a.png' }) },

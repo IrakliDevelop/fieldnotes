@@ -16,7 +16,7 @@ interface FileLike {
 }
 
 const nameEndsWith = (file: FileLike, ...suffixes: string[]) =>
-  suffixes.some((suffix) => file.name?.endsWith(suffix) === true);
+  suffixes.some((suffix) => file.name?.toLowerCase().endsWith(suffix) === true);
 
 export function isBoardFile(file: FileLike): boolean {
   return (
