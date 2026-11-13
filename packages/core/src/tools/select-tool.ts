@@ -45,7 +45,6 @@ import {
 import type { HandlePosition, OverlayLayout } from './select-overlay';
 import {
   HANDLE_CURSORS,
-  LINK_BADGE_OFFSET,
   drawLinkBadge,
   getOverlayLayout,
   linkBadgeCenter,
@@ -719,12 +718,17 @@ export class SelectTool implements Tool {
     const zoom = ctx.camera.zoom;
     const layout =
       hoveredEl?.link === undefined ? null : getOverlayLayout(hoveredEl, zoom, ctx.elementRegistry);
-    if (hovered !== null && layout) {
-      // The badge sits outside the hit tolerance; keep the hover between the `ne` corner and it.
+    const ne = layout?.corners.find(([h]) => h === 'ne')?.[1];
+    if (hovered !== null && layout && ne) {
+      // The badge sits outside the element; keep the hover between the `ne` corner and it.
       const c = linkBadgeCenter(layout, zoom);
-      const o = LINK_BADGE_OFFSET / zoom;
       const r = LINK_BADGE_HIT_RADIUS / zoom;
-      if (world.x >= c.x - o && world.x <= c.x + r && world.y >= c.y - r && world.y <= c.y + o) {
+      if (
+        world.x >= Math.min(ne.x, c.x - r) &&
+        world.x <= Math.max(ne.x, c.x + r) &&
+        world.y >= Math.min(ne.y, c.y - r) &&
+        world.y <= Math.max(ne.y, c.y + r)
+      ) {
         ctx.setCursor?.('default');
         return hovered;
       }

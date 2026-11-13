@@ -98,15 +98,16 @@ export function drawLockBadge(
   ctx.restore();
 }
 
-/** Screen-pixel distance of the link badge centre right of and above the `ne` corner. */
+/** Screen-pixel distance of the link badge centre outward from the `ne` corner along each axis. */
 export const LINK_BADGE_OFFSET = 18;
 /** Screen-pixel radius of the drawn link badge. */
 export const LINK_BADGE_RADIUS = 9;
 
-/** World-space centre of an element's link badge. */
+/** World-space centre of an element's link badge, outside its rotated `ne` corner. */
 export function linkBadgeCenter(layout: OverlayLayout, zoom: number): Point {
   const ne = layout.corners.find(([h]) => h === 'ne')?.[1] ?? layout.center;
-  return { x: ne.x + LINK_BADGE_OFFSET / zoom, y: ne.y - LINK_BADGE_OFFSET / zoom };
+  const o = LINK_BADGE_OFFSET / zoom;
+  return rotatePoint({ x: ne.x + o, y: ne.y - o }, ne, layout.angle);
 }
 
 /** Draws the link badge: a filled disc with a white chain glyph. */

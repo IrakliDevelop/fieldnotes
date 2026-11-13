@@ -3260,6 +3260,30 @@ describe('SelectTool link badge', () => {
     expect(tool.selectedIds).toEqual([]);
   });
 
+  it('the badge of an element rotated 180° sits outside its rotated ne corner', () => {
+    const { tool, ctx, openLink, shape } = setup();
+    ctx.store.update(shape.id, { rotation: Math.PI });
+    const rotated = ctx.store.getById(shape.id);
+    if (!rotated) throw new Error('expected shape');
+    expect(isInsideBounds({ x: -22, y: 72 }, rotated, ctx)).toBe(false);
+
+    click(tool, ctx, 14, 36);
+    expect(openLink).not.toHaveBeenCalled();
+    click(tool, ctx, -22, 72);
+    expect(openLink).toHaveBeenCalledWith(shape.id);
+  });
+
+  it('the hover survives the path to the badge of an element rotated 90°', () => {
+    const { tool, ctx, openLink, setCursor, shape } = setup(true, false);
+    ctx.store.update(shape.id, { rotation: Math.PI / 2 });
+    tool.onHover?.(pt(50, 25), ctx);
+    tool.onHover?.(pt(88, 84), ctx);
+    tool.onHover?.(pt(97, 97), ctx);
+    expect(setCursor).toHaveBeenLastCalledWith('pointer');
+    click(tool, ctx, 97, 97);
+    expect(openLink).toHaveBeenCalledWith(shape.id);
+  });
+
   it('hovering the badge sets the pointer cursor', () => {
     const { tool, ctx, setCursor } = setup();
     tool.onHover?.(pt(122, -22), ctx);
