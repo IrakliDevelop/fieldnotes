@@ -105,18 +105,17 @@ export function decodeClipboard(
   return elements;
 }
 
-/** Whether a payload claims to carry a Field Notes envelope, valid or not. */
+const ENVELOPE_PREFIX = `{"type":"${FIELDNOTES_CLIPBOARD_TYPE}"`;
+
+/** Whether a payload claims to carry a Field Notes envelope, valid or not, at any size. */
 export function hasClipboardMarker(payload: Partial<ClipboardPayload>): boolean {
   const { vendor, html, text } = payload;
-  if (vendor && vendor.length <= MAX_CLIPBOARD_CHARS) return true;
-  if (html && html.length <= MAX_CLIPBOARD_CHARS && envelopeAttribute(html) !== null) return true;
-  if (!text || text.length > MAX_CLIPBOARD_CHARS || !text.trimStart().startsWith('{')) return false;
-  try {
-    const data: unknown = JSON.parse(text);
-    return isRecord(data) && data['type'] === FIELDNOTES_CLIPBOARD_TYPE;
-  } catch {
-    return false;
-  }
+  // No size cap and no parse: an over-cap envelope must still never paste as text.
+  return (
+    Boolean(vendor) ||
+    html?.includes('data-fieldnotes=') === true ||
+    text?.trimStart().startsWith(ENVELOPE_PREFIX) === true
+  );
 }
 
 // DOMParser documents are inert: no scripts run and no resources load.

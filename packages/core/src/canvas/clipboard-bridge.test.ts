@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Camera } from './camera';
 import { ClipboardBridge } from './clipboard-bridge';
 import type { ClipboardHost } from './clipboard-bridge';
-import { encodeClipboard, FIELDNOTES_CLIPBOARD_TYPE } from './clipboard-codec';
+import { encodeClipboard, FIELDNOTES_CLIPBOARD_TYPE, MAX_CLIPBOARD_CHARS } from './clipboard-codec';
 import { KeyboardActions } from './keyboard-actions';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import { createNote, createShape } from '../elements/element-factory';
@@ -209,6 +209,35 @@ describe('ClipboardBridge.paste', () => {
 
     expect(hostCalls(host)).toBe(0);
     expect(memory).not.toHaveBeenCalled();
+  });
+
+  describe('an envelope over the size cap', () => {
+    const overCap = envelope.vendor + ' '.repeat(MAX_CLIPBOARD_CHARS + 1 - envelope.vendor.length);
+    const cases: [string, PasteData][] = [
+      ['vendor and text', { vendor: overCap, text: overCap }],
+      ['text only', { text: overCap }],
+    ];
+
+    it.each(cases)('in %s pastes from memory after a same-tab copy', (_, data) => {
+      const { store, ka, host, bridge } = setup();
+      ka.copy();
+
+      bridge.paste(pasteEvent(data), anchor);
+
+      expect(hostCalls(host)).toBe(0);
+      expect(store.count).toBe(2);
+    });
+
+    it.each(cases)('in %s inserts nothing with an empty memory clipboard', (_, data) => {
+      const { store, host, bridge } = setup();
+      const event = pasteEvent(data);
+
+      bridge.paste(event, anchor);
+
+      expect(hostCalls(host)).toBe(0);
+      expect(store.count).toBe(1);
+      expect(event.defaultPrevented).toBe(true);
+    });
   });
 
   it('vendor wins over html', () => {

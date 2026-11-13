@@ -153,13 +153,20 @@ describe('clipboard codec', () => {
     expect(decodeClipboard({ vendor: envelope(fields) })).toBeNull();
   });
 
-  it('input above the cap decodes to null', { timeout: 30_000 }, () => {
-    const vendor = envelope({});
-    const padded = vendor + ' '.repeat(MAX_CLIPBOARD_CHARS + 1 - vendor.length);
-    expect(decodeClipboard({ vendor: padded })).toBeNull();
-    expect(decodeClipboard({ vendor, text: padded })).toBeNull();
-    expect(hasClipboardMarker({ text: padded })).toBe(false);
-  });
+  it(
+    'input above the cap decodes to null and still counts as a marker',
+    { timeout: 30_000 },
+    () => {
+      const vendor = envelope({});
+      const padded = vendor + ' '.repeat(MAX_CLIPBOARD_CHARS + 1 - vendor.length);
+      expect(decodeClipboard({ vendor: padded })).toBeNull();
+      expect(decodeClipboard({ vendor, text: padded })).toBeNull();
+      expect(hasClipboardMarker({ vendor: padded })).toBe(true);
+      expect(hasClipboardMarker({ html: `<div data-fieldnotes="x">${padded}</div>` })).toBe(true);
+      expect(hasClipboardMarker({ text: padded })).toBe(true);
+      expect(hasClipboardMarker({ text: `{"type":"other"}${padded}` })).toBe(false);
+    },
+  );
 
   it('encode strips transient html and writes readable text', () => {
     const one = createNote({ position: origin, index: 'a0', text: 'one<br>two &amp; <b>x</b>' });

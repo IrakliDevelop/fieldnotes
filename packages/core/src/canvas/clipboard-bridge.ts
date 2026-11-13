@@ -110,7 +110,10 @@ export class ClipboardBridge {
     if (marker) {
       // A marker ends the paste even when decoding fails: never reinterpret it as text.
       const elements = decodeClipboard(payload, host.elementRegistry);
+      const ka = this.deps.keyboardActions;
       if (elements) host.insertElements(elements, anchor);
+      // An over-cap envelope copied in this tab still pastes from the memory clipboard.
+      else if (ka.hasClipboard()) ka.paste();
       return;
     }
     if (claimed.length > 0) {
