@@ -6505,8 +6505,10 @@ describe('Viewport links', () => {
     const id = addShape(board.viewport, { x: 0, y: 0 }, 'https://x.y');
     board.viewport.toolContext.openLink?.(id);
     expect(onOpenLink.mock.lastCall?.[1]).toBeNull();
-    const move = new PointerEvent('pointermove', { clientX: 10, clientY: 10, pointerId: 1 });
+    pointerDown(board.wrapper, 400, 400);
+    const move = new PointerEvent('pointermove', { clientX: 400, clientY: 400, pointerId: 1 });
     board.wrapper.dispatchEvent(move);
+    pointerUp(board.wrapper, 400, 400);
     board.viewport.toolContext.openLink?.(id);
     expect(onOpenLink.mock.lastCall?.[1]).toBe(move);
     expect(open).toHaveBeenCalledTimes(2);
@@ -6530,6 +6532,31 @@ describe('Viewport links', () => {
     pointerUp(wrapper, 50, 25, { ctrlKey: true });
     expect(open).toHaveBeenCalledTimes(1);
     expect(viewport.getSelectedIds()).toEqual([id]);
+  });
+
+  it('a Ctrl+press on a badge over another linked element opens one link', () => {
+    const { viewport, wrapper } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://a.example');
+    const under = {
+      ...createShape({
+        shape: 'rectangle',
+        position: { x: 110, y: -40 },
+        size: { w: 40, h: 40 },
+        layerId: viewport.layerManager.activeLayerId,
+      }),
+      link: 'https://b.example',
+    };
+    viewport.store.add(under);
+    viewport.toolContext.setSelection?.([id]);
+
+    pointerDown(wrapper, 122, -22, { ctrlKey: true });
+    pointerUp(wrapper, 122, -22, { ctrlKey: true });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith('https://a.example', '_blank', 'noopener,noreferrer');
+
+    pointerDown(wrapper, 122, -22);
+    pointerUp(wrapper, 122, -22);
+    expect(open).toHaveBeenCalledTimes(2);
   });
 
   it('a blocked popup does not throw or change the selection', () => {

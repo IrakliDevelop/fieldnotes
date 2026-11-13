@@ -441,7 +441,8 @@ export class Viewport {
       constraintService: this.constraintProxy,
       elementRegistry: this.elementRegistry,
       selectionColor: options.selectionColor,
-      openLink: (id: string) => this.openElementLink(id, this.inputHandler.getLastPointerEvent()),
+      openLink: (id: string) =>
+        this.interactions.openGestureLink(id, this.inputHandler.getLastPointerEvent()),
     };
 
     const acceptsPointer = (e: PointerEvent): boolean =>

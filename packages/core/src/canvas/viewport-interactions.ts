@@ -40,7 +40,7 @@ export interface ViewportInteractionsDeps {
   acceptsPointer?: (e: PointerEvent) => boolean;
   isMac: () => boolean;
   activeToolName: () => string | null;
-  openLink: (elementId: string, event: PointerEvent) => void;
+  openLink: (elementId: string, event: PointerEvent | null) => void;
 }
 
 export class ViewportInteractions {
@@ -49,6 +49,7 @@ export class ViewportInteractions {
   private tapDownY = 0;
   private tapModifier = false;
   private tapWasInteracting = false;
+  private gestureOpenedLink = false;
   private createdEdit: { id: string; transactionId: number } | null = null;
 
   constructor(private readonly deps: ViewportInteractionsDeps) {}
@@ -199,7 +200,15 @@ export class ViewportInteractions {
     this.liveFitHeight(elementId);
   }
 
+  /** Opens a link at most once per pointer gesture: a modifier press on a badge must not open twice. */
+  openGestureLink(elementId: string, event: PointerEvent | null): void {
+    if (this.gestureOpenedLink) return;
+    this.gestureOpenedLink = true;
+    this.deps.openLink(elementId, event);
+  }
+
   onTapDown = (e: PointerEvent): void => {
+    this.gestureOpenedLink = false;
     if (!this.accepts(e)) return;
     this.tapDownX = e.clientX;
     this.tapDownY = e.clientY;
@@ -222,7 +231,7 @@ export class ViewportInteractions {
     if (this.tapModifier && !this.tapWasInteracting && this.deps.activeToolName() === 'select') {
       const hit = hitTest(world, this.deps.toolContext);
       if (hit?.link !== undefined) {
-        this.deps.openLink(hit.id, e);
+        this.openGestureLink(hit.id, e);
         return;
       }
     }
