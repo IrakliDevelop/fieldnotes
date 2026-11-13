@@ -1,10 +1,12 @@
 import type { Point } from '../core/types';
+import type { CanvasState } from '../core/state-serializer';
 import type { ElementStore } from '../elements/element-store';
 import type { ElementRegistry } from '../elements/element-registry';
 import type { CanvasElement } from '../elements/types';
 import { createText } from '../elements/element-factory';
 import { escapePlainTextHtml } from '../elements/note-sanitizer';
 import { measureText } from '../elements/text-measure';
+import { isBoardFile, isSceneImageFile, isTextFile, readSceneFile } from './scene-file';
 
 /** Why the host is being asked to upload an image. */
 export interface AssetUploadContext {
@@ -27,6 +29,7 @@ export interface ImageErrorInfo {
 export type InsertKind = 'drop' | 'paste';
 
 export const MAX_PASTE_TEXT_CHARS = 10_000;
+export const MAX_TEXT_FILE_BYTES = 40_000;
 export const PASTE_TEXT_MAX_WIDTH = 400;
 export const IMAGE_BOX = { w: 300, h: 200 } as const;
 
@@ -86,26 +89,27 @@ export class ContentInserter {
       this.deps.insertElements(elements, anchor);
       return;
     }
-    void Promise.allSettled(elements.map((el) => this.rehost(el))).then((results) => {
-      const kept: CanvasElement[] = [];
-      for (const result of results) if (result.status === 'fulfilled') kept.push(result.value);
-      this.deps.insertWhenIdle(() => this.deps.insertElements(kept, anchor));
-    });
+    void this.rehostAll(elements).then((kept) =>
+      this.deps.insertWhenIdle(() => this.deps.insertElements(kept, anchor)),
+    );
   }
 
-  claimsFile(file: { name?: string; type: string }, _kind: InsertKind): boolean {
-    return file.type.startsWith('image/');
+  claimsFile(file: { name?: string; type: string }, kind: InsertKind): boolean {
+    return (
+      file.type.startsWith('image/') || isBoardFile(file) || (kind === 'drop' && isTextFile(file))
+    );
   }
 
   insertFiles(files: readonly File[], anchor: Point, kind: InsertKind): boolean {
     const jobs = files
       .filter((file) => this.claimsFile(file, kind))
-      .map((file) => this.imageJob(file, anchor, kind));
+      .map((file) => this.fileJob(file, anchor, kind));
     if (jobs.length === 0) return false;
     void Promise.allSettled(jobs).then((results) =>
       this.deps.insertWhenIdle(() => {
-        const ids: string[] = [];
-        for (const result of results) if (result.status === 'fulfilled') ids.push(result.value());
+        const ids = results.flatMap((result) =>
+          result.status === 'fulfilled' ? result.value() : [],
+        );
         if (ids.length === 0) return;
         this.deps.switchToSelect();
         this.deps.setSelection(ids);
@@ -114,7 +118,35 @@ export class ContentInserter {
     return true;
   }
 
-  private async imageJob(file: File, anchor: Point, kind: InsertKind): Promise<() => string> {
+  // Classification order matches claimsFile: scene image, other image, board file, then text on drop.
+  private async fileJob(file: File, anchor: Point, kind: InsertKind): Promise<() => string[]> {
+    const registry = this.deps.elementRegistry;
+    if (file.type.startsWith('image/')) {
+      const state = isSceneImageFile(file) ? await readSceneFile(file, registry) : null;
+      return state ? this.sceneJob(state, anchor) : this.imageJob(file, anchor, kind);
+    }
+    if (isBoardFile(file)) {
+      const state = await readSceneFile(file, registry);
+      return state ? this.sceneJob(state, anchor) : () => [];
+    }
+    const text = await file.slice(0, MAX_TEXT_FILE_BYTES).text();
+    return () => {
+      const id = this.insertText(text, anchor);
+      return id === null ? [] : [id];
+    };
+  }
+
+  // The file's layers, camera and plugin state stay out: elements land on the active layer.
+  private async sceneJob(state: CanvasState, anchor: Point): Promise<() => string[]> {
+    const hidden = new Set(state.layers?.filter((l) => l.visible === false).map((l) => l.id));
+    const kept = await this.rehostAll(state.elements.filter((el) => !hidden.has(el.layerId)));
+    return () => {
+      this.deps.insertElements(kept, anchor);
+      return [];
+    };
+  }
+
+  private async imageJob(file: File, anchor: Point, kind: InsertKind): Promise<() => string[]> {
     const { assets } = this.deps;
     let src: string;
     try {
@@ -129,7 +161,7 @@ export class ContentInserter {
       throw cause;
     }
     const topLeft = { x: anchor.x - IMAGE_BOX.w / 2, y: anchor.y - IMAGE_BOX.h / 2 };
-    return () => this.deps.addImage(src, topLeft);
+    return () => [this.deps.addImage(src, topLeft)];
   }
 
   // With a resolver no inline image reaches synced state; without one, only tab-scoped blob: is unsafe.
@@ -138,6 +170,11 @@ export class ContentInserter {
     return (
       el.src.startsWith('blob:') || (this.deps.assets !== undefined && el.src.startsWith('data:'))
     );
+  }
+
+  private async rehostAll(elements: CanvasElement[]): Promise<CanvasElement[]> {
+    const results = await Promise.allSettled(elements.map((el) => this.rehost(el)));
+    return results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
   }
 
   private async rehost(el: CanvasElement): Promise<CanvasElement> {

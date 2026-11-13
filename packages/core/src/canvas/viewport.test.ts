@@ -33,7 +33,7 @@ import { LEGACY_ACTION_IDS } from '../actions/legacy-action-ids';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
-import { pointerDown, pointerUp } from '../test-helpers/pointer-helpers';
+import { pointerDown, pointerMove, pointerUp } from '../test-helpers/pointer-helpers';
 import { LaserTool } from '../tools/laser-tool';
 import { FIXED_HELP_ROWS } from './palette-model';
 import { setTextMeasurer } from '../elements/text-measure';
@@ -1541,7 +1541,7 @@ describe('Viewport', () => {
       const viewport = new Viewport(container);
       const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
         .interactions;
-      const mockFile = { type: 'text/plain' };
+      const mockFile = { type: 'application/pdf' };
       const mockEvent = {
         preventDefault: vi.fn(),
         dataTransfer: { files: [mockFile] },
@@ -1553,35 +1553,21 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('processes image files via FileReader', () => {
+    it('processes image files via FileReader', async () => {
       const viewport = new Viewport(container);
       const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
         .interactions;
-      const mockFile = { type: 'image/png' };
-      const captured: { onload: (() => void) | null } = { onload: null };
-      const OrigFileReader = globalThis.FileReader;
-      globalThis.FileReader = class {
-        result: unknown = 'data:image/png;base64,abc';
-        readAsDataURL = vi.fn();
-        set onload(fn: (() => void) | null) {
-          captured.onload = fn;
-        }
-      } as unknown as typeof FileReader;
+      const file = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' });
 
-      const mockEvent = {
+      priv.onDrop({
         preventDefault: vi.fn(),
-        dataTransfer: { files: [mockFile] },
+        dataTransfer: { files: [file] },
         clientX: 100,
         clientY: 100,
-      };
-      priv.onDrop(mockEvent);
+      });
+      await vi.waitFor(() => expect(viewport.store.getElementsByType('image')).toHaveLength(1));
 
-      if (captured.onload) {
-        captured.onload();
-      }
-      expect(viewport.store.getElementsByType('image').length).toBe(1);
-
-      globalThis.FileReader = OrigFileReader;
+      expect(viewport.store.getElementsByType('image')[0]?.src).toBe('data:image/png;base64,AQID');
       viewport.destroy();
     });
 
@@ -2506,7 +2492,7 @@ describe('Viewport', () => {
       Object.defineProperty(event, 'clientY', { value: 200 });
       Object.defineProperty(event, 'preventDefault', { value: vi.fn() });
       Object.defineProperty(event, 'dataTransfer', {
-        value: { files: [] },
+        value: { files: [], getData: () => '' },
       });
 
       expect(() => vp.domLayer.parentElement?.dispatchEvent(event)).not.toThrow();
@@ -6237,7 +6223,7 @@ describe('Viewport system clipboard paste', () => {
     const { viewport, wrapper, store } = board({ assets });
 
     paste(wrapper, { files: [png] });
-    expect(upload.mock.calls).toEqual([[png, { kind: 'paste' }]]);
+    await vi.waitFor(() => expect(upload.mock.calls).toEqual([[png, { kind: 'paste' }]]));
     expect(store.count).toBe(0);
     resolve('https://cdn.example/pic.png');
 
@@ -6250,10 +6236,11 @@ describe('Viewport system clipboard paste', () => {
   });
 
   it('an upload still pending when the viewport is destroyed inserts nothing', async () => {
-    const { assets, resolve } = deferredUpload();
+    const { assets, upload, resolve } = deferredUpload();
     const { viewport, wrapper, store } = board({ assets });
 
     paste(wrapper, { files: [png] });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
     viewport.destroy();
     resolve('https://cdn.example/pic.png');
     await new Promise((r) => setTimeout(r, 0));
@@ -6333,5 +6320,65 @@ describe('Viewport system clipboard paste', () => {
     expect(store.getById(shape.id)?.position).toEqual({ x: 1, y: 0 });
     viewport.undo();
     expect(store.getById(shape.id)?.position).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('Viewport drop', () => {
+  let harness: ReturnType<typeof createViewportHarness>;
+
+  beforeEach(() => {
+    setTextMeasurer((text) => text.length * 10);
+    harness = createViewportHarness();
+  });
+
+  afterEach(() => {
+    harness.cleanup();
+    setTextMeasurer(null);
+  });
+
+  function dropText(text: string): void {
+    const event = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+      clientX: { value: 200 },
+      clientY: { value: 150 },
+      dataTransfer: {
+        value: { files: [], getData: (t: string) => (t === 'text/plain' ? text : '') },
+      },
+    });
+    harness.wrapper.dispatchEvent(event);
+  }
+
+  const texts = () => harness.viewport.store.getAll().filter((el) => el.type === 'text');
+
+  it('a dropped text lands after the stroke in progress as its own undo step', async () => {
+    const { viewport, wrapper } = harness;
+    viewport.toolManager.setTool('pencil', viewport.toolContext);
+
+    pointerDown(wrapper, 100, 100);
+    pointerMove(wrapper, 110, 110);
+    dropText('hello');
+    pointerMove(wrapper, 120, 120);
+    expect(texts()).toHaveLength(0);
+    pointerUp(wrapper, 120, 120);
+    await Promise.resolve();
+
+    expect(texts()).toHaveLength(1);
+    viewport.undo();
+    expect(texts()).toHaveLength(0);
+    expect(viewport.store.getAll().map((el) => el.type)).toEqual(['stroke']);
+    viewport.undo();
+    expect(viewport.store.count).toBe(0);
+  });
+
+  it('a dropped text waits for an open transaction', async () => {
+    const { viewport } = harness;
+
+    viewport.historyRecorder.begin();
+    dropText('hello');
+    expect(texts()).toHaveLength(0);
+    viewport.historyRecorder.commit();
+    await Promise.resolve();
+
+    expect(texts()).toHaveLength(1);
   });
 });

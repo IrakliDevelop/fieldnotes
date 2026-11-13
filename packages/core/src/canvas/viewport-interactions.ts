@@ -1,4 +1,5 @@
 import type { Camera } from './camera';
+import type { Point } from '../core/types';
 import type { ElementStore } from '../elements/element-store';
 import type { NoteEditor } from '../elements/note-editor';
 import type { InteractMode } from './interact-mode';
@@ -17,6 +18,7 @@ import {
 import { hitTest } from '../tools/select-hit';
 import { isLiveControlTarget } from './live-control';
 import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
+import { isPasteLink, normalizeLink } from '../elements/link';
 
 export interface ViewportInteractionsDeps {
   store: ElementStore;
@@ -30,8 +32,11 @@ export interface ViewportInteractionsDeps {
   recorder: HistoryRecorder;
   toolContext: ToolContext;
   requestRender: () => void;
-  addImage: (src: string, position: { x: number; y: number }) => string;
-  dropHandler?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- undefined keeps the host-owns-it contract
+  dropHandler?: (event: DragEvent, worldPosition: Point) => boolean | void;
+  insertText(text: string, anchor: Point, link?: string): void;
+  insertFiles(files: File[], anchor: Point, kind: 'drop'): boolean;
+  insertWhenIdle(run: () => void): void;
   acceptsPointer?: (e: PointerEvent) => boolean;
 }
 
@@ -322,24 +327,28 @@ export class ViewportInteractions {
     const screenPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const worldPos = this.deps.camera.screenToWorld(screenPos);
 
-    if (this.deps.dropHandler) {
-      this.deps.dropHandler(e, worldPos);
+    if (this.deps.dropHandler && this.deps.dropHandler(e, worldPos) !== false) return;
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const files = [...dt.files];
+    if (files.length === 0) {
+      const uri =
+        dt
+          .getData('text/uri-list')
+          .split(/\r?\n/)
+          .find((l) => l.trim() !== '' && !l.startsWith('#')) ?? '';
+      const text = uri || dt.getData('text/plain');
+      const line = text.trim();
+      if (line === '') return;
+      this.deps.insertWhenIdle(() => {
+        if (!line.includes('\n') && isPasteLink(line)) {
+          this.deps.insertText(line, worldPos, normalizeLink(line) ?? undefined);
+        } else {
+          this.deps.insertText(text, worldPos);
+        }
+      });
       return;
     }
-
-    const files = e.dataTransfer?.files;
-    if (!files) return;
-
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        const src = reader.result;
-        if (typeof src !== 'string') return;
-        this.deps.addImage(src, worldPos);
-      };
-      reader.readAsDataURL(file);
-    }
+    this.deps.insertFiles(files, worldPos, 'drop');
   };
 }

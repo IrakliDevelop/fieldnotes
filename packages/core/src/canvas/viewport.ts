@@ -139,7 +139,12 @@ export interface ViewportOptions {
     domId: string | undefined,
     container: HTMLDivElement,
   ) => void;
-  onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
+  /**
+   * Called for every drop before core acts; return `false` to let core handle the drop.
+   * `true` or nothing means the host owns it.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- returning nothing keeps the host-owns-it contract
+  onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => boolean | void;
   /**
    * Called for every paste core would handle, before core acts; return `false` to let core
    * handle it. `true` or nothing means the host owns the paste.
@@ -235,10 +240,7 @@ export class Viewport {
     domId: string | undefined,
     container: HTMLDivElement,
   ) => void;
-  private readonly dropHandler?: (
-    event: DragEvent,
-    worldPosition: { x: number; y: number },
-  ) => void;
+  private readonly dropHandler: ViewportOptions['onDrop'];
   readonly constraintProxy = new ConstraintServiceProxy();
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
@@ -787,8 +789,10 @@ export class Viewport {
       recorder: this.historyRecorder,
       toolContext: this.toolContext,
       requestRender: () => this.requestRender(),
-      addImage: (src, position) => this.addImage(src, position),
       dropHandler: this.dropHandler,
+      insertText: (text, anchor, link) => this.inserter.insertText(text, anchor, link),
+      insertFiles: (files, anchor, kind) => this.inserter.insertFiles(files, anchor, kind),
+      insertWhenIdle: (run) => this.insertQueue.insertWhenIdle(run),
       acceptsPointer,
     });
     // Editing commits while the recorder and store listeners are still attached.

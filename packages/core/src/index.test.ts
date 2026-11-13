@@ -165,6 +165,22 @@ describe('core public surface', () => {
     }
   });
 
+  it('exports the scene file reader and constants without the file classifiers', async () => {
+    expect(FN.FIELDNOTES_FILE_EXTENSION).toBe('.fieldnotes');
+    expect(FN.FIELDNOTES_MIME_TYPE).toBe('application/vnd.fieldnotes+json');
+    expect(await FN.readSceneFile(new Blob(['not a board']))).toBeNull();
+    expectTypeOf(FN.readSceneFile).returns.toEqualTypeOf<Promise<FN.CanvasState | null>>();
+    for (const name of [
+      'isBoardFile',
+      'isSceneImageFile',
+      'isTextFile',
+      'MAX_SCENE_FILE_BYTES',
+      'MAX_TEXT_FILE_BYTES',
+    ]) {
+      expect(name in FN, `${name} should not be exported`).toBe(false);
+    }
+  });
+
   it('exports the camera view, animator, and focus presence surface', () => {
     expect(typeof FN.captureCameraView).toBe('function');
     expect(typeof FN.fitZoomForView).toBe('function');

@@ -76,7 +76,9 @@ function makeDeps(store: ElementStore, overrides: Partial<ViewportInteractionsDe
     recorder: { begin: vi.fn(), commit: vi.fn() } as never,
     toolContext: { camera, store, requestRender: vi.fn(), requestOverlayRender: vi.fn() },
     requestRender: vi.fn(),
-    addImage: vi.fn(() => 'img-id'),
+    insertText: vi.fn(),
+    insertFiles: vi.fn(() => true),
+    insertWhenIdle: vi.fn((run: () => void) => run()),
     ...overrides,
   };
   return { deps, nodes };
@@ -650,6 +652,94 @@ describe('ViewportInteractions', () => {
       interactions.onTextEditStop(note.id);
       expect(removeSpy).not.toHaveBeenCalled();
       expect(store.getById(note.id)).toBeDefined();
+    });
+  });
+
+  describe('onDrop', () => {
+    function drop(
+      interactions: ViewportInteractions,
+      data: Record<string, string>,
+      files: File[] = [],
+    ): DragEvent {
+      const event = new Event('drop', { cancelable: true });
+      Object.defineProperties(event, {
+        clientX: { value: 110 },
+        clientY: { value: 220 },
+        dataTransfer: { value: { files, getData: (t: string) => data[t] ?? '' } },
+      });
+      interactions.onDrop(event as DragEvent);
+      return event as DragEvent;
+    }
+
+    function setup(overrides: Partial<ViewportInteractionsDeps> = {}) {
+      const wrapper = document.createElement('div');
+      wrapper.getBoundingClientRect = () => new DOMRect(10, 20, 800, 600);
+      const camera = {
+        zoom: 2,
+        screenToWorld: (p: { x: number; y: number }) => ({ x: p.x / 2, y: p.y / 2 + 1 }),
+      } as never;
+      const { deps } = makeDeps(new ElementStore(), { wrapper, camera, ...overrides });
+      return { deps, interactions: new ViewportInteractions(deps) };
+    }
+
+    const world = { x: 50, y: 101 };
+
+    it('a uri-list drop inserts its first non-comment line as a link at the drop point', () => {
+      const { deps, interactions } = setup();
+
+      const event = drop(interactions, {
+        'text/uri-list': '# comment\r\nhttps://example.com',
+        'text/plain': 'ignored',
+      });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(deps.insertWhenIdle).toHaveBeenCalledOnce();
+      expect(vi.mocked(deps.insertText).mock.calls).toEqual([
+        ['https://example.com', world, 'https://example.com'],
+      ]);
+    });
+
+    it.each([
+      ['hello', 'hello'],
+      ['https://example.com\nb', 'https://example.com\nb'],
+    ])('a text/plain drop of %j inserts plain text with no link', (text, expected) => {
+      const { deps, interactions } = setup();
+
+      drop(interactions, { 'text/plain': text });
+
+      expect(vi.mocked(deps.insertText).mock.calls).toEqual([[expected, world]]);
+    });
+
+    it('a blank drop inserts nothing', () => {
+      const { deps, interactions } = setup();
+
+      drop(interactions, { 'text/plain': '  \n ' });
+
+      expect(deps.insertWhenIdle).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [undefined, 0],
+      [true, 0],
+      [false, 1],
+    ])('a dropHandler returning %s inserts %i times', (result, inserts) => {
+      const dropHandler = vi.fn(() => result);
+      const { deps, interactions } = setup({ dropHandler });
+
+      const event = drop(interactions, { 'text/plain': 'hello' });
+
+      expect(dropHandler.mock.calls).toEqual([[event, world]]);
+      expect(deps.insertText).toHaveBeenCalledTimes(inserts);
+    });
+
+    it('a file drop goes to insertFiles and inserts no text', () => {
+      const { deps, interactions } = setup();
+      const files = [new File(['a'], 'a.png', { type: 'image/png' }), new File(['b'], 'b.md')];
+
+      drop(interactions, { 'text/plain': 'hello' }, files);
+
+      expect(vi.mocked(deps.insertFiles).mock.calls).toEqual([[files, world, 'drop']]);
+      expect(deps.insertText).not.toHaveBeenCalled();
     });
   });
 });

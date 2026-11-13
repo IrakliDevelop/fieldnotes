@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ContentInserter, textHtmlFromPlain } from './content-inserter';
+import { ContentInserter, MAX_TEXT_FILE_BYTES, textHtmlFromPlain } from './content-inserter';
 import type { AssetResolver, ContentInserterDeps } from './content-inserter';
 import { InsertQueue } from './insert-queue';
 import { ElementStore } from '../elements/element-store';
@@ -9,6 +9,9 @@ import { createImage, createShape } from '../elements/element-factory';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import { measureText, setTextMeasurer } from '../elements/text-measure';
 import type { CanvasElement, ImageElement } from '../elements/types';
+import { exportState } from '../core/state-serializer';
+import type { Layer } from '../layers/types';
+import { appendItxtChunk } from './png-chunks';
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => undefined;
@@ -255,7 +258,7 @@ describe('ContentInserter.insertFiles', () => {
 
     expect(
       inserter.insertFiles(
-        [new File(['x'], 'a.txt', { type: 'text/plain' })],
+        [new File(['x'], 'a.pdf', { type: 'application/pdf' })],
         { x: 0, y: 0 },
         'drop',
       ),
@@ -264,6 +267,158 @@ describe('ContentInserter.insertFiles', () => {
 
     expect(store.count).toBe(0);
     expect(calls.switchToSelect).toBe(0);
+  });
+});
+
+describe('ContentInserter.insertFiles scene, board and text files', () => {
+  const minimalPng = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 1,
+    0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1f, 0x15, 0xc4, 0x89, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+  ]);
+  const layer = (id: string, visible: boolean): Layer => ({
+    id,
+    name: id,
+    visible,
+    locked: false,
+    order: 0,
+    opacity: 1,
+  });
+  const shapeOn = (layerId: string, index: string) => ({
+    ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, layerId }),
+    index,
+  });
+  const boardJson = (elements: CanvasElement[], layers: Layer[] = [layer('l1', true)]) =>
+    JSON.stringify(exportState(elements, { position: { x: 0, y: 0 }, zoom: 1 }, layers));
+  const board = (elements: CanvasElement[], layers?: Layer[]) =>
+    new File([boardJson(elements, layers)], 'board.fieldnotes');
+  const scenePng = (elements: CanvasElement[]) => {
+    const scene = JSON.stringify({
+      type: 'fieldnotes/scene',
+      version: 1,
+      state: JSON.parse(boardJson(elements)),
+    });
+    return new File([appendItxtChunk(minimalPng, 'fieldnotes:scene', scene)], 'scene.png', {
+      type: 'image/png',
+    });
+  };
+
+  it('a board file skips elements on hidden layers', async () => {
+    const shown = shapeOn('l1', 'a0');
+    const hidden = shapeOn('l2', 'a1');
+    const { calls, inserter } = setup();
+
+    const file = board([shown, hidden], [layer('l1', true), layer('l2', false)]);
+    expect(inserter.insertFiles([file], { x: 5, y: 5 }, 'drop')).toBe(true);
+    await vi.waitFor(() => expect(calls.inserted).toHaveLength(1));
+
+    expect(calls.inserted).toEqual([[shown]]);
+  });
+
+  it('a PNG with a scene inserts editable elements, not an image', async () => {
+    const shape = shapeOn('l1', 'a0');
+    const { store, calls, inserter } = setup();
+
+    inserter.insertFiles([scenePng([shape])], { x: 0, y: 0 }, 'paste');
+    await vi.waitFor(() => expect(calls.inserted).toHaveLength(1));
+
+    expect(calls.inserted).toEqual([[shape]]);
+    expect(images(store)).toHaveLength(0);
+    expect(calls.addImage).toBe(0);
+  });
+
+  it.each([
+    ['without a scene', minimalPng],
+    [
+      'whose only iTXt is XML:com.adobe.xmp',
+      appendItxtChunk(
+        minimalPng,
+        'XML:com.adobe.xmp',
+        JSON.stringify({ type: 'fieldnotes/scene', version: 1, state: JSON.parse(boardJson([])) }),
+      ),
+    ],
+  ])('a PNG %s inserts an image', async (_, bytes) => {
+    const file = new File([new Uint8Array(bytes)], 'a.png', { type: 'image/png' });
+    const { store, calls, inserter } = setup({
+      assets: { upload: () => Promise.resolve({ src: 'https://cdn/a.png' }) },
+    });
+
+    inserter.insertFiles([file], { x: 0, y: 0 }, 'drop');
+    await vi.waitFor(() => expect(store.count).toBe(1));
+
+    expect(images(store)[0]?.src).toBe('https://cdn/a.png');
+    expect(calls.inserted).toEqual([]);
+  });
+
+  it('a board file that does not parse is claimed and inserts nothing', async () => {
+    const { store, calls, inserter } = setup();
+    const file = new File(['{"version":6'], 'broken.json');
+
+    expect(inserter.claimsFile(file, 'paste')).toBe(true);
+    expect(inserter.insertFiles([file], { x: 0, y: 0 }, 'paste')).toBe(true);
+    await flush();
+
+    expect(store.count).toBe(0);
+    expect(calls.switchToSelect).toBe(0);
+  });
+
+  it('a text file is sliced to 40,000 characters on drop and unclaimed on paste', async () => {
+    const file = new File(['hello\nworld'], 'notes.md', { type: '' });
+    const slice = vi.spyOn(file, 'slice');
+    const { store, inserter } = setup();
+
+    expect(inserter.claimsFile(file, 'paste')).toBe(false);
+    expect(inserter.insertFiles([file], { x: 0, y: 0 }, 'paste')).toBe(false);
+    expect(inserter.insertFiles([file], { x: 0, y: 0 }, 'drop')).toBe(true);
+    await vi.waitFor(() => expect(store.count).toBe(1));
+
+    expect(MAX_TEXT_FILE_BYTES).toBe(40_000);
+    expect(slice.mock.calls).toEqual([[0, 40_000]]);
+    expect(store.getAll()[0]).toMatchObject({ type: 'text', text: 'hello<br>world' });
+  });
+
+  it('a board file with a data: image and a resolver uploads with kind import before one insert', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({ blob: () => Promise.resolve(new Blob(['x'], { type: 'image/png' })) }),
+    );
+    const image = {
+      ...createImage({
+        position: { x: 0, y: 0 },
+        size: { w: 10, h: 10 },
+        src: 'data:image/png;base64,eA==',
+        layerId: 'l1',
+      }),
+      index: 'a0',
+    };
+    const upload = deferred<{ src: string }>();
+    const contexts: unknown[] = [];
+    const { calls, inserter } = setup({
+      assets: {
+        upload: (_file, context) => {
+          contexts.push(context);
+          return upload.promise;
+        },
+      },
+    });
+
+    inserter.insertFiles([board([image])], { x: 0, y: 0 }, 'drop');
+    await vi.waitFor(() => expect(contexts).toEqual([{ kind: 'import' }]));
+    expect(calls.inserted).toEqual([]);
+    upload.resolve({ src: 'https://cdn/i.png' });
+    await vi.waitFor(() => expect(calls.inserted).toHaveLength(1));
+
+    expect(calls.inserted).toEqual([[{ ...image, src: 'https://cdn/i.png' }]]);
+  });
+
+  it('two files land in one undo step', async () => {
+    const { store, stack, inserter } = setup({
+      assets: { upload: () => Promise.resolve({ src: 'https://cdn/a.png' }) },
+    });
+
+    inserter.insertFiles([board([shapeOn('l1', 'a0')]), png()], { x: 0, y: 0 }, 'drop');
+    await vi.waitFor(() => expect(store.count).toBe(2));
+
+    expect(stack.undoCount).toBe(1);
   });
 });
 
