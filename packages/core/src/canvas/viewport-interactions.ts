@@ -203,7 +203,7 @@ export class ViewportInteractions {
     if (!this.accepts(e)) return;
     this.tapDownX = e.clientX;
     this.tapDownY = e.clientY;
-    this.tapModifier = this.deps.isMac() ? e.metaKey : e.ctrlKey;
+    this.tapModifier = e.button === 0 && (this.deps.isMac() ? e.metaKey : e.ctrlKey);
     // Read at down: interact mode's window pointerdown listener exits it before the up.
     this.tapWasInteracting = this.deps.interactMode.isInteracting();
   };

@@ -413,11 +413,11 @@ describe('ViewportInteractions', () => {
 
     function click(
       interactions: ViewportInteractions,
-      keys: { ctrlKey?: boolean; metaKey?: boolean },
+      keys: { ctrlKey?: boolean; metaKey?: boolean; button?: number },
       to = { x: 50, y: 30 },
     ): PointerEvent {
-      interactions.onTapDown({ clientX: 50, clientY: 30, ...keys } as PointerEvent);
-      const up = { clientX: to.x, clientY: to.y, ...keys } as PointerEvent;
+      interactions.onTapDown({ clientX: 50, clientY: 30, button: 0, ...keys } as PointerEvent);
+      const up = { clientX: to.x, clientY: to.y, button: 0, ...keys } as PointerEvent;
       interactions.onDoubleTap(up);
       return up;
     }
@@ -434,6 +434,12 @@ describe('ViewportInteractions', () => {
       expect(deps.openLink).not.toHaveBeenCalled();
       const up = click(interactions, { metaKey: true });
       expect(deps.openLink).toHaveBeenCalledWith(shape.id, up);
+    });
+
+    it.each([1, 2])('a Ctrl+press with button %i opens nothing', (button) => {
+      const { interactions, deps } = setup();
+      click(interactions, { ctrlKey: true, button });
+      expect(deps.openLink).not.toHaveBeenCalled();
     });
 
     it('a plain click opens nothing', () => {
