@@ -13,8 +13,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Copy and cut write the system clipboard as `fieldnotes/clipboard`, `text/html` and `text/plain`,
   so elements paste into another board. `FIELDNOTES_CLIPBOARD_TYPE`, `encodeClipboard`,
   `decodeClipboard`, `ClipboardEnvelope` and `ClipboardPayload` read and write that format.
+  `viewport.shortcuts.disable` on `edit.copy`, `edit.cut` or `edit.paste` turns off the matching
+  native event too.
 - Paste creates elements from Field Notes clipboard data, image files, board files, a single URL
-  line or plain text.
+  line or plain text. A frame child or bound text copied without its frame or container pastes as
+  a standalone element. Pasted and imported elements drop `ownerId` and `audience`.
 - Drop accepts board files (`.fieldnotes` or JSON), PNG or SVG exports with an embedded scene,
   images and text files. `readSceneFile`, `FIELDNOTES_FILE_EXTENSION` and `FIELDNOTES_MIME_TYPE`
   open and save board files.
@@ -29,10 +32,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - `BaseElement.link` holds an `http(s)`, `mailto` or internal `#fn:element=<id>` link.
   `isAllowedLink`, `normalizeLink`, `isPasteLink`, `elementLink`, `parseElementLink`,
   `Viewport.setLink` and `ViewportOptions.onOpenLink` work with it. The actions `link.set`,
-  `link.remove` and `link.open` sit in the `link` menu group. Selected and hovered linked elements
-  show a badge that opens the link, `⌘/Ctrl+click` opens it too, and an internal link moves the
-  camera to its element and selects it.
-- `onImageError` info gains `reason: 'load' | 'upload'`.
+  `link.remove` and `link.open` add a `link` group to the default context menu (Add link… or Edit
+  link…, Remove link, Open link). `ToolContext.openLink` opens a link from a tool. Selected and
+  hovered linked elements show a badge that opens the link, `⌘/Ctrl+click` opens it too, and an
+  internal link moves the camera to its element and selects it.
+- `onImageError` info gains `reason: 'load' | 'upload'` and is exported as `ImageErrorInfo`.
 
 **Changed**
 
@@ -40,8 +44,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   files, Field Notes clipboard data), not only images. Returning nothing or `true` means the host
   handled the paste; returning `false` lets core handle it. When `onPaste` is set, core calls
   `preventDefault` only after it returns `false`. A host that set `onPaste` only to block image
-  pastes now blocks all pastes.
+  pastes now blocks all pastes. A paste from the in-memory clipboard calls `onPaste` first too.
 - `ViewportOptions.onDrop` returns `boolean | void` with the same meaning.
+- Pressing the board clears a page text selection outside it, so copy and cut go to the board.
 - New paste and drop paths place content at the pointer, or at the viewport centre when there is
   no pointer; an image pasted with no pointer is now centred there too. Pasting from the in-memory
   clipboard keeps its placement.
