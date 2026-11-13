@@ -123,6 +123,19 @@ describe('ClipboardBridge', () => {
     expect(store.count).toBe(0);
   });
 
+  it('a throwing execCommand clears pendingWrite and cut deletes nothing', () => {
+    const { store, bridge } = setup();
+    document.execCommand = vi.fn(() => {
+      throw new Error('refused');
+    });
+
+    expect(() => bridge.copy()).toThrow('refused');
+    expect(bridge.pendingWrite).toBe(false);
+    expect(() => bridge.cut()).toThrow('refused');
+    expect(bridge.pendingWrite).toBe(false);
+    expect(store.count).toBe(1);
+  });
+
   it('copy skips execCommand when nothing is selected', () => {
     const { store, ka, bridge } = setup();
     for (const el of store.getAll()) store.remove(el.id);
