@@ -23,10 +23,8 @@ export interface KeyboardHandlerDeps {
   setSpaceHeld: (v: boolean) => void;
   getActivePointerCount: () => number;
   dispatchToolHover: (e: PointerEvent) => void;
-  addImage: (src: string, world: { x: number; y: number }) => string;
   getLastPointerWorld: () => { x: number; y: number } | null;
   getCenteredWorld: () => { x: number; y: number };
-  onPaste?: (e: ClipboardEvent, world: { x: number; y: number }) => void;
 }
 
 export class KeyboardHandler {
@@ -148,31 +146,7 @@ export class KeyboardHandler {
 
   onPaste = (e: ClipboardEvent): void => {
     if (!this.shouldHandle(e.target)) return;
-    const items = e.clipboardData?.items;
-    let file: File | null = null;
-    if (items) {
-      for (const it of items) {
-        if (it.kind === 'file' && it.type.startsWith('image/')) {
-          file = it.getAsFile();
-          break;
-        }
-      }
-    }
-    if (file) {
-      e.preventDefault();
-      const world = this.deps.getLastPointerWorld() ?? this.deps.getCenteredWorld();
-      if (this.deps.onPaste) {
-        this.deps.onPaste(e, world);
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') this.deps.addImage(reader.result, world);
-      };
-      reader.readAsDataURL(file);
-      return;
-    }
-    this.deps.keyboardActions.paste();
+    this.deps.clipboard.paste(e, this.deps.getLastPointerWorld() ?? this.deps.getCenteredWorld());
   };
 
   onCopy = (e: ClipboardEvent): void => {

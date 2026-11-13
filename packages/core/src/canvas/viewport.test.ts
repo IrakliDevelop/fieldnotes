@@ -3,7 +3,8 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from './viewport';
-import type { PluginConfigureContext, ViewportPlugin } from './viewport';
+import type { PluginConfigureContext, ViewportOptions, ViewportPlugin } from './viewport';
+import { encodeClipboard, FIELDNOTES_CLIPBOARD_TYPE } from './clipboard-codec';
 import type { Tool } from '../tools/types';
 import {
   createNote,
@@ -6136,4 +6137,183 @@ describe('Viewport live html elements', () => {
       vi.useRealTimers();
     },
   );
+});
+
+describe('Viewport system clipboard paste', () => {
+  const boards: Viewport[] = [];
+
+  beforeEach(() => setTextMeasurer((text) => text.length * 10));
+
+  afterEach(() => {
+    setTextMeasurer(null);
+    for (const board of boards.splice(0)) board.destroy();
+    document.body.replaceChildren();
+  });
+
+  function board(options: ViewportOptions = {}) {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600 }),
+    });
+    document.body.appendChild(container);
+    const viewport = new Viewport(container, options);
+    boards.push(viewport);
+    viewport.toolManager.register(new SelectTool());
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    const wrapper = wrapperOf(container);
+    Object.defineProperties(wrapper, {
+      clientWidth: { value: 800, configurable: true },
+      clientHeight: { value: 600, configurable: true },
+    });
+    wrapper.focus();
+    return { viewport, wrapper, store: viewport.store };
+  }
+
+  function paste(
+    target: HTMLElement,
+    data: { vendor?: string; text?: string; files?: File[] } = {},
+  ): ClipboardEvent {
+    const formats: Record<string, string | undefined> = {
+      [FIELDNOTES_CLIPBOARD_TYPE]: data.vendor,
+      'text/plain': data.text,
+    };
+    const files = data.files ?? [];
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        getData: (t: string) => formats[t] ?? '',
+        items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+        files,
+        types: [],
+      },
+    });
+    target.dispatchEvent(event);
+    return event as ClipboardEvent;
+  }
+
+  function deferredUpload() {
+    let resolve: (value: { src: string }) => void = () => undefined;
+    const upload = vi.fn(
+      () =>
+        new Promise<{ src: string }>((r) => {
+          resolve = r;
+        }),
+    );
+    return { assets: { upload }, upload, resolve: (src: string) => resolve({ src }) };
+  }
+
+  const png = new File([new Uint8Array([1])], 'pic.png', { type: 'image/png' });
+
+  it('pasting a URL creates one linked text element in one undo step centred on the wrapper centre', () => {
+    const { viewport, wrapper, store } = board();
+
+    paste(wrapper, { text: 'https://example.com' });
+
+    const [el] = store.getAll();
+    expect(store.count).toBe(1);
+    if (el?.type !== 'text') throw new Error('expected a text element');
+    expect(el.link).toBe('https://example.com');
+    const centre = viewport.camera.screenToWorld({ x: 400, y: 300 });
+    expect(el.position.x + el.size.w / 2).toBeCloseTo(centre.x);
+    expect(el.position.y + el.size.h / 2).toBeCloseTo(centre.y);
+    expect(viewport.getSelectedIds()).toEqual([el.id]);
+    viewport.undo();
+    expect(store.count).toBe(0);
+    expect(viewport.history.canUndo).toBe(false);
+  });
+
+  it('a javascript: line becomes a text element with no link', () => {
+    const { wrapper, store } = board();
+
+    paste(wrapper, { text: 'javascript:alert(1)' });
+
+    const [el] = store.getAll();
+    expect(el?.type).toBe('text');
+    expect(el?.link).toBeUndefined();
+  });
+
+  it('pasting an image file with an asset resolver inserts after the upload resolves and selects it', async () => {
+    const { assets, upload, resolve } = deferredUpload();
+    const { viewport, wrapper, store } = board({ assets });
+
+    paste(wrapper, { files: [png] });
+    expect(upload.mock.calls).toEqual([[png, { kind: 'paste' }]]);
+    expect(store.count).toBe(0);
+    resolve('https://cdn.example/pic.png');
+
+    await vi.waitFor(() => expect(store.count).toBe(1));
+    const [el] = store.getAll();
+    if (el?.type !== 'image') throw new Error('expected an image');
+    expect(el.src).toBe('https://cdn.example/pic.png');
+    expect(el.position).toEqual({ x: 250, y: 200 });
+    expect(viewport.getSelectedIds()).toEqual([el.id]);
+  });
+
+  it('an upload still pending when the viewport is destroyed inserts nothing', async () => {
+    const { assets, resolve } = deferredUpload();
+    const { viewport, wrapper, store } = board({ assets });
+
+    paste(wrapper, { files: [png] });
+    viewport.destroy();
+    resolve('https://cdn.example/pic.png');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(store.count).toBe(0);
+  });
+
+  it('one paste is one history entry', () => {
+    const { viewport, wrapper, store } = board();
+    const notes = ['a0', 'a1', 'a2'].map((index, i) =>
+      createNote({ position: { x: i * 100, y: 0 }, size: { w: 80, h: 40 }, index }),
+    );
+
+    paste(wrapper, { vendor: encodeClipboard(notes).vendor });
+
+    expect(store.count).toBe(3);
+    viewport.undo();
+    expect(store.count).toBe(0);
+  });
+
+  it('a paste holding only an unclaimed file falls back to the memory clipboard', () => {
+    const { viewport, wrapper, store } = board();
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+    store.add(shape);
+    viewport.toolManager.getTool<SelectTool>('select')?.setSelection([shape.id]);
+    viewport.runAction('edit.copy');
+    const pdf = new File([new Uint8Array([1])], 'doc.pdf', { type: 'application/pdf' });
+
+    const event = paste(wrapper, { files: [pdf] });
+
+    expect(store.count).toBe(2);
+    expect(store.getAll().filter((el) => el.type === 'shape')).toHaveLength(2);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('the onPaste hook sees the paste first and false falls through', () => {
+    let countAtHook = -1;
+    const onPaste = vi.fn(() => {
+      countAtHook = store.count;
+      return false;
+    });
+    const { viewport, wrapper, store } = board({ onPaste });
+
+    const event = paste(wrapper, { text: 'hello' });
+
+    expect(onPaste.mock.calls).toEqual([
+      [event, viewport.camera.screenToWorld({ x: 400, y: 300 })],
+    ]);
+    expect(countAtHook).toBe(0);
+    expect(store.count).toBe(1);
+  });
+
+  it('a paste during a tool gesture or an open transaction inserts nothing', () => {
+    const { viewport, wrapper, store } = board();
+
+    viewport.transaction(() => paste(wrapper, { text: 'hello' }));
+    pointerDown(wrapper, 400, 300);
+    paste(wrapper, { text: 'hello' });
+    pointerUp(wrapper, 400, 300);
+
+    expect(store.count).toBe(0);
+  });
 });

@@ -6,8 +6,10 @@ import { ActionRegistry } from '../actions/action-registry';
 import type { ActionContext } from '../actions/types';
 import { Camera } from './camera';
 import { ClipboardBridge } from './clipboard-bridge';
+import type { ClipboardHost } from './clipboard-bridge';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 import { createNote } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
 import { HistoryRecorder } from '../history/history-recorder';
@@ -25,6 +27,14 @@ afterEach(() => {
   document.body.replaceChildren();
   if (originalExecCommand) Object.defineProperty(document, 'execCommand', originalExecCommand);
 });
+
+const stubHost: ClipboardHost = {
+  elementRegistry: getDefaultElementRegistry(),
+  claimsFile: () => false,
+  insertElements: () => undefined,
+  insertFiles: () => false,
+  insertText: () => undefined,
+};
 
 function setup(scope: 'focus' | 'window') {
   const element = document.createElement('div');
@@ -59,7 +69,12 @@ function setup(scope: 'focus' | 'window') {
     element,
     camera: new Camera(),
     keyboardActions,
-    clipboard: new ClipboardBridge({ keyboardActions, document }),
+    clipboard: new ClipboardBridge({
+      keyboardActions,
+      document,
+      canInsertNow: () => true,
+      host: stubHost,
+    }),
     actions,
     scope,
     abortSignal: abort.signal,
@@ -69,7 +84,6 @@ function setup(scope: 'focus' | 'window') {
     setSpaceHeld: vi.fn(),
     getActivePointerCount: () => 0,
     dispatchToolHover: vi.fn(),
-    addImage: vi.fn(() => ''),
     getLastPointerWorld: () => null,
     getCenteredWorld: () => ({ x: 0, y: 0 }),
   });
@@ -182,7 +196,12 @@ function setupBoard() {
     getHistoryStack: () => stack,
     isToolActive: () => false,
   });
-  const bridge = new ClipboardBridge({ keyboardActions: ka, document });
+  const bridge = new ClipboardBridge({
+    keyboardActions: ka,
+    document,
+    canInsertNow: () => true,
+    host: stubHost,
+  });
   const abort = new AbortController();
   abortControllers.add(abort);
   new KeyboardHandler({
@@ -203,7 +222,6 @@ function setupBoard() {
     setSpaceHeld: vi.fn(),
     getActivePointerCount: () => 0,
     dispatchToolHover: vi.fn(),
-    addImage: vi.fn(() => ''),
     getLastPointerWorld: () => null,
     getCenteredWorld: () => ({ x: 0, y: 0 }),
   });

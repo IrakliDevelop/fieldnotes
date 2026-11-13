@@ -31,6 +31,7 @@ import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
 import { InsertQueue } from './insert-queue';
 import type { AssetResolver, ImageErrorInfo } from './content-inserter';
+import { ContentInserter } from './content-inserter';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
 import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
@@ -139,7 +140,12 @@ export interface ViewportOptions {
     container: HTMLDivElement,
   ) => void;
   onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
-  onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
+  /**
+   * Called for every paste core would handle, before core acts; return `false` to let core
+   * handle it. `true` or nothing means the host owns the paste.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- returning nothing keeps the host-owns-it contract
+  onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => boolean | void;
   onImageError?: (info: ImageErrorInfo) => void;
   /** Host upload for dropped, pasted and imported images; without it images inline as base64. */
   assets?: AssetResolver;
@@ -207,6 +213,7 @@ export class Viewport {
   private readonly noteEditor: NoteEditor;
   readonly historyRecorder: HistoryRecorder;
   private readonly insertQueue: InsertQueue;
+  private readonly inserter: ContentInserter;
   private transactionDepth = 0;
   private readonly selectionOps: SelectionOps;
   readonly toolContext: ToolContext;
@@ -437,9 +444,15 @@ export class Viewport {
         this.openContextMenu(screenPos);
       },
       shortcuts: options.shortcuts,
-      addImage: (src, world) => this.addImage(src, world),
       getCenteredWorld: () => this.centeredPosition({ w: 0, h: 0 }),
-      onPaste: options.onPaste,
+      clipboardHost: {
+        elementRegistry: this.elementRegistry,
+        onPaste: options.onPaste,
+        claimsFile: (f, k) => this.inserter.claimsFile(f, k),
+        insertElements: (els, a) => this.inserter.insertElements(els, a),
+        insertFiles: (f, a, k) => this.inserter.insertFiles(f, a, k),
+        insertText: (t, a, l) => this.inserter.insertText(t, a, l),
+      },
       panInertia: options.panInertia,
       isOnSelectionHandle: (clientX, clientY) => {
         if (this.toolManager.activeTool?.name !== 'select') return false;
@@ -459,6 +472,32 @@ export class Viewport {
       acceptsPointer,
     });
     this.disposers.push(() => this.inputHandler.destroy());
+    this.inserter = new ContentInserter({
+      store: this.store,
+      elementRegistry: this.elementRegistry,
+      getActiveLayerId: () => this.layerManager.activeLayerId,
+      getTextStyle: () => {
+        const o = this.toolManager.getTool('text')?.getOptions?.();
+        return o &&
+          'fontSize' in o &&
+          typeof o.fontSize === 'number' &&
+          'color' in o &&
+          typeof o.color === 'string'
+          ? { fontSize: o.fontSize, color: o.color }
+          : null;
+      },
+      insertElements: (els, a) => this.inputHandler.insertElements(els, a),
+      insertWhenIdle: (run) => this.insertQueue.insertWhenIdle(run),
+      transaction: (run) => this.transaction(run),
+      switchToSelect: () => {
+        if (this.toolManager.activeTool?.name !== 'select') this.toolContext.switchTool?.('select');
+      },
+      setSelection: (ids) => this.getSelectTool()?.setSelection(ids),
+      requestRender: () => this.requestRender(),
+      addImage: (src, p) => this.addImage(src, p),
+      assets: options.assets,
+      onImageError: reportImageError,
+    });
     this.presentationMode = new PresentationMode({
       container: this.container,
       wrapper: this.wrapper,

@@ -9,7 +9,9 @@ import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import type { RotateDirection } from './selection-rotate';
 import type { ActionRegistry } from '../actions/action-registry';
 import { InputFilter } from './input-filter';
+import type { ClipboardHost } from './clipboard-bridge';
 import { ClipboardBridge } from './clipboard-bridge';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
 import { PanInertia } from './pan-inertia';
@@ -49,9 +51,8 @@ export interface InputHandlerOptions {
   rotate?: (direction: RotateDirection) => void;
   openContextMenu?: (screenPos: Point, world: Point) => void;
   shortcuts?: ShortcutOptions;
-  addImage?: (src: string, world: { x: number; y: number }) => string;
   getCenteredWorld?: () => { x: number; y: number };
-  onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
+  clipboardHost?: ClipboardHost;
   panInertia?: boolean;
   /** True when the client point is on a selection handle, which wins over a live control. */
   isOnSelectionHandle?: (clientX: number, clientY: number) => boolean;
@@ -142,7 +143,22 @@ export class InputHandler {
       enabled: () => this.panInertiaEnabled,
     });
     this.scope = options.shortcuts?.scope ?? 'focus';
-    this.clipboard = new ClipboardBridge({ keyboardActions: this.actions, document });
+    this.clipboard = new ClipboardBridge({
+      keyboardActions: this.actions,
+      document,
+      canInsertNow: () => {
+        this.flushPendingHistory();
+        return !this.isToolActive && (this.historyRecorder?.currentTransactionId ?? null) === null;
+      },
+      // Handlers built without a viewport have no inserters: only memory pastes take effect.
+      host: options.clipboardHost ?? {
+        elementRegistry: getDefaultElementRegistry(),
+        claimsFile: () => false,
+        insertElements: () => undefined,
+        insertFiles: () => false,
+        insertText: () => undefined,
+      },
+    });
     this.keyboard = new KeyboardHandler({
       element: this.element,
       camera: this.camera,
@@ -160,10 +176,8 @@ export class InputHandler {
       },
       getActivePointerCount: () => this.activePointers.size,
       dispatchToolHover: (e) => this.dispatchToolHover(e),
-      addImage: options.addImage ?? (() => ''),
       getLastPointerWorld: () => this.lastPointerWorld(),
       getCenteredWorld: options.getCenteredWorld ?? (() => ({ x: 0, y: 0 })),
-      onPaste: options.onPaste,
     });
     this.element.style.touchAction = 'none';
     if (this.scope === 'focus') {
