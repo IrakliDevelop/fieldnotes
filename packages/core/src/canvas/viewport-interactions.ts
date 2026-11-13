@@ -215,6 +215,11 @@ export class ViewportInteractions {
     this.tapModifier = e.button === 0 && (this.deps.isMac() ? e.metaKey : e.ctrlKey);
     // Read at down: interact mode's window pointerdown listener exits it before the up.
     this.tapWasInteracting = this.deps.interactMode.isInteracting();
+    // The user-select: none wrapper keeps an outside page selection, which would win copy and cut.
+    const selection = document.getSelection();
+    if (selection && !selection.isCollapsed && !this.deps.wrapper.contains(selection.anchorNode)) {
+      selection.removeAllRanges();
+    }
   };
 
   onDoubleTap = (e: PointerEvent): void => {

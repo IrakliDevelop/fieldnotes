@@ -6433,6 +6433,75 @@ describe('Viewport system clipboard paste', () => {
       expect(event.defaultPrevented).toBe(true);
       expect(store.count).toBe(0);
     });
+
+    it('pressing the board clears an outside page selection so copy takes the selected elements', () => {
+      const { viewport, wrapper } = board({ shortcuts: { scope } });
+      selectedShape(viewport);
+      document.getSelection()?.selectAllChildren(pageText());
+
+      pointerDown(wrapper, 25, 25);
+      pointerUp(wrapper, 25, 25);
+
+      expect(document.getSelection()?.isCollapsed).toBe(true);
+      const { event, written } = copyEvent(wrapper, 'copy');
+      expect(written).toContain(FIELDNOTES_CLIPBOARD_TYPE);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    function addLive(viewport: Viewport, interactive: boolean) {
+      const padding = document.createElement('p');
+      padding.textContent = 'embedded text';
+      const link = document.createElement('a');
+      link.setAttribute('href', '#');
+      const content = document.createElement('div');
+      content.append(padding, link);
+      const id = viewport.addHtmlElement(
+        content,
+        { x: 300, y: 300 },
+        { w: 100, h: 50 },
+        { interactive },
+      );
+      (viewport as unknown as { renderLoop: { flush(): void } }).renderLoop.flush();
+      return { id, padding, link };
+    }
+
+    it('pressing the board leaves a selection anchored inside the board untouched', () => {
+      const { viewport, wrapper } = board({ shortcuts: { scope } });
+      const { padding } = addLive(viewport, true);
+      document.getSelection()?.selectAllChildren(padding);
+
+      pointerDown(wrapper, 25, 25);
+
+      expect(document.getSelection()?.isCollapsed).toBe(false);
+      expect(document.getSelection()?.anchorNode).toBe(padding);
+    });
+
+    it('pressing a live control keeps an outside page selection', () => {
+      const { viewport } = board({ shortcuts: { scope } });
+      const { link } = addLive(viewport, true);
+      const text = pageText();
+      document.getSelection()?.selectAllChildren(text);
+
+      pointerDown(link, 310, 310);
+
+      expect(document.getSelection()?.isCollapsed).toBe(false);
+      expect(document.getSelection()?.anchorNode).toBe(text);
+    });
+
+    it('pressing inside an html element in interact mode keeps an outside page selection', () => {
+      const { viewport } = board({ shortcuts: { scope } });
+      const { id, padding } = addLive(viewport, false);
+      (
+        viewport as unknown as { interactMode: { startInteracting(id: string): void } }
+      ).interactMode.startInteracting(id);
+      const text = pageText();
+      document.getSelection()?.selectAllChildren(text);
+
+      pointerDown(padding, 310, 310);
+
+      expect(document.getSelection()?.isCollapsed).toBe(false);
+      expect(document.getSelection()?.anchorNode).toBe(text);
+    });
   });
 });
 
