@@ -58,6 +58,10 @@ import { computeResize, computeRotatedResize } from './select-resize';
 const SNAP_PX = 6;
 const ROTATE_SNAP = Math.PI / 12; // 15°
 
+function badgeCandidates(selected: readonly string[], hovered: string | null): readonly string[] {
+  return hovered === null ? selected : [...selected, hovered];
+}
+
 type Mode =
   | { type: 'idle' }
   | { type: 'dragging' }
@@ -247,11 +251,7 @@ export class SelectTool implements Tool {
       }
     }
 
-    const linkId = hitTestLinkBadge(
-      world,
-      ctx,
-      hovered === null ? this._selectedIds : [...this._selectedIds, hovered],
-    );
+    const linkId = hitTestLinkBadge(world, ctx, badgeCandidates(this._selectedIds, hovered));
     if (linkId !== null) {
       this.mode = { type: 'link', elementId: linkId, start: { x: state.x, y: state.y } };
       return;
@@ -554,7 +554,7 @@ export class SelectTool implements Tool {
           ? this.hoveredId
           : null;
       const zoom = this.ctx.camera.zoom;
-      for (const id of hovered === null ? this._selectedIds : [...this._selectedIds, hovered]) {
+      for (const id of badgeCandidates(this._selectedIds, hovered)) {
         const el = this.ctx.store.getById(id);
         if (el?.link === undefined) continue;
         const layout = getOverlayLayout(el, zoom, this.ctx.elementRegistry);
@@ -703,11 +703,7 @@ export class SelectTool implements Tool {
     }
 
     const hovered = this.hoveredId;
-    const linkId = hitTestLinkBadge(
-      world,
-      ctx,
-      hovered === null ? this._selectedIds : [...this._selectedIds, hovered],
-    );
+    const linkId = hitTestLinkBadge(world, ctx, badgeCandidates(this._selectedIds, hovered));
     if (linkId !== null) {
       ctx.setCursor?.('pointer');
       return linkId;

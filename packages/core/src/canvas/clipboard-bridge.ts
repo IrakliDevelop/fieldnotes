@@ -121,7 +121,7 @@ export class ClipboardBridge {
       host.insertText(line, anchor, normalizeLink(line) ?? undefined);
       return;
     }
-    if (line.length > 0) host.insertText(payload.text, anchor);
+    host.insertText(payload.text, anchor);
   }
 
   /** Claims `beforecopy`/`beforecut` so WebKit fires the event without a DOM selection. */

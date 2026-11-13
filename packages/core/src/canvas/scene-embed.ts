@@ -57,7 +57,7 @@ export function buildSceneEnvelope(
     : [DEFAULT_LAYER];
   // An element on a layer the manager lacks would make the whole scene fail validation on load.
   const orphaned = kept.some((el) => !known.has(el.layerId));
-  if (layerManager && orphaned && !layers.some((layer) => layer.id === DEFAULT_LAYER.id)) {
+  if (orphaned && !layers.some((layer) => layer.id === DEFAULT_LAYER.id)) {
     layers.push(DEFAULT_LAYER);
   }
   const state = exportState(

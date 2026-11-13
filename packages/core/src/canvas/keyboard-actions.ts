@@ -150,7 +150,7 @@ export class KeyboardActions {
     ctx.requestRender();
   }
 
-  /** The selection's hierarchy closure, or `[]` during a gesture, without the select tool, or with nothing selected. */
+  /** The selection's hierarchy closure; `[]` during a gesture or without a selection. */
   copyableElements(): CanvasElement[] {
     if (this.deps.isToolActive()) return [];
     const sel = this.selectTool();
@@ -210,7 +210,7 @@ export class KeyboardActions {
     this.insertClones(source, { x: 20, y: 20 }, sel);
   }
 
-  /** Inserts clones of `source` centred on `anchor` as one undo step; returns the selected root ids, empty when nothing was inserted. */
+  /** Inserts clones of `source` centred on `anchor`; returns the selected root ids. */
   insertElements(source: readonly CanvasElement[], anchor: Point | null): string[] {
     if (this.deps.isToolActive() || source.length === 0) return [];
     this.flushPendingNudge();

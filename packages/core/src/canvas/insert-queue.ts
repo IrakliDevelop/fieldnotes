@@ -7,7 +7,7 @@ export interface InsertQueueDeps {
   transaction: (run: () => void) => void;
 }
 
-/** Holds asynchronous inserts until no transaction or gesture is open, so each lands as its own undo step. */
+/** Defers async inserts until no transaction or gesture is open, so each is its own undo step. */
 export class InsertQueue {
   private readonly queue: (() => void)[] = [];
   private destroyed = false;

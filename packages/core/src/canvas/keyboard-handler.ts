@@ -40,7 +40,7 @@ export class KeyboardHandler {
       zoomByFactor: (f) => this.zoomByFactor(f),
       zoomToLevel: (l) => this.zoomToLevel(l),
       canPaste: () => ka.hasClipboard(),
-      clipboard: { copy: () => deps.clipboard.copy(), cut: () => deps.clipboard.cut() },
+      clipboard: deps.clipboard,
     })) {
       deps.actions.register(def);
     }
@@ -59,7 +59,7 @@ export class KeyboardHandler {
     window.addEventListener('copy', this.onCopy, { signal: deps.abortSignal });
     window.addEventListener('cut', this.onCut, { signal: deps.abortSignal });
     window.addEventListener('beforecopy', this.onBeforeCopy, { signal: deps.abortSignal });
-    window.addEventListener('beforecut', this.onBeforeCut, { signal: deps.abortSignal });
+    window.addEventListener('beforecut', this.onBeforeCopy, { signal: deps.abortSignal });
   }
 
   get shortcuts(): ShortcutsApi {
@@ -158,10 +158,6 @@ export class KeyboardHandler {
   };
 
   onBeforeCopy = (e: Event): void => {
-    this.deps.clipboard.handleBeforeCopy(e, this.shouldHandle(e.target));
-  };
-
-  onBeforeCut = (e: Event): void => {
     this.deps.clipboard.handleBeforeCopy(e, this.shouldHandle(e.target));
   };
 
