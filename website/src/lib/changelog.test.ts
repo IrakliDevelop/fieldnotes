@@ -179,7 +179,8 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('keeps the elbow releases first, in package order, and unique', () => {
+  it('keeps the fog-capability and elbow releases first, in package order, and unique', () => {
+    const fogCapability = release('@fieldnotes/vtt', '0.17.2');
     const elbowCore = release('@fieldnotes/core', '0.107.0');
     const elbowSync = release('@fieldnotes/sync', '0.30.3');
     const elbowServer = release('@fieldnotes/sync-server', '0.30.3');
@@ -194,13 +195,14 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     const frames = release('@fieldnotes/core', '0.102.0');
     const prior = release('@fieldnotes/core', '0.101.0');
 
-    expect(current.slice(0, 3)).toMatchObject([
+    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/vtt', version: '0.17.2' });
+    expect(current.slice(1, 4)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.107.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.3' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.3' },
     ]);
-    expect(current[3]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
-    expect(current.slice(4, 7)).toMatchObject([
+    expect(current[4]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
+    expect(current.slice(5, 8)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.106.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.2' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.2' },
@@ -241,6 +243,7 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(frames).toBeDefined();
     expect(prior).toBeDefined();
     if (
+      !fogCapability ||
       !elbowCore ||
       !elbowSync ||
       !elbowServer ||
@@ -256,6 +259,7 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
       !prior
     )
       return;
+    expect(fogCapability.date).toBeUndefined();
     expect(elbowCore.date).toBeUndefined();
     expect(elbowSync.date).toBeUndefined();
     expect(elbowServer.date).toBeUndefined();
