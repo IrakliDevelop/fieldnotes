@@ -90,6 +90,24 @@ describe('createFogPlugin', () => {
     for (const dispose of started.disposers.reverse()) dispose();
   });
 
+  it('satisfies vtt:fog only while the instance is started, whether or not fog is visible', () => {
+    const plugin = createFogPlugin();
+    const configured = configureContext();
+    const started = startContext();
+    plugin.configure?.(configured.context);
+    const options: { enabled?: () => boolean } | undefined =
+      configured.registrations.viewport.mock.calls[0]?.[1];
+    expect(options?.enabled?.()).toBe(false);
+    const handle = plugin.start?.(started.context);
+    expect(options?.enabled?.()).toBe(true);
+    plugin.manager.initialize({ bounds: { x: 0, y: 0, w: 128, h: 128 }, cellSize: 1 });
+    plugin.manager.setViewMode('off');
+    expect(options?.enabled?.()).toBe(true);
+    handle?.dispose();
+    expect(options?.enabled?.()).toBe(false);
+    for (const dispose of started.disposers.reverse()) dispose();
+  });
+
   it('returns independent renderer handles when the definition is configured twice', () => {
     const plugin = createFogPlugin();
     const firstConfigure = configureContext();
