@@ -36,6 +36,8 @@ export function createFogPlugin(options?: CreateFogPluginOptions): FogPlugin {
     const renderer = (): FogRenderer | undefined => instance.renderer;
     const hookOptions = { required: true, satisfies: ['vtt:fog'] } as const;
 
+    // Off or absent fog still satisfies vtt:fog without a live draw hook (no stratum canvas).
+    context.registerViewportHooks({}, { ...hookOptions, enabled: () => renderer() !== undefined });
     context.registerViewportHooks(
       {
         afterElements: (ctx, camera, dimensions) => {
@@ -43,9 +45,9 @@ export function createFogPlugin(options?: CreateFogPluginOptions): FogPlugin {
         },
       },
       {
-        ...hookOptions,
+        required: true,
         slot: 'afterSceneBeforeOverlay',
-        enabled: () => renderer() !== undefined,
+        enabled: () => renderer()?.isVisible() ?? false,
       },
     );
     context.registerMinimapHooks(

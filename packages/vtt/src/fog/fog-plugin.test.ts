@@ -54,13 +54,24 @@ describe('createFogPlugin', () => {
     const plugin = createFogPlugin();
     const { context, registrations } = configureContext();
     plugin.configure?.(context);
-    for (const register of Object.values(registrations)) {
+    for (const register of [
+      registrations.minimap,
+      registrations.imageExport,
+      registrations.svgExport,
+    ]) {
       expect(register).toHaveBeenCalledOnce();
       expect(register.mock.calls[0]?.[1]).toMatchObject({
         required: true,
         satisfies: ['vtt:fog'],
       });
     }
+    const viewportCalls = registrations.viewport.mock.calls;
+    expect(viewportCalls).toHaveLength(2);
+    const satisfier = viewportCalls.find((call) => call[1]?.satisfies !== undefined);
+    const draw = viewportCalls.find((call) => call[0]?.afterElements !== undefined);
+    expect(satisfier?.[1]).toMatchObject({ required: true, satisfies: ['vtt:fog'] });
+    expect(draw?.[1]).toMatchObject({ required: true });
+    expect(draw?.[1]).not.toHaveProperty('satisfies');
   });
 
   it('registers the typed manager service and a per-instance state handle during start', () => {
@@ -95,16 +106,24 @@ describe('createFogPlugin', () => {
     const configured = configureContext();
     const started = startContext();
     plugin.configure?.(configured.context);
-    const options: { enabled?: () => boolean } | undefined =
-      configured.registrations.viewport.mock.calls[0]?.[1];
-    expect(options?.enabled?.()).toBe(false);
+    const calls = configured.registrations.viewport.mock.calls;
+    const satisfier: { enabled?: () => boolean } | undefined = calls.find(
+      (call) => call[1]?.satisfies !== undefined,
+    )?.[1];
+    const draw: { enabled?: () => boolean } | undefined = calls.find(
+      (call) => call[0]?.afterElements !== undefined,
+    )?.[1];
+    expect(satisfier?.enabled?.()).toBe(false);
     const handle = plugin.start?.(started.context);
-    expect(options?.enabled?.()).toBe(true);
+    expect(satisfier?.enabled?.()).toBe(true);
     plugin.manager.initialize({ bounds: { x: 0, y: 0, w: 128, h: 128 }, cellSize: 1 });
     plugin.manager.setViewMode('off');
-    expect(options?.enabled?.()).toBe(true);
+    expect(satisfier?.enabled?.()).toBe(true);
+    expect(draw?.enabled?.()).toBe(false);
+    plugin.manager.setViewMode('player');
+    expect(draw?.enabled?.()).toBe(true);
     handle?.dispose();
-    expect(options?.enabled?.()).toBe(false);
+    expect(satisfier?.enabled?.()).toBe(false);
     for (const dispose of started.disposers.reverse()) dispose();
   });
 
@@ -155,6 +174,7 @@ describe('vtt:fog capability with a real viewport', () => {
     const { viewport } = mount();
     expect(viewport.renderHooks.viewport.isFailClosed()).toBe(false);
     expect(viewport.renderHooks.minimap.isFailClosed()).toBe(false);
+    expect(viewport.renderHooks.viewport.has('afterElements')).toBe(false);
   });
 
   it('is satisfied when fog is initialized but the view mode is off', () => {
@@ -162,6 +182,7 @@ describe('vtt:fog capability with a real viewport', () => {
     plugin.manager.initialize({ bounds: { x: 0, y: 0, w: 128, h: 128 }, cellSize: 1 });
     plugin.manager.setViewMode('off');
     expect(viewport.renderHooks.viewport.isFailClosed()).toBe(false);
+    expect(viewport.renderHooks.viewport.has('afterElements')).toBe(false);
   });
 
   it('is satisfied and draws fog in player view', () => {
@@ -174,12 +195,14 @@ describe('vtt:fog capability with a real viewport', () => {
     expect(render).toHaveBeenCalledWith(ctx, viewport.camera, 800, 600, 1);
   });
 
-  it('fails closed after the fog render throws, even with no fog state', () => {
+  it('fails closed after the fog render throws', () => {
     vi.stubGlobal('reportError', vi.fn());
     vi.spyOn(FogRenderer.prototype, 'render').mockImplementation(() => {
       throw new Error('fog failed');
     });
-    const { viewport } = mount();
+    const { viewport, plugin } = mount();
+    plugin.manager.initialize({ bounds: { x: 0, y: 0, w: 128, h: 128 }, cellSize: 1 });
+    plugin.manager.setViewMode('player');
     expect(viewport.renderHooks.viewport.call('afterElements', ctx, viewport.camera, size)).toBe(
       true,
     );
