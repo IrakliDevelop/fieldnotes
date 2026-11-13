@@ -77,9 +77,9 @@ export function findItxtChunk(png: Uint8Array, keyword: string, maxLength: numbe
     if (view.getUint32(end) !== crc32(png.subarray(offset + 4, end))) return null;
     cursor += 2;
     for (let skip = 0; skip < 2; skip++) {
-      const nul = png.indexOf(0, cursor);
-      if (nul === -1 || nul >= end) return null;
-      cursor = nul + 1;
+      const nul = png.subarray(cursor, end).indexOf(0);
+      if (nul === -1) return null;
+      cursor += nul + 1;
     }
     return new TextDecoder().decode(png.subarray(cursor, end));
   }
