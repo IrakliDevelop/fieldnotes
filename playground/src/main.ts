@@ -1,5 +1,5 @@
-import { isFrameElement } from '@fieldnotes/core';
-import type { Viewport } from '@fieldnotes/core';
+import { FIELDNOTES_MIME_TYPE, isFrameElement, readSceneFile } from '@fieldnotes/core';
+import type { ExportImageOptions, ExportSvgOptions, Viewport } from '@fieldnotes/core';
 import type { FogManager } from '@fieldnotes/vtt';
 import { attachPersistence } from './persistence';
 import { connectRoom, leaveRoom, readRoom } from './room';
@@ -166,81 +166,97 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
     // iOS Safari only delivers change events to a file input that is in the document.
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json,application/json';
+    input.accept =
+      '.fieldnotes,.json,.png,.svg,application/vnd.fieldnotes+json,application/json,image/png,image/svg+xml';
     input.hidden = true;
     document.body.append(input);
     input.addEventListener('change', async () => {
       const file = input.files?.[0];
       input.value = '';
       if (!file) return;
+      const state = await readSceneFile(file, viewport.elementRegistry);
+      if (!state) {
+        shell.toast("Couldn't open that file");
+        return;
+      }
       try {
-        viewport.loadJSON(await file.text());
+        viewport.loadState(state);
       } catch {
         shell.toast("Couldn't open that file");
       }
     });
 
+    const pngOptions = (): ExportImageOptions => {
+      const frameId = selectedFrameId();
+      return frameId
+        ? { frameId, scale: 2, renderHtml: renderWidgetForExport }
+        : { scale: 2, padding: 32, background: '#ffffff', renderHtml: renderWidgetForExport };
+    };
+    const svgOptions = (): ExportSvgOptions => {
+      const frameId = selectedFrameId();
+      return frameId
+        ? { frameId, renderHtml: renderWidgetForExport }
+        : { padding: 32, renderHtml: renderWidgetForExport };
+    };
+    const exportPng = (options: ExportImageOptions): Promise<void> =>
+      viewport
+        .exportImage(options)
+        .then((blob) => {
+          if (blob) download(`fieldnotes-${sceneId}.png`, blob);
+          else shell.toast('Nothing to export');
+        })
+        .catch(() => shell.toast('Export failed'));
+    const exportSvg = (options: ExportSvgOptions): Promise<void> =>
+      viewport
+        .exportSVG(options)
+        .then((svg) =>
+          download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' })),
+        )
+        .catch(() => shell.toast('Export failed'));
+
     const removers = [
       addMenuItems('file', [
         {
-          id: 'open-json',
-          label: 'Open JSON',
+          id: 'open-board',
+          label: 'Open board file',
           icon: 'upload',
           run: () => input.click(),
           // Replacing layers wholesale emits no per-layer events, so peers would never see it.
           hidden: () => room !== null,
         },
         {
-          id: 'save-json',
-          label: 'Save JSON',
+          id: 'save-board',
+          label: 'Save board',
           icon: 'download',
           run: () =>
             download(
-              `fieldnotes-${sceneId}.json`,
-              new Blob([viewport.exportJSON()], { type: 'application/json' }),
+              `fieldnotes-${sceneId}.fieldnotes`,
+              new Blob([viewport.exportJSON()], { type: FIELDNOTES_MIME_TYPE }),
             ),
         },
         {
           id: 'export-png',
           label: 'Export PNG',
           icon: 'image',
-          run: () => {
-            const frameId = selectedFrameId();
-            return viewport
-              .exportImage(
-                frameId
-                  ? { frameId, scale: 2, renderHtml: renderWidgetForExport }
-                  : {
-                      scale: 2,
-                      padding: 32,
-                      background: '#ffffff',
-                      renderHtml: renderWidgetForExport,
-                    },
-              )
-              .then((blob) => {
-                if (blob) download(`fieldnotes-${sceneId}.png`, blob);
-                else shell.toast('Nothing to export');
-              })
-              .catch(() => shell.toast('Export failed'));
-          },
+          run: () => exportPng(pngOptions()),
         },
         {
           id: 'export-svg',
           label: 'Export SVG',
           icon: 'file',
-          run: () => {
-            const frameId = selectedFrameId();
-            return viewport
-              .exportSVG(
-                frameId
-                  ? { frameId, renderHtml: renderWidgetForExport }
-                  : { padding: 32, renderHtml: renderWidgetForExport },
-              )
-              .then((svg) =>
-                download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' })),
-              )
-              .catch(() => shell.toast('Export failed'));
-          },
+          run: () => exportSvg(svgOptions()),
+        },
+        {
+          id: 'export-png-scene',
+          label: 'Export PNG with scene',
+          icon: 'image',
+          run: () => exportPng({ ...pngOptions(), embedScene: true }),
+        },
+        {
+          id: 'export-svg-scene',
+          label: 'Export SVG with scene',
+          icon: 'file',
+          run: () => exportSvg({ ...svgOptions(), embedScene: true }),
         },
       ]),
       addMenuItems('board', [

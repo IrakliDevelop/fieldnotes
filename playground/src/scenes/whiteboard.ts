@@ -70,6 +70,16 @@ export const whiteboard: Scene = {
         imageTool,
         new LaserTool(),
       ],
+      // A slow mock upload so the pending image placeholder is visible.
+      assets: {
+        upload: (file) =>
+          new Promise((resolve) =>
+            setTimeout(() => {
+              shell.toast(`Uploaded ${file.name}`);
+              resolve({ src: URL.createObjectURL(file) });
+            }, 600),
+          ),
+      },
     });
     let unregisterWidgets: () => void = () => undefined;
     // iOS Safari only delivers change events to a file input that is in the document.

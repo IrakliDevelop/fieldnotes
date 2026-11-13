@@ -6,6 +6,7 @@ import {
   createShape,
   createStroke,
   createText,
+  elementLink,
 } from '@fieldnotes/core';
 import type { Viewport } from '@fieldnotes/core';
 import { insertWidget, WIDGETS } from '../widgets';
@@ -86,6 +87,20 @@ export function buildWhiteboardSample(viewport: Viewport): void {
       fillColor: '#fee2e2',
       layerId: sketchId,
     });
+    const repoLink = createText({
+      position: { x: 480, y: 520 },
+      text: 'Field Notes on GitHub',
+      fontSize: 18,
+      layerId: notesId,
+    });
+    repoLink.link = 'https://github.com/IrakliDevelop/fieldnotes';
+    const frameLink = createNote({
+      position: { x: 480, y: 680 },
+      size: { w: 200, h: 90 },
+      text: 'Linked to the frame below',
+      layerId: notesId,
+    });
+    frameLink.link = elementLink(frame.id);
     for (const el of [
       createText({
         position: { x: 0, y: 0 },
@@ -109,6 +124,8 @@ export function buildWhiteboardSample(viewport: Viewport): void {
       frameRect,
       frameEllipse,
       frameOverlap,
+      repoLink,
+      frameLink,
       arrow,
       createBoundText(arrow, { text: 'connects' }),
       createStroke({

@@ -3,7 +3,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { gotoBlank } from './helpers/board';
 import { singleFingerDraw } from './helpers/touch';
 
-const SAMPLE = { text: 3, note: 4, shape: 5, extension: 1, arrow: 1, stroke: 1 } as const;
+const SAMPLE = { text: 4, note: 5, shape: 5, extension: 1, arrow: 1, stroke: 1 } as const;
 
 async function open(page: Page): Promise<void> {
   await page.goto('/');
@@ -259,23 +259,42 @@ test('IndexedDB failure falls back', async ({ page }, testInfo) => {
   expect(errors).toEqual([]);
 });
 
-test('Save then Open JSON round-trips', async ({ page }, testInfo) => {
+test('Save then Open board round-trips', async ({ page }, testInfo) => {
   await open(page);
   await expectSample(page);
   const saved = await count(page);
 
   const downloading = page.waitForEvent('download');
-  await runMenuItem(page, 'save-json');
+  await runMenuItem(page, 'save-board');
   const download = await downloading;
-  expect(download.suggestedFilename()).toBe('fieldnotes-whiteboard.json');
-  const path = testInfo.outputPath('board.json');
+  expect(download.suggestedFilename()).toBe('fieldnotes-whiteboard.fieldnotes');
+  const path = testInfo.outputPath('board.fieldnotes');
   await download.saveAs(path);
 
   await drawStroke(page, testInfo);
   await expect.poll(() => count(page)).toBe(saved + 1);
 
   const choosing = page.waitForEvent('filechooser');
-  await runMenuItem(page, 'open-json');
+  await runMenuItem(page, 'open-board');
+  await (await choosing).setFiles(path);
+  await expect.poll(() => count(page)).toBe(saved);
+});
+
+test('Export PNG with scene reopens as the board', async ({ page }, testInfo) => {
+  await open(page);
+  await expectSample(page);
+  const saved = await count(page);
+
+  const downloading = page.waitForEvent('download');
+  await runMenuItem(page, 'export-png-scene');
+  const path = testInfo.outputPath('board.png');
+  await (await downloading).saveAs(path);
+
+  await drawStroke(page, testInfo);
+  await expect.poll(() => count(page)).toBe(saved + 1);
+
+  const choosing = page.waitForEvent('filechooser');
+  await runMenuItem(page, 'open-board');
   await (await choosing).setFiles(path);
   await expect.poll(() => count(page)).toBe(saved);
 });
@@ -316,7 +335,16 @@ test('menu items follow the scene and close on outside click', async ({ page }) 
   await open(page);
   const menu = page.locator('[data-chrome="menu"]');
   const button = menu.getByRole('button', { name: 'Menu' });
-  const ids = ['open-json', 'save-json', 'export-png', 'export-svg', 'load-sample', 'reset-board'];
+  const ids = [
+    'open-board',
+    'save-board',
+    'export-png',
+    'export-svg',
+    'export-png-scene',
+    'export-svg-scene',
+    'load-sample',
+    'reset-board',
+  ];
 
   await button.click();
   for (const id of ids) await expect(page.locator(`[data-menu-item="${id}"]`)).toHaveCount(1);
@@ -439,7 +467,7 @@ test('opening an invalid JSON file toasts', async ({ page }) => {
   await expectSample(page);
   const before = await count(page);
   const choosing = page.waitForEvent('filechooser');
-  await runMenuItem(page, 'open-json');
+  await runMenuItem(page, 'open-board');
   // No Node types here, so build the file in the page instead of from a buffer.
   await (await choosing).element().evaluate((input) => {
     const transfer = new DataTransfer();
