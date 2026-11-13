@@ -71,8 +71,7 @@ export const whiteboard: Scene = {
         imageTool,
         new LaserTool(),
       ],
-      // Slow so the pending placeholder shows. A real host returns its hosted URL; a data URL
-      // stands in so images survive reload, saved files and Collaborate peers.
+      // Delayed to show the placeholder; a data URL stands in for a hosted URL that persists.
       assets: {
         upload: (file) =>
           new Promise((resolve, reject) =>
