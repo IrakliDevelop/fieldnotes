@@ -194,7 +194,8 @@ export interface ViewportOptions {
   selectionColor?: string;
   /**
    * Called before every link open; return `true` to handle it yourself, for example
-   * cross-board navigation.
+   * cross-board navigation. `event` is the last pointer event seen (it may be a pointermove),
+   * or `null` for keyboard, menu and command palette opens.
    */
   // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- returning nothing lets core open the link
   onOpenLink?: (link: string, event: PointerEvent | null) => boolean | void;
