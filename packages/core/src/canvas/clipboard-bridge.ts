@@ -24,6 +24,10 @@ export interface ClipboardHost {
 export interface ClipboardBridgeDeps {
   keyboardActions: KeyboardActions;
   document: Document;
+  /** The board wrapper: page text selected outside it keeps native copy and cut. */
+  element: HTMLElement;
+  /** True when the host disabled the shortcut for this action id. */
+  isDisabled: (action: string) => boolean;
   canInsertNow: () => boolean;
   host: ClipboardHost;
 }
@@ -58,7 +62,7 @@ export class ClipboardBridge {
   }
 
   handleCopy(event: ClipboardEvent, allowed: boolean, cut: boolean): boolean {
-    if (!allowed && !this.pending) return false;
+    if (!this.claims(allowed, cut)) return false;
     const ka = this.deps.keyboardActions;
     const elements = ka.copyableElements();
     if (elements.length === 0) return false;
@@ -76,10 +80,10 @@ export class ClipboardBridge {
 
   /** Routes a paste: envelope, image files, a link line, plain text, else the memory clipboard. */
   paste(event: ClipboardEvent, anchor: Point): void {
-    const ka = this.deps.keyboardActions;
+    if (this.deps.isDisabled('edit.paste')) return;
     const data = event.clipboardData;
     if (!data) {
-      ka.paste();
+      this.memoryPaste(event, anchor);
       return;
     }
     const payload = {
@@ -97,7 +101,7 @@ export class ClipboardBridge {
     const { host } = this.deps;
     const claimed = files.filter((f) => host.claimsFile(f, 'paste'));
     if (!marker && claimed.length === 0 && line.length === 0) {
-      ka.paste();
+      this.memoryPaste(event, anchor);
       return;
     }
     if (host.onPaste && host.onPaste(event, anchor) !== false) return;
@@ -122,8 +126,24 @@ export class ClipboardBridge {
 
   /** Claims `beforecopy`/`beforecut` so WebKit fires the event without a DOM selection. */
   handleBeforeCopy(event: Event, allowed: boolean): void {
-    if ((allowed || this.pending) && this.deps.keyboardActions.copyableElements().length > 0) {
+    const claimed = this.claims(allowed, event.type === 'beforecut');
+    if (claimed && this.deps.keyboardActions.copyableElements().length > 0) {
       event.preventDefault();
     }
+  }
+
+  private memoryPaste(event: ClipboardEvent, anchor: Point): void {
+    const ka = this.deps.keyboardActions;
+    const { onPaste } = this.deps.host;
+    if (ka.hasClipboard() && onPaste && onPaste(event, anchor) !== false) return;
+    ka.paste();
+  }
+
+  /** A native copy or cut is ours unless disabled or page text outside the board is selected. */
+  private claims(allowed: boolean, cut: boolean): boolean {
+    if (this.pending) return true;
+    if (!allowed || this.deps.isDisabled(cut ? 'edit.cut' : 'edit.copy')) return false;
+    const selection = this.deps.document.getSelection();
+    return !selection || selection.isCollapsed || this.deps.element.contains(selection.anchorNode);
   }
 }

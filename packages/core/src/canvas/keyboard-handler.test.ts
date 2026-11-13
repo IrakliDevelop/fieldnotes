@@ -72,6 +72,8 @@ function setup(scope: 'focus' | 'window') {
     clipboard: new ClipboardBridge({
       keyboardActions,
       document,
+      element,
+      isDisabled: () => false,
       canInsertNow: () => true,
       host: stubHost,
     }),
@@ -199,6 +201,8 @@ function setupBoard() {
   const bridge = new ClipboardBridge({
     keyboardActions: ka,
     document,
+    element,
+    isDisabled: () => false,
     canInsertNow: () => true,
     host: stubHost,
   });

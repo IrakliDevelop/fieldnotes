@@ -55,7 +55,14 @@ function setup() {
     insertText: vi.fn(),
   };
   const canInsertNow = vi.fn(() => true);
-  const bridge = new ClipboardBridge({ keyboardActions: ka, document, canInsertNow, host });
+  const bridge = new ClipboardBridge({
+    keyboardActions: ka,
+    document,
+    element: document.body,
+    isDisabled: () => false,
+    canInsertNow,
+    host,
+  });
   return { store, select, ka, host, canInsertNow, bridge };
 }
 
@@ -221,7 +228,7 @@ describe('ClipboardBridge.paste', () => {
     expect(host.insertElements.mock.calls).toEqual([[aShaped, anchor]]);
   });
 
-  it('onPaste returning false falls through; true or undefined ends the paste; it is called for an envelope and not for the memory fallback', () => {
+  it('onPaste returning false falls through; true or undefined ends the paste; it is called for an envelope and not when there is nothing to paste', () => {
     for (const [result, inserts] of [
       [false, 1],
       [true, 0],
@@ -247,6 +254,27 @@ describe('ClipboardBridge.paste', () => {
     expect(onPaste).not.toHaveBeenCalled();
     expect(memory).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    ['true', 1, true],
+    ['undefined', 1, undefined],
+    ['false', 2, false],
+  ] as const)(
+    'onPaste returning %s before a memory paste leaves %i elements',
+    (_, count, result) => {
+      for (const event of [pasteEvent({}), new Event('paste') as ClipboardEvent]) {
+        const { store, ka, host, bridge } = setup();
+        ka.copy();
+        const onPaste = vi.fn(() => result);
+        host.onPaste = onPaste;
+
+        bridge.paste(event, anchor);
+
+        expect(onPaste.mock.calls).toEqual([[event, anchor]]);
+        expect(store.count).toBe(count);
+      }
+    },
+  );
 
   it('preventDefault is called when core handles and not on the memory fallback', () => {
     const { bridge } = setup();

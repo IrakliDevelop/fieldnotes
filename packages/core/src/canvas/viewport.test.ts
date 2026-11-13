@@ -6330,6 +6330,110 @@ describe('Viewport system clipboard paste', () => {
     viewport.undo();
     expect(store.getById(shape.id)?.position).toEqual({ x: 0, y: 0 });
   });
+
+  function selectedShape(viewport: Viewport) {
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+    viewport.store.add(shape);
+    viewport.toolManager.getTool<SelectTool>('select')?.setSelection([shape.id]);
+  }
+
+  function copyEvent(target: HTMLElement, type: 'copy' | 'cut') {
+    const written: string[] = [];
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        getData: () => '',
+        setData: (t: string) => written.push(t),
+        items: [],
+        files: [],
+        types: [],
+      },
+    });
+    const before = new Event(`before${type}`, { bubbles: true, cancelable: true });
+    target.dispatchEvent(before);
+    target.dispatchEvent(event);
+    return { before, event, written };
+  }
+
+  it.each(['copy', 'cut'] as const)(
+    'a native %s with its shortcut disabled writes, prevents and deletes nothing',
+    (type) => {
+      const { viewport, wrapper, store } = board();
+      selectedShape(viewport);
+      viewport.shortcuts.disable(`edit.${type}`);
+
+      const { before, event, written } = copyEvent(wrapper, type);
+
+      expect(written).toEqual([]);
+      expect(before.defaultPrevented).toBe(false);
+      expect(event.defaultPrevented).toBe(false);
+      expect(store.count).toBe(1);
+    },
+  );
+
+  it('a native paste with edit.paste disabled inserts nothing and is not prevented', () => {
+    const { viewport, wrapper, store } = board();
+    selectedShape(viewport);
+    viewport.runAction('edit.copy');
+    viewport.shortcuts.disable('edit.paste');
+
+    const text = paste(wrapper, { text: 'hello' });
+    const empty = paste(wrapper);
+    wrapper.dispatchEvent(new Event('paste', { bubbles: true, cancelable: true }));
+
+    expect(store.count).toBe(1);
+    expect(text.defaultPrevented).toBe(false);
+    expect(empty.defaultPrevented).toBe(false);
+  });
+
+  describe.each(['focus', 'window'] as const)('page text selection (%s scope)', (scope) => {
+    afterEach(() => document.getSelection()?.removeAllRanges());
+
+    function pageText() {
+      const p = document.createElement('p');
+      p.textContent = 'page text';
+      document.body.append(p);
+      return p;
+    }
+
+    it.each(['copy', 'cut'] as const)(
+      'a native %s with page text selected outside the board is left to the browser',
+      (type) => {
+        const { viewport, wrapper, store } = board({ shortcuts: { scope } });
+        selectedShape(viewport);
+        document.getSelection()?.selectAllChildren(pageText());
+
+        const { before, event, written } = copyEvent(wrapper, type);
+
+        expect(written).toEqual([]);
+        expect(before.defaultPrevented).toBe(false);
+        expect(event.defaultPrevented).toBe(false);
+        expect(store.count).toBe(1);
+      },
+    );
+
+    it.each([
+      [
+        'a collapsed page selection',
+        (wrapper: HTMLElement) => wrapper.ownerDocument.getSelection()?.collapse(pageText(), 0),
+      ],
+      [
+        'a selection inside the board',
+        (wrapper: HTMLElement) => wrapper.ownerDocument.getSelection()?.selectAllChildren(wrapper),
+      ],
+    ])('a native cut with %s is still claimed', (_, select) => {
+      const { viewport, wrapper, store } = board({ shortcuts: { scope } });
+      selectedShape(viewport);
+      select(wrapper);
+
+      const { before, event, written } = copyEvent(wrapper, 'cut');
+
+      expect(written).toHaveLength(3);
+      expect(before.defaultPrevented).toBe(true);
+      expect(event.defaultPrevented).toBe(true);
+      expect(store.count).toBe(0);
+    });
+  });
 });
 
 describe('Viewport drop', () => {

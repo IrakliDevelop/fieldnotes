@@ -146,6 +146,8 @@ export class InputHandler {
     this.clipboard = new ClipboardBridge({
       keyboardActions: this.actions,
       document,
+      element: this.element,
+      isDisabled: (action) => this.keyboard.shortcuts.getBindings()[action]?.length === 0,
       canInsertNow: () => {
         this.flushPendingHistory();
         return !this.isToolActive && (this.historyRecorder?.currentTransactionId ?? null) === null;
