@@ -11,6 +11,7 @@ export interface BuiltinActionDeps {
   zoomByFactor: (factor: number) => void;
   zoomToLevel: (level: number) => void;
   canPaste: () => boolean;
+  clipboard: { copy(): void; cut(): void };
 }
 
 /** Context-menu groups emitted by the built-in table, in display order. */
@@ -150,7 +151,7 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       shortcut: ['mod+c'],
       menu: menu('clipboard', 20),
       enabled: hasSelection,
-      perform: () => ka.copy(),
+      perform: () => deps.clipboard.copy(),
     },
     // --- edit.paste (inserted after copy; no default shortcut) ---
     {
@@ -360,7 +361,7 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       shortcut: ['mod+x'],
       menu: menu('clipboard', 10),
       enabled: hasSelection,
-      perform: () => ka.cut(),
+      perform: () => deps.clipboard.cut(),
     },
     // --- arrange.toggle-lock ---
     {

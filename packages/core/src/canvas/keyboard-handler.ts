@@ -4,6 +4,7 @@ import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { ShortcutMap } from './shortcut-map';
 import type { KeyboardActions } from './keyboard-actions';
 import type { ActionRegistry } from '../actions/action-registry';
+import type { ClipboardBridge } from './clipboard-bridge';
 import { createBuiltinActions } from '../actions/builtin-actions';
 import { isLiveControlTarget } from './live-control';
 
@@ -11,6 +12,7 @@ export interface KeyboardHandlerDeps {
   element: HTMLElement;
   camera: Camera;
   keyboardActions: KeyboardActions;
+  clipboard: ClipboardBridge;
   actions: ActionRegistry;
   scope: 'focus' | 'window';
   shortcuts?: ShortcutOptions;
@@ -40,6 +42,7 @@ export class KeyboardHandler {
       zoomByFactor: (f) => this.zoomByFactor(f),
       zoomToLevel: (l) => this.zoomToLevel(l),
       canPaste: () => ka.hasClipboard(),
+      clipboard: { copy: () => deps.clipboard.copy(), cut: () => deps.clipboard.cut() },
     })) {
       deps.actions.register(def);
     }
@@ -55,6 +58,10 @@ export class KeyboardHandler {
     window.addEventListener('keydown', this.onKeyDown, { signal: deps.abortSignal });
     window.addEventListener('keyup', this.onKeyUp, { signal: deps.abortSignal });
     window.addEventListener('paste', this.onPaste, { signal: deps.abortSignal });
+    window.addEventListener('copy', this.onCopy, { signal: deps.abortSignal });
+    window.addEventListener('cut', this.onCut, { signal: deps.abortSignal });
+    window.addEventListener('beforecopy', this.onBeforeCopy, { signal: deps.abortSignal });
+    window.addEventListener('beforecut', this.onBeforeCut, { signal: deps.abortSignal });
   }
 
   get shortcuts(): ShortcutsApi {
@@ -166,6 +173,22 @@ export class KeyboardHandler {
       return;
     }
     this.deps.keyboardActions.paste();
+  };
+
+  onCopy = (e: ClipboardEvent): void => {
+    this.deps.clipboard.handleCopy(e, this.shouldHandle(e.target), false);
+  };
+
+  onCut = (e: ClipboardEvent): void => {
+    this.deps.clipboard.handleCopy(e, this.shouldHandle(e.target), true);
+  };
+
+  onBeforeCopy = (e: Event): void => {
+    this.deps.clipboard.handleBeforeCopy(e, this.shouldHandle(e.target));
+  };
+
+  onBeforeCut = (e: Event): void => {
+    this.deps.clipboard.handleBeforeCopy(e, this.shouldHandle(e.target));
   };
 
   private isInScope(): boolean {

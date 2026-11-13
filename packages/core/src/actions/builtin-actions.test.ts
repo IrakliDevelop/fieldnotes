@@ -69,6 +69,7 @@ function makeDeps(overrides?: Partial<BuiltinActionDeps>): BuiltinActionDeps {
     zoomByFactor: vi.fn(),
     zoomToLevel: vi.fn(),
     canPaste: vi.fn().mockReturnValue(false),
+    clipboard: { copy: vi.fn(), cut: vi.fn() },
     ...overrides,
   };
 }
@@ -193,7 +194,6 @@ describe('createBuiltinActions', () => {
     ['select.all', 'selectAll', []],
     ['select.cycle', 'cycleSelection', [1]],
     ['select.cycle-reverse', 'cycleSelection', [-1]],
-    ['edit.copy', 'copy', []],
     ['edit.paste', 'paste', []],
     ['edit.duplicate', 'duplicate', []],
     ['arrange.bring-forward', 'zOrder', ['forward']],
@@ -203,7 +203,6 @@ describe('createBuiltinActions', () => {
     ['view.zoom-to-fit', 'zoomToFit', []],
     ['arrange.group', 'group', []],
     ['arrange.ungroup', 'ungroup', []],
-    ['edit.cut', 'cut', []],
     ['arrange.toggle-lock', 'toggleLock', []],
     ['arrange.rotate-cw', 'rotate', ['cw']],
     ['arrange.rotate-ccw', 'rotate', ['ccw']],
@@ -220,6 +219,22 @@ describe('createBuiltinActions', () => {
     action.perform(ctx, defaultInvocation);
     expect(spies[method]).toHaveBeenCalledWith(...args);
   });
+
+  it.each(['copy', 'cut'] as const)(
+    'edit.%s calls the clipboard bridge, not keyboardActions',
+    (method) => {
+      const spies = makeSpyKeyboardActions();
+      const clipboard = { copy: vi.fn(), cut: vi.fn() };
+      const actions = createBuiltinActions(
+        makeDeps({ keyboardActions: spies as unknown as KeyboardActions, clipboard }),
+      );
+
+      findAction(actions, `edit.${method}`).perform(makeCtx(), defaultInvocation);
+
+      expect(clipboard[method]).toHaveBeenCalledOnce();
+      expect(spies[method]).not.toHaveBeenCalled();
+    },
+  );
 
   it('view.zoom-in/out/reset call zoomByFactor/zoomToLevel with the base constants', () => {
     const zoomByFactor = vi.fn();

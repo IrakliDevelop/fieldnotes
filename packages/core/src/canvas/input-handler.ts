@@ -8,6 +8,7 @@ import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import type { RotateDirection } from './selection-rotate';
 import type { ActionRegistry } from '../actions/action-registry';
 import { InputFilter } from './input-filter';
+import { ClipboardBridge } from './clipboard-bridge';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
 import { PanInertia } from './pan-inertia';
@@ -86,6 +87,7 @@ export class InputHandler {
   private longPressStart: { x: number; y: number } | null = null;
   private readonly abortController = new AbortController();
   private readonly actions: KeyboardActions;
+  private readonly clipboard: ClipboardBridge;
   private readonly keyboard: KeyboardHandler;
   private readonly scope: 'focus' | 'window';
   private readonly openContextMenu?: (screenPos: Point, world: Point) => void;
@@ -139,10 +141,12 @@ export class InputHandler {
       enabled: () => this.panInertiaEnabled,
     });
     this.scope = options.shortcuts?.scope ?? 'focus';
+    this.clipboard = new ClipboardBridge({ keyboardActions: this.actions, document });
     this.keyboard = new KeyboardHandler({
       element: this.element,
       camera: this.camera,
       keyboardActions: this.actions,
+      clipboard: this.clipboard,
       actions: options.actions,
       scope: this.scope,
       shortcuts: options.shortcuts,
