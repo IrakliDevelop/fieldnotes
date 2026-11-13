@@ -34,6 +34,7 @@ import { LEGACY_ACTION_IDS } from '../actions/legacy-action-ids';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
+import { CameraAnimator } from './camera-animator';
 import { pointerDown, pointerMove, pointerUp } from '../test-helpers/pointer-helpers';
 import { LaserTool } from '../tools/laser-tool';
 import { FIXED_HELP_ROWS } from './palette-model';
@@ -6771,6 +6772,21 @@ describe('Viewport links', () => {
     expect(viewport.toolManager.activeTool?.name).toBe('select');
     expect(viewport.getSelectedIds()).toEqual([target]);
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it('destroy disposes the camera animator an animated internal-link reveal created', () => {
+    const { viewport } = harness;
+    vi.spyOn(viewport, 'getCanvasSize').mockReturnValue({ w: 800, h: 600 });
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    const dispose = vi.spyOn(CameraAnimator.prototype, 'dispose');
+    const target = addShape(viewport, { x: 5000, y: 5000 });
+    const source = addShape(viewport, { x: 0, y: 0 }, `#fn:element=${target}`);
+
+    viewport.toolContext.openLink?.(source);
+    expect(dispose).not.toHaveBeenCalled();
+    viewport.destroy();
+
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 
   it('the modifier click is skipped while an html element is interacting', () => {
