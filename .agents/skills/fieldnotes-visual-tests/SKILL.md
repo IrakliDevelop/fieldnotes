@@ -65,7 +65,7 @@ screenshot. Do not copy these; new tests wait on state, for example
 
 ```bash
 pnpm --filter @fieldnotes/core e2e
-pnpm --filter @fieldnotes/core e2e -- --project=ipad e2e/touch-input.e2e.ts
+pnpm --filter @fieldnotes/core e2e --project=ipad e2e/touch-input.e2e.ts   # no `--`: Playwright ignores args after it
 pnpm --filter @fieldnotes/core e2e:update   # only with a stated visual change
 ```
 

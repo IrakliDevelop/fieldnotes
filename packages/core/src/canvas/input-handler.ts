@@ -1,4 +1,5 @@
 import type { Point } from '../core/types';
+import type { CanvasElement } from '../elements/types';
 import type { Camera } from './camera';
 import type { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, PointerState } from '../tools/types';
@@ -8,6 +9,9 @@ import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import type { RotateDirection } from './selection-rotate';
 import type { ActionRegistry } from '../actions/action-registry';
 import { InputFilter } from './input-filter';
+import type { ClipboardHost } from './clipboard-bridge';
+import { ClipboardBridge } from './clipboard-bridge';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 import { KeyboardActions } from './keyboard-actions';
 import { KeyboardHandler } from './keyboard-handler';
 import { PanInertia } from './pan-inertia';
@@ -47,9 +51,8 @@ export interface InputHandlerOptions {
   rotate?: (direction: RotateDirection) => void;
   openContextMenu?: (screenPos: Point, world: Point) => void;
   shortcuts?: ShortcutOptions;
-  addImage?: (src: string, world: { x: number; y: number }) => string;
   getCenteredWorld?: () => { x: number; y: number };
-  onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
+  clipboardHost?: ClipboardHost;
   panInertia?: boolean;
   /** True when the client point is on a selection handle, which wins over a live control. */
   isOnSelectionHandle?: (clientX: number, clientY: number) => boolean;
@@ -86,6 +89,7 @@ export class InputHandler {
   private longPressStart: { x: number; y: number } | null = null;
   private readonly abortController = new AbortController();
   private readonly actions: KeyboardActions;
+  private readonly clipboard: ClipboardBridge;
   private readonly keyboard: KeyboardHandler;
   private readonly scope: 'focus' | 'window';
   private readonly openContextMenu?: (screenPos: Point, world: Point) => void;
@@ -139,10 +143,29 @@ export class InputHandler {
       enabled: () => this.panInertiaEnabled,
     });
     this.scope = options.shortcuts?.scope ?? 'focus';
+    this.clipboard = new ClipboardBridge({
+      keyboardActions: this.actions,
+      document,
+      element: this.element,
+      isDisabled: (action) => this.keyboard.shortcuts.getBindings()[action]?.length === 0,
+      canInsertNow: () => {
+        this.flushPendingHistory();
+        return !this.isToolActive && (this.historyRecorder?.currentTransactionId ?? null) === null;
+      },
+      // Handlers built without a viewport have no inserters: only memory pastes take effect.
+      host: options.clipboardHost ?? {
+        elementRegistry: getDefaultElementRegistry(),
+        claimsFile: () => false,
+        insertElements: () => undefined,
+        insertFiles: () => false,
+        insertText: () => undefined,
+      },
+    });
     this.keyboard = new KeyboardHandler({
       element: this.element,
       camera: this.camera,
       keyboardActions: this.actions,
+      clipboard: this.clipboard,
       actions: options.actions,
       scope: this.scope,
       shortcuts: options.shortcuts,
@@ -155,10 +178,8 @@ export class InputHandler {
       },
       getActivePointerCount: () => this.activePointers.size,
       dispatchToolHover: (e) => this.dispatchToolHover(e),
-      addImage: options.addImage ?? (() => ''),
       getLastPointerWorld: () => this.lastPointerWorld(),
       getCenteredWorld: options.getCenteredWorld ?? (() => ({ x: 0, y: 0 })),
-      onPaste: options.onPaste,
     });
     this.element.style.touchAction = 'none';
     if (this.scope === 'focus') {
@@ -194,6 +215,10 @@ export class InputHandler {
    */
   isCameraCoasting(): boolean {
     return this.panInertia.isCoasting() || this.coastStoppedByPointer;
+  }
+
+  getLastPointerEvent(): PointerEvent | null {
+    return this.lastPointerEvent;
   }
 
   /** Cancels any active pan inertia coast. */
@@ -508,6 +533,10 @@ export class InputHandler {
 
   hasClipboard(): boolean {
     return this.actions.hasClipboard();
+  }
+
+  insertElements(elements: CanvasElement[], anchor: Point): string[] {
+    return this.actions.insertElements(elements, anchor);
   }
 
   private startPinch(): void {

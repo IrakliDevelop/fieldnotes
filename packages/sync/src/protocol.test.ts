@@ -28,6 +28,8 @@ import {
   isValidFogTileRecord,
   isValidFogMetaRecord,
   isValidFogSnapshot,
+  sanitizeElementLink,
+  type SyncElement,
 } from './protocol';
 import { SYNC_LIMITS } from './limits';
 
@@ -309,6 +311,33 @@ describe('isValidElement', () => {
     expect(isValidElement(null)).toBe(false);
     expect(isValidElement('shape')).toBe(false);
     expect(isValidElement(42)).toBe(false);
+  });
+});
+
+describe('sanitizeElementLink', () => {
+  it('sanitizeElementLink keeps an allowed link and the reference', () => {
+    const el = { ...shape(), link: 'https://example.com' };
+    expect(sanitizeElementLink(el)).toBe(el);
+  });
+
+  it('sanitizeElementLink keeps a link of exactly 2048 characters', () => {
+    const el = { ...shape(), link: `https://${'a'.repeat(2040)}` };
+    expect(el.link).toHaveLength(2048);
+    expect(sanitizeElementLink(el)).toBe(el);
+  });
+
+  it.each([
+    ['a javascript: link', 'javascript:alert(1)'],
+    ['a number', 5],
+    ['a 2049-character link', `https://${'a'.repeat(2041)}`],
+  ])('sanitizeElementLink drops %s', (_, link) => {
+    expect('link' in sanitizeElementLink({ ...shape(), link } as SyncElement)).toBe(false);
+  });
+
+  it('isValidElement and elementWithinLimits still accept a stored javascript: link', () => {
+    const el = { ...shape(), link: 'javascript:alert(1)' };
+    expect(isValidElement(el)).toBe(true);
+    expect(elementWithinLimits(el, SYNC_LIMITS)).toBe(true);
   });
 });
 

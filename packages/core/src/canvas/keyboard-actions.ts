@@ -11,6 +11,7 @@ import { getElementsBoundingBox } from '../elements/bounds';
 import { ElementStore, replayWithoutDerivation } from '../elements/element-store';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
 import { getBoundText } from '../elements/bound-text';
+import { elementLink, parseElementLink } from '../elements/link';
 import type { RotateDirection } from './selection-rotate';
 
 export interface KeyboardActionsDeps {
@@ -149,14 +150,18 @@ export class KeyboardActions {
     ctx.requestRender();
   }
 
-  copy(): void {
-    if (this.deps.isToolActive()) return;
+  /** The selection's hierarchy closure; `[]` during a gesture or without a selection. */
+  copyableElements(): CanvasElement[] {
+    if (this.deps.isToolActive()) return [];
     const sel = this.selectTool();
-    if (!sel) return;
-    const closure = getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store);
-    if (closure.elements.length === 0) return;
-    const clipboard = closure.elements.map((element) => structuredClone(element));
-    this.clipboard = clipboard;
+    if (!sel) return [];
+    return [...getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store).elements];
+  }
+
+  copy(): void {
+    const elements = this.copyableElements();
+    if (elements.length === 0) return;
+    this.clipboard = elements.map((element) => structuredClone(element));
     this.pasteCount = 0;
   }
 
@@ -203,6 +208,27 @@ export class KeyboardActions {
     const source = getHierarchyClosure(sel.tool.selectedIds, sel.ctx.store).elements;
     if (source.length === 0) return;
     this.insertClones(source, { x: 20, y: 20 }, sel);
+  }
+
+  /** Inserts clones of `source` centred on `anchor`; returns the selected root ids. */
+  insertElements(source: readonly CanvasElement[], anchor: Point | null): string[] {
+    if (this.deps.isToolActive() || source.length === 0) return [];
+    this.flushPendingNudge();
+    if (this.deps.getToolManager()?.activeTool?.name !== 'select') {
+      this.deps.getToolContext()?.switchTool?.('select');
+    }
+    const sel = this.selectTool();
+    if (!sel) return [];
+    const bbox = getElementsBoundingBox([...source], sel.ctx.elementRegistry);
+    const offset =
+      anchor && bbox
+        ? { x: anchor.x - (bbox.x + bbox.w / 2), y: anchor.y - (bbox.y + bbox.h / 2) }
+        : { x: 0, y: 0 };
+    try {
+      return this.insertClones(source, offset, sel);
+    } catch {
+      return [];
+    }
   }
 
   deselect(): void {
@@ -325,7 +351,7 @@ export class KeyboardActions {
     source: readonly CanvasElement[],
     offset: Point,
     sel: { tool: SelectTool; ctx: ToolContext },
-  ): void {
+  ): string[] {
     const idMap = new Map<string, string>();
     for (const el of source) {
       idMap.set(el.id, createId(el.type));
@@ -342,6 +368,9 @@ export class KeyboardActions {
       const newId = idMap.get(el.id);
       if (!newId) continue;
       clone.id = newId;
+      const linkTarget = clone.link ? parseElementLink(clone.link) : null;
+      const newTarget = linkTarget ? idMap.get(linkTarget) : undefined;
+      if (newTarget) clone.link = elementLink(newTarget);
       // A clone is a new element: placed on top by the store, starting its own history.
       clone.index = '';
       clone.version = 1;
@@ -432,5 +461,6 @@ export class KeyboardActions {
       .map((clone) => clone.id);
     sel.tool.setSelection(selectedRoots);
     sel.ctx.requestRender();
+    return selectedRoots;
   }
 }

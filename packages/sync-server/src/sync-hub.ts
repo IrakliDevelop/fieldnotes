@@ -4,6 +4,7 @@ import {
   supportsLegacyHierarchy,
   parseLegacyEnvelope,
   isValidElement,
+  sanitizeElementLink,
   isNewerLayerRecord,
   isNewerVersion,
   translateOpForPeer,
@@ -212,6 +213,19 @@ function stripOwnerId(op: SyncOp): SyncOp {
   if (op.kind === 'batch') {
     const ops = op.ops.map((inner): BatchOp =>
       inner.kind === 'upsert' ? { ...inner, element: withoutOwnerId(inner.element) } : inner,
+    );
+    return { ...op, ops };
+  }
+  return op;
+}
+
+/** Removes a disallowed `link` from every element an op carries, so stored ones never leave the hub. */
+function sanitizeOpLinks(op: SyncOp): SyncOp {
+  if (op.kind === 'upsert') return { ...op, element: sanitizeElementLink(op.element) };
+  if (op.kind === 'snapshot') return { ...op, elements: op.elements.map(sanitizeElementLink) };
+  if (op.kind === 'batch') {
+    const ops = op.ops.map((inner): BatchOp =>
+      inner.kind === 'upsert' ? { ...inner, element: sanitizeElementLink(inner.element) } : inner,
     );
     return { ...op, ops };
   }
@@ -721,7 +735,10 @@ export class SyncHub {
 
       const result = await this.runCorePlugins(conn, candidate, options);
       const pluginOutput = { ...result, accepted: null };
-      const accepted = result.accepted;
+      const accepted =
+        result.accepted?.kind === 'upsert'
+          ? { ...result.accepted, element: sanitizeElementLink(result.accepted.element) }
+          : result.accepted;
       if (accepted?.kind !== 'upsert' && accepted?.kind !== 'remove') {
         await this.deliverPluginResult(conn, pluginOutput, opVersion);
         return;
@@ -1144,7 +1161,10 @@ export class SyncHub {
     revealOwner: boolean,
   ): string | null {
     try {
-      const translated = translateOpForPeer(revealOwner ? op : stripOwnerId(op), capabilities);
+      const translated = translateOpForPeer(
+        sanitizeOpLinks(revealOwner ? op : stripOwnerId(op)),
+        capabilities,
+      );
       return JSON.stringify({ from, op: translated });
     } catch {
       return null;

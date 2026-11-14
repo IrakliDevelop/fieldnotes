@@ -2,8 +2,10 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { Viewport } from './viewport';
-import type { PluginConfigureContext, ViewportPlugin } from './viewport';
+import type { PluginConfigureContext, ViewportOptions, ViewportPlugin } from './viewport';
+import { encodeClipboard, FIELDNOTES_CLIPBOARD_TYPE } from './clipboard-codec';
 import type { Tool } from '../tools/types';
 import {
   createNote,
@@ -32,7 +34,8 @@ import { LEGACY_ACTION_IDS } from '../actions/legacy-action-ids';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
-import { pointerDown, pointerUp } from '../test-helpers/pointer-helpers';
+import { CameraAnimator } from './camera-animator';
+import { pointerDown, pointerMove, pointerUp } from '../test-helpers/pointer-helpers';
 import { LaserTool } from '../tools/laser-tool';
 import { FIXED_HELP_ROWS } from './palette-model';
 import { setTextMeasurer } from '../elements/text-measure';
@@ -1536,82 +1539,72 @@ describe('Viewport', () => {
       viewport.destroy();
     });
 
-    it('skips non-image files', () => {
+    it('skips non-image files', async () => {
       const viewport = new Viewport(container);
       const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
         .interactions;
-      const mockFile = { type: 'text/plain' };
-      const mockEvent = {
+      const file = new File(['%PDF'], 'a.pdf', { type: 'application/pdf' });
+
+      priv.onDrop({
         preventDefault: vi.fn(),
-        dataTransfer: { files: [mockFile] },
+        dataTransfer: { files: [file] },
         clientX: 100,
         clientY: 100,
-      };
-      priv.onDrop(mockEvent);
-      expect(viewport.store.getElementsByType('image').length).toBe(0);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(viewport.store.count).toBe(0);
       viewport.destroy();
     });
 
-    it('processes image files via FileReader', () => {
+    it('processes image files via FileReader', async () => {
       const viewport = new Viewport(container);
       const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
         .interactions;
-      const mockFile = { type: 'image/png' };
-      const captured: { onload: (() => void) | null } = { onload: null };
-      const OrigFileReader = globalThis.FileReader;
-      globalThis.FileReader = class {
-        result: unknown = 'data:image/png;base64,abc';
-        readAsDataURL = vi.fn();
-        set onload(fn: (() => void) | null) {
-          captured.onload = fn;
-        }
-      } as unknown as typeof FileReader;
+      const file = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' });
 
-      const mockEvent = {
+      priv.onDrop({
         preventDefault: vi.fn(),
-        dataTransfer: { files: [mockFile] },
+        dataTransfer: { files: [file] },
         clientX: 100,
         clientY: 100,
-      };
-      priv.onDrop(mockEvent);
+      });
+      await vi.waitFor(() => expect(viewport.store.getElementsByType('image')).toHaveLength(1));
 
-      if (captured.onload) {
-        captured.onload();
-      }
-      expect(viewport.store.getElementsByType('image').length).toBe(1);
-
-      globalThis.FileReader = OrigFileReader;
+      expect(viewport.store.getElementsByType('image')[0]?.src).toBe('data:image/png;base64,AQID');
       viewport.destroy();
     });
 
-    it('skips non-string FileReader results', () => {
-      const viewport = new Viewport(container);
+    it('reports a non-string FileReader result as a load error and inserts nothing', async () => {
+      vi.stubGlobal(
+        'FileReader',
+        class {
+          result = new ArrayBuffer(0);
+          onload: (() => void) | null = null;
+          readAsDataURL() {
+            queueMicrotask(() => this.onload?.());
+          }
+        },
+      );
+      const onImageError = vi.fn();
+      const viewport = new Viewport(container, { onImageError });
       const priv = (viewport as unknown as { interactions: { onDrop: (e: unknown) => void } })
         .interactions;
-      const mockFile = { type: 'image/png' };
-      const captured: { onload: (() => void) | null } = { onload: null };
-      const OrigFileReader = globalThis.FileReader;
-      globalThis.FileReader = class {
-        result: unknown = new ArrayBuffer(0);
-        readAsDataURL = vi.fn();
-        set onload(fn: (() => void) | null) {
-          captured.onload = fn;
-        }
-      } as unknown as typeof FileReader;
+      const file = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' });
 
-      const mockEvent = {
+      priv.onDrop({
         preventDefault: vi.fn(),
-        dataTransfer: { files: [mockFile] },
+        dataTransfer: { files: [file] },
         clientX: 100,
         clientY: 100,
-      };
-      priv.onDrop(mockEvent);
-      if (captured.onload) {
-        captured.onload();
-      }
-      expect(viewport.store.getElementsByType('image').length).toBe(0);
+      });
+      await vi.waitFor(() =>
+        expect(onImageError).toHaveBeenCalledWith(
+          expect.objectContaining({ src: 'a.png', elementIds: [], reason: 'load' }),
+        ),
+      );
 
-      globalThis.FileReader = OrigFileReader;
+      expect(viewport.store.count).toBe(0);
       viewport.destroy();
     });
   });
@@ -2505,7 +2498,7 @@ describe('Viewport', () => {
       Object.defineProperty(event, 'clientY', { value: 200 });
       Object.defineProperty(event, 'preventDefault', { value: vi.fn() });
       Object.defineProperty(event, 'dataTransfer', {
-        value: { files: [] },
+        value: { files: [], getData: () => '' },
       });
 
       expect(() => vp.domLayer.parentElement?.dispatchEvent(event)).not.toThrow();
@@ -3507,9 +3500,15 @@ describe('Viewport', () => {
           !a.id.startsWith('tool.') &&
           !a.id.startsWith('presentation.') &&
           !a.id.startsWith('palette.') &&
+          !a.id.startsWith('link.') &&
           a.id !== 'selection.edit-text',
       );
       expect(builtins).toHaveLength(31);
+      expect(list.filter((a) => a.id.startsWith('link.')).map((a) => a.id)).toEqual([
+        'link.set',
+        'link.remove',
+        'link.open',
+      ]);
       expect(list.some((action) => action.id === 'selection.edit-text')).toBe(true);
       expect(list.filter((a) => a.id.startsWith('presentation.')).map((a) => a.id)).toEqual([
         'presentation.start',
@@ -3638,6 +3637,8 @@ describe('Viewport', () => {
         'Rotate 90° CCW',
         '---',
         'Lock',
+        '---',
+        'Add link',
       ]);
       viewport.destroy();
     });
@@ -6136,4 +6137,905 @@ describe('Viewport live html elements', () => {
       vi.useRealTimers();
     },
   );
+});
+
+describe('Viewport system clipboard paste', () => {
+  const boards: Viewport[] = [];
+
+  beforeEach(() => setTextMeasurer((text) => text.length * 10));
+
+  afterEach(() => {
+    setTextMeasurer(null);
+    for (const board of boards.splice(0)) board.destroy();
+    document.body.replaceChildren();
+  });
+
+  function board(options: ViewportOptions = {}) {
+    const container = document.createElement('div');
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600 }),
+    });
+    document.body.appendChild(container);
+    const viewport = new Viewport(container, options);
+    boards.push(viewport);
+    viewport.toolManager.register(new SelectTool());
+    viewport.toolManager.setTool('select', viewport.toolContext);
+    const wrapper = wrapperOf(container);
+    Object.defineProperties(wrapper, {
+      clientWidth: { value: 800, configurable: true },
+      clientHeight: { value: 600, configurable: true },
+    });
+    wrapper.focus();
+    return { viewport, wrapper, store: viewport.store };
+  }
+
+  function paste(
+    target: HTMLElement,
+    data: { vendor?: string; text?: string; files?: File[] } = {},
+  ): ClipboardEvent {
+    const formats: Record<string, string | undefined> = {
+      [FIELDNOTES_CLIPBOARD_TYPE]: data.vendor,
+      'text/plain': data.text,
+    };
+    const files = data.files ?? [];
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        getData: (t: string) => formats[t] ?? '',
+        items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+        files,
+        types: [],
+      },
+    });
+    target.dispatchEvent(event);
+    return event as ClipboardEvent;
+  }
+
+  function deferredUpload() {
+    let resolve: (value: { src: string }) => void = () => undefined;
+    const upload = vi.fn(
+      () =>
+        new Promise<{ src: string }>((r) => {
+          resolve = r;
+        }),
+    );
+    return { assets: { upload }, upload, resolve: (src: string) => resolve({ src }) };
+  }
+
+  const png = new File([new Uint8Array([1])], 'pic.png', { type: 'image/png' });
+
+  it('pasting a URL creates one linked text element in one undo step centred on the wrapper centre', () => {
+    const { viewport, wrapper, store } = board();
+
+    paste(wrapper, { text: 'https://example.com' });
+
+    const [el] = store.getAll();
+    expect(store.count).toBe(1);
+    if (el?.type !== 'text') throw new Error('expected a text element');
+    expect(el.link).toBe('https://example.com');
+    const centre = viewport.camera.screenToWorld({ x: 400, y: 300 });
+    expect(el.position.x + el.size.w / 2).toBeCloseTo(centre.x);
+    expect(el.position.y + el.size.h / 2).toBeCloseTo(centre.y);
+    expect(viewport.getSelectedIds()).toEqual([el.id]);
+    viewport.undo();
+    expect(store.count).toBe(0);
+    expect(viewport.history.canUndo).toBe(false);
+  });
+
+  it('a javascript: line becomes a text element with no link', () => {
+    const { wrapper, store } = board();
+
+    paste(wrapper, { text: 'javascript:alert(1)' });
+
+    const [el] = store.getAll();
+    expect(el?.type).toBe('text');
+    expect(el?.link).toBeUndefined();
+  });
+
+  it('pasting an image file with an asset resolver inserts after the upload resolves and selects it', async () => {
+    const { assets, upload, resolve } = deferredUpload();
+    const { viewport, wrapper, store } = board({ assets });
+
+    paste(wrapper, { files: [png] });
+    await vi.waitFor(() => expect(upload.mock.calls).toEqual([[png, { kind: 'paste' }]]));
+    expect(store.count).toBe(0);
+    resolve('https://cdn.example/pic.png');
+
+    await vi.waitFor(() => expect(store.count).toBe(1));
+    const [el] = store.getAll();
+    if (el?.type !== 'image') throw new Error('expected an image');
+    expect(el.src).toBe('https://cdn.example/pic.png');
+    expect(el.position).toEqual({ x: 250, y: 200 });
+    expect(viewport.getSelectedIds()).toEqual([el.id]);
+  });
+
+  it('an upload still pending when the viewport is destroyed inserts nothing', async () => {
+    const { assets, upload, resolve } = deferredUpload();
+    const { viewport, wrapper, store } = board({ assets });
+
+    paste(wrapper, { files: [png] });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+    viewport.destroy();
+    resolve('https://cdn.example/pic.png');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(store.count).toBe(0);
+  });
+
+  it('one paste is one history entry', () => {
+    const { viewport, wrapper, store } = board();
+    const notes = ['a0', 'a1', 'a2'].map((index, i) =>
+      createNote({ position: { x: i * 100, y: 0 }, size: { w: 80, h: 40 }, index }),
+    );
+
+    paste(wrapper, { vendor: encodeClipboard(notes).vendor });
+
+    expect(store.count).toBe(3);
+    viewport.undo();
+    expect(store.count).toBe(0);
+  });
+
+  it('a paste holding only an unclaimed file falls back to the memory clipboard', () => {
+    const { viewport, wrapper, store } = board();
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+    store.add(shape);
+    viewport.toolManager.getTool<SelectTool>('select')?.setSelection([shape.id]);
+    viewport.runAction('edit.copy');
+    const pdf = new File([new Uint8Array([1])], 'doc.pdf', { type: 'application/pdf' });
+
+    const event = paste(wrapper, { files: [pdf] });
+
+    expect(store.count).toBe(2);
+    expect(store.getAll().filter((el) => el.type === 'shape')).toHaveLength(2);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('the onPaste hook sees the paste first and false falls through', () => {
+    let countAtHook = -1;
+    const onPaste = vi.fn(() => {
+      countAtHook = store.count;
+      return false;
+    });
+    const { viewport, wrapper, store } = board({ onPaste });
+
+    const event = paste(wrapper, { text: 'hello' });
+
+    expect(onPaste.mock.calls).toEqual([
+      [event, viewport.camera.screenToWorld({ x: 400, y: 300 })],
+    ]);
+    expect(countAtHook).toBe(0);
+    expect(store.count).toBe(1);
+  });
+
+  it('a paste during a tool gesture or an open transaction inserts nothing', () => {
+    const { viewport, wrapper, store } = board();
+
+    viewport.transaction(() => paste(wrapper, { text: 'hello' }));
+    pointerDown(wrapper, 400, 300);
+    paste(wrapper, { text: 'hello' });
+    pointerUp(wrapper, 400, 300);
+
+    expect(store.count).toBe(0);
+  });
+
+  it('a paste right after an arrow-key nudge commits the nudge and inserts as its own undo step', () => {
+    const { viewport, wrapper, store } = board();
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+    store.add(shape);
+    viewport.toolManager.getTool<SelectTool>('select')?.setSelection([shape.id]);
+
+    wrapper.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    paste(wrapper, { text: 'hello' });
+
+    expect(store.getAll().filter((el) => el.type === 'text')).toHaveLength(1);
+    expect(store.getById(shape.id)?.position).toEqual({ x: 1, y: 0 });
+    viewport.undo();
+    expect(store.count).toBe(1);
+    expect(store.getById(shape.id)?.position).toEqual({ x: 1, y: 0 });
+    viewport.undo();
+    expect(store.getById(shape.id)?.position).toEqual({ x: 0, y: 0 });
+  });
+
+  function selectedShape(viewport: Viewport) {
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 50, h: 50 } });
+    viewport.store.add(shape);
+    viewport.toolManager.getTool<SelectTool>('select')?.setSelection([shape.id]);
+  }
+
+  function copyEvent(target: HTMLElement, type: 'copy' | 'cut') {
+    const written: string[] = [];
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        getData: () => '',
+        setData: (t: string) => written.push(t),
+        items: [],
+        files: [],
+        types: [],
+      },
+    });
+    const before = new Event(`before${type}`, { bubbles: true, cancelable: true });
+    target.dispatchEvent(before);
+    target.dispatchEvent(event);
+    return { before, event, written };
+  }
+
+  it.each(['copy', 'cut'] as const)(
+    'a native %s with its shortcut disabled writes, prevents and deletes nothing',
+    (type) => {
+      const { viewport, wrapper, store } = board();
+      selectedShape(viewport);
+      viewport.shortcuts.disable(`edit.${type}`);
+
+      const { before, event, written } = copyEvent(wrapper, type);
+
+      expect(written).toEqual([]);
+      expect(before.defaultPrevented).toBe(false);
+      expect(event.defaultPrevented).toBe(false);
+      expect(store.count).toBe(1);
+    },
+  );
+
+  it('a native paste with edit.paste disabled inserts nothing and is not prevented', () => {
+    const { viewport, wrapper, store } = board();
+    selectedShape(viewport);
+    viewport.runAction('edit.copy');
+    viewport.shortcuts.disable('edit.paste');
+
+    const text = paste(wrapper, { text: 'hello' });
+    const empty = paste(wrapper);
+    wrapper.dispatchEvent(new Event('paste', { bubbles: true, cancelable: true }));
+
+    expect(store.count).toBe(1);
+    expect(text.defaultPrevented).toBe(false);
+    expect(empty.defaultPrevented).toBe(false);
+  });
+
+  describe.each(['focus', 'window'] as const)('page text selection (%s scope)', (scope) => {
+    afterEach(() => document.getSelection()?.removeAllRanges());
+
+    function pageText() {
+      const p = document.createElement('p');
+      p.textContent = 'page text';
+      document.body.append(p);
+      return p;
+    }
+
+    it.each(['copy', 'cut'] as const)(
+      'a native %s with page text selected outside the board is left to the browser',
+      (type) => {
+        const { viewport, wrapper, store } = board({ shortcuts: { scope } });
+        selectedShape(viewport);
+        document.getSelection()?.selectAllChildren(pageText());
+
+        const { before, event, written } = copyEvent(wrapper, type);
+
+        expect(written).toEqual([]);
+        expect(before.defaultPrevented).toBe(false);
+        expect(event.defaultPrevented).toBe(false);
+        expect(store.count).toBe(1);
+      },
+    );
+
+    it.each([
+      [
+        'a collapsed page selection',
+        (wrapper: HTMLElement) => wrapper.ownerDocument.getSelection()?.collapse(pageText(), 0),
+      ],
+      [
+        'a selection inside the board',
+        (wrapper: HTMLElement) => wrapper.ownerDocument.getSelection()?.selectAllChildren(wrapper),
+      ],
+    ])('a native cut with %s is still claimed', (_, select) => {
+      const { viewport, wrapper, store } = board({ shortcuts: { scope } });
+      selectedShape(viewport);
+      select(wrapper);
+
+      const { before, event, written } = copyEvent(wrapper, 'cut');
+
+      expect(written).toHaveLength(3);
+      expect(before.defaultPrevented).toBe(true);
+      expect(event.defaultPrevented).toBe(true);
+      expect(store.count).toBe(0);
+    });
+
+    it('pressing the board clears an outside page selection so copy takes the selected elements', () => {
+      const { viewport, wrapper } = board({ shortcuts: { scope } });
+      selectedShape(viewport);
+      document.getSelection()?.selectAllChildren(pageText());
+
+      pointerDown(wrapper, 25, 25);
+      pointerUp(wrapper, 25, 25);
+
+      expect(document.getSelection()?.isCollapsed).toBe(true);
+      const { event, written } = copyEvent(wrapper, 'copy');
+      expect(written).toContain(FIELDNOTES_CLIPBOARD_TYPE);
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    function addLive(viewport: Viewport, interactive: boolean) {
+      const padding = document.createElement('p');
+      padding.textContent = 'embedded text';
+      const link = document.createElement('a');
+      link.setAttribute('href', '#');
+      const content = document.createElement('div');
+      content.append(padding, link);
+      const id = viewport.addHtmlElement(
+        content,
+        { x: 300, y: 300 },
+        { w: 100, h: 50 },
+        { interactive },
+      );
+      (viewport as unknown as { renderLoop: { flush(): void } }).renderLoop.flush();
+      return { id, padding, link };
+    }
+
+    it('pressing the board leaves a selection anchored inside the board untouched', () => {
+      const { viewport, wrapper } = board({ shortcuts: { scope } });
+      const { padding } = addLive(viewport, true);
+      document.getSelection()?.selectAllChildren(padding);
+
+      pointerDown(wrapper, 25, 25);
+
+      expect(document.getSelection()?.isCollapsed).toBe(false);
+      expect(document.getSelection()?.anchorNode).toBe(padding);
+    });
+
+    it('pressing a live control keeps an outside page selection', () => {
+      const { viewport } = board({ shortcuts: { scope } });
+      const { link } = addLive(viewport, true);
+      const text = pageText();
+      document.getSelection()?.selectAllChildren(text);
+
+      pointerDown(link, 310, 310);
+
+      expect(document.getSelection()?.isCollapsed).toBe(false);
+      expect(document.getSelection()?.anchorNode).toBe(text);
+    });
+
+    it('pressing inside an html element in interact mode keeps an outside page selection', () => {
+      const { viewport } = board({ shortcuts: { scope } });
+      const { id, padding } = addLive(viewport, false);
+      (
+        viewport as unknown as { interactMode: { startInteracting(id: string): void } }
+      ).interactMode.startInteracting(id);
+      const text = pageText();
+      document.getSelection()?.selectAllChildren(text);
+
+      pointerDown(padding, 310, 310);
+
+      expect(document.getSelection()?.isCollapsed).toBe(false);
+      expect(document.getSelection()?.anchorNode).toBe(text);
+    });
+  });
+});
+
+describe('Viewport drop', () => {
+  let harness: ReturnType<typeof createViewportHarness>;
+
+  beforeEach(() => {
+    setTextMeasurer((text) => text.length * 10);
+    harness = createViewportHarness();
+  });
+
+  afterEach(() => {
+    harness.cleanup();
+    setTextMeasurer(null);
+  });
+
+  function dropText(text: string): void {
+    const event = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+      clientX: { value: 200 },
+      clientY: { value: 150 },
+      dataTransfer: {
+        value: { files: [], getData: (t: string) => (t === 'text/plain' ? text : '') },
+      },
+    });
+    harness.wrapper.dispatchEvent(event);
+  }
+
+  const texts = () => harness.viewport.store.getAll().filter((el) => el.type === 'text');
+
+  function dropFiles(files: File[]): void {
+    const event = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+      clientX: { value: 200 },
+      clientY: { value: 150 },
+      dataTransfer: { value: { files, getData: () => '' } },
+    });
+    harness.wrapper.dispatchEvent(event);
+  }
+
+  const boardFile = (name: string, x: number) => {
+    const shape = createShape({ position: { x, y: 0 }, size: { w: 10, h: 10 }, layerId: 'l1' });
+    const layer = {
+      id: shape.layerId,
+      name: 'L',
+      visible: true,
+      locked: false,
+      order: 0,
+      opacity: 1,
+    };
+    const state = {
+      version: 6,
+      camera: { position: { x: 0, y: 0 }, zoom: 1 },
+      elements: [{ ...shape, index: 'a0' }],
+      layers: [layer],
+    };
+    return new File([JSON.stringify(state)], name);
+  };
+
+  const allSelected = () => {
+    const { viewport } = harness;
+    expect([...viewport.getSelectedIds()].sort()).toEqual(
+      viewport.store
+        .getAll()
+        .map((el) => el.id)
+        .sort(),
+    );
+  };
+
+  it('a drop of a board file and a PNG selects both inserts', async () => {
+    const png = new File([new Uint8Array([1, 2, 3])], 'a.png', { type: 'image/png' });
+
+    dropFiles([boardFile('a.fieldnotes', 0), png]);
+    await vi.waitFor(() => expect(harness.viewport.store.count).toBe(2));
+
+    allSelected();
+  });
+
+  it('a drop of two board files selects the clones of both', async () => {
+    dropFiles([boardFile('a.fieldnotes', 0), boardFile('b.fieldnotes', 100)]);
+    await vi.waitFor(() => expect(harness.viewport.store.count).toBe(2));
+
+    allSelected();
+  });
+
+  it('a dropped text lands after the stroke in progress as its own undo step', async () => {
+    const { viewport, wrapper } = harness;
+    viewport.toolManager.setTool('pencil', viewport.toolContext);
+
+    pointerDown(wrapper, 100, 100);
+    pointerMove(wrapper, 110, 110);
+    dropText('hello');
+    pointerMove(wrapper, 120, 120);
+    expect(texts()).toHaveLength(0);
+    pointerUp(wrapper, 120, 120);
+    await Promise.resolve();
+
+    expect(texts()).toHaveLength(1);
+    viewport.undo();
+    expect(texts()).toHaveLength(0);
+    expect(viewport.store.getAll().map((el) => el.type)).toEqual(['stroke']);
+    viewport.undo();
+    expect(viewport.store.count).toBe(0);
+  });
+
+  it('a dropped text waits for an open transaction', async () => {
+    const { viewport } = harness;
+
+    viewport.historyRecorder.begin();
+    dropText('hello');
+    expect(texts()).toHaveLength(0);
+    viewport.historyRecorder.commit();
+    await Promise.resolve();
+
+    expect(texts()).toHaveLength(1);
+  });
+});
+
+describe('Viewport links', () => {
+  let harness: ReturnType<typeof createViewportHarness>;
+  let open: MockInstance<typeof window.open>;
+
+  beforeEach(() => {
+    harness = createViewportHarness();
+    open = vi.spyOn(window, 'open').mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    harness.cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function addShape(
+    viewport: Viewport,
+    position: { x: number; y: number },
+    link?: string,
+    layerId = viewport.layerManager.activeLayerId,
+  ): string {
+    const shape = {
+      ...createShape({ shape: 'rectangle', position, size: { w: 100, h: 50 }, layerId }),
+      link,
+    };
+    viewport.store.add(shape);
+    return shape.id;
+  }
+
+  function withOnOpenLink(onOpenLink: ViewportOptions['onOpenLink']) {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const viewport = new Viewport(container, { onOpenLink, tools: 'default' });
+    return {
+      viewport,
+      wrapper: wrapperOf(container),
+      cleanup: () => {
+        viewport.destroy();
+        container.remove();
+      },
+    };
+  }
+
+  it('opening an external link calls window.open with noopener', () => {
+    const { viewport } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    viewport.toolContext.openLink?.(id);
+    expect(open).toHaveBeenCalledWith('https://x.y', '_blank', 'noopener,noreferrer');
+  });
+
+  it('onOpenLink returning true suppresses window.open', () => {
+    const onOpenLink = vi.fn(() => true);
+    const board = withOnOpenLink(onOpenLink);
+    const id = addShape(board.viewport, { x: 0, y: 0 }, 'https://x.y');
+    board.viewport.toolContext.openLink?.(id);
+    expect(onOpenLink).toHaveBeenCalledWith('https://x.y', null);
+    expect(open).not.toHaveBeenCalled();
+    board.cleanup();
+  });
+
+  it('onOpenLink receives the last pointer event or null', () => {
+    const onOpenLink = vi.fn();
+    const board = withOnOpenLink(onOpenLink);
+    const id = addShape(board.viewport, { x: 0, y: 0 }, 'https://x.y');
+    board.viewport.toolContext.openLink?.(id);
+    expect(onOpenLink.mock.lastCall?.[1]).toBeNull();
+    pointerDown(board.wrapper, 400, 400);
+    const move = new PointerEvent('pointermove', { clientX: 400, clientY: 400, pointerId: 1 });
+    board.wrapper.dispatchEvent(move);
+    pointerUp(board.wrapper, 400, 400);
+    board.viewport.toolContext.openLink?.(id);
+    expect(onOpenLink.mock.lastCall?.[1]).toBe(move);
+    expect(open).toHaveBeenCalledTimes(2);
+    board.cleanup();
+  });
+
+  it('a badge press on the board opens the link of the selected element', () => {
+    const { viewport, wrapper } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    viewport.toolContext.setSelection?.([id]);
+    pointerDown(wrapper, 122, -22);
+    pointerUp(wrapper, 122, -22);
+    expect(open).toHaveBeenCalledWith('https://x.y', '_blank', 'noopener,noreferrer');
+    expect(viewport.getSelectedIds()).toEqual([id]);
+  });
+
+  it('a Ctrl+click on the board opens the link and selects like a plain click', () => {
+    const { viewport, wrapper } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    pointerDown(wrapper, 50, 25, { ctrlKey: true });
+    pointerUp(wrapper, 50, 25, { ctrlKey: true });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(viewport.getSelectedIds()).toEqual([id]);
+  });
+
+  it('a Ctrl+press on a badge over another linked element opens one link', () => {
+    const { viewport, wrapper } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://a.example');
+    const under = {
+      ...createShape({
+        shape: 'rectangle',
+        position: { x: 110, y: -40 },
+        size: { w: 40, h: 40 },
+        layerId: viewport.layerManager.activeLayerId,
+      }),
+      link: 'https://b.example',
+    };
+    viewport.store.add(under);
+    viewport.toolContext.setSelection?.([id]);
+
+    pointerDown(wrapper, 122, -22, { ctrlKey: true });
+    pointerUp(wrapper, 122, -22, { ctrlKey: true });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith('https://a.example', '_blank', 'noopener,noreferrer');
+
+    pointerDown(wrapper, 122, -22);
+    pointerUp(wrapper, 122, -22);
+    expect(open).toHaveBeenCalledTimes(2);
+  });
+
+  it('a blocked popup does not throw or change the selection', () => {
+    const { viewport } = harness;
+    const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    viewport.toolContext.setSelection?.([id]);
+    expect(() => viewport.toolContext.openLink?.(id)).not.toThrow();
+    expect(open).toHaveReturnedWith(null);
+    expect(viewport.getSelectedIds()).toEqual([id]);
+  });
+
+  it('an internal link moves the camera to the target, switches to select and selects it', () => {
+    const { viewport } = harness;
+    vi.spyOn(viewport, 'getCanvasSize').mockReturnValue({ w: 800, h: 600 });
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const target = addShape(viewport, { x: 5000, y: 5000 });
+    const source = addShape(viewport, { x: 0, y: 0 }, `#fn:element=${target}`);
+    viewport.setTool('hand');
+
+    viewport.toolContext.openLink?.(source);
+
+    const visible = viewport.camera.getVisibleRect(800, 600);
+    expect(visible.x).toBeLessThanOrEqual(5000);
+    expect(visible.y).toBeLessThanOrEqual(5000);
+    expect(visible.x + visible.w).toBeGreaterThanOrEqual(5100);
+    expect(visible.y + visible.h).toBeGreaterThanOrEqual(5050);
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
+    expect(viewport.getSelectedIds()).toEqual([target]);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('destroy disposes the camera animator an animated internal-link reveal created', () => {
+    const { viewport } = harness;
+    vi.spyOn(viewport, 'getCanvasSize').mockReturnValue({ w: 800, h: 600 });
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    const dispose = vi.spyOn(CameraAnimator.prototype, 'dispose');
+    const target = addShape(viewport, { x: 5000, y: 5000 });
+    const source = addShape(viewport, { x: 0, y: 0 }, `#fn:element=${target}`);
+
+    viewport.toolContext.openLink?.(source);
+    expect(dispose).not.toHaveBeenCalled();
+    viewport.destroy();
+
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('the modifier click is skipped while an html element is interacting', () => {
+    const { viewport, wrapper } = harness;
+    addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+    const htmlId = viewport.addHtmlElement(
+      document.createElement('div'),
+      { x: 300, y: 300 },
+      { w: 100, h: 100 },
+    );
+    const priv = viewport as unknown as {
+      renderLoop: { flush(): void };
+      interactMode: { startInteracting(id: string): void; isInteracting(): boolean };
+    };
+    priv.renderLoop.flush();
+    priv.interactMode.startInteracting(htmlId);
+    expect(priv.interactMode.isInteracting()).toBe(true);
+
+    pointerDown(wrapper, 50, 25, { ctrlKey: true });
+    pointerUp(wrapper, 50, 25, { ctrlKey: true });
+    expect(priv.interactMode.isInteracting()).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+
+    pointerDown(wrapper, 50, 25, { ctrlKey: true });
+    pointerUp(wrapper, 50, 25, { ctrlKey: true });
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['missing', () => '#fn:element=missing'],
+    [
+      'hidden',
+      (viewport: Viewport) => {
+        const layer = viewport.layerManager.createLayer();
+        const id = addShape(viewport, { x: 5000, y: 5000 }, undefined, layer.id);
+        viewport.layerManager.setLayerVisible(layer.id, false);
+        return `#fn:element=${id}`;
+      },
+    ],
+  ])('a %s target is a no-op', (_label, makeLink) => {
+    const { viewport } = harness;
+    vi.spyOn(viewport, 'getCanvasSize').mockReturnValue({ w: 800, h: 600 });
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    const source = addShape(viewport, { x: 0, y: 0 }, makeLink(viewport));
+    viewport.toolContext.setSelection?.([source]);
+    const camera = { ...viewport.camera.position, zoom: viewport.camera.zoom };
+
+    viewport.toolContext.openLink?.(source);
+
+    expect({ ...viewport.camera.position, zoom: viewport.camera.zoom }).toEqual(camera);
+    expect(viewport.getSelectedIds()).toEqual([source]);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  describe('setLink', () => {
+    it('sets a normalized link on every id in one undo step', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      const b = addShape(viewport, { x: 200, y: 0 });
+      viewport.setLink([a, b], 'example.com');
+      expect(viewport.store.getById(a)?.link).toBe('https://example.com');
+      expect(viewport.store.getById(b)?.link).toBe('https://example.com');
+      viewport.undo();
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+      expect(viewport.store.getById(b)?.link).toBeUndefined();
+    });
+
+    it('throws RangeError for a disallowed link and mutates nothing', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://keep.example');
+      expect(() => viewport.setLink([a], 'javascript:x')).toThrow(RangeError);
+      expect(viewport.store.getById(a)?.link).toBe('https://keep.example');
+    });
+
+    it('throws before mutating when an id is locked', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      const b = addShape(viewport, { x: 200, y: 0 });
+      viewport.store.update(b, { locked: true });
+      expect(() => viewport.setLink([a, b], 'https://x.y')).toThrow(b);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+    });
+
+    it('throws when an id is on a locked layer', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      const layer = viewport.layerManager.createLayer();
+      const b = addShape(viewport, { x: 200, y: 0 }, undefined, layer.id);
+      viewport.layerManager.setLayerLocked(layer.id, true);
+      expect(() => viewport.setLink([a, b], 'https://x.y')).toThrow(b);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+    });
+
+    it('throws for a missing id', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      expect(() => viewport.setLink([a, 'missing'], 'https://x.y')).toThrow(/missing/);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+    });
+
+    it('null removes the link', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+      viewport.setLink([a], null);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+    });
+  });
+
+  describe('link actions', () => {
+    function promptInput(): HTMLInputElement | null {
+      return document.querySelector<HTMLInputElement>(
+        '.fieldnotes-dialog .fieldnotes-palette-input',
+      );
+    }
+
+    it('link.set is enabled only for an unlocked selection on an unlocked layer', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      expect(viewport.actions.isEnabled('link.set')).toBe(false);
+      viewport.toolContext.setSelection?.([a]);
+      expect(viewport.actions.isEnabled('link.set')).toBe(true);
+      viewport.store.update(a, { locked: true });
+      expect(viewport.actions.isEnabled('link.set')).toBe(false);
+    });
+
+    it('link.open needs exactly one linked element; link.remove needs any', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://a.example');
+      const b = addShape(viewport, { x: 200, y: 0 }, 'https://b.example');
+      const plain = addShape(viewport, { x: 400, y: 0 });
+      viewport.toolContext.setSelection?.([plain]);
+      expect(viewport.actions.isEnabled('link.open')).toBe(false);
+      expect(viewport.actions.isEnabled('link.remove')).toBe(false);
+      viewport.toolContext.setSelection?.([a, plain]);
+      expect(viewport.actions.isEnabled('link.open')).toBe(true);
+      expect(viewport.actions.isEnabled('link.remove')).toBe(true);
+      viewport.toolContext.setSelection?.([a, b]);
+      expect(viewport.actions.isEnabled('link.open')).toBe(false);
+      expect(viewport.actions.isEnabled('link.remove')).toBe(true);
+    });
+
+    it('link.remove clears every selected link in one undo step', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://a.example');
+      const b = addShape(viewport, { x: 200, y: 0 }, 'https://b.example');
+      viewport.toolContext.setSelection?.([a, b]);
+      expect(viewport.actions.run('link.remove')).toBe(true);
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+      expect(viewport.store.getById(b)?.link).toBeUndefined();
+      viewport.undo();
+      expect(viewport.store.getById(a)?.link).toBe('https://a.example');
+      expect(viewport.store.getById(b)?.link).toBe('https://b.example');
+    });
+
+    it('link.remove skips locked linked elements without throwing', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 }, 'https://a.example');
+      const locked = addShape(viewport, { x: 200, y: 0 }, 'https://b.example');
+      viewport.store.update(locked, { locked: true });
+      viewport.toolContext.setSelection?.([locked]);
+      expect(viewport.actions.isEnabled('link.remove')).toBe(false);
+      viewport.toolContext.setSelection?.([a, locked]);
+      expect(() => viewport.actions.run('link.remove')).not.toThrow();
+      expect(viewport.store.getById(a)?.link).toBeUndefined();
+      expect(viewport.store.getById(locked)?.link).toBe('https://b.example');
+    });
+
+    it('the link prompt submits to the ids that still exist and closes', () => {
+      const { viewport } = harness;
+      const a = addShape(viewport, { x: 0, y: 0 });
+      const b = addShape(viewport, { x: 200, y: 0 });
+      viewport.toolContext.setSelection?.([a, b]);
+      viewport.actions.run('link.set');
+      viewport.store.remove(b);
+      const input = promptInput();
+      if (!input) throw new Error('link prompt not mounted');
+      input.value = 'new.example';
+      const enter = () =>
+        input.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        );
+      expect(enter).not.toThrow();
+      expect(viewport.store.getById(a)?.link).toBe('https://new.example');
+      expect(promptInput()).toBeNull();
+    });
+
+    it('link.open calls onOpenLink with a null event', () => {
+      const onOpenLink = vi.fn(() => true);
+      const board = withOnOpenLink(onOpenLink);
+      const id = addShape(board.viewport, { x: 0, y: 0 }, 'https://x.y');
+      board.viewport.toolContext.setSelection?.([id]);
+      board.viewport.actions.run('link.open');
+      expect(onOpenLink).toHaveBeenCalledWith('https://x.y', null);
+      board.cleanup();
+    });
+
+    it('link.open right after a badge open still opens', () => {
+      const { viewport, wrapper } = harness;
+      const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+      viewport.toolContext.setSelection?.([id]);
+      pointerDown(wrapper, 122, -22);
+      pointerUp(wrapper, 122, -22);
+      expect(open).toHaveBeenCalledTimes(1);
+      viewport.actions.run('link.open');
+      expect(open).toHaveBeenCalledTimes(2);
+    });
+
+    it('link.set prompts with the current link and one Enter is one undo step', () => {
+      const { viewport, wrapper } = harness;
+      const id = addShape(viewport, { x: 0, y: 0 }, 'https://old.example');
+      viewport.toolContext.setSelection?.([id]);
+      viewport.actions.run('link.set');
+      const input = promptInput();
+      expect(input?.value).toBe('https://old.example');
+      if (!input) return;
+      input.value = 'new.example';
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      );
+      expect(viewport.store.getById(id)?.link).toBe('https://new.example');
+      expect(promptInput()).toBeNull();
+      expect(document.activeElement).toBe(wrapper);
+      viewport.undo();
+      expect(viewport.store.getById(id)?.link).toBe('https://old.example');
+    });
+
+    it('destroy closes an open link prompt', () => {
+      const board = withOnOpenLink(undefined);
+      const id = addShape(board.viewport, { x: 0, y: 0 });
+      board.viewport.toolContext.setSelection?.([id]);
+      board.viewport.actions.run('link.set');
+      expect(promptInput()).not.toBeNull();
+      board.cleanup();
+      expect(promptInput()).toBeNull();
+    });
+
+    it('the context menu lists the link group last', () => {
+      const { viewport } = harness;
+      const id = addShape(viewport, { x: 0, y: 0 }, 'https://x.y');
+      viewport.toolContext.setSelection?.([id]);
+      viewport.openContextMenu({ x: 5, y: 5 });
+      const entries = Array.from(
+        document.querySelector('.fieldnotes-context-menu')?.children ?? [],
+      ).map((el) => (el.getAttribute('role') === 'separator' ? '---' : (el.textContent ?? '')));
+      expect(entries.slice(entries.lastIndexOf('---') + 1)).toEqual([
+        'Edit link',
+        'Remove link',
+        'Open link',
+      ]);
+    });
+  });
 });

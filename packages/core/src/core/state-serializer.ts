@@ -99,10 +99,36 @@ export function exportState(
 }
 
 export function parseState(json: string, registry?: ElementRegistry): CanvasState {
-  const data: unknown = JSON.parse(json);
+  return parseStateValue(JSON.parse(json), registry);
+}
+
+/** Validates an already-parsed persisted state, then migrates it to the current version. */
+export function parseStateValue(data: unknown, registry?: ElementRegistry): CanvasState {
   const reg = registry ?? getDefaultElementRegistry();
   validateState(data, reg);
   return migrateState(data, reg);
+}
+
+/** Validates and migrates untrusted elements as one synthetic single-layer state; throws if invalid. */
+export function parseElements(
+  raw: unknown[],
+  stateVersion: number,
+  registry: ElementRegistry,
+): CanvasElement[] {
+  const state: unknown = {
+    version: stateVersion,
+    camera: { position: { x: 0, y: 0 }, zoom: 1 },
+    layers: [
+      { id: 'default-layer', name: 'Layer 1', visible: true, locked: false, order: 0, opacity: 1 },
+    ],
+    elements: raw.map((el) => (isRecord(el) ? { ...el, layerId: 'default-layer' } : el)),
+  };
+  // validateState checks hierarchy only at v6; older envelopes rely on the insertClones preflight.
+  validateState(state, registry);
+  const migrated = migrateState(state, registry);
+  return migrated.elements.filter(
+    (el) => el.type !== 'extension' || registry.getAdapter(el.extensionType) !== undefined,
+  );
 }
 
 /**

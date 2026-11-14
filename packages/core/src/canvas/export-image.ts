@@ -23,8 +23,12 @@ import type {
   TypedHookRegistry,
 } from './render-hooks';
 import { resolveFrameExport } from './frame-export';
+import { buildSceneEnvelope, SCENE_PNG_KEYWORD, serializeSceneEnvelope } from './scene-embed';
+import type { SceneEmbedOptions } from './scene-embed';
+import { appendItxtChunk } from './png-chunks';
 
-export interface ExportImageOptions extends ExportResourceOptions, HtmlExportOptions {
+export interface ExportImageOptions
+  extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions {
   frameId?: string;
   scale?: number;
   padding?: number;
@@ -430,6 +434,13 @@ export async function exportImage(
     registry,
   );
   if (!bounds) return null;
+  const sceneJson =
+    format === 'png' && options.embedScene
+      ? serializeSceneEnvelope(
+          buildSceneEnvelope(visibleElements, bounds, layerManager, registry),
+          options,
+        )
+      : null;
 
   const fullCanvasElements: CanvasElement[] = [];
   const paintableElements: CanvasElement[] = [];
@@ -674,9 +685,12 @@ export async function exportImage(
   }
 
   const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), mimeType, options.quality);
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((result) => resolve(result), mimeType, options.quality);
   });
+  if (!blob || sceneJson === null) return blob;
+  const png = new Uint8Array(await blob.arrayBuffer());
+  return new Blob([appendItxtChunk(png, SCENE_PNG_KEYWORD, sceneJson)], { type: 'image/png' });
 }
 
 export {

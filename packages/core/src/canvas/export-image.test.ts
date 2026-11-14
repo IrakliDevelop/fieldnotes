@@ -7,6 +7,7 @@ import {
   loadImages,
   fitExportScale,
 } from './export-image';
+import type { ExportImageOptions } from './export-image';
 import {
   createStroke,
   createNote,
@@ -14,8 +15,13 @@ import {
   createImage,
   createText,
   createShape,
+  createHtmlElement,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
+import { LayerManager } from '../layers/layer-manager';
+import { parseState } from '../core/state-serializer';
+import type { CanvasState } from '../core/state-serializer';
+import { findItxtChunk } from './png-chunks';
 import { createFrame } from '../elements/frame-element';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
 import type { CanvasElement, ExtensionElementEnvelope, HtmlElement } from '../elements/types';
@@ -2048,4 +2054,157 @@ describe('exportImage — hierarchy clips', () => {
       createSpy.mockRestore();
     }
   });
+});
+
+describe('exportImage — embedded scene', () => {
+  // Signature, a 1x1 RGBA IHDR and IEND with their literal CRCs.
+  const MOCK_PNG = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 1,
+    0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1f, 0x15, 0xc4, 0x89, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+  ]);
+
+  async function exportBytes(
+    store: ElementStore,
+    options: ExportImageOptions,
+    layerManager?: LayerManager,
+  ): Promise<Uint8Array> {
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(mockCanvasCtx() as never);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toBlob')
+      .mockImplementation((callback) => callback(new Blob([MOCK_PNG], { type: 'image/png' })));
+    try {
+      const blob = await exportImage(store, options, layerManager);
+      if (!blob) throw new Error('export returned null');
+      return new Uint8Array(await blob.arrayBuffer());
+    } finally {
+      getContext.mockRestore();
+      toBlob.mockRestore();
+    }
+  }
+
+  function embedded(bytes: Uint8Array): { type: string; version: number; state: CanvasState } {
+    const text = findItxtChunk(bytes, 'fieldnotes:scene', 1 << 30);
+    if (text === null) throw new Error('no scene chunk');
+    return JSON.parse(text) as { type: string; version: number; state: CanvasState };
+  }
+
+  function embeddedIds(bytes: Uint8Array): string[] {
+    return embedded(bytes).state.elements.map((el) => el.id);
+  }
+
+  it('embeds a loadable scene of the exported elements in an iTXt chunk', async () => {
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    const shape = createShape({ position: { x: 200, y: 0 }, size: { w: 40, h: 40 } });
+    store.add(note);
+    store.add(shape);
+    const bytes = await exportBytes(store, { embedScene: true });
+    expect(bytes.length).toBeGreaterThan(MOCK_PNG.length);
+    const scene = embedded(bytes);
+    expect(scene.type).toBe('fieldnotes/scene');
+    expect(scene.version).toBe(1);
+    expect(scene.state.version).toBe(6);
+    expect(scene.state.elements.map((el) => el.id).sort()).toEqual([note.id, shape.id].sort());
+    expect(() => parseState(JSON.stringify(scene.state))).not.toThrow();
+  });
+
+  it('leaves the PNG bytes untouched without embedScene', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 } }));
+    expect([...(await exportBytes(store, {}))]).toEqual([...MOCK_PNG]);
+  });
+
+  it('ignores embedScene for JPEG', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 } }));
+    expect([...(await exportBytes(store, { format: 'jpeg', embedScene: true }))]).toEqual([
+      ...MOCK_PNG,
+    ]);
+  });
+
+  it('embeds only the elements intersecting a region', async () => {
+    const store = new ElementStore();
+    const inside = createNote({ position: { x: 10, y: 10 }, size: { w: 50, h: 50 } });
+    const outside = createNote({ position: { x: 500, y: 500 }, size: { w: 50, h: 50 } });
+    store.add(inside);
+    store.add(outside);
+    const bytes = await exportBytes(store, {
+      embedScene: true,
+      region: { x: 0, y: 0, w: 100, h: 100 },
+    });
+    expect(embeddedIds(bytes)).toEqual([inside.id]);
+  });
+
+  it('honours hidden layers, the filter and transient html', async () => {
+    const store = new ElementStore();
+    const layers = new LayerManager(store);
+    const visible = layers.activeLayer;
+    const hidden = layers.createLayer('Hidden');
+    layers.setLayerVisible(hidden.id, false);
+    const shown = createNote({ position: { x: 0, y: 0 }, layerId: visible.id });
+    const onHidden = createNote({ position: { x: 20, y: 0 }, layerId: hidden.id });
+    const filtered = createNote({ position: { x: 40, y: 0 }, layerId: visible.id });
+    const transient = createHtmlElement({
+      position: { x: 60, y: 0 },
+      size: { w: 40, h: 40 },
+      layerId: visible.id,
+      transient: true,
+    });
+    for (const el of [shown, onHidden, filtered, transient]) store.add(el);
+    const bytes = await exportBytes(
+      store,
+      { embedScene: true, filter: (el) => el.id !== filtered.id },
+      layers,
+    );
+    const { state } = embedded(bytes);
+    expect(state.elements.map((el) => el.id)).toEqual([shown.id]);
+    expect(state.layers?.map((layer) => layer.id)).toEqual([visible.id]);
+  });
+
+  it('embeds a frame export as its descendants without the frame', async () => {
+    const store = new ElementStore();
+    const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 200, h: 200 } });
+    const child = createNote({
+      position: { x: 10, y: 10 },
+      size: { w: 50, h: 50 },
+      parentId: frame.id,
+    });
+    store.add(frame);
+    store.add(child);
+    const { state } = embedded(await exportBytes(store, { embedScene: true, frameId: frame.id }));
+    expect(state.elements.map((el) => el.id)).toEqual([child.id]);
+    expect(state.elements[0]).not.toHaveProperty('parentId');
+  });
+
+  it('strips ownerId and audience from embedded elements', async () => {
+    const store = new ElementStore();
+    store.add(
+      Object.assign(createNote({ position: { x: 0, y: 0 } }), {
+        ownerId: 'user-1',
+        audience: 'gm',
+      }) as CanvasElement,
+    );
+    const [el] = embedded(await exportBytes(store, { embedScene: true })).state.elements;
+    expect(el).toBeDefined();
+    expect(el).not.toHaveProperty('ownerId');
+    expect(el).not.toHaveProperty('audience');
+  });
+
+  it('omits a scene over 16 MiB, reports it and leaves the PNG untouched', async () => {
+    const store = new ElementStore();
+    store.add({
+      ...createNote({ position: { x: 0, y: 0 } }),
+      text: 'x'.repeat(16 * 1024 * 1024),
+    });
+    const onSceneOmitted = vi.fn();
+    const bytes = await exportBytes(store, { embedScene: true, onSceneOmitted });
+    expect([...bytes]).toEqual([...MOCK_PNG]);
+    expect(onSceneOmitted).toHaveBeenCalledTimes(1);
+    const [info] = onSceneOmitted.mock.calls[0] ?? [];
+    expect(info.limit).toBe(16 * 1024 * 1024);
+    expect(info.bytes).toBeGreaterThan(16 * 1024 * 1024);
+  }, 30_000);
 });

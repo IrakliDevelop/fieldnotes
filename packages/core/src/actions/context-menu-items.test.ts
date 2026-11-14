@@ -258,6 +258,7 @@ describe('buildContextMenuItems', () => {
       zoomByFactor: () => undefined,
       zoomToLevel: () => undefined,
       canPaste: () => false,
+      clipboard: { copy: () => undefined, cut: () => undefined },
     });
     const labels = buildContextMenuItems(fakeRegistry(defs, ctx), ctx)
       .filter((item) => 'label' in item)
@@ -300,6 +301,7 @@ describe('buildContextMenuItems', () => {
       zoomByFactor: () => undefined,
       zoomToLevel: () => undefined,
       canPaste: () => false,
+      clipboard: { copy: () => undefined, cut: () => undefined },
     });
 
     for (const selectedIds of [[], ['locked'], ['member', 'locked']]) {
@@ -372,6 +374,7 @@ describe('buildContextMenuItems', () => {
         zoomByFactor: () => undefined,
         zoomToLevel: () => undefined,
         canPaste: () => false,
+        clipboard: { copy: () => undefined, cut: () => undefined },
       });
       const items = buildContextMenuItems(fakeRegistry(defs, ctx), ctx);
       expect(items).toEqual([

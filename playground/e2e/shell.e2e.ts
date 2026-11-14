@@ -171,7 +171,13 @@ test('attach failure leaves no window listeners', async ({ page }) => {
   const topRight = page.locator('[data-chrome="top-right"]');
   await topRight.getByRole('button', { name: 'Embeds', exact: true }).click();
   await expect.poll(() => sceneId(page)).toBe('embeds');
-  await page.evaluate(() => Reflect.set(window, '__failInput', '.json,application/json'));
+  await page.evaluate(() =>
+    Reflect.set(
+      window,
+      '__failInput',
+      '.fieldnotes,.json,.png,.svg,application/vnd.fieldnotes+json,application/json,image/png,image/svg+xml',
+    ),
+  );
   await topRight.getByRole('button', { name: 'Whiteboard', exact: true }).click();
   await expect(page.getByText("Couldn't open that scene")).toBeVisible();
   await topRight.getByRole('button', { name: 'Whiteboard', exact: true }).click();

@@ -4,7 +4,7 @@ import { InputHandler } from './input-handler';
 import type { ShortcutOptions, ShortcutsApi } from './shortcut-map';
 import { ActionRegistry } from '../actions/action-registry';
 import type { ActionContext, ActionsApi } from '../actions/types';
-import { createToolAction } from '../actions/builtin-actions';
+import { createLinkActions, createToolAction } from '../actions/builtin-actions';
 import { buildContextMenuItems } from '../actions/context-menu-items';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
@@ -29,6 +29,9 @@ import { createDefaultTools } from '../tools/default-tools';
 import { hitTest, hitTestResizeHandle, hitTestRotateHandle } from '../tools/select-hit';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
+import { InsertQueue } from './insert-queue';
+import type { AssetResolver, ImageErrorInfo } from './content-inserter';
+import { ContentInserter } from './content-inserter';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
 import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
@@ -78,6 +81,10 @@ import { reportFailure } from '../core/report-failure';
 import { ContextLossGuard } from './context-loss-guard';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
 import { createId } from '../elements/create-id';
+import { normalizeLink, parseElementLink } from '../elements/link';
+import { openLinkPrompt } from './link-prompt';
+import { getElementVisualBounds } from '../elements/element-bounds';
+import { CameraAnimator } from './camera-animator';
 import {
   planAddToFrame,
   planDissolveFrame,
@@ -94,7 +101,7 @@ import { CommandPalette, createPaletteActions } from './command-palette';
 import type { PaletteApi } from './command-palette';
 import { ShortcutsHelp } from './shortcuts-help';
 import type { ShortcutsHelpApi } from './shortcuts-help';
-import { resolvePaletteStrings } from './palette-model';
+import { resolvePaletteStrings, revealView } from './palette-model';
 import type { PaletteOptions } from './palette-model';
 export type {
   PluginConfigureContext,
@@ -107,6 +114,8 @@ export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { RotateDirection } from './selection-rotate';
 
 const EMPTY_IDS: string[] = [];
+
+const isMac = (): boolean => /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 
 function noop(): void {
   // Stable unsubscribe handle for listeners that can never fire.
@@ -136,9 +145,21 @@ export interface ViewportOptions {
     domId: string | undefined,
     container: HTMLDivElement,
   ) => void;
-  onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
-  onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => void;
-  onImageError?: (info: { src: string; elementIds: string[]; cause?: unknown }) => void;
+  /**
+   * Called for every drop before core acts; return `false` to let core handle the drop.
+   * `true` or nothing means the host owns it.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- returning nothing keeps the host-owns-it contract
+  onDrop?: (event: DragEvent, worldPosition: { x: number; y: number }) => boolean | void;
+  /**
+   * Called for every paste core would handle, before core acts; return `false` to let core
+   * handle it. `true` or nothing means the host owns the paste.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- returning nothing keeps the host-owns-it contract
+  onPaste?: (event: ClipboardEvent, worldPosition: { x: number; y: number }) => boolean | void;
+  onImageError?: (info: ImageErrorInfo) => void;
+  /** Host upload for dropped, pasted and imported images; without it images inline as base64. */
+  assets?: AssetResolver;
   /** CSS-pixel margin cached beyond the viewport. Default `256`. Set `0` to disable. */
   panBufferMargin?: number;
   /** Enable the built-in context menu. Default `true`. */
@@ -171,6 +192,13 @@ export interface ViewportOptions {
    * previews. Default `#2196F3`.
    */
   selectionColor?: string;
+  /**
+   * Called before every link open; return `true` to handle it yourself, for example
+   * cross-board navigation. `event` is the last pointer event seen (it may be a pointermove),
+   * or `null` for keyboard, menu and command palette opens.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- returning nothing lets core open the link
+  onOpenLink?: (link: string, event: PointerEvent | null) => boolean | void;
 }
 
 export interface HitTestOptions {
@@ -202,6 +230,8 @@ export class Viewport {
   private readonly renderer: ElementRenderer;
   private readonly noteEditor: NoteEditor;
   readonly historyRecorder: HistoryRecorder;
+  private readonly insertQueue: InsertQueue;
+  private readonly inserter: ContentInserter;
   private transactionDepth = 0;
   private readonly selectionOps: SelectionOps;
   readonly toolContext: ToolContext;
@@ -223,10 +253,10 @@ export class Viewport {
     domId: string | undefined,
     container: HTMLDivElement,
   ) => void;
-  private readonly dropHandler?: (
-    event: DragEvent,
-    worldPosition: { x: number; y: number },
-  ) => void;
+  private readonly dropHandler: ViewportOptions['onDrop'];
+  private readonly onOpenLink: ViewportOptions['onOpenLink'];
+  private linkAnimator: CameraAnimator | null = null;
+  private linkPromptClose: (() => void) | null = null;
   readonly constraintProxy = new ConstraintServiceProxy();
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
@@ -299,16 +329,16 @@ export class Viewport {
       }
       this.requestRender();
     });
+    const reportImageError = (info: ImageErrorInfo): void => {
+      if (options.onImageError) options.onImageError(info);
+      else console.warn(`[fieldnotes] image failed to ${info.reason ?? 'load'}: ${info.src}`);
+    };
     this.renderer.setOnImageError((src, cause) => {
       const elementIds: string[] = [];
       for (const el of this.store.getAll()) {
         if (el.type === 'image' && el.src === src) elementIds.push(el.id);
       }
-      if (options.onImageError) {
-        options.onImageError({ src, elementIds, cause });
-      } else {
-        console.warn(`[fieldnotes] image failed to load: ${src}`);
-      }
+      reportImageError({ src, elementIds, cause, reason: 'load' });
     });
     this.renderer.setHtmlPainters(this.htmlPainters);
     this.renderer.setDiagnosticSink((d) => {
@@ -330,8 +360,16 @@ export class Viewport {
     );
     this.onHtmlElementMount = options.onHtmlElementMount;
     this.dropHandler = options.onDrop;
+    this.onOpenLink = options.onOpenLink;
     this.history = new HistoryStack();
     this.historyRecorder = new HistoryRecorder(this.store, this.history, this.layerManager);
+    // inputHandler is assigned later in this constructor; these closures run only at insert time.
+    this.insertQueue = new InsertQueue({
+      recorder: this.historyRecorder,
+      isGestureActive: () => this.inputHandler.isToolGestureActive,
+      flushPendingHistory: () => this.inputHandler.flushPendingHistory(),
+      transaction: (run) => this.transaction(run),
+    });
     const unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() => {
       if (!this.pendingSelectionPrune) return;
       this.pendingSelectionPrune = false;
@@ -406,6 +444,8 @@ export class Viewport {
       constraintService: this.constraintProxy,
       elementRegistry: this.elementRegistry,
       selectionColor: options.selectionColor,
+      openLink: (id: string) =>
+        this.interactions.openGestureLink(id, this.inputHandler.getLastPointerEvent()),
     };
 
     const acceptsPointer = (e: PointerEvent): boolean =>
@@ -425,9 +465,15 @@ export class Viewport {
         this.openContextMenu(screenPos);
       },
       shortcuts: options.shortcuts,
-      addImage: (src, world) => this.addImage(src, world),
-      getCenteredWorld: () => this.centeredPosition({ w: 300, h: 200 }),
-      onPaste: options.onPaste,
+      getCenteredWorld: () => this.centeredPosition({ w: 0, h: 0 }),
+      clipboardHost: {
+        elementRegistry: this.elementRegistry,
+        onPaste: options.onPaste,
+        claimsFile: (f, k) => this.inserter.claimsFile(f, k),
+        insertElements: (els, a) => this.inserter.insertElements(els, a),
+        insertFiles: (f, a, k) => this.inserter.insertFiles(f, a, k),
+        insertText: (t, a, l) => this.inserter.insertText(t, a, l),
+      },
       panInertia: options.panInertia,
       isOnSelectionHandle: (clientX, clientY) => {
         if (this.toolManager.activeTool?.name !== 'select') return false;
@@ -447,6 +493,32 @@ export class Viewport {
       acceptsPointer,
     });
     this.disposers.push(() => this.inputHandler.destroy());
+    this.inserter = new ContentInserter({
+      store: this.store,
+      elementRegistry: this.elementRegistry,
+      getActiveLayerId: () => this.layerManager.activeLayerId,
+      getTextStyle: () => {
+        const o = this.toolManager.getTool('text')?.getOptions?.();
+        return o &&
+          'fontSize' in o &&
+          typeof o.fontSize === 'number' &&
+          'color' in o &&
+          typeof o.color === 'string'
+          ? { fontSize: o.fontSize, color: o.color }
+          : null;
+      },
+      insertElements: (els, a) => this.inputHandler.insertElements(els, a),
+      insertWhenIdle: (run) => this.insertQueue.insertWhenIdle(run),
+      transaction: (run) => this.transaction(run),
+      switchToSelect: () => {
+        if (this.toolManager.activeTool?.name !== 'select') this.toolContext.switchTool?.('select');
+      },
+      setSelection: (ids) => this.getSelectTool()?.setSelection(ids),
+      requestRender: () => this.requestRender(),
+      addImage: (src, p) => this.addImage(src, p),
+      assets: options.assets,
+      onImageError: reportImageError,
+    });
     this.presentationMode = new PresentationMode({
       container: this.container,
       wrapper: this.wrapper,
@@ -468,6 +540,11 @@ export class Viewport {
     const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
       (action) => this.actionRegistry.register(action),
     );
+    const unregisterLinkActions = createLinkActions({
+      setLink: (ids, link) => this.setLink(ids, link),
+      openLink: (id) => this.openElementLink(id, null),
+      promptLink: (ids, initial, label) => this.promptLink(ids, initial, label),
+    }).map((action) => this.actionRegistry.register(action));
     const unregisterEditText = this.actionRegistry.register({
       id: 'selection.edit-text',
       label: 'Edit text',
@@ -497,8 +574,12 @@ export class Viewport {
           : (this.interactions.startEditingElement(id), true);
       },
     });
-    this.disposers.push(...unregisterPresentationActions, unregisterEditText, () =>
-      this.presentationMode.destroy(),
+    this.disposers.push(
+      ...unregisterPresentationActions,
+      ...unregisterLinkActions,
+      () => this.linkPromptClose?.(),
+      unregisterEditText,
+      () => this.presentationMode.destroy(),
     );
     if (options.embedded) {
       // After InputHandler, whose touch-action: none this overrides.
@@ -526,6 +607,7 @@ export class Viewport {
       // The recorder detaches before plugins dispose so their teardown is not recorded.
       unsubRecorderEnd,
       () => this.historyRecorder.destroy(),
+      () => this.insertQueue.destroy(),
     );
 
     if (options.palette === false) {
@@ -533,7 +615,6 @@ export class Viewport {
       this.shortcutsHelpDialog = null;
     } else {
       const strings = resolvePaletteStrings(options.palette?.strings);
-      const isMac = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform);
       let palette: CommandPalette | null = null;
       const help = new ShortcutsHelp({
         container: this.container,
@@ -735,9 +816,14 @@ export class Viewport {
       recorder: this.historyRecorder,
       toolContext: this.toolContext,
       requestRender: () => this.requestRender(),
-      addImage: (src, position) => this.addImage(src, position),
       dropHandler: this.dropHandler,
+      insertText: (text, anchor, link) => this.inserter.insertText(text, anchor, link),
+      insertFiles: (files, anchor, kind) => this.inserter.insertFiles(files, anchor, kind),
+      insertWhenIdle: (run) => this.insertQueue.insertWhenIdle(run),
       acceptsPointer,
+      isMac,
+      activeToolName: () => this.toolManager.activeTool?.name ?? null,
+      openLink: (id, e) => this.openElementLink(id, e),
     });
     // Editing commits while the recorder and store listeners are still attached.
     this.disposers.push(
@@ -1577,6 +1663,63 @@ export class Viewport {
     if (id !== null && this.isLiveHtml(id)) this.interactMode.stopInteracting();
   }
 
+  private openElementLink(id: string, event: PointerEvent | null): void {
+    const link = this.store.getById(id)?.link;
+    if (link === undefined) return;
+    if (this.onOpenLink?.(link, event) === true) return;
+    const target = parseElementLink(link);
+    if (target !== null) {
+      this.revealElement(target);
+      return;
+    }
+    window.open(link, '_blank', 'noopener,noreferrer');
+  }
+
+  private promptLink(ids: readonly string[], initial: string, label: string): void {
+    this.contextMenu?.close();
+    this.linkPromptClose?.();
+    const frozen = [...ids];
+    this.linkPromptClose = openLinkPrompt({
+      container: this.container,
+      wrapper: this.wrapper,
+      initialValue: initial,
+      label,
+      // A peer may delete or lock an id while the prompt is open.
+      onSubmit: (link) => {
+        const ids = frozen.filter((id) => {
+          const el = this.store.getById(id);
+          return el !== undefined && !el.locked && !this.layerManager.isLayerLocked(el.layerId);
+        });
+        if (ids.length > 0) this.setLink(ids, link);
+      },
+      onClose: () => {
+        this.linkPromptClose = null;
+      },
+    });
+  }
+
+  private revealElement(id: string): void {
+    const el = this.store.getById(id);
+    if (!el || !this.layerManager.isLayerVisible(el.layerId)) return;
+    const bounds = getElementVisualBounds(el, this.elementRegistry);
+    if (!bounds) return;
+    this.inputHandler.stopPanInertia();
+    const { w, h } = this.getCanvasSize();
+    const view = revealView(bounds, this.camera.getVisibleRect(w, h));
+    if (this.linkAnimator === null) {
+      this.linkAnimator = new CameraAnimator(this.wrapper, this.camera, {
+        getCanvasSize: () => this.getCanvasSize(),
+        interactive: true,
+      });
+      this.disposers.push(() => this.linkAnimator?.dispose());
+    }
+    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+      this.linkAnimator.jumpTo(view);
+    else this.linkAnimator.animateTo(view);
+    if (this.toolManager.activeTool?.name !== 'select') this.toolContext.switchTool?.('select');
+    this.getSelectTool()?.setSelection([id]);
+  }
+
   private getSelectTool(): SelectTool | undefined {
     return this.toolManager.getTool<SelectTool>('select');
   }
@@ -1708,6 +1851,23 @@ export class Viewport {
     this.transaction(() => this.store.update(id, { fixedSegments: undefined }));
     this.requestRender();
     return true;
+  }
+
+  /** Sets or clears (null) the link on every id as one undo step; throws before mutating. */
+  setLink(ids: readonly string[], link: string | null): void {
+    const normalized = link === null ? null : normalizeLink(link);
+    if (link !== null && normalized === null) throw new RangeError('link is not allowed');
+    for (const id of ids) {
+      const el = this.store.getById(id);
+      if (!el) throw new Error(`Element not found: ${id}`);
+      if (el.locked || this.layerManager.isLayerLocked(el.layerId)) {
+        throw new Error(`Element ${id} is locked`);
+      }
+    }
+    this.transaction(() => {
+      for (const id of ids) this.store.update(id, { link: normalized ?? undefined });
+    });
+    this.requestRender();
   }
 
   getRenderStats(): RenderStatsSnapshot {

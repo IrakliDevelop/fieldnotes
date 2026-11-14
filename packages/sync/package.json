@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/sync",
-  "version": "0.30.3",
+  "version": "0.30.4",
   "description": "Real-time element sync for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,
@@ -49,7 +49,7 @@
     "fieldnotes"
   ],
   "peerDependencies": {
-    "@fieldnotes/core": ">=0.107.0 <1.0.0"
+    "@fieldnotes/core": ">=0.108.0 <1.0.0"
   },
   "devDependencies": {
     "@fieldnotes/core": "workspace:*",

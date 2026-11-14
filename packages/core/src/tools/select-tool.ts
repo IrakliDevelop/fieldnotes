@@ -38,12 +38,16 @@ import {
   hitTestRotateHandle,
   hitTestLineHandles,
   hitTestExtensionHandle,
+  hitTestLinkBadge,
   findElementsInRect,
+  LINK_BADGE_HIT_RADIUS,
 } from './select-hit';
 import type { HandlePosition, OverlayLayout } from './select-overlay';
 import {
   HANDLE_CURSORS,
+  drawLinkBadge,
   getOverlayLayout,
+  linkBadgeCenter,
   renderMarquee,
   renderSelectionBoxes,
   renderGuideLines,
@@ -54,6 +58,10 @@ import { computeResize, computeRotatedResize } from './select-resize';
 const SNAP_PX = 6;
 const ROTATE_SNAP = Math.PI / 12; // 15°
 
+function badgeCandidates(selected: readonly string[], hovered: string | null): readonly string[] {
+  return hovered === null ? selected : [...selected, hovered];
+}
+
 type Mode =
   | { type: 'idle' }
   | { type: 'dragging' }
@@ -62,6 +70,8 @@ type Mode =
   | { type: 'extension-handle'; elementId: string; handleId: string; cursor: string }
   | { type: 'arrow-handle'; elementId: string; handle: ArrowHandle; drag: ArrowHandleDrag | null }
   | { type: 'line-handle'; elementId: string; fixed: Point }
+  // `start` is in screen px.
+  | { type: 'link'; elementId: string; start: Point }
   | {
       type: 'rotating';
       elementId: string;
@@ -175,6 +185,7 @@ export class SelectTool implements Tool {
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.ctx = ctx;
+    const hovered = this.hoveredId;
     this.setHovered(null, ctx);
     this.dragSnapTargets = null;
     this.dragVisibleRect = null;
@@ -240,6 +251,12 @@ export class SelectTool implements Tool {
       }
     }
 
+    const linkId = hitTestLinkBadge(world, ctx, badgeCandidates(this._selectedIds, hovered));
+    if (linkId !== null) {
+      this.mode = { type: 'link', elementId: linkId, start: { x: state.x, y: state.y } };
+      return;
+    }
+
     this.pendingSingleSelectId = null;
     this.hasDragged = false;
     const hit = hitTest(world, ctx);
@@ -276,6 +293,12 @@ export class SelectTool implements Tool {
     this.currentWorld = world;
 
     if (this.mode.type === 'cancelled') return;
+
+    if (this.mode.type === 'link') {
+      if (Math.hypot(state.x - this.mode.start.x, state.y - this.mode.start.y) > 6)
+        this.mode = { type: 'idle' };
+      return;
+    }
 
     if (this.mode.type === 'arrow-handle') {
       ctx.setCursor?.(getArrowHandleCursor(this.mode.handle, true));
@@ -428,6 +451,12 @@ export class SelectTool implements Tool {
   }
 
   onPointerUp(_state: PointerState, ctx: ToolContext): void {
+    if (this.mode.type === 'link') {
+      const id = this.mode.elementId;
+      this.mode = { type: 'idle' };
+      ctx.openLink?.(id);
+      return;
+    }
     this.emitDrag('onDragEnd', ctx);
     this.drag = null;
 
@@ -463,6 +492,10 @@ export class SelectTool implements Tool {
   }
 
   onPointerCancel(state: PointerState, ctx: ToolContext): void {
+    if (this.mode.type === 'link') {
+      this.mode = { type: 'idle' };
+      return;
+    }
     if (this.mode.type === 'arrow-handle' && this.mode.drag)
       restoreArrowHandleDrag(this.mode.elementId, this.mode.drag, ctx);
     this.onPointerUp(state, ctx);
@@ -512,6 +545,23 @@ export class SelectTool implements Tool {
         elementRegistry: this.ctx.elementRegistry,
         color: this.ctx.selectionColor,
       });
+
+    if (this.ctx) {
+      const hovered =
+        this.hoveredId !== null &&
+        this.mode.type === 'idle' &&
+        !this._selectedIds.includes(this.hoveredId)
+          ? this.hoveredId
+          : null;
+      const zoom = this.ctx.camera.zoom;
+      for (const id of badgeCandidates(this._selectedIds, hovered)) {
+        const el = this.ctx.store.getById(id);
+        if (el?.link === undefined) continue;
+        const layout = getOverlayLayout(el, zoom, this.ctx.elementRegistry);
+        if (layout)
+          drawLinkBadge(canvasCtx, linkBadgeCenter(layout, zoom), zoom, this.ctx.selectionColor);
+      }
+    }
 
     if (this.mode.type === 'arrow-handle' && this.ctx) {
       const target = getArrowHandleDragTarget(
@@ -652,7 +702,33 @@ export class SelectTool implements Tool {
       return null;
     }
 
+    const hovered = this.hoveredId;
+    const linkId = hitTestLinkBadge(world, ctx, badgeCandidates(this._selectedIds, hovered));
+    if (linkId !== null) {
+      ctx.setCursor?.('pointer');
+      return linkId;
+    }
+
     const hit = hitTest(world, ctx);
+    const hoveredEl = hit === null && hovered !== null ? ctx.store.getById(hovered) : undefined;
+    const zoom = ctx.camera.zoom;
+    const layout =
+      hoveredEl?.link === undefined ? null : getOverlayLayout(hoveredEl, zoom, ctx.elementRegistry);
+    const ne = layout?.corners.find(([h]) => h === 'ne')?.[1];
+    if (hovered !== null && layout && ne) {
+      // The badge sits outside the element; keep the hover between the `ne` corner and it.
+      const c = linkBadgeCenter(layout, zoom);
+      const r = LINK_BADGE_HIT_RADIUS / zoom;
+      if (
+        world.x >= Math.min(ne.x, c.x - r) &&
+        world.x <= Math.max(ne.x, c.x + r) &&
+        world.y >= Math.min(ne.y, c.y - r) &&
+        world.y <= Math.max(ne.y, c.y + r)
+      ) {
+        ctx.setCursor?.('default');
+        return hovered;
+      }
+    }
     ctx.setCursor?.(hit ? 'move' : 'default');
     return hit ? hit.id : null;
   }

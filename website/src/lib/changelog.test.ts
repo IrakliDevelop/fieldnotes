@@ -179,7 +179,10 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('keeps the fog-capability and elbow releases first, in package order, and unique', () => {
+  it('keeps the clipboard and fog-capability releases first, in package order, and unique', () => {
+    const clipboardCore = release('@fieldnotes/core', '0.108.0');
+    const clipboardSync = release('@fieldnotes/sync', '0.30.4');
+    const clipboardServer = release('@fieldnotes/sync-server', '0.30.4');
     const fogCapability = release('@fieldnotes/vtt', '0.17.2');
     const elbowCore = release('@fieldnotes/core', '0.107.0');
     const elbowSync = release('@fieldnotes/sync', '0.30.3');
@@ -195,14 +198,19 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     const frames = release('@fieldnotes/core', '0.102.0');
     const prior = release('@fieldnotes/core', '0.101.0');
 
-    expect(current[0]).toMatchObject({ npmName: '@fieldnotes/vtt', version: '0.17.2' });
-    expect(current.slice(1, 4)).toMatchObject([
+    expect(current.slice(0, 3)).toMatchObject([
+      { npmName: '@fieldnotes/core', version: '0.108.0' },
+      { npmName: '@fieldnotes/sync', version: '0.30.4' },
+      { npmName: '@fieldnotes/sync-server', version: '0.30.4' },
+    ]);
+    expect(current[3]).toMatchObject({ npmName: '@fieldnotes/vtt', version: '0.17.2' });
+    expect(current.slice(4, 7)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.107.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.3' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.3' },
     ]);
-    expect(current[4]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
-    expect(current.slice(5, 8)).toMatchObject([
+    expect(current[7]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
+    expect(current.slice(8, 11)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.106.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.2' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.2' },
@@ -210,6 +218,19 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(
       current.filter(
         (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.106.0',
+      ),
+    ).toHaveLength(1);
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.108.0',
+      ),
+    ).toHaveLength(1);
+    expect(
+      current.filter((entry) => entry.npmName === '@fieldnotes/sync' && entry.version === '0.30.4'),
+    ).toHaveLength(1);
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/sync-server' && entry.version === '0.30.4',
       ),
     ).toHaveLength(1);
     expect(
@@ -243,6 +264,9 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(frames).toBeDefined();
     expect(prior).toBeDefined();
     if (
+      !clipboardCore ||
+      !clipboardSync ||
+      !clipboardServer ||
       !fogCapability ||
       !elbowCore ||
       !elbowSync ||
@@ -259,6 +283,9 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
       !prior
     )
       return;
+    expect(clipboardCore.date).toBeUndefined();
+    expect(clipboardSync.date).toBeUndefined();
+    expect(clipboardServer.date).toBeUndefined();
     expect(fogCapability.date).toBeUndefined();
     expect(elbowCore.date).toBeUndefined();
     expect(elbowSync.date).toBeUndefined();

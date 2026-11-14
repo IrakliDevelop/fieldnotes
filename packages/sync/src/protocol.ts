@@ -1,4 +1,4 @@
-import { isValidIndexKey, MAX_ARROW_FIXED_SEGMENTS } from '@fieldnotes/core';
+import { isAllowedLink, isValidIndexKey, MAX_ARROW_FIXED_SEGMENTS } from '@fieldnotes/core';
 import type { CanvasElement, ElementType, Layer } from '@fieldnotes/core';
 import type { AuthorityExtensionManifestEntry, DeepReadonly } from './authority-protocol';
 import {
@@ -537,6 +537,17 @@ export function elementWithinLimits(el: DeepReadonly<SyncElement>, limits: Eleme
     case 'extension':
       return isAtMost(el.extensionType, maxShortStringLength);
   }
+}
+
+/** Returns `el` without a `link` that is not an allowed string of at most 2048 characters. */
+export function sanitizeElementLink<T extends SyncElement>(el: T): T {
+  // Wire data may carry any value here despite the static type.
+  const link: unknown = el.link;
+  if (link === undefined) return el;
+  if (typeof link === 'string' && isAllowedLink(link)) return el;
+  const rest: T = { ...el };
+  delete rest.link;
+  return rest;
 }
 
 /** Whether an already-valid legacy envelope stays within `SYNC_LIMITS`; authority:1 does not use it. */

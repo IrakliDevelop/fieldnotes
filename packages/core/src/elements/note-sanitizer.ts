@@ -15,6 +15,7 @@ const ITALIC_TAGS = new Set(['i', 'em']);
 const UNDERLINE_TAGS = new Set(['u']);
 const STRIKE_TAGS = new Set(['s', 'strike', 'del']);
 const BLOCK_TAGS = new Set(['div']);
+const PLAIN_TEXT_BLOCK_TAGS = new Set(['div', 'p', 'li']);
 
 export function parseStyledRuns(html: string, baseFontSize: number): StyledRun[] {
   if (!html) return [];
@@ -157,6 +158,30 @@ function sanitizeNode(node: Node): void {
     sanitizeAttributes(el, tag);
     sanitizeNode(el);
   }
+}
+
+/** Reads sanitized note html as plain text: `<br>` and block boundaries become newlines. */
+export function plainTextOf(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  let text = '';
+  const walk = (node: Node): void => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        text += child.textContent ?? '';
+        continue;
+      }
+      if (!(child instanceof Element)) continue;
+      const tag = child.tagName.toLowerCase();
+      if (tag === 'br') {
+        text += '\n';
+        continue;
+      }
+      walk(child);
+      if (PLAIN_TEXT_BLOCK_TAGS.has(tag) && child.nextSibling) text += '\n';
+    }
+  };
+  walk(doc.body);
+  return text;
 }
 
 export function isNoteContentEmpty(html: string): boolean {

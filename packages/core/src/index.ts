@@ -1,4 +1,4 @@
-export const VERSION = '0.107.0';
+export const VERSION = '0.108.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
@@ -113,6 +113,13 @@ export type {
 } from './canvas/export-image';
 export { exportSvg } from './canvas/export-svg';
 export type { ExportSvgOptions } from './canvas/export-svg';
+export { SCENE_METADATA_TYPE, SCENE_PNG_KEYWORD } from './canvas/scene-embed';
+export type { SceneEmbedOptions, SceneEnvelope } from './canvas/scene-embed';
+export {
+  FIELDNOTES_FILE_EXTENSION,
+  FIELDNOTES_MIME_TYPE,
+  readSceneFile,
+} from './canvas/scene-file';
 export type {
   HtmlExportError,
   HtmlExportErrorReason,
@@ -266,6 +273,20 @@ export {
 } from './elements/element-factory';
 export { createBoundText, getBoundText, isBoundTextContainer } from './elements/bound-text';
 export { pickBaseFields } from './elements/base-fields';
+export {
+  isAllowedLink,
+  normalizeLink,
+  isPasteLink,
+  elementLink,
+  parseElementLink,
+} from './elements/link';
+export {
+  FIELDNOTES_CLIPBOARD_TYPE,
+  encodeClipboard,
+  decodeClipboard,
+} from './canvas/clipboard-codec';
+export type { ClipboardEnvelope, ClipboardPayload } from './canvas/clipboard-codec';
+export type { AssetResolver, AssetUploadContext, ImageErrorInfo } from './canvas/content-inserter';
 export {
   getArrowControlPoint,
   getArrowMidpoint,

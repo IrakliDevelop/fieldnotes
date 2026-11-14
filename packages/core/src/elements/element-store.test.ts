@@ -1506,6 +1506,65 @@ describe('ElementStore', () => {
     });
   });
 
+  describe('link sanitization', () => {
+    const shape = (id: string, link?: unknown): CanvasElement => ({
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 10, h: 10 } }),
+      id,
+      ...(link === undefined ? {} : { link: link as string }),
+    });
+
+    it('add keeps an allowed link', () => {
+      const store = new ElementStore();
+      store.add(shape('s1', 'https://example.com'));
+      expect(store.getById('s1')?.link).toBe('https://example.com');
+    });
+
+    it('add strips a javascript link', () => {
+      const store = new ElementStore();
+      store.add(shape('s1', 'javascript:alert(1)'));
+      const stored = store.getById('s1');
+      expect(stored && 'link' in stored).toBe(false);
+    });
+
+    it('add strips a non-string link', () => {
+      const store = new ElementStore();
+      store.add(shape('s1', 5));
+      const stored = store.getById('s1');
+      expect(stored && 'link' in stored).toBe(false);
+    });
+
+    it('update rejects a disallowed link, sets an allowed one, and clears on undefined', () => {
+      const store = new ElementStore();
+      store.add(shape('s1'));
+
+      store.update('s1', { link: 'javascript:x' });
+      const rejected = store.getById('s1');
+      expect(rejected && 'link' in rejected).toBe(false);
+
+      store.update('s1', { link: 'https://a.b' });
+      expect(store.getById('s1')?.link).toBe('https://a.b');
+
+      store.update('s1', { link: undefined });
+      const cleared = store.getById('s1');
+      expect(cleared && 'link' in cleared).toBe(false);
+    });
+
+    it('update without link in the partial keeps the existing link', () => {
+      const store = new ElementStore();
+      store.add(shape('s1', 'https://example.com'));
+      store.update('s1', { position: { x: 1, y: 1 } });
+      expect(store.getById('s1')?.link).toBe('https://example.com');
+    });
+
+    it('loadSnapshot keeps allowed links and strips disallowed ones', () => {
+      const store = new ElementStore();
+      store.loadSnapshot([shape('good', 'mailto:a@b.com'), shape('bad', 'data:text/html,x')]);
+      expect(store.getById('good')?.link).toBe('mailto:a@b.com');
+      const bad = store.getById('bad');
+      expect(bad && 'link' in bad).toBe(false);
+    });
+  });
+
   describe('ordering', () => {
     it('returns elements sorted by index', () => {
       const store = new ElementStore();

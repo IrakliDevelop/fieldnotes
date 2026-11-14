@@ -1,4 +1,5 @@
 import type { Camera } from './camera';
+import type { Point } from '../core/types';
 import type { ElementStore } from '../elements/element-store';
 import type { NoteEditor } from '../elements/note-editor';
 import type { InteractMode } from './interact-mode';
@@ -17,6 +18,7 @@ import {
 import { hitTest } from '../tools/select-hit';
 import { isLiveControlTarget } from './live-control';
 import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
+import { isPasteLink, normalizeLink } from '../elements/link';
 
 export interface ViewportInteractionsDeps {
   store: ElementStore;
@@ -30,15 +32,24 @@ export interface ViewportInteractionsDeps {
   recorder: HistoryRecorder;
   toolContext: ToolContext;
   requestRender: () => void;
-  addImage: (src: string, position: { x: number; y: number }) => string;
-  dropHandler?: (event: DragEvent, worldPosition: { x: number; y: number }) => void;
+  // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- undefined keeps the host-owns-it contract
+  dropHandler?: (event: DragEvent, worldPosition: Point) => boolean | void;
+  insertText(text: string, anchor: Point, link?: string): void;
+  insertFiles(files: File[], anchor: Point, kind: 'drop'): boolean;
+  insertWhenIdle(run: () => void): void;
   acceptsPointer?: (e: PointerEvent) => boolean;
+  isMac: () => boolean;
+  activeToolName: () => string | null;
+  openLink: (elementId: string, event: PointerEvent | null) => void;
 }
 
 export class ViewportInteractions {
   private readonly doubleTapDetector = new DoubleTapDetector();
   private tapDownX = 0;
   private tapDownY = 0;
+  private tapModifier = false;
+  private tapWasInteracting = false;
+  private gestureOpenedLink = false;
   private createdEdit: { id: string; transactionId: number } | null = null;
 
   constructor(private readonly deps: ViewportInteractionsDeps) {}
@@ -189,10 +200,26 @@ export class ViewportInteractions {
     this.liveFitHeight(elementId);
   }
 
+  /** Opens a link at most once per pointer gesture: a modifier press on a badge must not open twice. */
+  openGestureLink(elementId: string, event: PointerEvent | null): void {
+    if (this.gestureOpenedLink) return;
+    this.gestureOpenedLink = true;
+    this.deps.openLink(elementId, event);
+  }
+
   onTapDown = (e: PointerEvent): void => {
+    this.gestureOpenedLink = false;
     if (!this.accepts(e)) return;
     this.tapDownX = e.clientX;
     this.tapDownY = e.clientY;
+    this.tapModifier = e.button === 0 && (this.deps.isMac() ? e.metaKey : e.ctrlKey);
+    // Read at down: interact mode's window pointerdown listener exits it before the up.
+    this.tapWasInteracting = this.deps.interactMode.isInteracting();
+    // The user-select: none wrapper keeps an outside page selection, which would win copy and cut.
+    const selection = document.getSelection();
+    if (selection && !selection.isCollapsed && !this.deps.wrapper.contains(selection.anchorNode)) {
+      selection.removeAllRanges();
+    }
   };
 
   onDoubleTap = (e: PointerEvent): void => {
@@ -201,6 +228,18 @@ export class ViewportInteractions {
     const dy = e.clientY - this.tapDownY;
     const moved = Math.sqrt(dx * dx + dy * dy);
     if (moved > 10) return;
+
+    const rect = this.deps.wrapper.getBoundingClientRect();
+    const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const world = this.deps.camera.screenToWorld(screen);
+
+    if (this.tapModifier && !this.tapWasInteracting && this.deps.activeToolName() === 'select') {
+      const hit = hitTest(world, this.deps.toolContext);
+      if (hit?.link !== undefined) {
+        this.openGestureLink(hit.id, e);
+        return;
+      }
+    }
 
     if (!this.doubleTapDetector.feed(e)) return;
     if (typeof document.elementFromPoint !== 'function') return;
@@ -218,10 +257,6 @@ export class ViewportInteractions {
         }
       }
     }
-
-    const rect = this.deps.wrapper.getBoundingClientRect();
-    const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    const world = this.deps.camera.screenToWorld(screen);
 
     // HTML embeds keep double-tap priority: you double-tapped inside the embed even if an
     // arrow's curve passes nearby. Arrow-label editing only when no embed is hit.
@@ -322,24 +357,28 @@ export class ViewportInteractions {
     const screenPos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const worldPos = this.deps.camera.screenToWorld(screenPos);
 
-    if (this.deps.dropHandler) {
-      this.deps.dropHandler(e, worldPos);
+    if (this.deps.dropHandler && this.deps.dropHandler(e, worldPos) !== false) return;
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const files = [...dt.files];
+    if (files.length === 0) {
+      const uri =
+        dt
+          .getData('text/uri-list')
+          .split(/\r?\n/)
+          .find((l) => l.trim() !== '' && !l.startsWith('#')) ?? '';
+      const text = uri || dt.getData('text/plain');
+      const line = text.trim();
+      if (line === '') return;
+      this.deps.insertWhenIdle(() => {
+        if (!line.includes('\n') && isPasteLink(line)) {
+          this.deps.insertText(line, worldPos, normalizeLink(line) ?? undefined);
+        } else {
+          this.deps.insertText(text, worldPos);
+        }
+      });
       return;
     }
-
-    const files = e.dataTransfer?.files;
-    if (!files) return;
-
-    for (const file of files) {
-      if (!file.type.startsWith('image/')) continue;
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        const src = reader.result;
-        if (typeof src !== 'string') return;
-        this.deps.addImage(src, worldPos);
-      };
-      reader.readAsDataURL(file);
-    }
+    this.deps.insertFiles(files, worldPos, 'drop');
   };
 }

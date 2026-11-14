@@ -21,6 +21,7 @@ import type { Viewport } from './viewport';
 import { createToolAction, DEFAULT_TOOL_SHORTCUTS } from '../actions/builtin-actions';
 import { FrameTool } from '../tools/frame-tool';
 import { ArrowTool } from '../tools/arrow-tool';
+import { getDefaultElementRegistry } from '../elements/default-registry';
 
 function wheel(
   el: HTMLElement,
@@ -56,7 +57,7 @@ function keyUp(key: string) {
 function clipboardWith(items: DataTransferItem[], target?: EventTarget): ClipboardEvent {
   const e = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
   Object.defineProperty(e, 'clipboardData', {
-    value: { items },
+    value: { items, getData: () => '', files: [] },
     configurable: true,
   });
   if (target) Object.defineProperty(e, 'target', { value: target, configurable: true });
@@ -2072,52 +2073,66 @@ describe('InputHandler', () => {
 
   describe('OS-clipboard image paste', () => {
     function setupImagePaste() {
-      const addImage = vi.fn<(src: string, world: { x: number; y: number }) => string>(
-        () => 'img-1',
-      );
+      const clipboardHost = {
+        elementRegistry: getDefaultElementRegistry(),
+        claimsFile: () => true,
+        insertFiles: vi.fn(() => true),
+        insertElements: vi.fn(),
+        insertText: vi.fn(),
+      };
       const paste = vi.fn();
-      const actions = { paste };
       const h = new InputHandler(element, camera, {
-        addImage,
+        clipboardHost,
         getCenteredWorld: () => ({ x: 7, y: 9 }),
         actions: stubActionRegistry(),
       });
       // Replace the real actions paste with a spy so the no-image branch is observable.
       (h as unknown as { actions: { paste: () => void } }).actions.paste = paste;
-      return { h, addImage, paste, actions };
+      return { h, insertFiles: clipboardHost.insertFiles, paste };
     }
 
-    it('adds an image to the canvas when the clipboard holds an image file', async () => {
-      const { h, addImage } = setupImagePaste();
+    it('hands an image file to the host inserter at the centred world point', () => {
+      const { h, insertFiles } = setupImagePaste();
       const file = new File([new Uint8Array([1, 2, 3])], 'pic.png', { type: 'image/png' });
       window.dispatchEvent(clipboardWith([imageItem(file)]));
 
-      await vi.waitFor(() => expect(addImage).toHaveBeenCalled());
-      const call = addImage.mock.calls[0];
-      expect(call?.[0]).toMatch(/^data:image\/png/);
-      expect(call?.[1]).toEqual({ x: 7, y: 9 });
+      expect(insertFiles.mock.calls).toEqual([[[file], { x: 7, y: 9 }, 'paste']]);
+
+      h.destroy();
+    });
+
+    it('does not hand a file to the host during a tool gesture', () => {
+      const { h, insertFiles } = setupImagePaste();
+      h.setToolManager(stubToolManager(), stubToolContext());
+      pointerDown(element, { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+      const file = new File([new Uint8Array([1])], 'pic.png', { type: 'image/png' });
+      window.dispatchEvent(clipboardWith([imageItem(file)]));
+      pointerUp(element, { button: 0, pointerId: 1 });
+
+      expect(h.isToolGestureActive).toBe(false);
+      expect(insertFiles).not.toHaveBeenCalled();
 
       h.destroy();
     });
 
     it('falls back to in-memory paste when the clipboard has no image', () => {
-      const { h, addImage, paste } = setupImagePaste();
+      const { h, insertFiles, paste } = setupImagePaste();
       window.dispatchEvent(clipboardWith([]));
 
       expect(paste).toHaveBeenCalledOnce();
-      expect(addImage).not.toHaveBeenCalled();
+      expect(insertFiles).not.toHaveBeenCalled();
 
       h.destroy();
     });
 
     it('ignores paste targeted at an INPUT element', () => {
-      const { h, addImage, paste } = setupImagePaste();
+      const { h, insertFiles, paste } = setupImagePaste();
       const input = document.createElement('input');
       document.body.appendChild(input);
       const file = new File([new Uint8Array([1])], 'pic.png', { type: 'image/png' });
       window.dispatchEvent(clipboardWith([imageItem(file)], input));
 
-      expect(addImage).not.toHaveBeenCalled();
+      expect(insertFiles).not.toHaveBeenCalled();
       expect(paste).not.toHaveBeenCalled();
 
       input.remove();
@@ -2125,12 +2140,12 @@ describe('InputHandler', () => {
     });
 
     it('ignores paste targeted at a contentEditable element', () => {
-      const { h, addImage, paste } = setupImagePaste();
+      const { h, insertFiles, paste } = setupImagePaste();
       const div = document.createElement('div');
       Object.defineProperty(div, 'isContentEditable', { value: true, configurable: true });
       window.dispatchEvent(clipboardWith([], div));
 
-      expect(addImage).not.toHaveBeenCalled();
+      expect(insertFiles).not.toHaveBeenCalled();
       expect(paste).not.toHaveBeenCalled();
 
       h.destroy();

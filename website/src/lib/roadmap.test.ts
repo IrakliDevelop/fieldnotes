@@ -54,7 +54,7 @@ describe('parseRoadmap', () => {
     );
   });
 
-  it('keeps elbow arrows last in Built and the two remaining sections as single items', () => {
+  it('keeps clipboard and hyperlinks last in Built and the two remaining sections as single items', () => {
     const roadmap = parseRoadmap(
       readFileSync(new URL('../../content/roadmap.md', import.meta.url), 'utf8'),
     );
@@ -77,7 +77,18 @@ describe('parseRoadmap', () => {
     expect(shortcuts).toBeGreaterThanOrEqual(0);
     expect(camera).toBeLessThan(frames);
     expect(frames).toBeLessThan(shortcuts);
-    expect(roadmap.built.at(-1)).toBe('Elbow arrows that route around shapes');
+    expect(roadmap.built.at(-1)).toBe(
+      'PNG and SVG exports that reopen as the board they came from',
+    );
+    expect(roadmap.built.at(-2)).toBe(
+      'Links on elements that open from a badge or with ⌘/Ctrl+click',
+    );
+    expect(roadmap.built.at(-3)).toBe(
+      'Copying and pasting between boards, pasting text and links, and dropping board and text files on a board',
+    );
+    const elbow = roadmap.built.indexOf('Elbow arrows that route around shapes');
+    expect(elbow).toBeGreaterThanOrEqual(0);
+    expect(elbow).toBeLessThan(roadmap.built.length - 3);
     expect(roadmap.built).toContain('React bindings: a canvas component and hooks');
     expect(roadmap.built.indexOf('React bindings: a canvas component and hooks')).toBeLessThan(
       roadmap.built.indexOf(
@@ -86,10 +97,10 @@ describe('parseRoadmap', () => {
     );
     expect(roadmap.built).toHaveLength(new Set(roadmap.built).size);
     expect(roadmap.next).toEqual([
-      "I'm adding clipboard paste for text and links, and drop support for non-image files.",
+      "I'm adding PDF export and making SVG export embed fonts and measure labels the way the canvas does.",
     ]);
     expect(roadmap.notBuilt).toEqual([
-      'Pasting text and links as elements, dropping files other than images, and reopening an exported PNG or SVG as an editable board',
+      'Exporting a board or a selected frame as PDF, and SVG exports that embed their fonts',
     ]);
     for (const section of [roadmap.built, roadmap.next, roadmap.notBuilt]) {
       expect(section).not.toContain(

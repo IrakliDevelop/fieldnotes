@@ -14,11 +14,13 @@ export function pickBaseFields(element: BaseElement): BaseElement {
     groupId,
     parentId,
     rotation,
+    link,
   } = element;
   const base: BaseElement = { id, type, position, index, version, locked, layerId };
   if (editor !== undefined) base.editor = editor;
   if (groupId !== undefined) base.groupId = groupId;
   if (parentId !== undefined) base.parentId = parentId;
   if (rotation !== undefined) base.rotation = rotation;
+  if (link !== undefined) base.link = link;
   return base;
 }

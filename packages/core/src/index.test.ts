@@ -65,7 +65,7 @@ describe('core public surface', () => {
       expect(name in FN).toBe(false);
   });
   it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.107.0');
+    expect(FN.VERSION).toBe('0.108.0');
   });
 
   it('exports the elbow arrow document model without routing helpers', () => {
@@ -99,6 +99,86 @@ describe('core public surface', () => {
     expect(FN.FRAME_ELEMENT_TYPE).toBe('core:frame');
     expect(FN.isFrameElement(frame)).toBe(true);
     expect(FN.frameElementDefinition.validateData(data)).toBe(true);
+  });
+
+  it('exports the link helpers', () => {
+    expect(typeof FN.isAllowedLink).toBe('function');
+    expect(typeof FN.normalizeLink).toBe('function');
+    expect(typeof FN.isPasteLink).toBe('function');
+    expect(typeof FN.elementLink).toBe('function');
+    expect(typeof FN.parseElementLink).toBe('function');
+  });
+
+  it('exports the asset resolver types and keeps the content inserter internal', () => {
+    expectTypeOf<FN.ViewportOptions['assets']>().toEqualTypeOf<FN.AssetResolver | undefined>();
+    expectTypeOf<FN.AssetResolver['upload']>().toEqualTypeOf<
+      (file: File, context: FN.AssetUploadContext) => Promise<{ src: string }>
+    >();
+    expectTypeOf<FN.AssetUploadContext['kind']>().toEqualTypeOf<'drop' | 'paste' | 'import'>();
+    expectTypeOf<NonNullable<FN.ViewportOptions['onImageError']>>().toEqualTypeOf<
+      (info: FN.ImageErrorInfo) => void
+    >();
+    expectTypeOf<FN.ImageErrorInfo['reason']>().toEqualTypeOf<'load' | 'upload' | undefined>();
+    for (const name of ['ContentInserter', 'textHtmlFromPlain', 'MAX_PASTE_TEXT_CHARS']) {
+      expect(name in FN, `${name} should not be exported`).toBe(false);
+    }
+  });
+
+  it('exports the clipboard codec without its internals', () => {
+    expect(FN.FIELDNOTES_CLIPBOARD_TYPE).toBe('fieldnotes/clipboard');
+    expect(typeof FN.encodeClipboard).toBe('function');
+    expect(typeof FN.decodeClipboard).toBe('function');
+    expectTypeOf<FN.ClipboardPayload>().toEqualTypeOf<{
+      vendor: string;
+      html: string;
+      text: string;
+    }>();
+    expectTypeOf<FN.ClipboardEnvelope['type']>().toEqualTypeOf<'fieldnotes/clipboard'>();
+    for (const name of [
+      'hasClipboardMarker',
+      'MAX_CLIPBOARD_CHARS',
+      'CLIPBOARD_ENVELOPE_VERSION',
+      'parseElements',
+      'parseStateValue',
+      'plainTextOf',
+    ]) {
+      expect(name in FN, `${name} should not be exported`).toBe(false);
+    }
+  });
+
+  it('exports the scene embed constants and types without the PNG chunk helpers', () => {
+    expect(FN.SCENE_METADATA_TYPE).toBe('fieldnotes/scene');
+    expect(FN.SCENE_PNG_KEYWORD).toBe('fieldnotes:scene');
+    expectTypeOf<FN.SceneEnvelope['type']>().toEqualTypeOf<'fieldnotes/scene'>();
+    expectTypeOf<FN.SceneEnvelope['state']>().toEqualTypeOf<FN.CanvasState>();
+    expectTypeOf<FN.ExportImageOptions>().toMatchTypeOf<FN.SceneEmbedOptions>();
+    expectTypeOf<FN.ExportSvgOptions>().toMatchTypeOf<FN.SceneEmbedOptions>();
+    for (const name of [
+      'crc32',
+      'appendItxtChunk',
+      'findItxtChunk',
+      'MAX_SCENE_EMBED_BYTES',
+      'buildSceneEnvelope',
+      'serializeSceneEnvelope',
+    ]) {
+      expect(name in FN, `${name} should not be exported`).toBe(false);
+    }
+  });
+
+  it('exports the scene file reader and constants without the file classifiers', async () => {
+    expect(FN.FIELDNOTES_FILE_EXTENSION).toBe('.fieldnotes');
+    expect(FN.FIELDNOTES_MIME_TYPE).toBe('application/vnd.fieldnotes+json');
+    expect(await FN.readSceneFile(new Blob(['not a board']))).toBeNull();
+    expectTypeOf(FN.readSceneFile).returns.toEqualTypeOf<Promise<FN.CanvasState | null>>();
+    for (const name of [
+      'isBoardFile',
+      'isSceneImageFile',
+      'isTextFile',
+      'MAX_SCENE_FILE_BYTES',
+      'MAX_TEXT_FILE_BYTES',
+    ]) {
+      expect(name in FN, `${name} should not be exported`).toBe(false);
+    }
   });
 
   it('exports the camera view, animator, and focus presence surface', () => {
@@ -415,9 +495,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.107.0', async () => {
+  it('reports VERSION 0.108.0', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.107.0');
+    expect(VERSION).toBe('0.108.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

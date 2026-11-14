@@ -3158,3 +3158,135 @@ describe('SelectTool selectionColor', () => {
     expect(styles).not.toContain('#2196F3');
   });
 });
+
+describe('SelectTool link badge', () => {
+  function setup(linked = true, selected = true) {
+    const tool = new SelectTool();
+    const openLink = vi.fn();
+    const setCursor = vi.fn();
+    const ctx = makeCtx({ openLink, setCursor });
+    const shape = {
+      ...createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 }, shape: 'rectangle' }),
+      link: linked ? 'https://x.y' : undefined,
+    };
+    ctx.store.add(shape);
+    tool.onActivate(ctx);
+    if (selected) tool.setSelection([shape.id]);
+    const before = ctx.store.getAll();
+    return { tool, ctx, openLink, setCursor, shape, before };
+  }
+
+  function click(tool: SelectTool, ctx: ToolContext, x: number, y: number): void {
+    tool.onPointerDown(pt(x, y), ctx);
+    tool.onPointerUp(pt(x, y), ctx);
+  }
+
+  it('a badge press never starts a drag, resize or marquee', () => {
+    const { tool, ctx, openLink, shape, before } = setup();
+    tool.onPointerDown(pt(122, -22), ctx);
+    expect(tool.isMarqueeActive).toBe(false);
+    tool.onPointerMove(pt(124, -22), ctx);
+    tool.onPointerUp(pt(124, -22), ctx);
+    expect(ctx.store.getAll()).toEqual(before);
+    expect(tool.selectedIds).toEqual([shape.id]);
+    expect(openLink).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['mouse', 'touch', 'pen'] as const)(
+    'badge down then up opens the link for %s without changing the selection',
+    (pointerType) => {
+      const { tool, ctx, openLink, shape, before } = setup();
+      tool.onPointerDown({ ...pt(122, -22), pointerType }, ctx);
+      tool.onPointerUp({ ...pt(122, -22), pointerType }, ctx);
+      expect(openLink).toHaveBeenCalledTimes(1);
+      expect(openLink).toHaveBeenCalledWith(shape.id);
+      expect(tool.selectedIds).toEqual([shape.id]);
+      expect(ctx.store.getAll()).toEqual(before);
+    },
+  );
+
+  it('the hover survives the path from the element corner to its badge', () => {
+    const { tool, ctx, openLink, setCursor } = setup(true, false);
+    tool.onHover?.(pt(50, 25), ctx);
+    tool.onHover?.(pt(113, -13), ctx);
+    tool.onHover?.(pt(122, -22), ctx);
+    expect(setCursor).toHaveBeenLastCalledWith('pointer');
+    click(tool, ctx, 122, -22);
+    expect(openLink).toHaveBeenCalledTimes(1);
+
+    tool.onHover?.(pt(200, 200), ctx);
+    click(tool, ctx, 122, -22);
+    expect(openLink).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaving the element away from the badge clears the hover', () => {
+    const { tool, ctx, openLink } = setup(true, false);
+    tool.onHover?.(pt(50, 25), ctx);
+    tool.onHover?.(pt(-40, 25), ctx);
+    click(tool, ctx, 122, -22);
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
+  it('moving more than 6 px before up opens nothing', () => {
+    const { tool, ctx, openLink } = setup();
+    tool.onPointerDown(pt(122, -22), ctx);
+    tool.onPointerMove(pt(130, -22), ctx);
+    tool.onPointerUp(pt(130, -22), ctx);
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
+  it('cancel opens nothing', () => {
+    const { tool, ctx, openLink } = setup();
+    tool.onPointerDown(pt(122, -22), ctx);
+    tool.onPointerCancel(pt(122, -22), ctx);
+    tool.onPointerUp(pt(122, -22), ctx);
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
+  it('the badge of a hovered unselected element opens', () => {
+    const { tool, ctx, openLink, shape } = setup(true, false);
+    tool.onHover?.(pt(50, 25), ctx);
+    click(tool, ctx, 122, -22);
+    expect(openLink).toHaveBeenCalledWith(shape.id);
+    expect(tool.selectedIds).toEqual([]);
+  });
+
+  it('no badge hit on an element without a link', () => {
+    const { tool, ctx, openLink } = setup(false);
+    tool.onPointerDown(pt(122, -22), ctx);
+    expect(tool.isMarqueeActive).toBe(true);
+    tool.onPointerUp(pt(122, -22), ctx);
+    expect(openLink).not.toHaveBeenCalled();
+    expect(tool.selectedIds).toEqual([]);
+  });
+
+  it('the badge of an element rotated 180° sits outside its rotated ne corner', () => {
+    const { tool, ctx, openLink, shape } = setup();
+    ctx.store.update(shape.id, { rotation: Math.PI });
+    const rotated = ctx.store.getById(shape.id);
+    if (!rotated) throw new Error('expected shape');
+    expect(isInsideBounds({ x: -22, y: 72 }, rotated, ctx)).toBe(false);
+
+    click(tool, ctx, 14, 36);
+    expect(openLink).not.toHaveBeenCalled();
+    click(tool, ctx, -22, 72);
+    expect(openLink).toHaveBeenCalledWith(shape.id);
+  });
+
+  it('the hover survives the path to the badge of an element rotated 90°', () => {
+    const { tool, ctx, openLink, setCursor, shape } = setup(true, false);
+    ctx.store.update(shape.id, { rotation: Math.PI / 2 });
+    tool.onHover?.(pt(50, 25), ctx);
+    tool.onHover?.(pt(88, 84), ctx);
+    tool.onHover?.(pt(97, 97), ctx);
+    expect(setCursor).toHaveBeenLastCalledWith('pointer');
+    click(tool, ctx, 97, 97);
+    expect(openLink).toHaveBeenCalledWith(shape.id);
+  });
+
+  it('hovering the badge sets the pointer cursor', () => {
+    const { tool, ctx, setCursor } = setup();
+    tool.onHover?.(pt(122, -22), ctx);
+    expect(setCursor).toHaveBeenCalledWith('pointer');
+  });
+});

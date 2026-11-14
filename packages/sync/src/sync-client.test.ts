@@ -2851,3 +2851,65 @@ describe('SyncClient layer sync', () => {
     );
   });
 });
+
+describe('inbound link sanitization', () => {
+  function receiver(): { store: ElementStore; peer: BusEndpoint } {
+    const bus = makeBus();
+    const store = new ElementStore();
+    new SyncClient({ flushIntervalMs: 0, store, transport: bus.endpoint(), clientId: 'B' }).start();
+    return { store, peer: bus.endpoint() };
+  }
+
+  it('drops a javascript: link from a peer upsert before the store sees it, on add and update', () => {
+    const { store, peer } = receiver();
+    const add = vi.spyOn(store, 'add');
+    const update = vi.spyOn(store, 'update');
+    const el = { ...shape(1), link: 'javascript:alert(1)' };
+
+    peer.send(envelope('peer', { kind: 'upsert', element: el }));
+    peer.send(envelope('peer', { kind: 'upsert', element: { ...el, version: el.version + 1 } }));
+
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify([add.mock.calls, update.mock.calls])).not.toContain('javascript:');
+    expect(store.getById(el.id)).not.toHaveProperty('link');
+  });
+
+  it('drops a javascript: link from a snapshot element before the host hook sees it', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const snapshots: (readonly CanvasElement[])[] = [];
+    new SyncClient({
+      flushIntervalMs: 0,
+      store,
+      transport,
+      clientId: 'B',
+      resolveLocalOnly: (context) => {
+        snapshots.push(context.snapshot);
+        return undefined;
+      },
+    }).start();
+    const el = { ...shape(1), link: 'javascript:alert(1)' };
+
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [el] }));
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]?.[0]).not.toHaveProperty('link');
+    expect(store.getById(el.id)).not.toHaveProperty('link');
+  });
+
+  it('keeps an https link from a peer upsert and a snapshot', () => {
+    const { store, peer } = receiver();
+    const upserted = { ...shape(1), link: 'https://example.com' };
+    peer.send(envelope('peer', { kind: 'upsert', element: upserted }));
+
+    const snapshotStore = new ElementStore();
+    const transport = makeReconnectTransport();
+    new SyncClient({ flushIntervalMs: 0, store: snapshotStore, transport, clientId: 'B' }).start();
+    const snapshotted = { ...shape(2), link: 'https://example.com' };
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [snapshotted] }));
+
+    expect(store.getById(upserted.id)?.link).toBe('https://example.com');
+    expect(snapshotStore.getById(snapshotted.id)?.link).toBe('https://example.com');
+  });
+});

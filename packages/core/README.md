@@ -108,7 +108,7 @@ viewport.addImage('/assets/map.png', { x: 0, y: 0 }, { w: 800, h: 600 });
 // Drag & drop is handled automatically — drop images onto the canvas
 ```
 
-> **Important: Use URLs, not base64 data URLs.** Images are stored inline in the serialized state. A single base64-encoded photo can be 2-5MB, which will blow past the `localStorage` ~5MB quota and make JSON exports impractical. Upload images to your server or CDN and use the URL. For offline/local-first apps, store blobs in IndexedDB and reference them by URL.
+> **Important: Use URLs, not base64 data URLs.** Images are stored inline in the serialized state. A single base64-encoded photo can be 2-5MB, which will blow past the `localStorage` ~5MB quota and make JSON exports impractical. Upload images to your server or CDN and use the URL. For dropped, pasted and imported images, set `assets` (see the ViewportOptions reference). For offline/local-first apps, store blobs in IndexedDB and reference them by URL.
 
 ## Adding Shapes
 
@@ -157,6 +157,17 @@ transparent; JPEG retains its opaque default.
 
 Remote images are requested with anonymous CORS using their original URLs; failures are omitted from
 the result and reported through `onAssetError` when supplied.
+
+`embedScene: true` stores the exported elements in the PNG or SVG, so the file can be opened again
+as a board. The scene holds every element inside the export bounds, including ones that fog or
+render hooks paint over, so never embed it in an export for viewers who must not see those
+elements. `readSceneFile` reads the scene back, and dropping the file on a board inserts it:
+
+```typescript
+const png = await viewport.exportImage({ embedScene: true });
+const state = png ? await readSceneFile(png) : null;
+if (state) viewport.loadState(state);
+```
 
 Application-owned HTML embeds require an explicit rasterization hook. Return a ready canvas-compatible
 image source; Field Notes applies the element's size, rotation, paint order, and layer opacity in both
@@ -558,13 +569,22 @@ new Viewport(container, {
     spacing: 24, // grid spacing in px (default: 24)
     color: '#d0d0d0', // dot/line color (default: '#d0d0d0')
   },
-  // Called for every drop; replaces the built-in image-drop handling
+  // Called for every drop before core acts; return false to let core handle it
   onDrop: (event, worldPosition) => {
     /* handle drop */
   },
+  // Called for every paste core would handle; return false to let core handle it
+  onPaste: (event, worldPosition) => {
+    if (readOnly) return true; // the host owns the paste, so nothing is inserted
+    return false;
+  },
+  // Uploads dropped, pasted and imported images instead of storing them as base64
+  assets: {
+    upload: async (file) => ({ src: await uploadImage(file) }), // application implementation
+  },
   // Called when an image element fails to load; failed images render a gray
   // placeholder. Falls back to console.warn when unset.
-  onImageError: ({ src, elementIds }) => {
+  onImageError: ({ src, elementIds, reason }) => {
     /* handle broken image */
   },
 });
@@ -579,8 +599,19 @@ new Viewport(container, {
 - `placeholder?: string` — placeholder text shown in empty notes.
 - `shortcuts?: ShortcutOptions` — seed the keyboard shortcut table with custom bindings (use canonical action ids like `'edit.undo'`, `'tool.pencil'`).
 - `onHtmlElementMount?` — called after `loadState` for HTML elements that need content injected.
-- `onDrop?` — called for every drop event; replaces the built-in image-drop handling.
-- `onImageError?` — called when an image element fails to load.
+- `onDrop?` — called for every drop before core acts. Return `false` to let core handle it;
+  `true` or nothing means the host handled the drop.
+- `onPaste?` — called for every paste core would handle: images, text, links, board and scene
+  files, and Field Notes clipboard data. Return `false` to let core handle it; `true` or nothing
+  means the host handled the paste. When `onPaste` is set, core calls `preventDefault` only after
+  it returns `false`.
+- `assets?: AssetResolver` — `upload(file, { kind })` resolves to `{ src }` for dropped, pasted and
+  imported images. Without it images are stored inline as base64.
+- `onOpenLink?(link, event)` — called before an element's link opens; `event` is `null` for
+  keyboard, menu and command palette opens. Return `true` to open it yourself, for example to move
+  to another board.
+- `onImageError?` — called when an image element fails to load (`reason: 'load'`) or its upload
+  fails (`reason: 'upload'`).
 - `panBufferMargin?: number` (default `256`) — CSS-pixel margin cached beyond the viewport so
   small pans re-composite instead of re-rasterizing the layers and grid. Larger = more pan
   reuse, more memory per layer. Set `0` to disable (exact-viewport caches) on memory-tight hosts.
@@ -820,11 +851,11 @@ Hit-testing, marquee selection, and resize are all rotation-aware: resizing a ro
 
 ## Context menu & lock
 
-Right-click (desktop) or touch long-press (tablet) opens a context menu over the canvas with Cut/Copy/Paste/Duplicate/Delete, z-order (to front / forward / backward / to back), and Lock/Unlock. The menu is core-provided (plain DOM) and selects the element under the pointer if it isn't already selected. Opt out with `new Viewport(el, { contextMenu: false })`.
+Right-click (desktop) or touch long-press (tablet) opens a context menu over the canvas with Cut/Copy/Paste/Duplicate/Delete, z-order (to front / forward / backward / to back), Lock/Unlock, and Add link, Remove link and Open link. The menu is core-provided (plain DOM) and selects the element under the pointer if it isn't already selected. Opt out with `new Viewport(el, { contextMenu: false })`.
 
 Lock with **`viewport.toggleLockSelection()`** or **Ctrl/Cmd+Shift+L**; a lock badge appears on the selection. Locked elements stay selectable but can't be moved, resized, or rotated. **Ctrl/Cmd+X** cuts the selection. The shortcuts are rebindable as `arrange.toggle-lock` and `edit.cut`.
 
-You can drive any menu action programmatically with **`viewport.runAction(name)`** (e.g. `'edit.cut'`, `'edit.paste'`, `'arrange.toggle-lock'`). It returns whether the action ran. You can also use the actions API: `viewport.actions.run('edit.cut', { source: 'api' })`. **`viewport.canPaste()`** reports whether the clipboard has content.
+You can drive any menu action programmatically with **`viewport.runAction(name)`** (e.g. `'edit.cut'`, `'edit.paste'`, `'arrange.toggle-lock'`). It returns whether the action ran. You can also use the actions API: `viewport.actions.run('edit.cut', { source: 'api' })`. **`viewport.canPaste()`** reports whether the board's in-memory clipboard holds copied elements; it doesn't read the system clipboard.
 
 ## Built-in Interactions
 

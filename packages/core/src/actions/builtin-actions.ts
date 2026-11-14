@@ -11,10 +11,11 @@ export interface BuiltinActionDeps {
   zoomByFactor: (factor: number) => void;
   zoomToLevel: (level: number) => void;
   canPaste: () => boolean;
+  clipboard: { copy(): void; cut(): void };
 }
 
 /** Context-menu groups emitted by the built-in table, in display order. */
-export const BUILTIN_MENU_GROUPS = ['clipboard', 'arrange', 'transform', 'lock'] as const;
+export const BUILTIN_MENU_GROUPS = ['clipboard', 'arrange', 'transform', 'lock', 'link'] as const;
 
 /** Default shortcut bindings for the ten built-in tool names. */
 export const DEFAULT_TOOL_SHORTCUTS: Readonly<Record<string, readonly string[]>> = {
@@ -150,7 +151,7 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       shortcut: ['mod+c'],
       menu: menu('clipboard', 20),
       enabled: hasSelection,
-      perform: () => ka.copy(),
+      perform: () => deps.clipboard.copy(),
     },
     // --- edit.paste (inserted after copy; no default shortcut) ---
     {
@@ -360,7 +361,7 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       shortcut: ['mod+x'],
       menu: menu('clipboard', 10),
       enabled: hasSelection,
-      perform: () => ka.cut(),
+      perform: () => deps.clipboard.cut(),
     },
     // --- arrange.toggle-lock ---
     {
@@ -449,6 +450,70 @@ export function createBuiltinActions(deps: BuiltinActionDeps): ActionDefinition[
       perform: (_ctx, inv) => {
         const d = NUDGE_DELTAS['arrange.nudge-down'];
         return ka.nudge(d[0], d[1], inv.shiftKey);
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Link actions
+// ---------------------------------------------------------------------------
+
+/** Viewport callbacks the link actions drive. */
+export interface LinkActionDeps {
+  setLink(ids: readonly string[], link: string | null): void;
+  openLink(elementId: string): void;
+  promptLink(ids: readonly string[], initial: string, label: string): void;
+}
+
+function linkedIds(ctx: ActionContext): string[] {
+  return ctx.selectedIds.filter((id) => ctx.store.getById(id)?.link !== undefined);
+}
+
+function isEditable(ctx: ActionContext, id: string): boolean {
+  const el = ctx.store.getById(id);
+  return el !== undefined && !el.locked && !ctx.viewport.layerManager.isLayerLocked(el.layerId);
+}
+
+// setLink throws on locked ids, so removal only targets editable ones.
+function removableLinkIds(ctx: ActionContext): string[] {
+  return linkedIds(ctx).filter((id) => isEditable(ctx, id));
+}
+
+/** Set, remove and open element links; no default shortcuts. */
+export function createLinkActions(deps: LinkActionDeps): ActionDefinition[] {
+  const singleLink = (ctx: ActionContext) =>
+    ctx.selectedIds.length === 1 ? ctx.store.getById(ctx.selectedIds[0] ?? '')?.link : undefined;
+  const setLabel = (ctx: ActionContext) =>
+    singleLink(ctx) === undefined ? 'Add link' : 'Edit link';
+  return [
+    {
+      id: 'link.set',
+      label: setLabel,
+      keywords: ['link', 'url', 'hyperlink'],
+      icon: 'link',
+      menu: menu('link', 10),
+      enabled: (ctx) => hasSelection(ctx) && ctx.selectedIds.every((id) => isEditable(ctx, id)),
+      perform: (ctx) => deps.promptLink(ctx.selectedIds, singleLink(ctx) ?? '', setLabel(ctx)),
+    },
+    {
+      id: 'link.remove',
+      label: 'Remove link',
+      icon: 'link-off',
+      menu: menu('link', 20),
+      enabled: (ctx) => removableLinkIds(ctx).length > 0,
+      perform: (ctx) => deps.setLink(removableLinkIds(ctx), null),
+    },
+    {
+      id: 'link.open',
+      label: 'Open link',
+      icon: 'external-link',
+      menu: menu('link', 30),
+      enabled: (ctx) => linkedIds(ctx).length === 1,
+      perform: (ctx) => {
+        const [id] = linkedIds(ctx);
+        if (id === undefined) return false;
+        deps.openLink(id);
       },
     },
   ];

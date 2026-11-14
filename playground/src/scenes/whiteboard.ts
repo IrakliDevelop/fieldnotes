@@ -48,6 +48,7 @@ export const whiteboard: Scene = {
   mount({ stage, shell }) {
     const shapeTool = new ShapeTool();
     const imageTool = new ImageTool();
+    let mounted = true;
     const viewport = new Viewport(stage, {
       ...VIEWPORT_OPTIONS,
       tools: [
@@ -70,11 +71,31 @@ export const whiteboard: Scene = {
         imageTool,
         new LaserTool(),
       ],
+      // Delayed to show the placeholder; a data URL stands in for a hosted URL that persists.
+      assets: {
+        upload: (file) =>
+          new Promise((resolve, reject) =>
+            setTimeout(() => {
+              const reader = new FileReader();
+              reader.addEventListener('load', () => {
+                if (typeof reader.result !== 'string') {
+                  reject(new Error(`Couldn't read ${file.name}`));
+                  return;
+                }
+                if (mounted) shell.toast(`Uploaded ${file.name}`);
+                resolve({ src: reader.result });
+              });
+              reader.addEventListener('error', () => reject(reader.error));
+              reader.readAsDataURL(file);
+            }, 600),
+          ),
+      },
     });
     let unregisterWidgets: () => void = () => undefined;
     // iOS Safari only delivers change events to a file input that is in the document.
     const input = document.createElement('input');
     const dispose = (): void => {
+      mounted = false;
       unregisterWidgets();
       input.remove();
       viewport.destroy();

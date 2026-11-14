@@ -10,6 +10,8 @@ import {
   createShape,
 } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
+import { LayerManager } from '../layers/layer-manager';
+import type { CanvasState } from '../core/state-serializer';
 import { createFrame } from '../elements/frame-element';
 import { ElementRegistry } from '../elements/element-registry';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
@@ -1985,5 +1987,54 @@ describe('exportSvg canvas-routed html', () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe('exportSvg — embedded scene', () => {
+  function metadataOf(svg: string): Element | null {
+    const root = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;
+    const first = root.firstElementChild;
+    return first?.tagName === 'metadata' ? first : null;
+  }
+
+  it('puts the escaped scene envelope in a first-child metadata element', async () => {
+    const store = new ElementStore();
+    const layers = new LayerManager(store);
+    const note = {
+      ...createNote({ position: { x: 0, y: 0 }, layerId: layers.activeLayerId }),
+      text: '<b>bold</b>',
+    };
+    store.add(note);
+    const svg = await exportSvg(store, { embedScene: true }, layers);
+    const metadata = metadataOf(svg);
+    expect(metadata).not.toBeNull();
+    const scene = JSON.parse(metadata?.textContent ?? '') as {
+      type: string;
+      version: number;
+      state: CanvasState;
+    };
+    expect(scene.type).toBe('fieldnotes/scene');
+    expect(scene.version).toBe(1);
+    expect(scene.state.elements.map((el) => el.id)).toEqual([note.id]);
+    expect(scene.state.layers?.map((layer) => layer.id)).toEqual([layers.activeLayerId]);
+    const raw = svg.slice(svg.indexOf('<metadata>'), svg.indexOf('</metadata>'));
+    expect(raw).toContain('&lt;b&gt;bold&lt;/b&gt;');
+    expect(raw).not.toContain('<b>');
+  });
+
+  it('emits no metadata without embedScene', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 } }));
+    expect(await exportSvg(store)).not.toContain('<metadata');
+  });
+
+  it('synthesizes a default layer when called without a LayerManager', async () => {
+    const store = new ElementStore();
+    store.add(createNote({ position: { x: 0, y: 0 }, layerId: 'somewhere' }));
+    const scene = JSON.parse(
+      metadataOf(await exportSvg(store, { embedScene: true }))?.textContent ?? '',
+    ) as { state: CanvasState };
+    expect(scene.state.layers?.map((layer) => layer.id)).toEqual(['default-layer']);
+    expect(scene.state.elements.map((el) => el.layerId)).toEqual(['default-layer']);
   });
 });
