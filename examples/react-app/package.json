@@ -10,11 +10,11 @@
   "dependencies": {
     "@fieldnotes/core": "workspace:*",
     "@fieldnotes/react": "workspace:*",
-    "react": "^19.2.4",
+    "react": "^19.3.1",
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.1.1",
     "typescript": "~6.0.3",
