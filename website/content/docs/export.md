@@ -58,10 +58,11 @@ its page. A later call takes effect as elements redraw.
 ## Export a PDF
 
 `viewport.exportPDF(options)` returns a PDF `Blob`. `frameIds` writes one page per frame. Omitting
-`frameIds` writes one page for the board. `pageSize` defaults to A4 (595.28 x 841.89 pt), accepts
-Letter (612 x 792 pt), or accepts a custom size. `orientation` defaults to `auto`, `margin` defaults
-to 36 pt, and `dpi` defaults to 144 dpi. Element links become PDF links. Pages are pictures, so
-text is not selectable. An empty board returns `null`.
+`frameIds` writes one page for the board. [`ExportPdfOptions`](/api/interfaces/ExportPdfOptions.html)
+lists the defaults: `pageSize` is A4 (595.28 x 841.89 pt), accepts Letter (612 x 792 pt), or accepts
+a custom size. `orientation` defaults to `auto`, `margin` defaults to 36 pt, and `dpi` defaults to
+144 dpi. Element links become PDF links. Pages are pictures, so text is not selectable. An empty
+board returns `null`.
 
 ::code{example="export" region="pdf"}
 
@@ -69,12 +70,12 @@ text is not selectable. An empty board returns `null`.
 
 - Elements on visible layers, at each layer's opacity. Elements on hidden layers are left out.
 - Drawing that plugins register for exports, such as the fog on a [tabletop map](/docs/tabletop-maps/).
-- Images from another origin, fetched with anonymous CORS. A lost image shows the grey placeholder
-  in PNG and PDF; SVG retains the original URL. `onAssetError` receives its id, URL and `cors`,
-  `load`, `timeout`, or `encode` reason. Without a callback, the exporter logs one `console.warn`
-  per URL. If a server varies CORS headers by request but omits `Vary: Origin`, a previously cached
-  plain response can make export use the placeholder. Configure `Vary: Origin` or avoid loading the
-  URL without CORS first.
+- Images from another origin, fetched with anonymous CORS. An image that fails to load shows the
+  grey placeholder in PNG and PDF; SVG retains the original URL. `onAssetError` receives its id,
+  URL and `cors`, `load`, `timeout`, or `encode` reason. Without a callback, the exporter logs one
+  `console.warn` per URL. If a server varies CORS headers by request but omits `Vary: Origin`, a
+  previously cached plain response can make export use the placeholder. Configure `Vary: Origin` or
+  avoid loading the URL without CORS first.
 - An explicit `background`, caller `filter`, HTML renderers or painters, image diagnostics, registry
   capabilities, and render hooks also apply to a frame export.
 

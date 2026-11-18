@@ -351,7 +351,8 @@ export function SaveControls() {
 }
 ```
 
-`exportPDF` resolves to a PDF `Blob`, one page per frame in `frameIds` or one page for the board.
+[`exportPDF`](https://iraklidevelop.github.io/fieldnotes/docs/export/) resolves to a PDF `Blob`, one
+page per frame in `frameIds` or one page for the board.
 
 ## Minimap
 
