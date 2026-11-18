@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElementStore } from '../elements/element-store';
 import { createImage, createShape } from '../elements/element-factory';
 import { createFrame } from '../elements/frame-element';
+import { ElementRegistry } from '../elements/element-registry';
 import { elementLink } from '../elements/link';
+import type { ExtensionElementEnvelope } from '../elements/types';
 import { exportPdf } from './export-pdf';
 
 let rgba = new Uint8ClampedArray([255, 255, 255, 255]);
@@ -192,34 +194,65 @@ describe('exportPdf', () => {
   it('checks required image-export capabilities before requesting a canvas context', async () => {
     const { store } = fixture();
 
-    await expect(exportPdf(store, { requiredCapabilities: ['fog'] })).rejects.toThrow(
-      'Required render capabilities are missing on imageExport: fog',
+    await expect(exportPdf(store, { requiredCapabilities: ['fog'] })).rejects.toEqual(
+      new Error('Required render capabilities are missing on imageExport: fog'),
     );
     expect(contexts).toBe(0);
   });
-  it('omits links for non-paintable children', async () => {
+  it('omits links for frame-clipped children', async () => {
     const store = new ElementStore();
-    store.add({
-      id: 'container',
-      type: 'extension',
-      extensionType: 'plugin:not-loaded',
+    const frame = createFrame({
       position: { x: 0, y: 0 },
-      index: 'a0',
-      version: 1,
-      locked: false,
-      layerId: '',
-      dataVersion: 1,
-      data: {},
-    } as never);
+      size: { w: 100, h: 100 },
+    });
+    store.add(frame);
     const child = createShape({
-      parentId: 'container',
-      position: { x: 20, y: 60 },
+      parentId: frame.id,
+      position: { x: 20, y: 0 },
       size: { w: 20, h: 20 },
     });
     child.link = 'https://example.com/';
     store.add(child);
 
     const value = await text(await exportPdf(store, { dpi: 18 }));
+    expect(value).not.toContain('/Subtype /Link');
+    expect(value).not.toContain('/Annots');
+  });
+  it('omits links for fail-closed extension children', async () => {
+    const root: ExtensionElementEnvelope = {
+      id: 'closed-root',
+      type: 'extension',
+      extensionType: 'test:closed-export',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: root.extensionType,
+      legacyTypes: [],
+      decodeLegacy: () => root,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: () => ({ x: 0, y: 0, w: 0, h: 100 }),
+    });
+    const store = new ElementStore(registry);
+    store.add(root);
+    const child = createShape({
+      parentId: root.id,
+      position: { x: 20, y: 20 },
+      size: { w: 20, h: 20 },
+    });
+    child.link = 'https://example.com/';
+    store.add(child);
+
+    expect(store.getEffectiveClip(child.id)).toBeUndefined();
+    const value = await text(await exportPdf(store, { dpi: 18, elementRegistry: registry }));
     expect(value).not.toContain('/Subtype /Link');
     expect(value).not.toContain('/Annots');
   });
