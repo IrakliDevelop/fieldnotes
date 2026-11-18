@@ -111,6 +111,8 @@ export type {
   ExportImageOptions,
   ExportResourceOptions,
 } from './canvas/export-image';
+export { exportPdf } from './canvas/export-pdf';
+export type { ExportPdfOptions, PdfPageSize } from './canvas/export-pdf';
 export { exportSvg } from './canvas/export-svg';
 export type { ExportSvgOptions } from './canvas/export-svg';
 export type {

@@ -114,6 +114,36 @@ test.describe('export', () => {
     expect(hasBlob).toBe(true);
   });
 
+  test('exports frames to a PDF with a link', async ({ canvasPage }) => {
+    const result = await canvasPage.page.evaluate(
+      async (moduleUrl) => {
+        const { createFrame, createShape } = await import(moduleUrl);
+        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+          store: { add(element: Record<string, unknown>): void };
+          exportPDF(options: { frameIds: string[] }): Promise<Blob | null>;
+        };
+        const first = createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 74 } });
+        const second = createFrame({ position: { x: 200, y: 0 }, size: { w: 80, h: 184 } });
+        const linked = createShape({
+          parentId: first.id,
+          position: { x: 10, y: 34 },
+          size: { w: 20, h: 10 },
+          link: 'https://example.com',
+        });
+        vp.store.add(first);
+        vp.store.add(second);
+        vp.store.add(linked);
+        const pdf = await vp.exportPDF({ frameIds: [first.id, second.id] });
+        if (!pdf) throw new Error('PDF export missing');
+        return new TextDecoder('latin1').decode(await pdf.arrayBuffer());
+      },
+      `/@fs${resolve(process.cwd(), 'dist/index.js')}`,
+    );
+    expect(result.startsWith('%PDF-1.4')).toBe(true);
+    expect(result.match(/\/Type\s*\/Page(?!s)/g)).toHaveLength(2);
+    expect(result).toContain('/URI');
+  });
+
   test('SVG text sits where the PNG text sits', async ({ canvasPage }) => {
     const result = await canvasPage.page.evaluate(async () => {
       const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {

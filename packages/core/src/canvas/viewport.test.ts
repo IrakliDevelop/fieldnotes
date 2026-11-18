@@ -4765,6 +4765,25 @@ describe('Viewport html painters', () => {
       expect(painter).toHaveBeenCalled();
     });
 
+    it('exportPDF runs the image export hook once per page', async () => {
+      const vp = makeViewport();
+      const hook = vi.fn();
+      const first = createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 74 } });
+      const second = createFrame({ position: { x: 200, y: 0 }, size: { w: 80, h: 184 } });
+      vp.store.add(first);
+      vp.store.add(second);
+      vp.store.add(
+        createShape({ parentId: first.id, position: { x: 0, y: 24 }, size: { w: 100, h: 50 } }),
+      );
+      vp.store.add(
+        createShape({ parentId: second.id, position: { x: 200, y: 24 }, size: { w: 80, h: 160 } }),
+      );
+      vp.renderHooks.imageExport.register({ afterElements: hook });
+      await vp.exportPDF({ frameIds: [first.id, second.id], dpi: 18 });
+      expect(hook).toHaveBeenCalledTimes(2);
+      vp.destroy();
+    });
+
     it('inherits registry, painter, and export hooks for a frame crop', async () => {
       const vp = makeViewport();
       const rendered: string[] = [];

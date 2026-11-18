@@ -98,6 +98,12 @@ describe('core public surface', () => {
     ]);
   });
 
+  it('exports PDF export types and function', () => {
+    const size: FN.PdfPageSize = 'a4';
+    const options: FN.ExportPdfOptions = { pageSize: size };
+    expect([typeof FN.exportPdf, options.pageSize]).toEqual(['function', 'a4']);
+  });
+
   it('exports mount autosave options and no autosave without the option', () => {
     const options: MountAutoSaveOptions = { key: 'x' };
     const mounted = FN.mountViewport(document.createElement('div'), { autoSave: undefined });
