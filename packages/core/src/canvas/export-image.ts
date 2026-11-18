@@ -88,7 +88,7 @@ export interface ExportAssetError {
 }
 
 export interface ExportResourceOptions {
-  /** Maximum wait for each image asset. Defaults to 10 seconds. */
+  /** Maximum wait for each image asset and font file. Defaults to 10 seconds. */
   imageTimeoutMs?: number;
   /** Maximum width or height of any allocated export canvas. Defaults to 16,384. */
   maxDimension?: number;

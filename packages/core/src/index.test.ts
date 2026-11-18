@@ -81,6 +81,23 @@ describe('core public surface', () => {
     expect(typeof FN.setTextFontFamily).toBe('function');
   });
 
+  it('exports SVG font types without widening exportSvg', () => {
+    const face: FN.ExportFontFace = { family: 'Inter', src: new Blob() };
+    const error: FN.ExportFontError = {
+      family: face.family,
+      weight: 'normal',
+      style: 'normal',
+      reason: 'load',
+    };
+    const reason: FN.ExportFontErrorReason = error.reason;
+    const options: FN.ExportFontOptions = { fonts: [face] };
+    expect([reason, options.fonts?.[0]?.family, typeof FN.exportSvg]).toEqual([
+      'load',
+      'Inter',
+      'function',
+    ]);
+  });
+
   it('exports mount autosave options and no autosave without the option', () => {
     const options: MountAutoSaveOptions = { key: 'x' };
     const mounted = FN.mountViewport(document.createElement('div'), { autoSave: undefined });

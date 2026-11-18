@@ -1,6 +1,96 @@
 import { test, expect } from './fixtures/canvas-page';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 test.describe('export', () => {
+  test('renders text with an embedded face', async ({ canvasPage }) => {
+    const font = await readFile(
+      resolve(
+        process.cwd(),
+        '../../website/node_modules/@fontsource/kalam/files/kalam-latin-400-normal.woff2',
+      ),
+    );
+    const url = 'https://fonts-test.example/kalam.woff2';
+    await canvasPage.page.route(url, (route) =>
+      route.fulfill({
+        body: font,
+        contentType: 'font/woff2',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+      }),
+    );
+    const result = await canvasPage.page.evaluate(
+      async ({ url, moduleUrl }) => {
+        const { setTextFontFamily } = await import(moduleUrl);
+        setTextFontFamily('Kalam, sans-serif');
+        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+          store: { add(element: Record<string, unknown>): void };
+          exportSVG(options?: { fonts?: { family: string; src: string }[] }): Promise<string>;
+        };
+        vp.store.add({
+          id: 'embedded-font',
+          type: 'text',
+          position: { x: 0, y: 0 },
+          size: { w: 180, h: 40 },
+          index: '',
+          version: 1,
+          locked: false,
+          layerId: '',
+          text: 'Kalam sample',
+          fontSize: 28,
+          color: '#000000',
+          textAlign: 'left',
+          wrap: false,
+        });
+        const without = await vp.exportSVG();
+        const withFont = await vp.exportSVG({ fonts: [{ family: 'Kalam', src: url }] });
+        const ink = async (svg: string) => {
+          const image = new Image();
+          const objectUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+          try {
+            await new Promise<void>((resolve, reject) => {
+              image.onload = () => resolve();
+              image.onerror = () => reject(new Error('SVG did not load'));
+              image.src = objectUrl;
+            });
+            const canvas = document.createElement('canvas');
+            canvas.width = 180;
+            canvas.height = 40;
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('2d context unavailable');
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            return new Uint8Array(
+              context
+                .getImageData(0, 0, canvas.width, canvas.height)
+                .data.filter((_, i) => i % 4 === 3),
+            );
+          } finally {
+            URL.revokeObjectURL(objectUrl);
+          }
+        };
+        try {
+          const first = await ink(without);
+          const second = await ink(withFont);
+          let firstInk = 0;
+          let different = 0;
+          for (let i = 0; i < first.length; i++) {
+            const a = first[i] ?? 0;
+            const b = second[i] ?? 0;
+            firstInk += a > 0 ? 1 : 0;
+            different += a === b ? 0 : 1;
+          }
+          return { style: withFont.includes('<style>@font-face'), firstInk, different };
+        } finally {
+          setTextFontFamily(null);
+        }
+      },
+      {
+        url,
+        moduleUrl: `/@fs${resolve(process.cwd(), 'dist/index.js')}`,
+      },
+    );
+    expect(result.style).toBe(true);
+    expect(result.different).toBeGreaterThan(result.firstInk * 0.05);
+  });
   test('exports non-null image blob after drawing', async ({ canvasPage }) => {
     await canvasPage.selectTool('shape');
     const wrapper = canvasPage.wrapper();

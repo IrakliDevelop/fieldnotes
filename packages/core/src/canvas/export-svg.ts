@@ -46,9 +46,11 @@ import { layoutStyledRuns, lineOffset, textFontFamily } from '../elements/text-l
 import { measureFragment, TEXT_PADDING } from '../elements/text-measure';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { isFrameElement } from '../elements/frame-element';
+import { loadFontFaces, selectFaces } from './export-fonts';
+import type { ExportFontOptions } from './export-fonts';
 
 export interface ExportSvgOptions
-  extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions {
+  extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions, ExportFontOptions {
   frameId?: string;
   padding?: number;
   background?: string;
@@ -581,7 +583,14 @@ export async function exportSvg(
         options,
       )
     : null;
-  if (sceneJson !== null) body = `<metadata>${attr(sceneJson)}</metadata>${body}`;
+  const fontCss = await loadFontFaces(
+    selectFaces(options.fonts ?? [], textFontFamily(), used),
+    positiveOption(options.imageTimeoutMs, 10_000, 'imageTimeoutMs'),
+    options.onFontError,
+  );
+  const metadata = sceneJson === null ? '' : `<metadata>${attr(sceneJson)}</metadata>`;
+  const style = fontCss.length === 0 ? '' : `<style>${attr(fontCss.join(''))}</style>`;
+  body = `${metadata}${style}${body}`;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" ` +

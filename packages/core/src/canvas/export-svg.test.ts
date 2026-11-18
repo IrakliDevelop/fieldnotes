@@ -24,6 +24,7 @@ import type {
 } from '../elements/types';
 import { createRenderHooks } from './render-hooks';
 import { createBoundText } from '../elements/bound-text';
+import { setTextFontFamily } from '../elements/text-measure';
 
 const HTML_MARKER = 'data-distinctive-html-marker-xyz';
 
@@ -77,7 +78,11 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
-  afterEach(vi.unstubAllGlobals);
+  afterEach(() => {
+    setTextFontFamily(null);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
 
   it('uses final nonzero tangent and omits a wholly degenerate head', async () => {
     const store = new ElementStore();
@@ -1648,6 +1653,124 @@ describe('exportSvg', () => {
     const hasImage = svg.includes('<image');
     const hasPlaceholder = /<rect[^>]*fill="#abcabc"/.test(svg);
     expect(hasImage || hasPlaceholder).toBe(true);
+  });
+});
+
+describe('exportSvg fonts', () => {
+  afterEach(() => {
+    setTextFontFamily(null);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function textStore(text: string): ElementStore {
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 0 }, text }));
+    return store;
+  }
+
+  it('embeds a used face from a Blob', async () => {
+    setTextFontFamily('Inter');
+    const svg = await exportSvg(textStore('a<b>b</b>'), {
+      fonts: [
+        {
+          family: 'Inter',
+          weight: 'bold',
+          src: new Blob([new Uint8Array([1, 2, 3])], { type: 'font/woff2' }),
+        },
+      ],
+      embedScene: true,
+    });
+    expect(svg).toContain('<metadata>');
+    expect(svg).toContain(
+      '<style>@font-face{font-family:&quot;Inter&quot;;font-weight:bold;font-style:normal;src:url(data:font/woff2;base64,AQID)}</style>',
+    );
+    expect(svg.indexOf('<metadata>')).toBeLessThan(svg.indexOf('<style>'));
+    const defs = svg.indexOf('<defs>');
+    expect(defs < 0 || svg.indexOf('<style>') < defs).toBe(true);
+  });
+
+  it('skips an unused weight', async () => {
+    setTextFontFamily('Inter');
+    expect(
+      await exportSvg(textStore('normal'), {
+        fonts: [{ family: 'Inter', weight: 'bold', src: new Blob([new Uint8Array([1])]) }],
+      }),
+    ).not.toContain('<style>');
+  });
+
+  it('skips a family outside the stack', async () => {
+    expect(
+      await exportSvg(textStore('normal'), {
+        fonts: [{ family: 'Inter', src: new Blob([new Uint8Array([1])]) }],
+      }),
+    ).not.toContain('<style>');
+  });
+
+  it('reports a failing URL once and keeps the text', async () => {
+    const cause = new Error('down');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(cause));
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    const svg = await exportSvg(textStore('text'), {
+      fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+      onFontError,
+    });
+    expect(onFontError).toHaveBeenCalledOnce();
+    expect(onFontError).toHaveBeenCalledWith({
+      family: 'Inter',
+      weight: 'normal',
+      style: 'normal',
+      reason: 'load',
+      cause,
+    });
+    expect(svg).toContain('<tspan');
+  });
+
+  it('reports a timeout', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<void>(() => undefined)),
+    );
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    const pending = exportSvg(textStore('text'), {
+      fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+      imageTimeoutMs: 50,
+      onFontError,
+    });
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(onFontError).toHaveBeenCalledWith(expect.objectContaining({ reason: 'timeout' }));
+  });
+
+  it('warns when there is no onFontError', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')));
+    setTextFontFamily('Inter');
+    await exportSvg(textStore('text'), {
+      fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+    });
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]?.[0]).toContain('Inter');
+    warn.mockRestore();
+  });
+
+  it('escapes a quoted family in the SVG', async () => {
+    setTextFontFamily('A"B');
+    expect(
+      await exportSvg(textStore('text'), {
+        fonts: [{ family: 'A"B', src: new Blob([new Uint8Array([1])]) }],
+      }),
+    ).toContain('font-family:&quot;A\\&quot;B&quot;');
+  });
+
+  it('does no fetch without fonts', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    await exportSvg(textStore('text'));
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
