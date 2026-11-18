@@ -20,17 +20,23 @@ describe('useExport', () => {
       <ViewportContext.Provider value={viewport}>{children}</ViewportContext.Provider>
     );
     const exportSVG = vi.spyOn(viewport, 'exportSVG');
+    const exportPDF = vi.spyOn(viewport, 'exportPDF').mockResolvedValue(null);
     const { result, rerender } = renderHook(useExport, { wrapper });
 
     expect(result.current.exportState().elements).toHaveLength(1);
     expect(JSON.parse(result.current.exportJSON()).elements[0].id).toBe('shape-a');
     expect(result.current.exportImage).toEqual(expect.any(Function));
     expect(result.current.exportSVG).toEqual(expect.any(Function));
+    expect(result.current.exportPDF).toEqual(expect.any(Function));
     result.current.exportSVG({ padding: 3 });
     expect(exportSVG).toHaveBeenCalledWith({ padding: 3 });
+    void result.current.exportPDF({ frameIds: ['f'] });
+    expect(exportPDF).toHaveBeenCalledWith({ frameIds: ['f'] });
 
     const exportImage = result.current.exportImage;
+    const exportPdf = result.current.exportPDF;
     rerender();
     expect(result.current.exportImage).toBe(exportImage);
+    expect(result.current.exportPDF).toBe(exportPdf);
   });
 });

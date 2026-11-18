@@ -10,6 +10,7 @@ import type {
   CanvasState,
   ElementActivationEvent,
   ExportImageOptions,
+  ExportPdfOptions,
   ExportSvgOptions,
   HistoryState,
   HostElementGeometry,
@@ -77,6 +78,7 @@ const selectionOpsState = {
 } satisfies SelectionOpsState;
 const activationOptions = { gesture: 'single' } satisfies ActivationOptions;
 const exportImageOptions = { padding: 0 } satisfies ExportImageOptions;
+const exportPdfOptions = { padding: 0 } satisfies ExportPdfOptions;
 const exportSvgOptions = { padding: 0 } satisfies ExportSvgOptions;
 const cameraView = { x: 0, y: 0, w: 1, h: 1 } satisfies CameraView;
 const peer: Peer = {
@@ -125,6 +127,7 @@ void [
   selectionOpsState,
   activationOptions,
   exportImageOptions,
+  exportPdfOptions,
   exportSvgOptions,
   cameraView,
   peer,
@@ -141,7 +144,6 @@ describe('package index', () => {
   it.each([
     'FieldNotesCanvas',
     'HostElement',
-    'CanvasElement',
     'Minimap',
     'ViewportContext',
     'useViewport',
@@ -166,5 +168,10 @@ describe('package index', () => {
     'usePresence',
   ] satisfies (keyof typeof R)[])('exports %s as a runtime value', (name) => {
     expect(['function', 'object']).toContain(typeof R[name]);
+  });
+
+  it('does not export deprecated CanvasElement aliases', () => {
+    expect('CanvasElement' in R).toBe(false);
+    expect('CanvasElementProps' in R).toBe(false);
   });
 });

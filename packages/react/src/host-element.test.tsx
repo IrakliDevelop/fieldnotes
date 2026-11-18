@@ -2,15 +2,11 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { StrictMode } from 'react';
 import { render, cleanup } from '@testing-library/react';
 import { FieldNotesCanvas } from './field-notes-canvas';
-import { CanvasElement, HostElement } from './index';
+import { HostElement } from './index';
 import type { Viewport } from '@fieldnotes/core';
 
 describe('HostElement', () => {
   afterEach(cleanup);
-
-  it('keeps CanvasElement as the same component as HostElement', () => {
-    expect(CanvasElement).toBe(HostElement);
-  });
 
   it('adds an html element to the store on mount', () => {
     const captured: { vp: Viewport | null } = { vp: null };

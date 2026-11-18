@@ -1,5 +1,10 @@
 import { FIELDNOTES_MIME_TYPE, isFrameElement, readSceneFile } from '@fieldnotes/core';
-import type { ExportImageOptions, ExportSvgOptions, Viewport } from '@fieldnotes/core';
+import type {
+  ExportImageOptions,
+  ExportPdfOptions,
+  ExportSvgOptions,
+  Viewport,
+} from '@fieldnotes/core';
 import type { FogManager } from '@fieldnotes/vtt';
 import { attachPersistence } from './persistence';
 import { connectRoom, leaveRoom, readRoom } from './room';
@@ -200,6 +205,23 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
         ? { frameId, renderHtml: renderWidgetForExport }
         : { padding: 32, renderHtml: renderWidgetForExport };
     };
+    const rootFrameIds = () =>
+      viewport.store
+        .getAll()
+        .filter(
+          (el) =>
+            isFrameElement(el) &&
+            el.parentId === undefined &&
+            viewport.layerManager.isLayerVisible(el.layerId),
+        )
+        .map((el) => el.id);
+    const pdfOptions = (): ExportPdfOptions => {
+      const selected = selectedFrameId();
+      if (selected) return { frameIds: [selected], renderHtml: renderWidgetForExport };
+      const rootIds = rootFrameIds();
+      if (rootIds.length > 0) return { frameIds: rootIds, renderHtml: renderWidgetForExport };
+      return { padding: 32, renderHtml: renderWidgetForExport };
+    };
     const exportPng = (options: ExportImageOptions): Promise<void> =>
       viewport
         .exportImage(options)
@@ -214,6 +236,14 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
         .then((svg) =>
           download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' })),
         )
+        .catch(() => shell.toast('Export failed'));
+    const exportPdf = (): Promise<void> =>
+      viewport
+        .exportPDF(pdfOptions())
+        .then((blob) => {
+          if (blob) download(`fieldnotes-${sceneId}.pdf`, blob);
+          else shell.toast('Nothing to export');
+        })
         .catch(() => shell.toast('Export failed'));
 
     const removers = [
@@ -247,6 +277,12 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
           label: 'Export SVG',
           icon: 'file',
           run: () => exportSvg(svgOptions()),
+        },
+        {
+          id: 'export-pdf',
+          label: 'Export PDF',
+          icon: 'file',
+          run: exportPdf,
         },
         {
           id: 'export-png-scene',
