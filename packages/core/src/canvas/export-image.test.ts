@@ -352,17 +352,19 @@ describe('getElementRect — html element', () => {
 describe('exportImage', () => {
   it('reports cors when only the plain probe loads', async () => {
     const originalImage = globalThis.Image;
-    globalThis.Image = class MockImage {
+    const images: MockImage[] = [];
+    class MockImage {
       crossOrigin: string | null = null;
       onload: (() => void) | null = null;
       onerror: ((cause: unknown) => void) | null = null;
-      set src(_value: string) {
-        queueMicrotask(() => {
-          if (this.crossOrigin === 'anonymous') this.onerror?.(new Event('error'));
-          else this.onload?.();
-        });
+      constructor() {
+        images.push(this);
       }
-    } as unknown as typeof Image;
+      set src(_value: string) {
+        void _value;
+      }
+    }
+    globalThis.Image = MockImage as unknown as typeof Image;
     const context = mockCanvasCtx();
     const fills: string[] = [];
     (context.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() =>
@@ -384,13 +386,30 @@ describe('exportImage', () => {
     const onAssetError = vi.fn();
 
     try {
-      await exportImage(store, { scale: 1, onAssetError });
+      const exporting = exportImage(store, { scale: 1, onAssetError });
+      const initial = images[0];
+      if (!initial) throw new Error('Initial image missing');
+      const initialError = initial.onerror;
+      initialError?.(new Event('error'));
+      const probe = images[1];
+      if (!probe) throw new Error('Plain probe missing');
+      const probeLoad = probe.onload;
+      const probeError = probe.onerror;
+      probeLoad?.();
+      await exporting;
 
+      const expected = { elementId: image.id, src: image.src, reason: 'cors' };
+      expect(onAssetError).toHaveBeenCalledTimes(1);
       expect(onAssetError).toHaveBeenCalledWith({
         elementId: image.id,
         src: image.src,
         reason: 'cors',
       });
+      initialError?.(new Event('error'));
+      probeLoad?.();
+      probeError?.(new Event('error'));
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith(expected);
       expect(context.drawImage).not.toHaveBeenCalled();
       expect(context.fillRect).toHaveBeenCalledWith(10, 20, 30, 40);
       expect(fills).toContain('#eeeeee');
@@ -403,14 +422,19 @@ describe('exportImage', () => {
 
   it('reports load when both loads fail', async () => {
     const originalImage = globalThis.Image;
-    globalThis.Image = class MockImage {
+    const images: MockImage[] = [];
+    class MockImage {
       crossOrigin: string | null = null;
       onload: (() => void) | null = null;
       onerror: ((cause: unknown) => void) | null = null;
-      set src(_value: string) {
-        queueMicrotask(() => this.onerror?.(new Event('error')));
+      constructor() {
+        images.push(this);
       }
-    } as unknown as typeof Image;
+      set src(_value: string) {
+        void _value;
+      }
+    }
+    globalThis.Image = MockImage as unknown as typeof Image;
     const context = mockCanvasCtx();
     const fills: string[] = [];
     (context.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() =>
@@ -432,11 +456,26 @@ describe('exportImage', () => {
     const onAssetError = vi.fn();
 
     try {
-      await exportImage(store, { scale: 1, onAssetError });
+      const exporting = exportImage(store, { scale: 1, onAssetError });
+      const initial = images[0];
+      if (!initial) throw new Error('Initial image missing');
+      const initialError = initial.onerror;
+      initialError?.(new Event('error'));
+      const probe = images[1];
+      if (!probe) throw new Error('Plain probe missing');
+      const probeLoad = probe.onload;
+      const probeError = probe.onerror;
+      probeError?.(new Event('error'));
+      await exporting;
 
-      expect(onAssetError).toHaveBeenCalledWith(
-        expect.objectContaining({ elementId: image.id, src: image.src, reason: 'load' }),
-      );
+      const expected = { elementId: image.id, src: image.src, reason: 'load' };
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith(expect.objectContaining(expected));
+      initialError?.(new Event('error'));
+      probeLoad?.();
+      probeError?.(new Event('error'));
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith(expect.objectContaining(expected));
       expect(fills).toContain('#eeeeee');
     } finally {
       globalThis.Image = originalImage;
@@ -448,14 +487,19 @@ describe('exportImage', () => {
   it('draws the placeholder on timeout', async () => {
     vi.useFakeTimers();
     const originalImage = globalThis.Image;
-    globalThis.Image = class MockImage {
+    const images: MockImage[] = [];
+    class MockImage {
       crossOrigin: string | null = null;
       onload: (() => void) | null = null;
       onerror: ((cause: unknown) => void) | null = null;
+      constructor() {
+        images.push(this);
+      }
       set src(_value: string) {
         void _value;
       }
-    } as unknown as typeof Image;
+    }
+    globalThis.Image = MockImage as unknown as typeof Image;
     const context = mockCanvasCtx();
     const fills: string[] = [];
     (context.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() =>
@@ -478,14 +522,24 @@ describe('exportImage', () => {
 
     try {
       const exporting = exportImage(store, { scale: 1, imageTimeoutMs: 20, onAssetError });
+      const initial = images[0];
+      if (!initial) throw new Error('Initial image missing');
+      const initialLoad = initial.onload;
+      const initialError = initial.onerror;
       await vi.advanceTimersByTimeAsync(20);
       await exporting;
 
+      const expected = { elementId: image.id, src: image.src, reason: 'timeout' };
+      expect(onAssetError).toHaveBeenCalledTimes(1);
       expect(onAssetError).toHaveBeenCalledWith({
         elementId: image.id,
         src: image.src,
         reason: 'timeout',
       });
+      initialLoad?.();
+      initialError?.(new Event('error'));
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith(expected);
       expect(fills).toContain('#eeeeee');
     } finally {
       globalThis.Image = originalImage;
