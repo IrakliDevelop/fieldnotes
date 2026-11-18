@@ -1699,9 +1699,26 @@ describe('exportSvg fonts', () => {
   it('does not infer bold styling from a font family name', async () => {
     setTextFontFamily('Foo bold Sans, sans-serif');
 
-    const svg = await exportSvg(textStore('plain'));
+    const svg = await exportSvg(textStore('plain'), {
+      fonts: [
+        {
+          family: 'Foo bold Sans',
+          src: new Blob([new Uint8Array([1, 2])], { type: 'font/woff2' }),
+        },
+        {
+          family: 'Foo bold Sans',
+          weight: 'bold',
+          src: new Blob([new Uint8Array([3, 4])], { type: 'font/woff2' }),
+        },
+      ],
+    });
 
     expect(svg).not.toContain('font-weight="bold"');
+    expect(svg).toContain(
+      '<style>@font-face{font-family:&quot;Foo bold Sans&quot;;font-weight:normal;font-style:normal;src:url(&quot;data:font/woff2;base64,AQI=&quot;)}</style>',
+    );
+    expect(svg).not.toContain('font-weight:bold');
+    expect(svg).not.toContain('base64,AwQ=');
   });
 
   it('embeds a used face from a Blob', async () => {
