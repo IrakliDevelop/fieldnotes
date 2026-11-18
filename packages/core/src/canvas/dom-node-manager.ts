@@ -357,7 +357,7 @@ export class DomNodeManager {
       }
 
       const family = textFontFamilySetting();
-      if (family !== null) node.style.fontFamily = family;
+      node.style.fontFamily = family ?? '';
 
       if (!this.isEditingElement(element.id)) {
         const text = element.text || '';
@@ -427,7 +427,7 @@ export class DomNodeManager {
       }
 
       const family = textFontFamilySetting();
-      if (family !== null) node.style.fontFamily = family;
+      node.style.fontFamily = family ?? '';
 
       if (!this.isEditingElement(element.id)) {
         const text = element.text || '';

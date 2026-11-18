@@ -95,6 +95,13 @@ describe('DomNodeManager', () => {
 
       expect(manager.getNode(note.id)?.style.fontFamily).toBe('Inter');
       expect(manager.getNode(text.id)?.style.fontFamily).toBe('Inter');
+
+      setTextFontFamily(null);
+      manager.syncDomNode(note);
+      manager.syncDomNode(text);
+
+      expect(manager.getNode(note.id)?.style.fontFamily).toBe('');
+      expect(manager.getNode(text.id)?.style.fontFamily).toBe('');
     });
 
     it('creates a positioned DOM node for an element', () => {
