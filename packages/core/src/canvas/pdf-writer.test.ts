@@ -76,6 +76,19 @@ describe('PdfWriter', () => {
     expect(uncompressed.filter).toBeNull();
   });
 
+  it('deflate drains a large incompressible input while writing', async () => {
+    const input = new Uint8Array(4 * 1024 * 1024);
+    let state = 1;
+    for (let index = 0; index < input.length; index++) {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      input[index] = state >>> 24;
+    }
+    const compressed = await deflate(input);
+    expect(compressed.filter).toBe('/FlateDecode');
+    expect(compressed.data[0]).toBe(0x78);
+    expect(compressed.data.length).toBeGreaterThan(0);
+  });
+
   it('reserve and set fill a forward reference', () => {
     const writer = new PdfWriter();
     const id = writer.reserve();

@@ -115,7 +115,6 @@ test.describe('export', () => {
   });
 
   test('exports frames to a PDF with a link', async ({ canvasPage }) => {
-    test.slow();
     const result = await canvasPage.page.evaluate(
       async (moduleUrl) => {
         const { createFrame, createShape } = await import(moduleUrl);

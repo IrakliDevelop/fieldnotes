@@ -36,10 +36,14 @@ export async function deflate(
   const writer = stream.writable.getWriter();
   const input = new Uint8Array(bytes.length);
   input.set(bytes);
-  await writer.write(input);
-  await writer.close();
+  const writing = (async (): Promise<void> => {
+    await writer.write(input);
+    await writer.close();
+  })();
+  const reading = new Response(stream.readable).arrayBuffer();
+  const [, data] = await Promise.all([writing, reading]);
   return {
-    data: new Uint8Array(await new Response(stream.readable).arrayBuffer()),
+    data: new Uint8Array(data),
     filter: '/FlateDecode',
   };
 }
