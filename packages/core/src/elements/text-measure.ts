@@ -21,8 +21,9 @@ export function setTextMeasurer(measure: TextMeasurer | null): void {
   sizes.clear();
 }
 
-/** Sets the font family stack; a browser-rejected stack throws TypeError. */
+/** Sets the font family stack; blank or browser-rejected stacks throw TypeError. */
 export function setTextFontFamily(family: string | null): void {
+  if (family !== null && family.trim() === '') throw new TypeError('Invalid font family stack');
   if (family !== null && typeof document !== 'undefined') {
     let context: CanvasRenderingContext2D | null;
     try {
@@ -31,9 +32,15 @@ export function setTextFontFamily(family: string | null): void {
       context = null;
     }
     if (context) {
-      const previous = context.font;
-      context.font = `16px ${family}`;
-      if (context.font === previous) throw new TypeError('Invalid font family stack');
+      context.font = '17px serif';
+      const acceptsSentinel = context.font === '17px serif';
+      context.font = '16px sans-serif';
+      const acceptsProbe = context.font === '16px sans-serif';
+      if (acceptsSentinel && acceptsProbe) {
+        context.font = '17px serif';
+        context.font = `16px ${family}`;
+        if (context.font === '17px serif') throw new TypeError('Invalid font family stack');
+      }
     }
   }
   setFontFamily(family);

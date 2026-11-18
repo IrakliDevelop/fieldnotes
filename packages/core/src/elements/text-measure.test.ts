@@ -27,6 +27,83 @@ describe('measureText', () => {
     expect(measure).toHaveBeenLastCalledWith('ab', 'normal normal 16px system-ui, sans-serif');
   });
 
+  it.each(['', '   '])('rejects blank font family stacks without a canvas context', (family) => {
+    const measure = vi.fn(suiteMeasurer);
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    setTextMeasurer(measure);
+    try {
+      setTextFontFamily('Inter');
+      measureText('ab', 16, null);
+
+      expect(() => setTextFontFamily(family)).toThrow(new TypeError('Invalid font family stack'));
+
+      measureText('ab', 16, null);
+      expect(measure).toHaveBeenCalledTimes(1);
+      expect(measure).toHaveBeenLastCalledWith('ab', 'normal normal 16px Inter');
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+
+  it('rejects blank font family stacks with a parsing canvas context', () => {
+    const measure = vi.fn(suiteMeasurer);
+    const createElement = vi.spyOn(document, 'createElement').mockImplementation((tagName) => {
+      if (tagName !== 'canvas') return document.createElement(tagName);
+      let font = '23px serif';
+      return {
+        getContext: () => ({
+          get font() {
+            return font;
+          },
+          set font(value: string) {
+            font = value;
+          },
+        }),
+      } as unknown as HTMLCanvasElement;
+    });
+    setTextMeasurer(measure);
+
+    try {
+      setTextFontFamily('Inter');
+      measureText('ab', 16, null);
+
+      expect(() => setTextFontFamily(' ')).toThrow(new TypeError('Invalid font family stack'));
+
+      measureText('ab', 16, null);
+      expect(measure).toHaveBeenCalledTimes(1);
+      expect(measure).toHaveBeenLastCalledWith('ab', 'normal normal 16px Inter');
+    } finally {
+      createElement.mockRestore();
+    }
+  });
+
+  it('accepts a font family stack when a canvas mock ignores font writes', () => {
+    const measure = vi.fn(suiteMeasurer);
+    const createElement = vi.spyOn(document, 'createElement').mockImplementation((tagName) => {
+      if (tagName !== 'canvas') return document.createElement(tagName);
+      return {
+        getContext: () => ({
+          get font() {
+            return '23px serif';
+          },
+          set font(value: string) {
+            void value;
+          },
+        }),
+      } as unknown as HTMLCanvasElement;
+    });
+    setTextMeasurer(measure);
+
+    try {
+      setTextFontFamily('Georgia, serif');
+      measureText('ab', 16, null);
+
+      expect(measure).toHaveBeenLastCalledWith('ab', 'normal normal 16px Georgia, serif');
+    } finally {
+      createElement.mockRestore();
+    }
+  });
+
   it('rejects a browser-rejected font family stack without clearing measurements', () => {
     const measure = vi.fn(suiteMeasurer);
     setTextMeasurer(measure);
