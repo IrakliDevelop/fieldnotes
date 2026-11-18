@@ -27,6 +27,7 @@ import {
   PeerRoster,
   RemoteCursorOverlay,
   createPresentationSource,
+  setTextFontFamily,
 } from '@fieldnotes/core';
 import type { AlignEdge, DistributeAxis, CameraView, FocusAudience } from '@fieldnotes/core';
 import {
@@ -1188,6 +1189,8 @@ if (info) {
 }
 
 (window as unknown as Record<string, unknown>).__fieldnotes_viewport = viewport;
+(window as unknown as Record<string, unknown>).__fieldnotes_set_text_font_family =
+  setTextFontFamily;
 (window as unknown as Record<string, unknown>).__fieldnotes_fog_manager = fogPlugin.manager;
 (window as unknown as { viewport: typeof viewport }).viewport = viewport;
 (window as unknown as Record<string, unknown>).__fieldnotes_grid_controller = gridController;

@@ -19,8 +19,9 @@ test.describe('export', () => {
       }),
     );
     const result = await canvasPage.page.evaluate(
-      async ({ url, moduleUrl }) => {
-        const { setTextFontFamily } = await import(moduleUrl);
+      async ({ url }) => {
+        const setTextFontFamily = (window as unknown as Record<string, unknown>)
+          .__fieldnotes_set_text_font_family as (family: string | null) => void;
         setTextFontFamily('Kalam, sans-serif');
         try {
           const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
@@ -83,10 +84,7 @@ test.describe('export', () => {
           setTextFontFamily(null);
         }
       },
-      {
-        url,
-        moduleUrl: `/@fs${resolve(process.cwd(), 'dist/index.js')}`,
-      },
+      { url },
     );
     expect(result.style).toBe(true);
     expect(result.different).toBeGreaterThan(result.firstInk * 0.05);
