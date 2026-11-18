@@ -12,7 +12,16 @@ export function pdfString(value: string): string {
 
 /** Formats a PDF number with at most three decimal places. */
 export function pdfNumber(value: number): string {
-  return Number(value.toFixed(3)).toString();
+  const rounded = value.toFixed(3);
+  const exponent = rounded.match(/^(-?)(\d+)(?:\.(\d+))?e([+-]?\d+)$/i);
+  if (exponent === null) return Number(rounded).toString();
+
+  const [, sign = '', integer = '', fraction = '', power = '0'] = exponent;
+  const digits = `${integer}${fraction}`;
+  const decimal = integer.length + Number(power);
+  if (decimal <= 0) return `${sign}0.${'0'.repeat(-decimal)}${digits}`;
+  if (decimal >= digits.length) return `${sign}${digits}${'0'.repeat(decimal - digits.length)}`;
+  return `${sign}${digits.slice(0, decimal)}.${digits.slice(decimal)}`;
 }
 
 /** Deflates bytes when the host supports compression streams. */
@@ -37,7 +46,7 @@ export async function deflate(
 
 /** Writes a minimal PDF 1.4 file. */
 export class PdfWriter {
-  private readonly objects: PdfObject[] = [];
+  private readonly objects: (PdfObject | undefined)[] = [];
 
   /** Adds a text object and returns its object number. */
   addObject(body: string): number {
@@ -60,7 +69,7 @@ export class PdfWriter {
 
   /** Reserves an object number for a forward reference. */
   reserve(): number {
-    this.objects.push([]);
+    this.objects.push(undefined);
     return this.objects.length;
   }
 
@@ -71,11 +80,18 @@ export class PdfWriter {
 
   /** Finalizes the document with its catalog and information object references. */
   finish(rootId: number, infoId: number): Uint8Array {
+    const objects: PdfObject[] = [];
+    for (let index = 0; index < this.objects.length; index += 1) {
+      const body = this.objects[index];
+      if (body === undefined) throw new Error(`PDF object ${index + 1} is unset`);
+      objects.push(body);
+    }
+
     const chunks: Uint8Array[] = [header];
     const offsets: number[] = [];
     let length = header.length;
 
-    for (const body of this.objects) {
+    for (const body of objects) {
       const id = offsets.length + 1;
       const start = encoder.encode(`${id} 0 obj\n`);
       const end = encoder.encode('\nendobj\n');
@@ -86,10 +102,10 @@ export class PdfWriter {
     }
 
     const xrefOffset = length;
-    const xref = [`xref\n0 ${this.objects.length + 1}\n0000000000 65535 f\r\n`];
+    const xref = [`xref\n0 ${objects.length + 1}\n0000000000 65535 f\r\n`];
     for (const offset of offsets) xref.push(`${offset.toString().padStart(10, '0')} 00000 n\r\n`);
     xref.push(
-      `trailer\n<< /Size ${this.objects.length + 1} /Root ${rootId} 0 R /Info ${infoId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
+      `trailer\n<< /Size ${objects.length + 1} /Root ${rootId} 0 R /Info ${infoId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
     );
     chunks.push(encoder.encode(xref.join('')));
 

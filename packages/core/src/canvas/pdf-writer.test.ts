@@ -62,6 +62,7 @@ describe('PdfWriter', () => {
     expect(pdfNumber(272.125)).toBe('272.125');
     expect(pdfNumber(1 / 3)).toBe('0.333');
     expect(pdfNumber(2)).toBe('2');
+    expect(pdfNumber(1e21)).toBe('1000000000000000000000');
   });
 
   it('deflate returns zlib framed bytes when CompressionStream exists', async () => {
@@ -85,5 +86,12 @@ describe('PdfWriter', () => {
 
     expect(id).toBe(1);
     expect(decoder.decode(bytes.subarray(offset, offset + 7))).toBe('1 0 obj');
+  });
+
+  it('rejects an unset reserved object', () => {
+    const writer = new PdfWriter();
+    writer.reserve();
+
+    expect(() => writer.finish(1, 1)).toThrow('PDF object 1 is unset');
   });
 });
