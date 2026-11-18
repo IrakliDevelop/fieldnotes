@@ -1,6 +1,6 @@
 ---
-title: Export to PNG and SVG
-description: By the end of this page you can download the board as a PNG or an SVG file, with your HTML elements drawn into it.
+title: Export to PNG, SVG and PDF
+description: Download a board or a frame as a PNG or SVG file, or a PDF with one page per frame.
 group: Guides
 order: 5
 ---
@@ -36,16 +36,57 @@ nothing behind the elements.
 
 ::code{example="export" region="svg"}
 
-Strokes, shapes and arrows become SVG paths and shapes. Text elements (including the text in a
-shape or on an arrow), notes and HTML elements are embedded as PNG pictures at `rasterScale`
-(default 2), so their words can't be selected or searched in the file. Images are embedded as data
-URLs; one that can't be loaded keeps its original URL. An empty board gives a 0 by 0 SVG.
+Strokes, shapes and arrows become SVG paths and shapes. Text, sticky notes and labels are SVG text
+laid out as on the canvas, so viewers can select them and find words. Text running past a sticky
+note is clipped to the note. Images and HTML elements remain PNG pictures at `rasterScale` (default
+2). Images are embedded as data URLs; one that can't be loaded keeps its original URL. An empty
+board gives a 0 by 0 SVG.
+
+## Fonts
+
+`setTextFontFamily(family)` sets the font of board text on screen and in exports. Call it once at
+startup, before creating a viewport, because a later call reaches each element only when it next
+redraws. Field Notes doesn't load the font, so load it in your page, for example with a CSS
+`@font-face` rule.
+
+::code{example="export" region="font-family"}
+
+`ExportSvgOptions.fonts` embeds supplied faces in the SVG. The export loads only faces it uses.
+`onFontError` receives an embedding failure; without it, the exporter logs the failure with
+`console.warn` and keeps the family name in the SVG.
+
+::code{example="export" region="fonts"}
+
+## Export a PDF
+
+`viewport.exportPDF(options)` resolves to a PDF `Blob`, or `null` for an empty board. Each page is a
+picture, so its text can't be selected. Element links to web pages, email addresses and elements in
+the PDF stay clickable. [`ExportPdfOptions`](/api/interfaces/_fieldnotes_core.ExportPdfOptions.html)
+lists:
+
+- `frameIds`: one page per root frame, in this order; without it, one page for the board.
+- `pageSize`: `'a4'` 595.28 x 841.89 pt, the default; `'letter'` 612 x 792 pt; or `{ width, height }`
+  in points.
+- `orientation`: `'portrait'`, `'landscape'` or `'auto'`, the default, landscape when the content is
+  wider than tall.
+- `margin`: in points, default 36.
+- `dpi`: pixels per inch of each page picture, default 144.
+- `links`: default true; false writes no clickable links.
+
+PDF links still point at elements under fog; pass `links: false` when sharing a fogged board.
+
+::code{example="export" region="pdf"}
 
 ## What an export includes
 
 - Elements on visible layers, at each layer's opacity. Elements on hidden layers are left out.
 - Drawing that plugins register for exports, such as the fog on a [tabletop map](/docs/tabletop-maps/).
-- Images from another origin, fetched with anonymous CORS. An image that fails to load, or takes longer than `imageTimeoutMs` (default 10 seconds), is left out of a PNG, and `onAssetError` receives its id, URL and reason.
+- Images from another origin, fetched with anonymous CORS. An image that fails to load shows the
+  grey placeholder in PNG and PDF; SVG retains the original URL. `onAssetError` receives its id,
+  URL and `cors`, `load`, `timeout`, or `encode` reason. Without a callback, the exporter logs one
+  `console.warn` per URL. If the image server leaves out `Vary: Origin`, the browser can reuse a
+  cached response without CORS headers and the export draws the placeholder. Send `Vary: Origin`
+  from that server, or don't show the same URL elsewhere on your page without `crossorigin`.
 - An explicit `background`, caller `filter`, HTML renderers or painters, image diagnostics, registry
   capabilities, and render hooks also apply to a frame export.
 

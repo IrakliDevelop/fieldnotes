@@ -179,7 +179,9 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('keeps the clipboard and fog-capability releases first, in package order, and unique', () => {
+  it('keeps the SVG/PDF, clipboard and fog-capability releases first, in package order, and unique', () => {
+    const svgCore = release('@fieldnotes/core', '0.109.0');
+    const pdfReact = release('@fieldnotes/react', '0.16.0');
     const clipboardCore = release('@fieldnotes/core', '0.108.0');
     const clipboardSync = release('@fieldnotes/sync', '0.30.4');
     const clipboardServer = release('@fieldnotes/sync-server', '0.30.4');
@@ -198,19 +200,21 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     const frames = release('@fieldnotes/core', '0.102.0');
     const prior = release('@fieldnotes/core', '0.101.0');
 
-    expect(current.slice(0, 3)).toMatchObject([
+    expect(current.slice(0, 5)).toMatchObject([
+      { npmName: '@fieldnotes/core', version: '0.109.0' },
+      { npmName: '@fieldnotes/react', version: '0.16.0' },
       { npmName: '@fieldnotes/core', version: '0.108.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.4' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.4' },
     ]);
-    expect(current[3]).toMatchObject({ npmName: '@fieldnotes/vtt', version: '0.17.2' });
-    expect(current.slice(4, 7)).toMatchObject([
+    expect(current[5]).toMatchObject({ npmName: '@fieldnotes/vtt', version: '0.17.2' });
+    expect(current.slice(6, 9)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.107.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.3' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.3' },
     ]);
-    expect(current[7]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
-    expect(current.slice(8, 11)).toMatchObject([
+    expect(current[9]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
+    expect(current.slice(10, 13)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.106.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.2' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.2' },
@@ -223,6 +227,16 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(
       current.filter(
         (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.108.0',
+      ),
+    ).toHaveLength(1);
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.109.0',
+      ),
+    ).toHaveLength(1);
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/react' && entry.version === '0.16.0',
       ),
     ).toHaveLength(1);
     expect(
@@ -264,6 +278,8 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(frames).toBeDefined();
     expect(prior).toBeDefined();
     if (
+      !svgCore ||
+      !pdfReact ||
       !clipboardCore ||
       !clipboardSync ||
       !clipboardServer ||
@@ -283,6 +299,8 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
       !prior
     )
       return;
+    expect(svgCore.date).toBeUndefined();
+    expect(pdfReact.date).toBeUndefined();
     expect(clipboardCore.date).toBeUndefined();
     expect(clipboardSync.date).toBeUndefined();
     expect(clipboardServer.date).toBeUndefined();

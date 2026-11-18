@@ -1,4 +1,4 @@
-import { layoutStyledRuns } from './text-layout';
+import { layoutStyledRuns, setFontFamily } from './text-layout';
 import { parseStyledRuns } from './note-sanitizer';
 import type { StyledRun } from './note-sanitizer';
 
@@ -21,6 +21,33 @@ export function setTextMeasurer(measure: TextMeasurer | null): void {
   sizes.clear();
 }
 
+/** Sets the font family stack; blank or browser-rejected stacks throw TypeError. */
+export function setTextFontFamily(family: string | null): void {
+  if (family !== null && family.trim() === '') throw new TypeError('Invalid font family stack');
+  if (family !== null && typeof document !== 'undefined') {
+    let context: CanvasRenderingContext2D | null;
+    try {
+      context = document.createElement('canvas').getContext('2d');
+    } catch {
+      context = null;
+    }
+    if (context) {
+      context.font = '17px serif';
+      const acceptsSentinel = context.font === '17px serif';
+      context.font = '16px sans-serif';
+      const acceptsProbe = context.font === '16px sans-serif';
+      if (acceptsSentinel && acceptsProbe) {
+        context.font = '17px serif';
+        context.font = `16px ${family}`;
+        if (context.font === '17px serif') throw new TypeError('Invalid font family stack');
+      }
+    }
+  }
+  setFontFamily(family);
+  parsedRuns.clear();
+  sizes.clear();
+}
+
 /** Measures an HTML text element's border box without requiring a viewport. */
 export function measureText(
   html: string,
@@ -32,7 +59,7 @@ export function measureText(
   if (cached) return { ...cached };
   const runs = getRuns(html, fontSize);
   const contentWidth = maxWidth === null ? Infinity : Math.max(0, maxWidth - TEXT_PADDING * 2);
-  const layout = layoutStyledRuns(measure, runs, contentWidth, LINE_HEIGHT);
+  const layout = layoutStyledRuns(measureFragment, runs, contentWidth, LINE_HEIGHT);
   const size = {
     w: maxWidth === null ? layout.width + TEXT_PADDING * 2 : maxWidth,
     h: (runs.length ? layout.height : fontSize * LINE_HEIGHT) + TEXT_PADDING * 2,
@@ -65,7 +92,7 @@ function withBaseFontSize(runs: StyledRun[], fontSize: number): StyledRun[] {
   return runs.map((run) => (run.fontSize === BASE_FONT_SENTINEL ? { ...run, fontSize } : run));
 }
 
-function measure(text: string, font: string): number {
+export function measureFragment(text: string, font: string): number {
   if (textMeasurer) return textMeasurer(text, font);
   if (canvasContext === undefined) {
     try {

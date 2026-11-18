@@ -44,6 +44,8 @@ import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
 import { exportSvg } from './export-svg';
 import type { ExportSvgOptions } from './export-svg';
+import { exportPdf } from './export-pdf';
+import type { ExportPdfOptions } from './export-pdf';
 import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
@@ -1104,7 +1106,9 @@ export class Viewport {
     return { ...base, htmlPainters: registry, expectedCanvasTypes: expected };
   }
 
-  private exportOptions<T extends ExportImageOptions | ExportSvgOptions>(options?: T): T {
+  private exportOptions<T extends ExportImageOptions | ExportSvgOptions | ExportPdfOptions>(
+    options?: T,
+  ): T {
     return {
       ...this.withHtmlDefaults(options),
       elementRegistry: options?.elementRegistry ?? this.elementRegistry,
@@ -1118,6 +1122,10 @@ export class Viewport {
 
   async exportSVG(options?: ExportSvgOptions): Promise<string> {
     return exportSvg(this.store, this.exportOptions(options), this.layerManager);
+  }
+
+  async exportPDF(options?: ExportPdfOptions): Promise<Blob | null> {
+    return exportPdf(this.store, this.exportOptions(options), this.layerManager);
   }
 
   loadState(state: ImportableCanvasState): void {

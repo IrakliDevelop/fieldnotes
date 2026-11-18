@@ -39,11 +39,13 @@
 - Copying and pasting between boards, pasting text and links, and dropping board and text files on a board
 - Links on elements that open from a badge or with ⌘/Ctrl+click
 - PNG and SVG exports that reopen as the board they came from
+- PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts
 
 ## Next
 
-- I'm adding PDF export and making SVG export embed fonts and measure labels the way the canvas does.
+- I'm working on theming: colour tokens for the canvas, a dark board and exports that follow them.
 
 ## Not built yet
 
-- Exporting a board or a selected frame as PDF, and SVG exports that embed their fonts
+- Theming with a dark board
+- Vector PDF with selectable text

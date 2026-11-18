@@ -51,9 +51,3 @@ export function HostElement({ position, size, children }: HostElementProps) {
   if (!portalTarget) return null;
   return createPortal(children, portalTarget);
 }
-
-/** @deprecated Use `HostElement`; removed in 0.16.0. */
-export const CanvasElement = HostElement;
-
-/** @deprecated Use `HostElementProps`; removed in 0.16.0. */
-export type CanvasElementProps = HostElementProps;

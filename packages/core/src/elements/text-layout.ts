@@ -1,13 +1,30 @@
 import type { StyledRun } from './note-sanitizer';
 
+let fontFamily: string | null = null;
+
+export function textFontFamily(): string {
+  return fontFamily ?? 'system-ui, sans-serif';
+}
+
+export function textFontFamilySetting(): string | null {
+  return fontFamily;
+}
+
+export function setFontFamily(family: string | null): void {
+  fontFamily = family;
+}
+
 export interface LineFragment {
   text: string;
   font: string;
   x: number;
   width: number;
   fontSize: number;
+  bold: boolean;
+  italic: boolean;
   underline: boolean;
   strikethrough: boolean;
+  trailingSpace: boolean;
 }
 
 export interface LaidOutLine {
@@ -16,10 +33,20 @@ export interface LaidOutLine {
   fragments: LineFragment[];
 }
 
+export function lineOffset(
+  line: LaidOutLine,
+  align: 'left' | 'center' | 'right',
+  contentWidth: number,
+): number {
+  if (align === 'center') return (contentWidth - line.width) / 2;
+  if (align === 'right') return contentWidth - line.width;
+  return 0;
+}
+
 export function buildFontString(run: StyledRun): string {
   const style = run.italic ? 'italic' : 'normal';
   const weight = run.bold ? 'bold' : 'normal';
-  return `${style} ${weight} ${run.fontSize}px system-ui, sans-serif`;
+  return `${style} ${weight} ${run.fontSize}px ${textFontFamily()}`;
 }
 
 export function layoutStyledRuns(
@@ -58,7 +85,11 @@ export function layoutStyledRuns(
       if (word === ' ') {
         const width = measure(' ', font);
         if (cursorX + width > maxWidth && cursorX > 0) breakLine(runLineHeight);
-        else cursorX += width;
+        else {
+          cursorX += width;
+          const last = fragments[fragments.length - 1];
+          if (last) last.trailingSpace = true;
+        }
         continue;
       }
       if (!word) continue;
@@ -70,8 +101,11 @@ export function layoutStyledRuns(
         x: cursorX,
         width,
         fontSize: run.fontSize,
+        bold: run.bold,
+        italic: run.italic,
         underline: run.underline,
         strikethrough: run.strikethrough,
+        trailingSpace: false,
       });
       cursorX += width;
     }

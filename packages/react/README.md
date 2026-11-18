@@ -164,8 +164,6 @@ Embedded components use a **two-mode interaction model**: by default they can be
 
 `<HostElement>` is **host-owned**: React is the source of truth for its element. Its store mutations carry `origin: 'host'`, so mounting, moving, resizing and unmounting never create undo steps and are never sent to a sync relay (the DOM subtree exists only in this document). The element is **transient**: `exportState()` / `exportJSON()` omit it, so a saved canvas never contains a ghost of a React embed. After a store `clear` (a user's clear-canvas gesture or a remote one) or a `loadState()` the component re-registers itself, so the embed survives. To persist an embed across reloads, use the viewport's `registerHtmlRenderer` with an `htmlType` and serializable `data` instead.
 
-`CanvasElement` and `CanvasElementProps` are deprecated aliases of `HostElement` and `HostElementProps`; `@fieldnotes/react` 0.16.0 removes them. The `CanvasElement` type from `@fieldnotes/core` (the union of board elements) is unrelated and stays.
-
 ## Undo / Redo
 
 `useHistory` returns reactive undo/redo state and action callbacks:
@@ -352,6 +350,9 @@ export function SaveControls() {
   );
 }
 ```
+
+`useExport` also returns [`exportPDF`](https://iraklidevelop.github.io/fieldnotes/docs/export/),
+which resolves to a PDF `Blob` with one page per frame in `frameIds`, or one page for the board.
 
 ## Minimap
 

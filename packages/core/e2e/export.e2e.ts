@@ -1,6 +1,94 @@
 import { test, expect } from './fixtures/canvas-page';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 test.describe('export', () => {
+  test('renders text with an embedded face', async ({ canvasPage }) => {
+    const font = await readFile(
+      resolve(
+        process.cwd(),
+        '../../website/node_modules/@fontsource/kalam/files/kalam-latin-400-normal.woff2',
+      ),
+    );
+    const url = 'https://fonts-test.example/kalam.woff2';
+    await canvasPage.page.route(url, (route) =>
+      route.fulfill({
+        body: font,
+        contentType: 'font/woff2',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+      }),
+    );
+    const result = await canvasPage.page.evaluate(
+      async ({ url }) => {
+        const setTextFontFamily = (window as unknown as Record<string, unknown>)
+          .__fieldnotes_set_text_font_family as (family: string | null) => void;
+        setTextFontFamily('Kalam, sans-serif');
+        try {
+          const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+            store: { add(element: Record<string, unknown>): void };
+            exportSVG(options?: { fonts?: { family: string; src: string }[] }): Promise<string>;
+          };
+          vp.store.add({
+            id: 'embedded-font',
+            type: 'text',
+            position: { x: 0, y: 0 },
+            size: { w: 180, h: 40 },
+            index: '',
+            version: 1,
+            locked: false,
+            layerId: '',
+            text: 'Kalam sample',
+            fontSize: 28,
+            color: '#000000',
+            textAlign: 'left',
+            wrap: false,
+          });
+          const without = await vp.exportSVG();
+          const withFont = await vp.exportSVG({ fonts: [{ family: 'Kalam', src: url }] });
+          const ink = async (svg: string) => {
+            const image = new Image();
+            const objectUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+            try {
+              await new Promise<void>((resolve, reject) => {
+                image.onload = () => resolve();
+                image.onerror = () => reject(new Error('SVG did not load'));
+                image.src = objectUrl;
+              });
+              const canvas = document.createElement('canvas');
+              canvas.width = 180;
+              canvas.height = 40;
+              const context = canvas.getContext('2d');
+              if (!context) throw new Error('2d context unavailable');
+              context.drawImage(image, 0, 0, canvas.width, canvas.height);
+              return new Uint8Array(
+                context
+                  .getImageData(0, 0, canvas.width, canvas.height)
+                  .data.filter((_, i) => i % 4 === 3),
+              );
+            } finally {
+              URL.revokeObjectURL(objectUrl);
+            }
+          };
+          const first = await ink(without);
+          const second = await ink(withFont);
+          let firstInk = 0;
+          let different = 0;
+          for (let i = 0; i < first.length; i++) {
+            const a = first[i] ?? 0;
+            const b = second[i] ?? 0;
+            firstInk += a > 0 ? 1 : 0;
+            different += a === b ? 0 : 1;
+          }
+          return { style: withFont.includes('<style>@font-face'), firstInk, different };
+        } finally {
+          setTextFontFamily(null);
+        }
+      },
+      { url },
+    );
+    expect(result.style).toBe(true);
+    expect(result.different).toBeGreaterThan(result.firstInk * 0.05);
+  });
   test('exports non-null image blob after drawing', async ({ canvasPage }) => {
     await canvasPage.selectTool('shape');
     const wrapper = canvasPage.wrapper();
@@ -22,6 +110,168 @@ test.describe('export', () => {
       return blob !== null && blob.size > 0;
     });
     expect(hasBlob).toBe(true);
+  });
+
+  test('exports frames to a PDF with a link', async ({ canvasPage }) => {
+    const result = await canvasPage.page.evaluate(
+      async (moduleUrl) => {
+        const { createFrame, createShape } = await import(moduleUrl);
+        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+          store: { add(element: Record<string, unknown>): void };
+          exportPDF(options: { frameIds: string[] }): Promise<Blob | null>;
+        };
+        const first = createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 74 } });
+        const second = createFrame({ position: { x: 200, y: 0 }, size: { w: 80, h: 184 } });
+        const linked = createShape({
+          parentId: first.id,
+          position: { x: 10, y: 34 },
+          size: { w: 20, h: 10 },
+        });
+        linked.link = 'https://example.com';
+        vp.store.add(first);
+        vp.store.add(second);
+        vp.store.add(linked);
+        const pdf = await vp.exportPDF({ frameIds: [first.id, second.id] });
+        if (!pdf) throw new Error('PDF export missing');
+        return new TextDecoder('latin1').decode(await pdf.arrayBuffer());
+      },
+      `/@fs${resolve(process.cwd(), 'dist/index.js')}`,
+    );
+    expect(result.startsWith('%PDF-1.4')).toBe(true);
+    expect(result.match(/\/Type\s*\/Page(?!s)/g)).toHaveLength(2);
+    expect(result.match(/\/Subtype \/Link/g)).toHaveLength(1);
+    expect(result).toContain('/A << /S /URI /URI (https://example.com/) >>');
+  });
+
+  test('SVG text sits where the PNG text sits', async ({ canvasPage }) => {
+    const result = await canvasPage.page.evaluate(async () => {
+      const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+        store: { add(element: Record<string, unknown>): void };
+        exportImage(options: Record<string, unknown>): Promise<Blob | null>;
+        exportSVG(options: Record<string, unknown>): Promise<string>;
+      };
+      const layerId = '';
+      vp.store.add({
+        id: 'svg-text-parity',
+        type: 'text',
+        position: { x: 0, y: 0 },
+        size: { w: 80, h: 60 },
+        index: '',
+        version: 1,
+        locked: false,
+        layerId,
+        text: 'Hello world wrap',
+        fontSize: 16,
+        color: '#1a1a1a',
+        textAlign: 'left',
+        wrap: true,
+      });
+      vp.store.add({
+        id: 'svg-note-parity',
+        type: 'note',
+        position: { x: 0, y: 120 },
+        size: { w: 80, h: 60 },
+        index: 'a',
+        version: 1,
+        locked: false,
+        layerId,
+        text: 'Hello world wrap',
+        textColor: '#222222',
+        backgroundColor: '#ffffff',
+      });
+
+      const png = await vp.exportImage({ scale: 2, background: '#ffffff' });
+      const svg = await vp.exportSVG({ background: '#ffffff' });
+      if (!png) return null;
+      const pngBitmap = await createImageBitmap(png);
+      const svgImage = new Image();
+      const svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+      try {
+        await new Promise<void>((resolve, reject) => {
+          svgImage.onload = () => resolve();
+          svgImage.onerror = () => reject(new Error('SVG did not load'));
+          svgImage.src = svgUrl;
+        });
+        const rasterize = (source: CanvasImageSource) => {
+          const canvas = document.createElement('canvas');
+          canvas.width = pngBitmap.width;
+          canvas.height = pngBitmap.height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Missing 2D context');
+          ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+          return ctx.getImageData(0, 0, canvas.width, canvas.height);
+        };
+        const pngPixels = rasterize(pngBitmap);
+        const svgPixels = rasterize(svgImage);
+        const mask = (pixels: ImageData) => {
+          const out = new Uint8Array(pixels.width * pixels.height);
+          for (let i = 0; i < out.length; i++) {
+            const offset = i * 4;
+            out[i] =
+              pixels.data[offset] === 255 &&
+              pixels.data[offset + 1] === 255 &&
+              pixels.data[offset + 2] === 255
+                ? 0
+                : 1;
+          }
+          return out;
+        };
+        const bands = (mask: Uint8Array, width: number, height: number) => {
+          const result: { top: number; bottom: number; left: number; right: number }[] = [];
+          let top = -1;
+          for (let y = 0; y <= height; y++) {
+            const hasInk = y < height && mask.subarray(y * width, (y + 1) * width).some(Boolean);
+            if (hasInk && top < 0) top = y;
+            if (!hasInk && top >= 0) {
+              const bottom = y - 1;
+              let left = width;
+              let right = 0;
+              for (let row = top; row <= bottom; row++) {
+                for (let column = 0; column < width; column++) {
+                  if (!mask[row * width + column]) continue;
+                  left = Math.min(left, column);
+                  right = Math.max(right, column);
+                }
+              }
+              result.push({ top, bottom, left, right });
+              top = -1;
+            }
+          }
+          return result;
+        };
+        const pngMask = mask(pngPixels);
+        const svgMask = mask(svgPixels);
+        let pngInk = 0;
+        let xor = 0;
+        for (let i = 0; i < pngMask.length; i++) {
+          pngInk += pngMask[i];
+          xor += pngMask[i] === svgMask[i] ? 0 : 1;
+        }
+        return {
+          pngBands: bands(pngMask, pngPixels.width, pngPixels.height),
+          svgBands: bands(svgMask, svgPixels.width, svgPixels.height),
+          pngInk,
+          xor,
+        };
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.pngBands).toHaveLength(6);
+    expect(result?.svgBands).toHaveLength(6);
+    expect(result?.pngBands).toHaveLength(result?.svgBands.length ?? 0);
+    for (let index = 0; index < (result?.pngBands.length ?? 0); index++) {
+      const pngBand = result?.pngBands[index];
+      const svgBand = result?.svgBands[index];
+      if (!pngBand || !svgBand) throw new Error('Missing ink band');
+      expect(Math.abs(pngBand.top - svgBand.top)).toBeLessThanOrEqual(1);
+      expect(Math.abs(pngBand.bottom - svgBand.bottom)).toBeLessThanOrEqual(1);
+      expect(Math.abs(pngBand.left - svgBand.left)).toBeLessThanOrEqual(1);
+      expect(Math.abs(pngBand.right - svgBand.right)).toBeLessThanOrEqual(1);
+    }
+    expect((result?.xor ?? Infinity) / (result?.pngInk ?? 0)).toBeLessThan(0.1);
   });
 
   test('rasterizes an HTML embed through the export hook', async ({ canvasPage }) => {
@@ -589,5 +839,131 @@ test.describe('export', () => {
     expect(result.svg.wrappers.some((wrapper) => wrapper.child === 'omitted')).toBe(false);
     expect(result.svg.hookWrapper).toEqual({ id: null, rect: null });
     expect(errors).toEqual([]);
+  });
+
+  test('shows and exports images with and without CORS headers', async ({ canvasPage }) => {
+    const ok = 'https://cors-test.example/ok.png';
+    const noCors = 'https://cors-test.example/nocors.png';
+    const red = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    await canvasPage.page.route('https://cors-test.example/*.png', (route) =>
+      route.request().url() === ok
+        ? route.fulfill({
+            body: red,
+            contentType: 'image/png',
+            headers: { 'Access-Control-Allow-Origin': '*' },
+          })
+        : route.request().headers().origin
+          ? route.fulfill({ status: 403 })
+          : route.fulfill({ body: red, contentType: 'image/png' }),
+    );
+    const rects = await canvasPage.page.evaluate(
+      ({ ok, noCors }) => {
+        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+          store: { add(element: Record<string, unknown>): void };
+          getVisibleRect(): { x: number; y: number; w: number; h: number };
+          requestRender(): void;
+        };
+        vp.store.add({
+          id: 'cors-ok',
+          type: 'image',
+          position: { x: 200, y: 200 },
+          size: { w: 40, h: 40 },
+          index: '',
+          version: 1,
+          locked: false,
+          layerId: '',
+          src: ok,
+        });
+        vp.store.add({
+          id: 'cors-no',
+          type: 'image',
+          position: { x: 260, y: 200 },
+          size: { w: 40, h: 40 },
+          index: 'a0',
+          version: 1,
+          locked: false,
+          layerId: '',
+          src: noCors,
+        });
+        vp.requestRender();
+        return {
+          visible: vp.getVisibleRect(),
+          elements: [
+            { x: 200, y: 200 },
+            { x: 260, y: 200 },
+          ],
+        };
+      },
+      { ok, noCors },
+    );
+    const wrapper = await canvasPage.wrapper().boundingBox();
+    if (!wrapper) throw new Error('Canvas wrapper not found');
+    const screenRect = (element: { x: number; y: number }) => ({
+      x: wrapper.x + ((element.x - rects.visible.x) / rects.visible.w) * wrapper.width,
+      y: wrapper.y + ((element.y - rects.visible.y) / rects.visible.h) * wrapper.height,
+      width: (40 / rects.visible.w) * wrapper.width,
+      height: (40 / rects.visible.h) * wrapper.height,
+    });
+    const screenshotIsRed = async (element: { x: number; y: number }) => {
+      const screenshot = await canvasPage.page.screenshot({ clip: screenRect(element) });
+      return canvasPage.page.evaluate(async (png) => {
+        const image = new Image();
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error('Screenshot did not decode'));
+          image.src = `data:image/png;base64,${png}`;
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('2d context unavailable');
+        context.drawImage(image, 0, 0);
+        const pixel = context.getImageData(
+          Math.floor(canvas.width / 2),
+          Math.floor(canvas.height / 2),
+          1,
+          1,
+        ).data;
+        return pixel[0] === 255 && pixel[1] === 0 && pixel[2] === 0;
+      }, screenshot.toString('base64'));
+    };
+
+    const [first, second] = rects.elements;
+    if (!first || !second) throw new Error('Image rectangles missing');
+    await expect.poll(() => screenshotIsRed(first)).toBe(true);
+    await expect.poll(() => screenshotIsRed(second)).toBe(true);
+    const exported = await canvasPage.page.evaluate(
+      async ({ noCors }) => {
+        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+          exportImage(options: {
+            scale: number;
+            onAssetError(error: { reason: string; src: string }): void;
+          }): Promise<Blob | null>;
+        };
+        const reports: { reason: string; src: string }[] = [];
+        const blob = await vp.exportImage({
+          scale: 1,
+          onAssetError: (error) => reports.push({ reason: error.reason, src: error.src }),
+        });
+        if (!blob) throw new Error('PNG export missing');
+        const bitmap = await createImageBitmap(blob);
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('2d context unavailable');
+        context.drawImage(bitmap, 0, 0);
+        const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
+        return { reports, cors: pixel(4, 4), noCors: pixel(64, 4), source: noCors };
+      },
+      { noCors },
+    );
+    expect(exported.reports).toEqual([{ reason: 'cors', src: exported.source }]);
+    expect(exported.cors).toEqual([255, 0, 0, 255]);
+    expect(exported.noCors).toEqual([238, 238, 238, 255]);
   });
 });

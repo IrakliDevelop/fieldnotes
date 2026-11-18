@@ -1,8 +1,8 @@
-export const VERSION = '0.108.0';
+export const VERSION = '0.109.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
-export { measureText, setTextMeasurer } from './elements/text-measure';
+export { measureText, setTextFontFamily, setTextMeasurer } from './elements/text-measure';
 export type { TextMeasurer } from './elements/text-measure';
 export {
   CANVAS_STATE_VERSION,
@@ -111,8 +111,16 @@ export type {
   ExportImageOptions,
   ExportResourceOptions,
 } from './canvas/export-image';
+export { exportPdf } from './canvas/export-pdf';
+export type { ExportPdfOptions, PdfPageSize } from './canvas/export-pdf';
 export { exportSvg } from './canvas/export-svg';
 export type { ExportSvgOptions } from './canvas/export-svg';
+export type {
+  ExportFontFace,
+  ExportFontError,
+  ExportFontErrorReason,
+  ExportFontOptions,
+} from './canvas/export-fonts';
 export { SCENE_METADATA_TYPE, SCENE_PNG_KEYWORD } from './canvas/scene-embed';
 export type { SceneEmbedOptions, SceneEnvelope } from './canvas/scene-embed';
 export {

@@ -1,4 +1,17 @@
-import type { HtmlElement, Viewport } from '@fieldnotes/core';
+import {
+  isFrameElement,
+  setTextFontFamily,
+  type HtmlElement,
+  type Viewport,
+} from '@fieldnotes/core';
+
+type PdfViewport = Pick<Viewport, 'exportPDF'> & {
+  store: Pick<Viewport['store'], 'getAll'>;
+};
+
+// #region font-family
+setTextFontFamily('Inter, system-ui, sans-serif');
+// #endregion font-family
 
 function download(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
@@ -22,6 +35,30 @@ export async function exportSvg(viewport: Viewport): Promise<void> {
   download(new Blob([svg], { type: 'image/svg+xml' }), 'board.svg');
   // #endregion svg
 }
+
+// #region fonts
+export async function exportSvgWithFonts(viewport: Viewport): Promise<void> {
+  const svg = await viewport.exportSVG({
+    fonts: [{ family: 'Inter', src: '/fonts/inter.woff2' }],
+  });
+  download(new Blob([svg], { type: 'image/svg+xml' }), 'board.svg');
+}
+// #endregion fonts
+
+// #region pdf
+export async function exportPdf(viewport: PdfViewport): Promise<void> {
+  const frameIds = viewport.store
+    .getAll()
+    .filter(isFrameElement)
+    .filter((frame) => frame.parentId === undefined)
+    .map((frame) => frame.id);
+  const blob = await viewport.exportPDF({
+    ...(frameIds.length > 0 ? { frameIds } : {}),
+    pageSize: 'a4',
+  });
+  if (blob) download(blob, 'board.pdf');
+}
+// #endregion pdf
 
 // #region render-html
 function drawCard(element: HtmlElement): HTMLCanvasElement {

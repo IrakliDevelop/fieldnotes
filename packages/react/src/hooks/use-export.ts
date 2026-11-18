@@ -1,5 +1,10 @@
 import { useCallback, useMemo } from 'react';
-import type { CanvasState, ExportImageOptions, ExportSvgOptions } from '@fieldnotes/core';
+import type {
+  CanvasState,
+  ExportImageOptions,
+  ExportPdfOptions,
+  ExportSvgOptions,
+} from '@fieldnotes/core';
 import { useViewport } from './use-viewport';
 
 /** Export operations returned by useExport. */
@@ -8,6 +13,7 @@ export interface UseExportResult {
   exportJSON(): string;
   exportImage(options?: ExportImageOptions): Promise<Blob | null>;
   exportSVG(options?: ExportSvgOptions): Promise<string>;
+  exportPDF(options?: ExportPdfOptions): Promise<Blob | null>;
 }
 
 /** Viewport export functions with stable identities. */
@@ -23,8 +29,12 @@ export function useExport(): UseExportResult {
     (options?: ExportSvgOptions) => viewport.exportSVG(options),
     [viewport],
   );
+  const exportPDF = useCallback(
+    (options?: ExportPdfOptions) => viewport.exportPDF(options),
+    [viewport],
+  );
   return useMemo(
-    () => ({ exportState, exportJSON, exportImage, exportSVG }),
-    [exportState, exportJSON, exportImage, exportSVG],
+    () => ({ exportState, exportJSON, exportImage, exportSVG, exportPDF }),
+    [exportState, exportJSON, exportImage, exportSVG, exportPDF],
   );
 }

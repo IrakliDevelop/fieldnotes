@@ -2,6 +2,7 @@ import type { CanvasElement, HtmlElement } from '../elements/types';
 import type { Bounds } from '../core/types';
 import type { ElementStore } from '../elements/element-store';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
+import { textFontFamilySetting } from '../elements/text-layout';
 import { TEXT_PADDING } from '../elements/text-measure';
 import { DoubleTapDetector } from './double-tap-detector';
 import { LIVE_NODE_ATTR } from './live-control';
@@ -355,6 +356,9 @@ export class DomNodeManager {
         });
       }
 
+      const family = textFontFamilySetting();
+      node.style.fontFamily = family ?? '';
+
       if (!this.isEditingElement(element.id)) {
         const text = element.text || '';
         if (node.innerHTML !== text) {
@@ -421,6 +425,9 @@ export class DomNodeManager {
           }
         });
       }
+
+      const family = textFontFamilySetting();
+      node.style.fontFamily = family ?? '';
 
       if (!this.isEditingElement(element.id)) {
         const text = element.text || '';

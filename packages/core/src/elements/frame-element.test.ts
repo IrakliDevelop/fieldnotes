@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   FRAME_ELEMENT_TYPE,
   createFrame,
@@ -8,6 +8,9 @@ import {
 } from './frame-element';
 import { ElementRegistry } from './element-registry';
 import type { FrameElement } from './frame-element';
+import { setTextFontFamily } from './text-measure';
+
+afterEach(() => setTextFontFamily(null));
 
 function frame(): FrameElement {
   return createFrame({ position: { x: 10, y: 20 }, size: { w: 120, h: 90 } });
@@ -148,10 +151,28 @@ describe('frame element', () => {
     expect(ctx.strokeStyle).toBe('"<&');
     expect(ctx.fillStyle).toBe('"<&');
     expect(ctx.lineWidth).toBe(1);
-    expect(ctx.font).toBe('14px sans-serif');
+    expect(ctx.font).toBe('14px system-ui, sans-serif');
     expect(ctx.textBaseline).toBe('middle');
     expect(frameElementDefinition.emitSvg?.(value, [], { x: 0, y: 0, w: 1, h: 1 })).toBe(
-      '<rect x="10" y="20" width="120" height="90" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><path d="M 10 44 H 130" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><svg x="10" y="20" width="120" height="24" viewBox="10 20 120 24" overflow="hidden"><text x="18" y="32" fill="&quot;&lt;&amp;" dominant-baseline="middle">&lt;Frame &amp;&gt;</text></svg>',
+      '<rect x="10" y="20" width="120" height="90" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><path d="M 10 44 H 130" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><svg x="10" y="20" width="120" height="24" viewBox="10 20 120 24" overflow="hidden"><text x="18" y="32" fill="&quot;&lt;&amp;" font-family="system-ui, sans-serif" font-size="14" dominant-baseline="middle">&lt;Frame &amp;&gt;</text></svg>',
+    );
+    setTextFontFamily('Inter');
+    frameElementDefinition.render?.(ctx, value, []);
+    expect(ctx.font).toBe('14px Inter');
+    expect(frameElementDefinition.emitSvg?.(value, [], { x: 0, y: 0, w: 1, h: 1 })).toContain(
+      'font-family="Inter" font-size="14"',
+    );
+  });
+
+  it('escapeXml drops control characters', () => {
+    const value = createFrame({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 60 },
+      title: 'A\u0001B',
+    });
+
+    expect(frameElementDefinition.emitSvg?.(value, [], { x: 0, y: 0, w: 1, h: 1 })).toContain(
+      '>AB</text>',
     );
   });
 

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { exportSvg } from './export-svg';
+import { readSceneFile } from './scene-file';
 import {
   createStroke,
   createNote,
@@ -23,6 +24,7 @@ import type {
 } from '../elements/types';
 import { createRenderHooks } from './render-hooks';
 import { createBoundText } from '../elements/bound-text';
+import { setTextFontFamily } from '../elements/text-measure';
 
 const HTML_MARKER = 'data-distinctive-html-marker-xyz';
 
@@ -76,6 +78,39 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  afterEach(() => {
+    setTextFontFamily(null);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('warns once for a remote image failure and keeps its original URL', async () => {
+    const originalImage = globalThis.Image;
+    globalThis.Image = class MockImage {
+      crossOrigin: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: ((cause: unknown) => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onerror?.(new Event('error')));
+      }
+    } as unknown as typeof Image;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const store = new ElementStore();
+    const src = 'https://assets.example/missing.png';
+    store.add(createImage({ position: { x: 10, y: 20 }, size: { w: 30, h: 40 }, src }));
+
+    try {
+      const svg = await exportSvg(store);
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(src));
+      expect(svg).toContain(`href="${src}"`);
+    } finally {
+      globalThis.Image = originalImage;
+      warn.mockRestore();
+    }
+  });
+
   it('uses final nonzero tangent and omits a wholly degenerate head', async () => {
     const store = new ElementStore();
     const arrow = createArrow({
@@ -89,6 +124,18 @@ describe('exportSvg', () => {
 
     expect(svg).toContain('<path d="M40 40"');
     expect(svg).not.toContain('<polygon');
+  });
+
+  it('measures the legacy arrow label on the middle baseline', async () => {
+    const store = new ElementStore();
+    store.add(createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'go' }));
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('width="32" height="22" rx="4"');
+    expect(svg).toContain(
+      'font-family="system-ui, sans-serif" font-size="14" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">go</text>',
+    );
   });
 
   it('retains the legacy bezier head for coincident endpoints', async () => {
@@ -147,6 +194,8 @@ describe('exportSvg', () => {
     expect(svg).toContain(
       `<rect x="${laidOut.position.x - 4}" y="${laidOut.position.y - 2}" width="68" height="24" rx="4" fill="rgba(255,255,255,0.9)" />`,
     );
+    expect(svg).toContain('>bound</tspan>');
+    expect(svg).not.toContain('<image');
     expect(svg).not.toContain('legacy');
   });
 
@@ -1059,6 +1108,56 @@ describe('exportSvg', () => {
     ]);
   });
 
+  it("passes a frame export's padded content bounds to inline emitters", async () => {
+    let receivedViewBox: { x: number; y: number; w: number; h: number } | undefined;
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:frame-view-box',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:frame-view-box',
+        data: {},
+      }),
+      bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 30, h: 40 }),
+      emitSvg: (_el, _allElements, viewBox) => {
+        receivedViewBox = viewBox;
+        return '';
+      },
+    });
+    const store = new ElementStore(registry);
+    const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 74 } });
+    const child: ExtensionElementEnvelope = {
+      id: 'frame-child',
+      type: 'extension',
+      extensionType: 'test:frame-view-box',
+      position: { x: 10, y: 30 },
+      index: '',
+      version: 1,
+      locked: false,
+      layerId: '',
+      parentId: frame.id,
+      data: {},
+    };
+    store.add(frame);
+    store.add(child);
+
+    const svg = await exportSvg(store, {
+      frameId: frame.id,
+      padding: 7,
+      elementRegistry: registry,
+    });
+
+    expect(receivedViewBox).toEqual({ x: -7, y: 17, w: 114, h: 64 });
+    expect(svg).toContain('viewBox="-7 17 114 64"');
+  });
+
   it.each([
     [{ padding: -1 }, 'padding'],
     [{ rasterScale: 0 }, 'rasterScale'],
@@ -1137,55 +1236,203 @@ describe('exportSvg', () => {
     expect(svg).toMatch(/<rect[^>]*fill="#ff0000"/);
   });
 
-  it('rasterizes text elements to an <image> and never emits literal HTML tags', async () => {
-    // Text now renders RICH via the shared canvas renderer, rasterized to a data-URI
-    // <image> (like notes). Under a working canvas it is an <image>; under jsdom's
-    // null-context degradation the text is simply skipped — either way no raw <text>
-    // node carrying the literal markup is emitted.
+  it('emits a text element as positioned tspans with its spaces', async () => {
     const store = new ElementStore();
     store.add(
       createText({
         position: { x: 0, y: 200 },
         size: { w: 200, h: 60 },
         text: 'Line 1<b>bold</b>',
+        fontSize: 16,
         color: '#123456',
       }),
     );
 
-    const origCreate = document.createElement.bind(document);
-    const ctxStub = {
-      save: vi.fn(),
-      restore: vi.fn(),
-      scale: vi.fn(),
-      translate: vi.fn(),
-      fillRect: vi.fn(),
-      fillText: vi.fn(),
-      measureText: vi.fn().mockReturnValue({ width: 40 }),
-      fillStyle: '',
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain(
+      '<g fill="#123456" font-family="system-ui, sans-serif" xml:space="preserve"><text dominant-baseline="text-before-edge"><tspan x="2" y="202" font-size="16">Line </tspan><tspan x="52" y="202" font-size="16">1</tspan><tspan x="62" y="202" font-size="16" font-weight="bold">bold</tspan></text></g>',
+    );
+    expect(svg).not.toContain('<image');
+  });
+
+  it('never emits literal HTML tags from text', async () => {
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 200 }, text: 'Line 1<b>bold</b>' }));
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('>bold</tspan>');
+    expect(svg).not.toContain('<b>');
+    expect(svg).not.toContain('&lt;b&gt;');
+  });
+
+  it('uses the measured ascent when a 2D context exists', async () => {
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 0, y: 200 },
+        size: { w: 200, h: 60 },
+        text: 'Line 1<b>bold</b>',
+        fontSize: 16,
+      }),
+    );
+    const createElement = document.createElement.bind(document);
+    const ctx = {
       font: '',
       textBaseline: '',
+      measureText(this: { textBaseline: string }, text: string) {
+        return {
+          width: text.length * 10,
+          fontBoundingBoxAscent: this.textBaseline === 'alphabetic' ? 13 : 0.5,
+        };
+      },
     } as unknown as CanvasRenderingContext2D;
-
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = origCreate(tag);
-      if (tag === 'canvas') {
-        vi.spyOn(el as HTMLCanvasElement, 'getContext').mockReturnValue(ctxStub as never);
-        vi.spyOn(el as HTMLCanvasElement, 'toDataURL').mockReturnValue(
-          'data:image/png;base64,AAAA',
-        );
-      }
-      return el;
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const element = createElement(tag);
+      if (tag === 'canvas')
+        vi.spyOn(element as HTMLCanvasElement, 'getContext').mockReturnValue(ctx);
+      return element;
     });
 
     const svg = await exportSvg(store);
-    vi.restoreAllMocks();
+    createSpy.mockRestore();
 
-    expect(svg).toContain('<image');
-    expect(svg).toContain('data:image/png;base64,AAAA');
-    // No raw <text> emitter and no literal/escaped markup leaking into the SVG.
+    expect(svg).toContain('<text><tspan x="2" y="214.5" font-size="16">Line </tspan>');
+    expect(svg).not.toContain('dominant-baseline');
+  });
+
+  it('wraps the way the canvas does', async () => {
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 0, y: 200 },
+        size: { w: 40, h: 60 },
+        text: 'ab cd',
+        fontSize: 16,
+      }),
+    );
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('<tspan x="2" y="202" font-size="16">ab </tspan>');
+    expect(svg).toContain(
+      '<text dominant-baseline="text-before-edge"><tspan x="2" y="224.4" font-size="16">cd</tspan></text>',
+    );
+  });
+
+  it.each([
+    ['center', '50'],
+    ['right', '98'],
+  ] as const)('aligns each line by its own width for %s text', async (textAlign, x) => {
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 0, y: 200 },
+        size: { w: 200, h: 60 },
+        text: 'Line 1<b>bold</b>',
+        fontSize: 16,
+        textAlign,
+      }),
+    );
+
+    expect(await exportSvg(store)).toContain(
+      `<tspan x="${x}" y="202" font-size="16">Line </tspan>`,
+    );
+  });
+
+  it('keeps one line when wrap is false', async () => {
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 0, y: 200 },
+        size: { w: 40, h: 60 },
+        text: 'ab cd',
+        fontSize: 16,
+        wrap: false,
+      }),
+    );
+
+    const svg = await exportSvg(store);
+
+    expect(svg.match(/<text /g)).toHaveLength(1);
+    expect(svg).toContain('<tspan x="2" y="202" font-size="16">ab </tspan>');
+    expect(svg).toContain('<tspan x="32" y="202" font-size="16">cd</tspan>');
+  });
+
+  it('draws underline as a one pixel rect', async () => {
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 200 }, text: '<u>ab</u>', fontSize: 16 }));
+
+    const svg = await exportSvg(store);
+    const root = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const group = root.querySelector('g[fill="#1a1a1a"]');
+    const rect = group?.querySelector('rect');
+
+    expect(svg).toContain('<rect x="2" y="219" width="20" height="1" />');
+    expect(rect?.parentElement).toBe(group);
+    expect(root.querySelector('text > rect')).toBeNull();
+  });
+
+  it('drops XML-forbidden characters and stays parseable', async () => {
+    const store = new ElementStore();
+    const text = createText({ position: { x: 0, y: 200 }, text: 'a\u000cb\ud800c' });
+    store.add(text);
+
+    const svg = await exportSvg(store, { embedScene: true });
+    const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const state = await readSceneFile(new Blob([svg], { type: 'image/svg+xml' }));
+
+    expect(parsed.querySelector('parsererror')).toBeNull();
+    expect(parsed.querySelector('tspan')?.textContent).toBe('abc');
+    expect(state?.elements.find((element) => element.type === 'text')?.text).toBe(text.text);
+    expect(text.text).toContain('\u000c');
+  });
+
+  it('keeps every XML-legal character', async () => {
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 200 }, text: 'aＡb😀' }));
+
+    expect((await exportSvg(store)).match(/<tspan[^>]*>(.*?)<\/tspan>/)?.[1]).toBe('aＡb😀');
+  });
+
+  it('emits only the note rect without DOMParser', async () => {
+    const store = new ElementStore();
+    store.add(
+      createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 60 },
+        backgroundColor: '#abcabc',
+        text: 'x',
+      }),
+    );
+    vi.stubGlobal('DOMParser', undefined);
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('fill="#abcabc"');
     expect(svg).not.toContain('<text');
-    expect(svg).not.toContain('<b>');
-    expect(svg).not.toContain('&lt;b&gt;');
+    expect(svg).not.toContain('<image');
+  });
+
+  it('emits a note as a clipped vector text block', async () => {
+    const store = new ElementStore();
+    store.add(
+      createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 60 },
+        backgroundColor: '#abcabc',
+        textColor: '#222222',
+        text: 'x',
+      }),
+    );
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain(
+      '<rect x="0" y="0" width="100" height="60" rx="4" fill="#abcabc" /><svg x="0" y="0" width="100" height="60" viewBox="0 0 100 60" overflow="hidden"><g fill="#222222" font-family="system-ui, sans-serif" xml:space="preserve"><text dominant-baseline="text-before-edge"><tspan x="8" y="8" font-size="18">x</tspan></text></g></svg>',
+    );
+    expect(svg).not.toContain('<image');
   });
 
   it('emits an image element (data-uri passthrough)', async () => {
@@ -1433,6 +1680,230 @@ describe('exportSvg', () => {
     const hasImage = svg.includes('<image');
     const hasPlaceholder = /<rect[^>]*fill="#abcabc"/.test(svg);
     expect(hasImage || hasPlaceholder).toBe(true);
+  });
+});
+
+describe('exportSvg fonts', () => {
+  afterEach(() => {
+    setTextFontFamily(null);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function textStore(text: string): ElementStore {
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 0 }, text }));
+    return store;
+  }
+
+  it('does not infer bold styling from a font family name', async () => {
+    setTextFontFamily('Foo bold Sans, sans-serif');
+
+    const svg = await exportSvg(textStore('plain'), {
+      fonts: [
+        {
+          family: 'Foo bold Sans',
+          src: new Blob([new Uint8Array([1, 2])], { type: 'font/woff2' }),
+        },
+        {
+          family: 'Foo bold Sans',
+          weight: 'bold',
+          src: new Blob([new Uint8Array([3, 4])], { type: 'font/woff2' }),
+        },
+      ],
+    });
+
+    expect(svg).not.toContain('font-weight="bold"');
+    expect(svg).toContain(
+      '<style>@font-face{font-family:&quot;Foo bold Sans&quot;;font-weight:normal;font-style:normal;src:url(&quot;data:font/woff2;base64,AQI=&quot;)}</style>',
+    );
+    expect(svg).not.toContain('font-weight:bold');
+    expect(svg).not.toContain('base64,AwQ=');
+  });
+
+  it('embeds a used face from a Blob', async () => {
+    setTextFontFamily('Inter');
+    const svg = await exportSvg(textStore('a<b>b</b>'), {
+      fonts: [
+        {
+          family: 'Inter',
+          weight: 'bold',
+          src: new Blob([new Uint8Array([1, 2, 3])], { type: 'font/woff2' }),
+        },
+      ],
+      embedScene: true,
+    });
+    expect(svg).toContain('<metadata>');
+    expect(svg).toContain(
+      '<style>@font-face{font-family:&quot;Inter&quot;;font-weight:bold;font-style:normal;src:url(&quot;data:font/woff2;base64,AQID&quot;)}</style>',
+    );
+    expect(svg.indexOf('<metadata>')).toBeLessThan(svg.indexOf('<style>'));
+    const defs = svg.indexOf('<defs>');
+    expect(defs < 0 || svg.indexOf('<style>') < defs).toBe(true);
+  });
+
+  it('skips an unused weight', async () => {
+    setTextFontFamily('Inter');
+    expect(
+      await exportSvg(textStore('normal'), {
+        fonts: [{ family: 'Inter', weight: 'bold', src: new Blob([new Uint8Array([1])]) }],
+      }),
+    ).not.toContain('<style>');
+  });
+
+  it('skips a family outside the stack', async () => {
+    expect(
+      await exportSvg(textStore('normal'), {
+        fonts: [{ family: 'Inter', src: new Blob([new Uint8Array([1])]) }],
+      }),
+    ).not.toContain('<style>');
+  });
+
+  it('reports a failing URL once and keeps the text', async () => {
+    const cause = new Error('down');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(cause));
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    const svg = await exportSvg(textStore('text'), {
+      fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+      onFontError,
+    });
+    expect(onFontError).toHaveBeenCalledOnce();
+    expect(onFontError).toHaveBeenCalledWith({
+      family: 'Inter',
+      weight: 'normal',
+      style: 'normal',
+      reason: 'load',
+      cause,
+    });
+    expect(svg).toContain('<tspan');
+  });
+
+  it('reports a timeout', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<void>(() => undefined)),
+    );
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    const pending = exportSvg(textStore('text'), {
+      fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+      imageTimeoutMs: 50,
+      onFontError,
+    });
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(onFontError).toHaveBeenCalledWith(expect.objectContaining({ reason: 'timeout' }));
+  });
+
+  it('times out while a fetched Blob arrayBuffer never settles', async () => {
+    class StalledBlob extends Blob {
+      override arrayBuffer(): Promise<ArrayBuffer> {
+        return new Promise(() => undefined);
+      }
+    }
+
+    vi.useFakeTimers();
+    const response = new Response();
+    vi.spyOn(response, 'blob').mockResolvedValue(new StalledBlob());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    const pending = exportSvg(textStore('text'), {
+      fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+      imageTimeoutMs: 50,
+      onFontError,
+    });
+    await vi.runAllTimersAsync();
+    expect(await pending).not.toContain('<style>');
+    expect(onFontError).toHaveBeenCalledOnce();
+    expect(onFontError).toHaveBeenCalledWith({
+      family: 'Inter',
+      weight: 'normal',
+      style: 'normal',
+      reason: 'timeout',
+      cause: undefined,
+    });
+  });
+
+  it('reports an arrayBuffer rejection as encode once', async () => {
+    const cause = new Error('bytes failed');
+    class FailingBlob extends Blob {
+      override arrayBuffer(): Promise<ArrayBuffer> {
+        return Promise.reject(cause);
+      }
+    }
+
+    const response = new Response();
+    vi.spyOn(response, 'blob').mockResolvedValue(new FailingBlob());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    expect(
+      await exportSvg(textStore('text'), {
+        fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+        onFontError,
+      }),
+    ).not.toContain('<style>');
+    expect(onFontError).toHaveBeenCalledOnce();
+    expect(onFontError).toHaveBeenCalledWith({
+      family: 'Inter',
+      weight: 'normal',
+      style: 'normal',
+      reason: 'encode',
+      cause,
+    });
+  });
+
+  it('reports empty bytes as encode once', async () => {
+    const response = new Response();
+    vi.spyOn(response, 'blob').mockResolvedValue(new Blob());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    expect(
+      await exportSvg(textStore('text'), {
+        fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+        onFontError,
+      }),
+    ).not.toContain('<style>');
+    expect(onFontError).toHaveBeenCalledOnce();
+    expect(onFontError).toHaveBeenCalledWith({
+      family: 'Inter',
+      weight: 'normal',
+      style: 'normal',
+      reason: 'encode',
+      cause: undefined,
+    });
+  });
+
+  it('warns when there is no onFontError', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')));
+    setTextFontFamily('Inter');
+    await exportSvg(textStore('text'), {
+      fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+    });
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]?.[0]).toContain('Inter');
+    warn.mockRestore();
+  });
+
+  it('escapes a quoted family in the SVG', async () => {
+    setTextFontFamily('A"B');
+    expect(
+      await exportSvg(textStore('text'), {
+        fonts: [{ family: 'A"B', src: new Blob([new Uint8Array([1])]) }],
+      }),
+    ).toContain('font-family:&quot;A\\&quot;B&quot;');
+  });
+
+  it('does no fetch without fonts', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    await exportSvg(textStore('text'));
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

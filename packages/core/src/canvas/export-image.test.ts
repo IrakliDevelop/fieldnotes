@@ -350,6 +350,250 @@ describe('getElementRect — html element', () => {
 });
 
 describe('exportImage', () => {
+  it('reports cors when only the plain probe loads', async () => {
+    const originalImage = globalThis.Image;
+    const images: MockImage[] = [];
+    class MockImage {
+      crossOrigin: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: ((cause: unknown) => void) | null = null;
+      constructor() {
+        images.push(this);
+      }
+      set src(_value: string) {
+        void _value;
+      }
+    }
+    globalThis.Image = MockImage as unknown as typeof Image;
+    const context = mockCanvasCtx();
+    const fills: string[] = [];
+    (context.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      fills.push(context.fillStyle as string),
+    );
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as never);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toBlob')
+      .mockImplementation((callback) => callback(new Blob(['image'])));
+    const store = new ElementStore();
+    const image = createImage({
+      position: { x: 10, y: 20 },
+      size: { w: 30, h: 40 },
+      src: 'https://assets.example/cors.png',
+    });
+    store.add(image);
+    const onAssetError = vi.fn();
+
+    try {
+      const exporting = exportImage(store, { scale: 1, onAssetError });
+      const initial = images[0];
+      if (!initial) throw new Error('Initial image missing');
+      const initialError = initial.onerror;
+      const initialCause = new Event('error');
+      initialError?.(initialCause);
+      const probe = images[1];
+      if (!probe) throw new Error('Plain probe missing');
+      const probeLoad = probe.onload;
+      const probeError = probe.onerror;
+      probeLoad?.();
+      await exporting;
+
+      const expected = { elementId: image.id, src: image.src, reason: 'cors' };
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith({
+        elementId: image.id,
+        src: image.src,
+        reason: 'cors',
+      });
+      initialError?.(new Event('error'));
+      probeLoad?.();
+      probeError?.(new Event('error'));
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith(expected);
+      expect(context.drawImage).not.toHaveBeenCalled();
+      expect(context.fillRect).toHaveBeenCalledWith(10, 20, 30, 40);
+      expect(fills).toContain('#eeeeee');
+    } finally {
+      globalThis.Image = originalImage;
+      getContext.mockRestore();
+      toBlob.mockRestore();
+    }
+  });
+
+  it('reports load when both loads fail', async () => {
+    const originalImage = globalThis.Image;
+    const images: MockImage[] = [];
+    class MockImage {
+      crossOrigin: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: ((cause: unknown) => void) | null = null;
+      constructor() {
+        images.push(this);
+      }
+      set src(_value: string) {
+        void _value;
+      }
+    }
+    globalThis.Image = MockImage as unknown as typeof Image;
+    const context = mockCanvasCtx();
+    const fills: string[] = [];
+    (context.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      fills.push(context.fillStyle as string),
+    );
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as never);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toBlob')
+      .mockImplementation((callback) => callback(new Blob(['image'])));
+    const store = new ElementStore();
+    const image = createImage({
+      position: { x: 10, y: 20 },
+      size: { w: 30, h: 40 },
+      src: 'https://assets.example/missing.png',
+    });
+    store.add(image);
+    const onAssetError = vi.fn();
+
+    try {
+      const exporting = exportImage(store, { scale: 1, onAssetError });
+      const initial = images[0];
+      if (!initial) throw new Error('Initial image missing');
+      const initialError = initial.onerror;
+      const initialCause = new Event('error');
+      initialError?.(initialCause);
+      const probe = images[1];
+      if (!probe) throw new Error('Plain probe missing');
+      const probeLoad = probe.onload;
+      const probeError = probe.onerror;
+      probeError?.(new Event('error'));
+      await exporting;
+
+      const expected = { elementId: image.id, src: image.src, reason: 'load', cause: initialCause };
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith(expected);
+      initialError?.(new Event('error'));
+      probeLoad?.();
+      probeError?.(new Event('error'));
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith(expected);
+      expect(fills).toContain('#eeeeee');
+    } finally {
+      globalThis.Image = originalImage;
+      getContext.mockRestore();
+      toBlob.mockRestore();
+    }
+  });
+
+  it('draws the placeholder on timeout', async () => {
+    vi.useFakeTimers();
+    const originalImage = globalThis.Image;
+    const images: MockImage[] = [];
+    class MockImage {
+      crossOrigin: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: ((cause: unknown) => void) | null = null;
+      constructor() {
+        images.push(this);
+      }
+      set src(_value: string) {
+        void _value;
+      }
+    }
+    globalThis.Image = MockImage as unknown as typeof Image;
+    const context = mockCanvasCtx();
+    const fills: string[] = [];
+    (context.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      fills.push(context.fillStyle as string),
+    );
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as never);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toBlob')
+      .mockImplementation((callback) => callback(new Blob(['image'])));
+    const store = new ElementStore();
+    const image = createImage({
+      position: { x: 10, y: 20 },
+      size: { w: 30, h: 40 },
+      src: 'https://assets.example/hung.png',
+    });
+    store.add(image);
+    const onAssetError = vi.fn();
+
+    try {
+      const exporting = exportImage(store, { scale: 1, imageTimeoutMs: 20, onAssetError });
+      const initial = images[0];
+      if (!initial) throw new Error('Initial image missing');
+      const initialLoad = initial.onload;
+      const initialError = initial.onerror;
+      initialError?.(new Event('error'));
+      const probe = images[1];
+      if (!probe) throw new Error('Plain probe missing');
+      const probeLoad = probe.onload;
+      const probeError = probe.onerror;
+      await vi.advanceTimersByTimeAsync(20);
+      await exporting;
+
+      const expected = { elementId: image.id, src: image.src, reason: 'timeout' };
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith({
+        elementId: image.id,
+        src: image.src,
+        reason: 'timeout',
+      });
+      initialLoad?.();
+      initialError?.(new Event('error'));
+      probeLoad?.();
+      probeError?.(new Event('error'));
+      expect(onAssetError).toHaveBeenCalledTimes(1);
+      expect(onAssetError).toHaveBeenCalledWith(expected);
+      expect(fills).toContain('#eeeeee');
+    } finally {
+      globalThis.Image = originalImage;
+      getContext.mockRestore();
+      toBlob.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('warns once per src without onAssetError', async () => {
+    const originalImage = globalThis.Image;
+    globalThis.Image = class MockImage {
+      crossOrigin: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: ((cause: unknown) => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onerror?.(new Event('error')));
+      }
+    } as unknown as typeof Image;
+    const context = mockCanvasCtx();
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as never);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toBlob')
+      .mockImplementation((callback) => callback(new Blob(['image'])));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const store = new ElementStore();
+    const src = 'https://assets.example/missing.png';
+    store.add(createImage({ position: { x: 0, y: 0 }, size: { w: 20, h: 20 }, src }));
+    store.add(createImage({ position: { x: 30, y: 0 }, size: { w: 20, h: 20 }, src }));
+
+    try {
+      await exportImage(store, { scale: 1 });
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(src));
+    } finally {
+      globalThis.Image = originalImage;
+      getContext.mockRestore();
+      toBlob.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
   it('uses an empty frame content crop and rejects a conflicting region before allocation', async () => {
     const store = new ElementStore();
     const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 80, h: 48 } });

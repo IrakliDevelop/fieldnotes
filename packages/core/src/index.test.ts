@@ -64,8 +64,8 @@ describe('core public surface', () => {
     ])
       expect(name in FN).toBe(false);
   });
-  it('exports the current version', () => {
-    expect(FN.VERSION).toBe('0.108.0');
+  it('reports VERSION 0.109.0', () => {
+    expect(FN.VERSION).toBe('0.109.0');
   });
 
   it('exports the elbow arrow document model without routing helpers', () => {
@@ -78,6 +78,30 @@ describe('core public surface', () => {
   it('exports text measurement helpers', () => {
     expect(typeof FN.measureText).toBe('function');
     expect(typeof FN.setTextMeasurer).toBe('function');
+    expect(typeof FN.setTextFontFamily).toBe('function');
+  });
+
+  it('exports SVG font types without widening exportSvg', () => {
+    const face: FN.ExportFontFace = { family: 'Inter', src: new Blob() };
+    const error: FN.ExportFontError = {
+      family: face.family,
+      weight: 'normal',
+      style: 'normal',
+      reason: 'load',
+    };
+    const reason: FN.ExportFontErrorReason = error.reason;
+    const options: FN.ExportFontOptions = { fonts: [face] };
+    expect([reason, options.fonts?.[0]?.family, typeof FN.exportSvg]).toEqual([
+      'load',
+      'Inter',
+      'function',
+    ]);
+  });
+
+  it('exports PDF export types and function', () => {
+    const size: FN.PdfPageSize = 'a4';
+    const options: FN.ExportPdfOptions = { pageSize: size };
+    expect([typeof FN.exportPdf, options.pageSize]).toEqual(['function', 'a4']);
   });
 
   it('exports mount autosave options and no autosave without the option', () => {
@@ -495,9 +519,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.108.0', async () => {
+  it('reads VERSION 0.109.0 from a dynamic import', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.108.0');
+    expect(VERSION).toBe('0.109.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

@@ -33,11 +33,11 @@ Children of `<FieldNotesCanvas>` can call the hooks. `useActiveTool` returns the
 
 ::code{example="using-react" region="tool-button"}
 
-`useViewport()` returns the `Viewport` itself, for anything the hooks don't cover. It throws outside `<FieldNotesCanvas>`. From outside, use the `onReady(viewport)` prop or a ref. `useHistory`, `useLayers`, `useSelection` and `useCamera` re-render the component when undo state, layers, the selection or the camera change. `useExport` and `useLoad` export and load the board ([Export](/docs/export/), [Saving and loading](/docs/saving-and-loading/)). `useCameraControls` moves the camera, and `useCanvasSize` returns the board's size in CSS pixels. `useShortcuts` reads and rebinds [keyboard shortcuts](/docs/tools-and-input/#keyboard-shortcuts). `useElement(id)` returns one element. `useTransaction` makes several changes [one undo step](/docs/undo-and-history/#group-your-own-changes). `usePresence` shows who else is on the board.
+`useViewport()` returns the `Viewport` itself, for anything the hooks don't cover. It throws outside `<FieldNotesCanvas>`. From outside, use the `onReady(viewport)` prop or a ref. `useHistory`, `useLayers`, `useSelection` and `useCamera` re-render the component when undo state, layers, the selection or the camera change. `useExport` returns `exportJSON`, `exportImage`, `exportSVG` and `exportPDF`, and `useLoad` loads a saved board ([Export](/docs/export/), [Saving and loading](/docs/saving-and-loading/)). `useCameraControls` moves the camera, and `useCanvasSize` returns the board's size in CSS pixels. `useShortcuts` reads and rebinds [keyboard shortcuts](/docs/tools-and-input/#keyboard-shortcuts). `useElement(id)` returns one element. `useTransaction` makes several changes [one undo step](/docs/undo-and-history/#group-your-own-changes). `usePresence` shows who else is on the board.
 
 ## React components on the board
 
-`<HostElement position={{ x, y }}>` renders its children on the board, where they pan and zoom with it. React owns the element: moving it creates no undo step, and `exportState()` leaves it out of the saved board. `CanvasElement` still works as a deprecated alias; `@fieldnotes/react` 0.16.0 removes it.
+`<HostElement position={{ x, y }}>` renders its children on the board, where they pan and zoom with it. React owns the element: moving it creates no undo step, and `exportState()` leaves it out of the saved board.
 
 The [`@fieldnotes/react` README](https://github.com/IrakliDevelop/fieldnotes/blob/master/packages/react/README.md#prop-reactivity) says which props are read only at mount, and covers custom tools and the selection hooks.
 

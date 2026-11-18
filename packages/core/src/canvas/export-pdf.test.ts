@@ -1,0 +1,317 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ElementStore } from '../elements/element-store';
+import { createImage, createShape } from '../elements/element-factory';
+import { createFrame } from '../elements/frame-element';
+import { ElementRegistry } from '../elements/element-registry';
+import { elementLink } from '../elements/link';
+import type { ExtensionElementEnvelope } from '../elements/types';
+import { exportPdf } from './export-pdf';
+
+let rgba = new Uint8ClampedArray([255, 255, 255, 255]);
+let contexts = 0;
+
+beforeEach(() => {
+  contexts = 0;
+  rgba = new Uint8ClampedArray([255, 255, 255, 255]);
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (
+    this: HTMLCanvasElement,
+  ) {
+    contexts++;
+    return new Proxy(
+      {
+        canvas: this,
+        getImageData: (_x: number, _y: number, width: number, height: number) => ({
+          data: new Uint8ClampedArray(width * height * 4).map((_, index) => rgba[index % 4] ?? 0),
+        }),
+      },
+      { get: (target, key) => (key in target ? Reflect.get(target, key) : () => undefined) },
+    ) as unknown as CanvasRenderingContext2D;
+  });
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function fixture() {
+  const store = new ElementStore();
+  const wide = createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 74 } });
+  wide.id = 'wide';
+  const tall = createFrame({ position: { x: 200, y: 0 }, size: { w: 80, h: 184 } });
+  tall.id = 'tall';
+  const wideChild = createShape({
+    parentId: wide.id,
+    position: { x: 0, y: 24 },
+    size: { w: 100, h: 50 },
+  });
+  const tallChild = createShape({
+    parentId: tall.id,
+    position: { x: 200, y: 24 },
+    size: { w: 80, h: 160 },
+  });
+  store.add(wide);
+  store.add(tall);
+  store.add(wideChild);
+  store.add(tallChild);
+  return { store, wide, tall, wideChild, tallChild };
+}
+async function text(pdf: Blob | null): Promise<string> {
+  if (!pdf) throw new Error('PDF missing');
+  return new TextDecoder('latin1').decode(await pdf.arrayBuffer());
+}
+
+describe('exportPdf', () => {
+  it('writes one PDF page for a board shape and null for an empty board', async () => {
+    const store = new ElementStore();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 10 } }));
+    const pdf = await exportPdf(store, { dpi: 18 });
+    const value = await text(pdf);
+    expect([
+      pdf?.type,
+      value.startsWith('%PDF-1.4'),
+      value.match(/\/Type\s*\/Page(?!s)/g)?.length,
+    ]).toEqual(['application/pdf', true, 1]);
+    await expect(exportPdf(new ElementStore(), { dpi: 18 })).resolves.toBeNull();
+  });
+  it('orders auto pages and uses Letter landscape', async () => {
+    const { store, wide, tall } = fixture();
+    const ordered = await text(await exportPdf(store, { frameIds: [tall.id, wide.id], dpi: 18 }));
+    expect(ordered.match(/\/Type\s*\/Page(?!s)/g)).toHaveLength(2);
+    const tallBox = ordered.indexOf('/MediaBox [0 0 595.28 841.89]');
+    const wideBox = ordered.indexOf('/MediaBox [0 0 841.89 595.28]');
+    expect(tallBox).toBeGreaterThanOrEqual(0);
+    expect(wideBox).toBeGreaterThanOrEqual(0);
+    expect(tallBox).toBeLessThan(wideBox);
+    expect(
+      await text(await exportPdf(store, { frameIds: [wide.id], pageSize: 'letter', dpi: 18 })),
+    ).toContain('/MediaBox [0 0 792 612]');
+  });
+  it.each([
+    ['landscape', '/MediaBox [0 0 800 400]'],
+    ['portrait', '/MediaBox [0 0 400 800]'],
+    ['auto', '/MediaBox [0 0 800 400]'],
+  ] as const)('normalizes custom page sizes for %s orientation', async (orientation, mediaBox) => {
+    const store = new ElementStore();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 200, h: 100 } }));
+
+    expect(
+      await text(
+        await exportPdf(store, { pageSize: { width: 800, height: 400 }, orientation, dpi: 18 }),
+      ),
+    ).toContain(mediaBox);
+  });
+  it('fits portrait pages at default and requested densities', async () => {
+    const { store, wide } = fixture();
+    const base = { frameIds: [wide.id], orientation: 'portrait' as const, margin: 0 };
+    const defaultDpi = await text(await exportPdf(store, base));
+    expect(defaultDpi).toContain('q 595.28 0 0 297.64 0 272.125 cm /Im0 Do Q');
+    expect(defaultDpi).toContain('/Width 1191 /Height 596');
+    expect(await text(await exportPdf(store, { ...base, dpi: 72 }))).toContain(
+      '/Width 596 /Height 298',
+    );
+    expect(
+      Number(
+        (await text(await exportPdf(store, { ...base, maxDimension: 600 }))).match(
+          /\/Width (\d+)/,
+        )?.[1],
+      ),
+    ).toBeLessThanOrEqual(600);
+  });
+  it('writes external, escaped, and clipped link annotations', async () => {
+    const { store, wide } = fixture();
+    const linked = createShape({
+      parentId: wide.id,
+      position: { x: 10, y: 34 },
+      size: { w: 20, h: 10 },
+    });
+    linked.link = 'http://example.com/ä';
+    store.add(linked);
+    const options = { frameIds: [wide.id], orientation: 'portrait' as const, margin: 0, dpi: 18 };
+    let value = await text(await exportPdf(store, options));
+    expect(value).toContain('/Subtype /Link');
+    expect(value).toContain('/Rect [59.528 450.709 178.584 510.237]');
+    expect(value).toContain('/URI (http://example.com/%C3%A4)');
+    store.update(linked.id, { link: 'http://example.com/a)b' });
+    expect(await text(await exportPdf(store, options))).toContain(
+      '/URI (http://example.com/a\\)b)',
+    );
+    store.update(linked.id, { position: { x: 80, y: 34 }, size: { w: 40, h: 10 } });
+    value = await text(await exportPdf(store, options));
+    expect(value).toContain('/Rect [476.224 450.709 595.28 510.237]');
+  });
+  it('links internal targets only on exported pages', async () => {
+    const { store, wide, tall, wideChild, tallChild } = fixture();
+    store.update(wideChild.id, { link: elementLink(tall.id) });
+    let value = await text(await exportPdf(store, { frameIds: [wide.id, tall.id], dpi: 18 }));
+    const pageTwo = value.match(/\/Kids \[\d+ 0 R (\d+) 0 R\]/)?.[1];
+    expect(value).toContain(`/Dest [${pageTwo} 0 R /Fit]`);
+    store.update(wideChild.id, { link: elementLink(tallChild.id) });
+    value = await text(await exportPdf(store, { frameIds: [wide.id, tall.id], dpi: 18 }));
+    expect(value).toContain(`/Dest [${value.match(/\/Kids \[\d+ 0 R (\d+) 0 R\]/)?.[1]} 0 R /Fit]`);
+    store.update(wideChild.id, { link: elementLink('missing') });
+    expect(await text(await exportPdf(store, { frameIds: [wide.id], dpi: 18 }))).not.toContain(
+      '/Annots',
+    );
+  });
+  it('composites alpha, supports uncompressed RGB, and uses FlateDecode', async () => {
+    vi.stubGlobal('CompressionStream', undefined);
+    rgba = new Uint8ClampedArray([0, 0, 0, 128]);
+    const store = new ElementStore();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 1, h: 1 } }));
+    const raw = await text(await exportPdf(store, { dpi: 18 }));
+    expect(raw).not.toContain('/Filter');
+    const image = raw.match(/\/Width (\d+) \/Height (\d+)[\s\S]*?\/Length (\d+)/);
+    expect(Number(image?.[3])).toBe(Number(image?.[1]) * Number(image?.[2]) * 3);
+    expect(raw).toContain('\x7f\x7f\x7f');
+    vi.unstubAllGlobals();
+    const { store: compressed, wide } = fixture();
+    expect(await text(await exportPdf(compressed, { frameIds: [wide.id], dpi: 18 }))).toContain(
+      '/Filter /FlateDecode',
+    );
+  });
+  it('validates before painting and never embeds scenes', async () => {
+    const { store, wide } = fixture();
+    for (const options of [
+      { frameIds: [] },
+      { frameIds: [wide.id, wide.id] },
+      { margin: -1 },
+      { dpi: 0 },
+      { pageSize: { width: 0, height: 10 } },
+    ])
+      await expect(exportPdf(store, options)).rejects.toThrow(RangeError);
+    expect(contexts).toBe(0);
+    expect(await text(await exportPdf(store, { frameIds: [wide.id], dpi: 18 }))).not.toContain(
+      'fieldnotes/scene',
+    );
+  });
+  it('rejects impossible printable areas before requesting a canvas context', async () => {
+    const { store } = fixture();
+    for (const options of [{ margin: 300 }, { pageSize: { width: 72, height: 72 } }])
+      await expect(exportPdf(store, options)).rejects.toThrow('margin must leave a printable area');
+    expect(contexts).toBe(0);
+  });
+  it('checks required image-export capabilities before requesting a canvas context', async () => {
+    const { store } = fixture();
+
+    await expect(exportPdf(store, { requiredCapabilities: ['fog'] })).rejects.toEqual(
+      new Error('Required render capabilities are missing on imageExport: fog'),
+    );
+    expect(contexts).toBe(0);
+  });
+  it('omits links for frame-clipped children', async () => {
+    const store = new ElementStore();
+    const frame = createFrame({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 100 },
+    });
+    store.add(frame);
+    const child = createShape({
+      parentId: frame.id,
+      position: { x: 20, y: 0 },
+      size: { w: 20, h: 20 },
+    });
+    child.link = 'https://example.com/';
+    store.add(child);
+
+    const value = await text(await exportPdf(store, { dpi: 18 }));
+    expect(value).not.toContain('/Subtype /Link');
+    expect(value).not.toContain('/Annots');
+  });
+  it('omits links for fail-closed extension children', async () => {
+    const root: ExtensionElementEnvelope = {
+      id: 'closed-root',
+      type: 'extension',
+      extensionType: 'test:closed-export',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const registry = new ElementRegistry();
+    registry.register<ExtensionElementEnvelope>({
+      type: root.extensionType,
+      legacyTypes: [],
+      decodeLegacy: () => root,
+      validateData: () => true,
+      unwrap: (element) => element,
+      wrap: (element) => element,
+      bounds: () => ({ x: 0, y: 0, w: 100, h: 100 }),
+      clipBounds: () => ({ x: 0, y: 0, w: 0, h: 100 }),
+    });
+    const store = new ElementStore(registry);
+    store.add(root);
+    const child = createShape({
+      parentId: root.id,
+      position: { x: 20, y: 20 },
+      size: { w: 20, h: 20 },
+    });
+    child.link = 'https://example.com/';
+    store.add(child);
+
+    expect(store.getEffectiveClip(child.id)).toBeUndefined();
+    const value = await text(await exportPdf(store, { dpi: 18, elementRegistry: registry }));
+    expect(value).not.toContain('/Subtype /Link');
+    expect(value).not.toContain('/Annots');
+  });
+  it('writes indirect link annotations by default and omits them when disabled', async () => {
+    const store = new ElementStore();
+    const linked = createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 10 } });
+    linked.link = 'https://example.com/';
+    store.add(linked);
+
+    const value = await text(await exportPdf(store, { dpi: 18 }));
+    const annots = /\/Annots \[([^\]]+)\]/.exec(value)?.[1];
+    const id = Number(/(\d+) 0 R/.exec(annots ?? '')?.[1]);
+    const xref = /xref\n0 \d+\n[\s\S]*?\nstartxref/.exec(value)?.[0];
+    const entry = xref?.split('\r\n')[id];
+    const offset = Number(entry?.slice(0, 10));
+
+    expect(annots).toMatch(/^\d+ 0 R$/);
+    expect(value).toContain(`${id} 0 obj\n<< /Type /Annot /Subtype /Link`);
+    expect(value.slice(offset, offset + `${id} 0 obj`.length)).toBe(`${id} 0 obj`);
+    const disabled = await text(await exportPdf(store, { dpi: 18, links: false }));
+    expect(disabled).not.toContain('/Subtype /Link');
+    expect(disabled).not.toContain('/Annots');
+  });
+  it('returns null for null context and prepares later frames before painting', async () => {
+    const { store, wide } = fixture();
+    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue(null);
+    await expect(exportPdf(store, { frameIds: [wide.id], dpi: 18 })).resolves.toBeNull();
+    contexts = 0;
+    await expect(exportPdf(store, { frameIds: [wide.id, 'missing'], dpi: 18 })).rejects.toThrow(
+      RangeError,
+    );
+    expect(contexts).toBe(0);
+  });
+  it('deduplicates asset warnings across PDF pages', async () => {
+    const { store, wide, tall } = fixture();
+    vi.useFakeTimers();
+    vi.stubGlobal('CompressionStream', undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    store.add(
+      createImage({
+        parentId: wide.id,
+        position: { x: 0, y: 24 },
+        size: { w: 1, h: 1 },
+        src: 'broken',
+      }),
+    );
+    store.add(
+      createImage({
+        parentId: tall.id,
+        position: { x: 200, y: 24 },
+        size: { w: 1, h: 1 },
+        src: 'broken',
+      }),
+    );
+    const result = exportPdf(store, { frameIds: [wide.id, tall.id], imageTimeoutMs: 1, dpi: 18 });
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
+    expect(warn).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+});

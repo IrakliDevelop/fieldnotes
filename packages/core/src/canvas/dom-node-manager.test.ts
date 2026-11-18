@@ -13,6 +13,7 @@ import {
 } from '../elements/element-factory';
 import { createBoundText } from '../elements/bound-text';
 import { TEXT_PADDING } from '../elements/text-measure';
+import { setTextFontFamily } from '../elements/text-measure';
 
 describe('DomNodeManager', () => {
   it('maps world clip corners into unrotated and inverse-rotated local polygons', () => {
@@ -74,10 +75,35 @@ describe('DomNodeManager', () => {
   });
 
   afterEach(() => {
+    setTextFontFamily(null);
     domLayer.remove();
   });
 
   describe('syncDomNode', () => {
+    it('note and text nodes inherit the host font until a family is set', () => {
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      const text = createText({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      manager.syncDomNode(note);
+      manager.syncDomNode(text);
+
+      expect(manager.getNode(note.id)?.style.fontFamily).toBe('');
+      expect(manager.getNode(text.id)?.style.fontFamily).toBe('');
+
+      setTextFontFamily('Inter');
+      manager.syncDomNode(note);
+      manager.syncDomNode(text);
+
+      expect(manager.getNode(note.id)?.style.fontFamily).toBe('Inter');
+      expect(manager.getNode(text.id)?.style.fontFamily).toBe('Inter');
+
+      setTextFontFamily(null);
+      manager.syncDomNode(note);
+      manager.syncDomNode(text);
+
+      expect(manager.getNode(note.id)?.style.fontFamily).toBe('');
+      expect(manager.getNode(text.id)?.style.fontFamily).toBe('');
+    });
+
     it('creates a positioned DOM node for an element', () => {
       const note = createNote({
         position: { x: 100, y: 200 },

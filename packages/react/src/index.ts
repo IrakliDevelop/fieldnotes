@@ -1,7 +1,7 @@
 export { FieldNotesCanvas } from './field-notes-canvas';
 export type { FieldNotesCanvasProps, FieldNotesCanvasRef } from './field-notes-canvas';
-export { HostElement, CanvasElement } from './host-element';
-export type { HostElementProps, CanvasElementProps } from './host-element';
+export { HostElement } from './host-element';
+export type { HostElementProps } from './host-element';
 export {
   useViewport,
   useActiveTool,
@@ -47,6 +47,7 @@ export type {
   SelectionStyleDetails,
   ElementRect,
   ExportImageOptions,
+  ExportPdfOptions,
   ExportSvgOptions,
   HistoryState,
   HostElementGeometry,

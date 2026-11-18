@@ -18,7 +18,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Select & multi-select** — click, drag box, move, resize (layer-aware)
 - **Undo / redo** — history of the last 100 steps
 - **State serialization** — export/import JSON snapshots with automatic migration
-- **Export** — PNG export with scale, padding, background, and element filter options
+- [**Export**](https://iraklidevelop.github.io/fieldnotes/docs/export/): PNG, SVG and PDF export
 - **Performance instrumentation** — `getRenderStats()` and `logPerformance()` for frame timing
 - **Touch & tablet** — Pointer Events API, pinch-to-zoom, two-finger pan, stylus pressure
 - **Zero dependencies** — vanilla TypeScript, no framework required
@@ -155,13 +155,18 @@ output. `frameId` works with `exportImage()` and `exportSVG()`. For raster expor
 image diagnostics, registry capabilities, and render hooks still apply. Frame PNG export defaults to
 transparent; JPEG retains its opaque default.
 
-Remote images are requested with anonymous CORS using their original URLs; failures are omitted from
-the result and reported through `onAssetError` when supplied.
+See the [export guide](https://iraklidevelop.github.io/fieldnotes/docs/export/). Remote images are
+requested with anonymous CORS using their original URLs. PNG and PDF exports draw a placeholder when
+an image fails; `onAssetError` reports `cors`, `load`, `timeout`, or `encode`, and without a callback
+each failed URL logs one `console.warn`. `exportSVG` writes text, notes and labels as SVG text and
+can embed font faces you supply. `exportPDF` resolves to a PDF with one picture page per frame, or
+one for the board, and keeps element links clickable.
 
 `embedScene: true` stores the exported elements in the PNG or SVG, so the file can be opened again
 as a board. The scene holds every element inside the export bounds, including ones that fog or
 render hooks paint over, so never embed it in an export for viewers who must not see those
-elements. `readSceneFile` reads the scene back, and dropping the file on a board inserts it:
+elements. PDF links still point at elements under fog; pass `links: false` when sharing a fogged
+board. `readSceneFile` reads the scene back, and dropping the file on a board inserts it:
 
 ```typescript
 const png = await viewport.exportImage({ embedScene: true });

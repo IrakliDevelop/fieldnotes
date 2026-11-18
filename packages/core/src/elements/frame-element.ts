@@ -1,5 +1,6 @@
 import type { Bounds, Point, Size } from '../core/types';
 import { createId } from './create-id';
+import { textFontFamily } from './text-layout';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 
 /** The built-in extension type used for board frames. */
@@ -67,20 +68,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function escapeXml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => {
-    switch (character) {
-      case '&':
-        return '&amp;';
-      case '<':
-        return '&lt;';
-      case '>':
-        return '&gt;';
-      case '"':
-        return '&quot;';
-      default:
-        return '&apos;';
-    }
-  });
+  return value
+    .replace(/[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '')
+    .replace(/[&<>"']/g, (character) => {
+      switch (character) {
+        case '&':
+          return '&amp;';
+        case '<':
+          return '&lt;';
+        case '>':
+          return '&gt;';
+        case '"':
+          return '&quot;';
+        default:
+          return '&apos;';
+      }
+    });
 }
 
 function cornerAt(el: FrameElement, id: string, zoom: number): Point | null {
@@ -241,7 +244,7 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
     ctx.moveTo(el.position.x, el.position.y + HEADER_HEIGHT);
     ctx.lineTo(el.position.x + el.size.w, el.position.y + HEADER_HEIGHT);
     ctx.stroke();
-    ctx.font = '14px sans-serif';
+    ctx.font = `14px ${textFontFamily()}`;
     ctx.textBaseline = 'middle';
     ctx.save();
     ctx.beginPath();
@@ -256,7 +259,7 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
     const title = escapeXml(el.data.title);
     const { x, y } = el.position;
     const { w, h } = el.size;
-    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-width="1"/><path d="M ${x} ${y + HEADER_HEIGHT} H ${x + w}" fill="none" stroke="${color}" stroke-width="1"/><svg x="${x}" y="${y}" width="${w}" height="${HEADER_HEIGHT}" viewBox="${x} ${y} ${w} ${HEADER_HEIGHT}" overflow="hidden"><text x="${x + 8}" y="${y + HEADER_HEIGHT / 2}" fill="${color}" dominant-baseline="middle">${title}</text></svg>`;
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-width="1"/><path d="M ${x} ${y + HEADER_HEIGHT} H ${x + w}" fill="none" stroke="${color}" stroke-width="1"/><svg x="${x}" y="${y}" width="${w}" height="${HEADER_HEIGHT}" viewBox="${x} ${y} ${w} ${HEADER_HEIGHT}" overflow="hidden"><text x="${x + 8}" y="${y + HEADER_HEIGHT / 2}" fill="${color}" font-family="${escapeXml(textFontFamily())}" font-size="14" dominant-baseline="middle">${title}</text></svg>`;
   },
   dataVersion: 1,
 };

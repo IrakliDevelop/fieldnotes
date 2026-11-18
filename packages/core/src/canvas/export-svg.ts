@@ -15,8 +15,6 @@ import { lineEndpoints } from '../elements/shape-geometry';
 import { getArrowCurve, getArrowEndTangent, getArrowLabelAnchor } from '../elements/arrow-geometry';
 import { getArrowDashPattern } from '../elements/renderers/arrow-renderer';
 import { getElementBounds } from '../elements/element-bounds';
-import { renderNoteOnCanvas } from './note-canvas-renderer';
-import { renderTextOnCanvas } from './text-canvas-renderer';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import {
   assertExportSize,
@@ -27,6 +25,7 @@ import {
   positiveOption,
   validateExportResourceOptions,
   resolveExportBounds,
+  withAssetWarning,
 } from './export-image';
 import type { ExportResourceOptions } from './export-image';
 import { renderHtmlElements, validateHtmlExportOptions } from './html-export';
@@ -42,9 +41,17 @@ import { buildSceneEnvelope, serializeSceneEnvelope } from './scene-embed';
 import type { SceneEmbedOptions } from './scene-embed';
 import { getBoundText } from '../elements/bound-text';
 import { getElbowRoute } from '../elements/elbow-cache';
+import { parseStyledRuns } from '../elements/note-sanitizer';
+import type { StyledRun } from '../elements/note-sanitizer';
+import { layoutStyledRuns, lineOffset, textFontFamily } from '../elements/text-layout';
+import { measureFragment, TEXT_PADDING } from '../elements/text-measure';
+import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
+import { isFrameElement } from '../elements/frame-element';
+import { loadFontFaces, selectFaces } from './export-fonts';
+import type { ExportFontOptions } from './export-fonts';
 
 export interface ExportSvgOptions
-  extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions {
+  extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions, ExportFontOptions {
   frameId?: string;
   padding?: number;
   background?: string;
@@ -73,6 +80,14 @@ function esc(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function xmlText(value: string): string {
+  return value.replace(/[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, '');
+}
+
+function attr(value: string): string {
+  return esc(xmlText(value));
 }
 
 const n = (v: number): string => (Number.isFinite(v) ? `${Math.round(v * 1000) / 1000}` : '0');
@@ -124,7 +139,7 @@ function emitStroke(stroke: StrokeElement): string {
   const blend = stroke.blendMode === 'multiply' ? ' style="mix-blend-mode:multiply"' : '';
   let out = '';
   for (const [width, parts] of byWidth) {
-    out += `<path d="${parts.join(' ')}" fill="none" stroke="${esc(stroke.color)}" stroke-width="${n(width)}" stroke-linecap="round" stroke-linejoin="round" opacity="${n(stroke.opacity)}"${blend} />`;
+    out += `<path d="${parts.join(' ')}" fill="none" stroke="${attr(stroke.color)}" stroke-width="${n(width)}" stroke-linecap="round" stroke-linejoin="round" opacity="${n(stroke.opacity)}"${blend} />`;
   }
   return out;
 }
@@ -132,8 +147,9 @@ function emitStroke(stroke: StrokeElement): string {
 function emitShape(shape: ShapeElement): string {
   const { x, y } = shape.position;
   const { w, h } = shape.size;
-  const fill = shape.fillColor !== 'none' && shape.shape !== 'line' ? esc(shape.fillColor) : 'none';
-  const stroke = shape.strokeWidth > 0 ? esc(shape.strokeColor) : 'none';
+  const fill =
+    shape.fillColor !== 'none' && shape.shape !== 'line' ? attr(shape.fillColor) : 'none';
+  const stroke = shape.strokeWidth > 0 ? attr(shape.strokeColor) : 'none';
   const sw = shape.strokeWidth > 0 ? ` stroke-width="${n(shape.strokeWidth)}"` : '';
 
   switch (shape.shape) {
@@ -148,7 +164,12 @@ function emitShape(shape: ShapeElement): string {
   }
 }
 
-function emitArrow(arrow: ArrowElement, store: ElementStore): string {
+function emitArrow(
+  arrow: ArrowElement,
+  store: ElementStore,
+  measurer: SvgMeasurer | null,
+  used: Set<string>,
+): string {
   const resolveBounds = (id: string) => {
     const element = store.getById(id);
     return element ? getElementBounds(element) : null;
@@ -170,7 +191,7 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
 
   const pattern = getArrowDashPattern(arrow.strokeStyle);
   const dash = pattern.length > 0 ? ` stroke-dasharray="${pattern.join(' ')}"` : '';
-  let out = `<path d="${d}" fill="none" stroke="${esc(arrow.color)}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
+  let out = `<path d="${d}" fill="none" stroke="${attr(arrow.color)}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
 
   const last = route?.points.at(-1) ?? to;
   const angle = getArrowEndTangent(arrow, curve.t1, route?.points);
@@ -180,7 +201,7 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
     const p1y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);
     const p2x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle + ARROWHEAD_ANGLE);
     const p2y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle + ARROWHEAD_ANGLE);
-    out += `<polygon points="${n(tip.x)},${n(tip.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${esc(arrow.color)}" />`;
+    out += `<polygon points="${n(tip.x)},${n(tip.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${attr(arrow.color)}" />`;
   }
 
   const boundText = getBoundText(arrow, store);
@@ -191,13 +212,15 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
     );
   } else if (arrow.label && arrow.label.length > 0) {
     const mid = getArrowLabelAnchor(arrow, resolveBounds);
-    const approxW = arrow.label.length * ARROW_LABEL_FONT_SIZE * 0.6;
+    const font = `normal normal ${ARROW_LABEL_FONT_SIZE}px ${textFontFamily()}`;
+    const labelWidth = measurer?.width(arrow.label, font) ?? measureFragment(arrow.label, font);
     const padX = 6;
     const padY = 4;
-    const lw = approxW + padX * 2;
+    const lw = labelWidth + padX * 2;
     const lh = ARROW_LABEL_FONT_SIZE + padY * 2;
     out += `<rect x="${n(mid.x - lw / 2)}" y="${n(mid.y - lh / 2)}" width="${n(lw)}" height="${n(lh)}" rx="4" fill="rgba(255,255,255,0.9)" />`;
-    out += `<text x="${n(mid.x)}" y="${n(mid.y)}" font-family="system-ui, sans-serif" font-size="${ARROW_LABEL_FONT_SIZE}" fill="#1a1a1a" text-anchor="middle" dominant-baseline="central">${esc(arrow.label)}</text>`;
+    out += `<text x="${n(mid.x)}" y="${n(mid.y)}" font-family="${attr(textFontFamily())}" font-size="${ARROW_LABEL_FONT_SIZE}" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">${attr(arrow.label)}</text>`;
+    used.add('normal/normal');
   }
 
   return out;
@@ -208,80 +231,123 @@ function emitImage(image: ImageElement | HtmlElement, dataUri: string | undefine
   if (!href) return '';
   const { x, y } = image.position;
   const { w, h } = image.size;
-  return `<image href="${esc(href)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" />`;
+  return `<image href="${attr(href)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" />`;
 }
 
-function emitText(
-  text: TextElement,
-  rasterScale: number,
-  resourceOptions: ExportResourceOptions,
+interface SvgMeasurer {
+  width(text: string, font: string): number;
+  ascent(font: string): number | null;
+}
+
+function createSvgMeasurer(): SvgMeasurer | null {
+  if (typeof document === 'undefined') return null;
+  const ctx = document.createElement('canvas').getContext('2d');
+  if (!ctx) return null;
+  const ascents = new Map<string, number | null>();
+  return {
+    width(text, font) {
+      ctx.font = font;
+      return ctx.measureText(text).width;
+    },
+    ascent(font) {
+      const cached = ascents.get(font);
+      if (cached !== undefined) return cached;
+      ctx.font = font;
+      ctx.textBaseline = 'alphabetic';
+      const alphabetic = ctx.measureText(' ').fontBoundingBoxAscent;
+      ctx.textBaseline = 'top';
+      const top = ctx.measureText(' ').fontBoundingBoxAscent;
+      const ascent =
+        typeof alphabetic === 'number' &&
+        Number.isFinite(alphabetic) &&
+        typeof top === 'number' &&
+        Number.isFinite(top)
+          ? alphabetic - top
+          : null;
+      ascents.set(font, ascent);
+      return ascent;
+    },
+  };
+}
+
+function emitStyledText(
+  runs: StyledRun[],
+  startX: number,
+  startY: number,
+  contentWidth: number,
+  opts: { align: 'left' | 'center' | 'right'; lineHeight: number; wrap: boolean },
+  fill: string,
+  measurer: SvgMeasurer | null,
+  used: Set<string>,
 ): string {
-  if (!text.text) return '';
-  const { x, y } = text.position;
-  const { w, h } = text.size;
-  if (typeof document === 'undefined') return '';
-
-  const width = Math.max(1, Math.ceil(w * rasterScale));
-  const height = Math.max(1, Math.ceil(h * rasterScale));
-  assertExportSize(width, height, resourceOptions);
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return '';
-
-  ctx.scale(rasterScale, rasterScale);
-  ctx.translate(-x, -y);
-  renderTextOnCanvas(ctx, text);
-
-  let dataUri: string;
-  try {
-    dataUri = canvas.toDataURL();
-  } catch {
-    return '';
+  const layout = layoutStyledRuns(
+    (value, font) => measurer?.width(value, font) ?? measureFragment(value, font),
+    runs,
+    opts.wrap ? contentWidth : Infinity,
+    opts.lineHeight,
+  );
+  let out = `<g fill="${attr(fill)}" font-family="${attr(textFontFamily())}" xml:space="preserve">`;
+  for (const line of layout.lines) {
+    const offset = lineOffset(line, opts.align, contentWidth);
+    const first = line.fragments[0];
+    const baseline = first ? (measurer?.ascent(first.font) ?? null) : null;
+    out += `<text${baseline === null ? ' dominant-baseline="text-before-edge"' : ''}>`;
+    let decorations = '';
+    for (const fragment of line.fragments) {
+      const { bold, italic } = fragment;
+      const x = startX + offset + fragment.x;
+      const y = startY + line.y + (measurer?.ascent(fragment.font) ?? 0);
+      const weight = bold ? ' font-weight="bold"' : '';
+      const style = italic ? ' font-style="italic"' : '';
+      out += `<tspan x="${n(x)}" y="${n(y)}" font-size="${n(fragment.fontSize)}"${weight}${style}>${attr(fragment.text + (fragment.trailingSpace ? ' ' : ''))}</tspan>`;
+      used.add(`${bold ? 'bold' : 'normal'}/${italic ? 'italic' : 'normal'}`);
+      if (fragment.underline) {
+        decorations += `<rect x="${n(x)}" y="${n(startY + line.y + fragment.fontSize + 1)}" width="${n(fragment.width)}" height="1" />`;
+      }
+      if (fragment.strikethrough) {
+        decorations += `<rect x="${n(x)}" y="${n(startY + line.y + fragment.fontSize * 0.55)}" width="${n(fragment.width)}" height="1" />`;
+      }
+    }
+    out += `</text>${decorations}`;
   }
-  if (!dataUri || !dataUri.startsWith('data:')) return '';
-
-  return `<image href="${esc(dataUri)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" />`;
+  return `${out}</g>`;
 }
 
-function emitNote(
-  note: NoteElement,
-  rasterScale: number,
-  resourceOptions: ExportResourceOptions,
-): string {
+function emitText(text: TextElement, measurer: SvgMeasurer | null, used: Set<string>): string {
+  if (!text.text || typeof DOMParser === 'undefined') return '';
+  return emitStyledText(
+    parseStyledRuns(text.text, text.fontSize),
+    text.position.x + TEXT_PADDING,
+    text.position.y + TEXT_PADDING,
+    Math.max(0, text.size.w - TEXT_PADDING * 2),
+    { align: text.textAlign, lineHeight: 1.4, wrap: text.wrap !== false },
+    text.color,
+    measurer,
+    used,
+  );
+}
+
+function emitNote(note: NoteElement, measurer: SvgMeasurer | null, used: Set<string>): string {
   const { x, y } = note.position;
   const { w, h } = note.size;
-  if (typeof document === 'undefined') return emitNotePlaceholder(note);
-
-  const width = Math.max(1, Math.ceil(w * rasterScale));
-  const height = Math.max(1, Math.ceil(h * rasterScale));
-  assertExportSize(width, height, resourceOptions);
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return emitNotePlaceholder(note);
-
-  ctx.scale(rasterScale, rasterScale);
-  ctx.translate(-x, -y);
-  renderNoteOnCanvas(ctx, note);
-
-  let dataUri: string;
-  try {
-    dataUri = canvas.toDataURL();
-  } catch {
-    return emitNotePlaceholder(note);
-  }
-  if (!dataUri || !dataUri.startsWith('data:')) return emitNotePlaceholder(note);
-
-  return `<image href="${esc(dataUri)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" />`;
+  const placeholder = emitNotePlaceholder(note);
+  if (!note.text || typeof DOMParser === 'undefined') return placeholder;
+  return `${placeholder}<svg x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" viewBox="${n(x)} ${n(y)} ${n(w)} ${n(h)}" overflow="hidden">${emitStyledText(
+    parseStyledRuns(note.text, note.fontSize ?? DEFAULT_NOTE_FONT_SIZE),
+    x + 8,
+    y + 8,
+    w - 16,
+    { align: 'left', lineHeight: 1.3, wrap: true },
+    note.textColor,
+    measurer,
+    used,
+  )}</svg>`;
 }
 
 function emitNotePlaceholder(note: NoteElement): string {
   const { x, y } = note.position;
   const { w, h } = note.size;
-  return `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="4" fill="${esc(note.backgroundColor)}" />`;
+  return `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="4" fill="${attr(note.backgroundColor)}" />`;
 }
 
 export async function exportSvg(
@@ -289,6 +355,7 @@ export async function exportSvg(
   options: ExportSvgOptions = {},
   layerManager?: LayerManager,
 ): Promise<string> {
+  const reportingOptions = withAssetWarning(options);
   assertRenderCapabilities(
     options.renderHooks?.svgExport,
     'svgExport',
@@ -300,6 +367,8 @@ export async function exportSvg(
   validateHtmlExportOptions(options);
   const filter = options.filter;
   const registry = options.elementRegistry ?? getDefaultElementRegistry();
+  const measurer = createSvgMeasurer();
+  const used = new Set<string>();
   const frameExport = resolveFrameExport(store, options.frameId);
   const rootNumber = frameExport ? (value: number): string => `${value}` : n;
 
@@ -340,12 +409,11 @@ export async function exportSvg(
   }
   const paintableElements = ordinaryElements.map(({ element }) => element);
 
-  // Only remote/blob image srcs need network loading; data: srcs pass through.
   const remoteImages = paintableElements.filter(
     (el) => el.type === 'image' && !el.src.startsWith('data:'),
   );
-  const imageCache = await loadImages(remoteImages, options);
-  const imageDataUris = encodeImages(paintableElements, imageCache, rasterScale, options);
+  const imageCache = await loadImages(remoteImages, reportingOptions);
+  const imageDataUris = encodeImages(paintableElements, imageCache, rasterScale, reportingOptions);
   const htmlElements = paintableElements.filter((el): el is HtmlElement => el.type === 'html');
 
   // Resolve routing per visible html element before doing any rendering work: canvas-routed
@@ -383,7 +451,7 @@ export async function exportSvg(
   for (const [id, uri] of canvasHtmlDataUris) htmlDataUris.set(id, uri);
 
   const backgroundSvg = options.background
-    ? `<rect x="${rootNumber(bounds.x)}" y="${rootNumber(bounds.y)}" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" fill="${esc(options.background)}" />`
+    ? `<rect x="${rootNumber(bounds.x)}" y="${rootNumber(bounds.y)}" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" fill="${attr(options.background)}" />`
     : '';
 
   const fullCanvasSvg: string[] = [];
@@ -405,15 +473,16 @@ export async function exportSvg(
     }
     const prepared = ordinaryById.get(el.id);
     if (!prepared) continue;
+    if (isFrameElement(prepared.element) && prepared.element.data.title) used.add('normal/normal');
     const emitted = emitElement(
       prepared.element,
       imageDataUris,
       htmlDataUris,
-      rasterScale,
       store,
-      options,
       registry,
       bounds,
+      measurer,
+      used,
     );
     if (!emitted) continue;
     const entries = layerBodies.get(prepared.element.layerId) ?? [];
@@ -435,7 +504,7 @@ export async function exportSvg(
       try {
         const dataUri = overlayCanvas.toDataURL('image/png');
         if (dataUri.startsWith('data:')) {
-          overlaySvg = `<image href="${esc(dataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
+          overlaySvg = `<image href="${attr(dataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
         }
       } catch {
         // encoding failed — skip overlay in SVG rather than failing the whole export
@@ -514,7 +583,14 @@ export async function exportSvg(
         options,
       )
     : null;
-  if (sceneJson !== null) body = `<metadata>${esc(sceneJson)}</metadata>${body}`;
+  const fontCss = await loadFontFaces(
+    selectFaces(options.fonts ?? [], textFontFamily(), used),
+    positiveOption(options.imageTimeoutMs, 10_000, 'imageTimeoutMs'),
+    options.onFontError,
+  );
+  const metadata = sceneJson === null ? '' : `<metadata>${attr(sceneJson)}</metadata>`;
+  const style = fontCss.length === 0 ? '' : `<style>${attr(fontCss.join(''))}</style>`;
+  body = `${metadata}${style}${body}`;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" ` +
@@ -526,11 +602,11 @@ function emitElement(
   el: CanvasElement,
   imageDataUris: Map<string, string>,
   htmlDataUris: Map<string, string>,
-  rasterScale: number,
   store: ElementStore,
-  resourceOptions: ExportResourceOptions,
   registry: ElementRegistry,
   viewBox: { x: number; y: number; w: number; h: number },
+  measurer: SvgMeasurer | null,
+  used: Set<string>,
 ): string {
   switch (el.type) {
     case 'stroke':
@@ -538,13 +614,13 @@ function emitElement(
     case 'shape':
       return withRotationSvg(el, emitShape(el));
     case 'arrow':
-      return emitArrow(el, store);
+      return emitArrow(el, store, measurer, used);
     case 'image':
       return withRotationSvg(el, emitImage(el, imageDataUris.get(el.id)));
     case 'text':
-      return withRotationSvg(el, emitText(el, rasterScale, resourceOptions));
+      return withRotationSvg(el, emitText(el, measurer, used));
     case 'note':
-      return withRotationSvg(el, emitNote(el, rasterScale, resourceOptions));
+      return withRotationSvg(el, emitNote(el, measurer, used));
     case 'html':
       return withRotationSvg(el, emitImage(el, htmlDataUris.get(el.id)));
     case 'extension': {

@@ -132,7 +132,7 @@ independent of parent-child relationships.
   already applied. `worldBounds` is passed only to `fullCanvas` types and is the visible world
   rectangle (`minX`, `minY`, `maxX`, `maxY`).
 - `emitSvg(el, allElements, viewBox)` returns markup that is inserted verbatim, so escape any user
-  text. `viewBox` is the computed export rectangle for every extension type.
+  text. `viewBox` is the padded export rectangle in world units, the same rectangle for inline and full-canvas emitters and equal to the root `viewBox`. A frame export passes the frame content rectangle plus `padding`; full-canvas elements cannot be frame children, so they are never part of a frame export.
 - `renderMode`: `'canvas'`, `'hybrid'` and `'none'` all draw through `render`. `register` throws
   for `'dom'`; extension elements are never DOM elements.
 - An element updated again within 250 ms (a drag, remote moves, an animation) on a layer at full

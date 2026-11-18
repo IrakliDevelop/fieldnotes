@@ -2762,6 +2762,10 @@ describe('Viewport', () => {
       if (img instanceof HTMLImageElement) {
         img.onerror?.(new Event('error') as never);
       }
+      const retry = cache.get(src);
+      if (retry instanceof HTMLImageElement) {
+        retry.onerror?.(new Event('error') as never);
+      }
     }
 
     it('reports src and matching element ids to the option callback', () => {
@@ -2799,7 +2803,9 @@ describe('Viewport', () => {
         .renderer.imageCache;
       const img = cache.get(src);
       const event = new Event('error');
-      if (img instanceof HTMLImageElement) img.onerror?.(event as never);
+      if (img instanceof HTMLImageElement) img.onerror?.(new Event('error') as never);
+      const retry = cache.get(src);
+      if (retry instanceof HTMLImageElement) retry.onerror?.(event as never);
       expect(onImageError).toHaveBeenCalledWith(expect.objectContaining({ src, cause: event }));
       viewport.destroy();
     });
@@ -2836,7 +2842,13 @@ describe('Viewport', () => {
         if (!(img instanceof HTMLImageElement)) throw new Error('expected a pending image');
 
         if (outcome === 'load') img.onload?.(new Event('load'));
-        else img.onerror?.(new Event('error') as never);
+        else {
+          img.onerror?.(new Event('error') as never);
+          const retry = (
+            viewport as unknown as { renderer: { imageCache: Map<string, unknown> } }
+          ).renderer.imageCache.get('a.png');
+          if (retry instanceof HTMLImageElement) retry.onerror?.(new Event('error') as never);
+        }
 
         expect([layerCache.isDirty(layerA), layerCache.isDirty(layerB)]).toEqual([true, false]);
         viewport.destroy();
@@ -4751,6 +4763,25 @@ describe('Viewport html painters', () => {
       vp.store.add(markerElement());
       await vp.exportSVG();
       expect(painter).toHaveBeenCalled();
+    });
+
+    it('exportPDF runs the image export hook once per page', async () => {
+      const vp = makeViewport();
+      const hook = vi.fn();
+      const first = createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 74 } });
+      const second = createFrame({ position: { x: 200, y: 0 }, size: { w: 80, h: 184 } });
+      vp.store.add(first);
+      vp.store.add(second);
+      vp.store.add(
+        createShape({ parentId: first.id, position: { x: 0, y: 24 }, size: { w: 100, h: 50 } }),
+      );
+      vp.store.add(
+        createShape({ parentId: second.id, position: { x: 200, y: 24 }, size: { w: 80, h: 160 } }),
+      );
+      vp.renderHooks.imageExport.register({ afterElements: hook });
+      await vp.exportPDF({ frameIds: [first.id, second.id], dpi: 18 });
+      expect(hook).toHaveBeenCalledTimes(2);
+      vp.destroy();
     });
 
     it('inherits registry, painter, and export hooks for a frame crop', async () => {

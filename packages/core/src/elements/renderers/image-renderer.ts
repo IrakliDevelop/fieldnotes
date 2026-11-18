@@ -22,7 +22,8 @@ export function renderImage(
   );
 }
 
-function renderImagePlaceholder(ctx: CanvasRenderingContext2D, image: ImageElement): void {
+/** Draws the fallback for an image that could not load. */
+export function renderImagePlaceholder(ctx: CanvasRenderingContext2D, image: ImageElement): void {
   const { x, y } = image.position;
   const { w, h } = image.size;
   ctx.save();
@@ -58,37 +59,51 @@ function getImage(
     return cached;
   }
 
-  const img = new Image();
-  img.src = src;
-  imageCache.set(src, img);
-  img.onload = () => {
-    if (typeof createImageBitmap === 'undefined') {
-      onImageLoad?.(src);
-      return;
-    }
-    // Decode from already-loaded image in memory, not a re-fetch
-    createImageBitmap(img).then(
-      (bitmap) => {
-        // The cache was cleared (viewport destroyed) while decoding; do not leak the bitmap.
-        if (imageCache.get(src) !== img) {
-          bitmap.close();
-          return;
-        }
-        imageCache.set(src, bitmap);
+  const load = (img: HTMLImageElement): void => {
+    img.onload = () => {
+      if (imageCache.get(src) !== img) return;
+      if (typeof createImageBitmap === 'undefined') {
         onImageLoad?.(src);
-      },
-      // keep HTMLImageElement fallback — handles CORS rejection
-      () => {
-        if (imageCache.get(src) === img) onImageLoad?.(src);
-      },
-    );
+        return;
+      }
+      // Decode from already-loaded image in memory, not a re-fetch
+      createImageBitmap(img).then(
+        (bitmap) => {
+          // The cache was cleared (viewport destroyed) while decoding; do not leak the bitmap.
+          if (imageCache.get(src) !== img) {
+            bitmap.close();
+            return;
+          }
+          imageCache.set(src, bitmap);
+          onImageLoad?.(src);
+        },
+        // keep HTMLImageElement fallback — handles CORS rejection
+        () => {
+          if (imageCache.get(src) === img) onImageLoad?.(src);
+        },
+      );
+    };
   };
-  img.onerror = (event) => {
+
+  const fail = (img: HTMLImageElement, event: Event | string): void => {
     if (imageCache.get(src) !== img) return;
-    // failed srcs stay failed for the session; pointing the element at a new src loads fresh
     imageCache.set(src, 'failed');
     onImageError?.(src, event);
     onImageLoad?.(src);
   };
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  imageCache.set(src, img);
+  load(img);
+  img.onerror = () => {
+    if (imageCache.get(src) !== img) return;
+    const retry = new Image();
+    imageCache.set(src, retry);
+    load(retry);
+    retry.onerror = (retryEvent) => fail(retry, retryEvent);
+    retry.src = src;
+  };
+  img.src = src;
   return null;
 }
