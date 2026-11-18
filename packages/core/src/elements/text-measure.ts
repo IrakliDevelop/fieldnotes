@@ -21,8 +21,22 @@ export function setTextMeasurer(measure: TextMeasurer | null): void {
   sizes.clear();
 }
 
-/** Sets the font family stack for board text on screen, in measurement and in exports; null (the default) restores system-ui, sans-serif and leaves DOM text nodes to the host's CSS. */
+/** Sets the font family stack; a browser-rejected stack throws TypeError. */
 export function setTextFontFamily(family: string | null): void {
+  if (family !== null && typeof document !== 'undefined') {
+    const context = (() => {
+      try {
+        return document.createElement('canvas').getContext('2d');
+      } catch {
+        return null;
+      }
+    })();
+    if (context) {
+      const previous = context.font;
+      context.font = `16px ${family}`;
+      if (context.font === previous) throw new TypeError('Invalid font family stack');
+    }
+  }
   setFontFamily(family);
   parsedRuns.clear();
   sizes.clear();

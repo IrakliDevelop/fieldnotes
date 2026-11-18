@@ -49,6 +49,23 @@ describe('layoutStyledRuns', () => {
     expect(layout.height).toBe(42);
   });
 
+  it('copies bold and italic flags from each styled run', () => {
+    const layout = layoutStyledRuns(
+      (text) => text.length * 10,
+      [
+        { ...regular, text: 'one' },
+        { ...regular, text: 'two', bold: true, italic: true },
+      ],
+      Infinity,
+      1.4,
+    );
+
+    expect(layout.lines[0]?.fragments.map(({ bold, italic }) => ({ bold, italic }))).toEqual([
+      { bold: false, italic: false },
+      { bold: true, italic: true },
+    ]);
+  });
+
   it('keeps empty content as an empty line', () => {
     expect(layoutStyledRuns(() => 0, [], Infinity, 1.4)).toMatchObject({
       width: 0,

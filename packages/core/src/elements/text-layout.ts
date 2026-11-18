@@ -20,6 +20,8 @@ export interface LineFragment {
   x: number;
   width: number;
   fontSize: number;
+  bold: boolean;
+  italic: boolean;
   underline: boolean;
   strikethrough: boolean;
   trailingSpace: boolean;
@@ -99,6 +101,8 @@ export function layoutStyledRuns(
         x: cursorX,
         width,
         fontSize: run.fontSize,
+        bold: run.bold,
+        italic: run.italic,
         underline: run.underline,
         strikethrough: run.strikethrough,
         trailingSpace: false,

@@ -43,6 +43,30 @@ function normalize(face: ExportFontFace): NormalizedFace {
   return { ...face, weight: face.weight ?? 'normal', style: face.style ?? 'normal' };
 }
 
+function fontMime(type: string, src: ExportFontFace['src']): string {
+  const essence = type.split(';', 1)[0]?.trim().toLowerCase();
+  if (
+    essence === 'font/woff2' ||
+    essence === 'font/woff' ||
+    essence === 'font/ttf' ||
+    essence === 'font/otf'
+  ) {
+    return essence;
+  }
+  const name =
+    typeof src === 'string'
+      ? src
+      : typeof File !== 'undefined' && src instanceof File
+        ? src.name
+        : '';
+  const path = name.split(/[?#]/, 1)[0]?.toLowerCase() ?? '';
+  if (path.endsWith('.woff2')) return 'font/woff2';
+  if (path.endsWith('.woff')) return 'font/woff';
+  if (path.endsWith('.ttf')) return 'font/ttf';
+  if (path.endsWith('.otf')) return 'font/otf';
+  return 'application/octet-stream';
+}
+
 /** Selects supplied faces that occur in the active stack and emitted text styles. */
 export function selectFaces(
   fonts: readonly ExportFontFace[],
@@ -62,7 +86,7 @@ export function selectFaces(
 export function fontFaceCss(face: ExportFontFace, dataUrl: string): string {
   const normalized = normalize(face);
   const family = normalized.family.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  return `@font-face{font-family:"${family}";font-weight:${normalized.weight};font-style:${normalized.style};src:url(${dataUrl})}`;
+  return `@font-face{font-family:"${family}";font-weight:${normalized.weight};font-style:${normalized.style};src:url("${dataUrl}")}`;
 }
 
 /** Encodes bytes as a single base64 string. */
@@ -141,7 +165,7 @@ export async function loadFontFaces(
           report(errorFor(normalized, 'encode'), onFontError);
           return '';
         }
-        const mime = result.mime || 'application/octet-stream';
+        const mime = fontMime(result.mime, normalized.src);
         return fontFaceCss(normalized, `data:${mime};base64,${base64(result.bytes)}`);
       } catch (cause) {
         report(

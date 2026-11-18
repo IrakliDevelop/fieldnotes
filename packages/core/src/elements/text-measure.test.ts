@@ -27,6 +27,38 @@ describe('measureText', () => {
     expect(measure).toHaveBeenLastCalledWith('ab', 'normal normal 16px system-ui, sans-serif');
   });
 
+  it('rejects a browser-rejected font family stack without clearing measurements', () => {
+    const measure = vi.fn(suiteMeasurer);
+    setTextMeasurer(measure);
+    const createElement = vi.spyOn(document, 'createElement').mockImplementation((tagName) => {
+      if (tagName !== 'canvas') return document.createElement(tagName);
+      let font = '23px serif';
+      return {
+        getContext: () => ({
+          get font() {
+            return font;
+          },
+          set font(value: string) {
+            if (value !== '16px Arial, )') font = value;
+          },
+        }),
+      } as unknown as HTMLCanvasElement;
+    });
+
+    try {
+      setTextFontFamily('Inter');
+      measureText('ab', 16, null);
+      expect(() => setTextFontFamily('Arial, )')).toThrow(
+        new TypeError('Invalid font family stack'),
+      );
+      measureText('ab', 16, null);
+      expect(measure).toHaveBeenCalledTimes(1);
+      expect(measure).toHaveBeenLastCalledWith('ab', 'normal normal 16px Inter');
+    } finally {
+      createElement.mockRestore();
+    }
+  });
+
   it('keeps cached measurements isolated from callers', () => {
     setTextMeasurer(suiteMeasurer);
 

@@ -1696,6 +1696,14 @@ describe('exportSvg fonts', () => {
     return store;
   }
 
+  it('does not infer bold styling from a font family name', async () => {
+    setTextFontFamily('Foo bold Sans, sans-serif');
+
+    const svg = await exportSvg(textStore('plain'));
+
+    expect(svg).not.toContain('font-weight="bold"');
+  });
+
   it('embeds a used face from a Blob', async () => {
     setTextFontFamily('Inter');
     const svg = await exportSvg(textStore('a<b>b</b>'), {
@@ -1710,7 +1718,7 @@ describe('exportSvg fonts', () => {
     });
     expect(svg).toContain('<metadata>');
     expect(svg).toContain(
-      '<style>@font-face{font-family:&quot;Inter&quot;;font-weight:bold;font-style:normal;src:url(data:font/woff2;base64,AQID)}</style>',
+      '<style>@font-face{font-family:&quot;Inter&quot;;font-weight:bold;font-style:normal;src:url(&quot;data:font/woff2;base64,AQID&quot;)}</style>',
     );
     expect(svg.indexOf('<metadata>')).toBeLessThan(svg.indexOf('<style>'));
     const defs = svg.indexOf('<defs>');

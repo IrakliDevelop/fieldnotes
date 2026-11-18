@@ -294,8 +294,7 @@ function emitStyledText(
     out += `<text${baseline === null ? ' dominant-baseline="text-before-edge"' : ''}>`;
     let decorations = '';
     for (const fragment of line.fragments) {
-      const bold = fragment.font.includes(' bold ');
-      const italic = fragment.font.startsWith('italic ');
+      const { bold, italic } = fragment;
       const x = startX + offset + fragment.x;
       const y = startY + line.y + (measurer?.ascent(fragment.font) ?? 0);
       const weight = bold ? ' font-weight="bold"' : '';
@@ -417,6 +416,9 @@ export async function exportSvg(
   const imageDataUris = encodeImages(paintableElements, imageCache, rasterScale, reportingOptions);
   const htmlElements = paintableElements.filter((el): el is HtmlElement => el.type === 'html');
 
+  // Resolve routing per visible html element before doing any rendering work: canvas-routed
+  // elements never reach the DOM-raster path (renderHtmlElements), and 'missing' is either
+  // fatal (strictMissingCanvasHtml) or reported once here — it never falls back to DOM.
   const canvasRoutedElements: HtmlElement[] = [];
   const domHtmlElements: HtmlElement[] = [];
   for (const el of htmlElements) {
@@ -505,7 +507,7 @@ export async function exportSvg(
           overlaySvg = `<image href="${attr(dataUri)}" x="${n(bounds.x)}" y="${n(bounds.y)}" width="${n(bounds.w)}" height="${n(bounds.h)}" />`;
         }
       } catch {
-        // Keep exporting when the overlay canvas cannot be encoded.
+        // encoding failed — skip overlay in SVG rather than failing the whole export
       }
     }
   }
@@ -634,6 +636,12 @@ function emitElement(
   }
 }
 
+/**
+ * Rasterizes canvas-routed html elements through the shared `paintHtmlElement` path into
+ * their own offscreen canvas, one per element, sized to the element's own w×h (not the
+ * export bounds). `emitElement`'s 'html' case then places the resulting data-URI in an
+ * `<image>` unchanged, identical to the DOM-raster path.
+ */
 function rasterizeCanvasRoutedHtml(
   elements: HtmlElement[],
   registry: HtmlPainterRegistry | undefined,
@@ -653,7 +661,9 @@ function rasterizeCanvasRoutedHtml(
   for (const element of elements) {
     const painter = registry?.getActivePainter(element.htmlType ?? '');
     if (!painter) {
-      // A painter can unregister while DOM HTML renders.
+      // Routing was resolved before `await renderHtmlElements(...)`; a painter unregistered
+      // inside that window lands here. Reporting it keeps every dropped element accounted
+      // for — a silent omission is the one outcome this exporter never produces.
       options.onHtmlError?.({
         elementId: element.id,
         htmlType: element.htmlType,
@@ -685,7 +695,10 @@ function rasterizeCanvasRoutedHtml(
       continue;
     }
     octx.scale(rasterScale, rasterScale);
-    // paintHtmlElement uses world coordinates inside this element-sized canvas.
+    // LOCALIZING TRANSFORM — paintHtmlElement translates by the element's WORLD position,
+    // but this offscreen canvas is sized to only the element's own w×h. Without cancelling
+    // the world offset here first, the paint lands outside the canvas and the raster comes
+    // out fully transparent.
     octx.translate(-element.position.x, -element.position.y);
     paintHtmlElement(element, painter, {
       ctx: octx,
