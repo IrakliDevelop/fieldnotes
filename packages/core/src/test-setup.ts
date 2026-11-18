@@ -74,9 +74,12 @@ Storage.prototype.clear = function (): void {
 Storage.prototype.key = function (index: number): string | null {
   return Array.from(testStorageStore.keys())[index] ?? null;
 };
-Object.defineProperty(Storage.prototype, 'length', {
-  get: function () {
-    return testStorageStore.size;
-  },
-  configurable: true,
-});
+const storageLength = Object.getOwnPropertyDescriptor(Storage.prototype, 'length');
+if (storageLength === undefined || storageLength.configurable) {
+  Object.defineProperty(Storage.prototype, 'length', {
+    get: function () {
+      return testStorageStore.size;
+    },
+    configurable: true,
+  });
+}
