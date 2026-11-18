@@ -157,7 +157,19 @@ describe('frame element', () => {
     frameElementDefinition.render?.(ctx, value, []);
     expect(ctx.font).toBe('14px Inter');
     expect(frameElementDefinition.emitSvg?.(value, [], { x: 0, y: 0, w: 1, h: 1 })).toBe(
-      '<rect x="10" y="20" width="120" height="90" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><path d="M 10 44 H 130" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><svg x="10" y="20" width="120" height="24" viewBox="10 20 120 24" overflow="hidden"><text x="18" y="32" fill="&quot;&lt;&amp;" dominant-baseline="middle">&lt;Frame &amp;&gt;</text></svg>',
+      '<rect x="10" y="20" width="120" height="90" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><path d="M 10 44 H 130" fill="none" stroke="&quot;&lt;&amp;" stroke-width="1"/><svg x="10" y="20" width="120" height="24" viewBox="10 20 120 24" overflow="hidden"><text x="18" y="32" fill="&quot;&lt;&amp;" font-family="Inter" font-size="14" dominant-baseline="middle">&lt;Frame &amp;&gt;</text></svg>',
+    );
+  });
+
+  it('escapeXml drops control characters', () => {
+    const value = createFrame({
+      position: { x: 0, y: 0 },
+      size: { w: 100, h: 60 },
+      title: 'A\u0001B',
+    });
+
+    expect(frameElementDefinition.emitSvg?.(value, [], { x: 0, y: 0, w: 1, h: 1 })).toContain(
+      '>AB</text>',
     );
   });
 

@@ -24,6 +24,135 @@ test.describe('export', () => {
     expect(hasBlob).toBe(true);
   });
 
+  test('SVG text sits where the PNG text sits', async ({ canvasPage }) => {
+    const result = await canvasPage.page.evaluate(async () => {
+      const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+        store: { add(element: Record<string, unknown>): void };
+        exportImage(options: Record<string, unknown>): Promise<Blob | null>;
+        exportSVG(options: Record<string, unknown>): Promise<string>;
+      };
+      const layerId = '';
+      vp.store.add({
+        id: 'svg-text-parity',
+        type: 'text',
+        position: { x: 0, y: 0 },
+        size: { w: 80, h: 60 },
+        index: '',
+        version: 1,
+        locked: false,
+        layerId,
+        text: 'Hello world wrap',
+        fontSize: 16,
+        color: '#1a1a1a',
+        textAlign: 'left',
+        wrap: true,
+      });
+      vp.store.add({
+        id: 'svg-note-parity',
+        type: 'note',
+        position: { x: 0, y: 120 },
+        size: { w: 80, h: 60 },
+        index: 'a',
+        version: 1,
+        locked: false,
+        layerId,
+        text: 'Hello world wrap',
+        textColor: '#222222',
+        backgroundColor: '#abcabc',
+      });
+
+      const png = await vp.exportImage({ scale: 2, background: '#ffffff' });
+      const svg = await vp.exportSVG({ background: '#ffffff' });
+      if (!png) return null;
+      const pngBitmap = await createImageBitmap(png);
+      const svgImage = new Image();
+      const svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+      try {
+        await new Promise<void>((resolve, reject) => {
+          svgImage.onload = () => resolve();
+          svgImage.onerror = () => reject(new Error('SVG did not load'));
+          svgImage.src = svgUrl;
+        });
+        const rasterize = (source: CanvasImageSource) => {
+          const canvas = document.createElement('canvas');
+          canvas.width = pngBitmap.width;
+          canvas.height = pngBitmap.height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Missing 2D context');
+          ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+          return ctx.getImageData(0, 0, canvas.width, canvas.height);
+        };
+        const pngPixels = rasterize(pngBitmap);
+        const svgPixels = rasterize(svgImage);
+        const mask = (pixels: ImageData) => {
+          const out = new Uint8Array(pixels.width * pixels.height);
+          for (let i = 0; i < out.length; i++) {
+            const offset = i * 4;
+            out[i] =
+              pixels.data[offset] === 255 &&
+              pixels.data[offset + 1] === 255 &&
+              pixels.data[offset + 2] === 255
+                ? 0
+                : 1;
+          }
+          return out;
+        };
+        const bands = (mask: Uint8Array, width: number, height: number) => {
+          const result: { top: number; bottom: number; left: number; right: number }[] = [];
+          let top = -1;
+          for (let y = 0; y <= height; y++) {
+            const hasInk = y < height && mask.subarray(y * width, (y + 1) * width).some(Boolean);
+            if (hasInk && top < 0) top = y;
+            if (!hasInk && top >= 0) {
+              const bottom = y - 1;
+              let left = width;
+              let right = 0;
+              for (let row = top; row <= bottom; row++) {
+                for (let column = 0; column < width; column++) {
+                  if (!mask[row * width + column]) continue;
+                  left = Math.min(left, column);
+                  right = Math.max(right, column);
+                }
+              }
+              result.push({ top, bottom, left, right });
+              top = -1;
+            }
+          }
+          return result;
+        };
+        const pngMask = mask(pngPixels);
+        const svgMask = mask(svgPixels);
+        let pngInk = 0;
+        let xor = 0;
+        for (let i = 0; i < pngMask.length; i++) {
+          pngInk += pngMask[i];
+          xor += pngMask[i] === svgMask[i] ? 0 : 1;
+        }
+        return {
+          pngBands: bands(pngMask, pngPixels.width, pngPixels.height),
+          svgBands: bands(svgMask, svgPixels.width, svgPixels.height),
+          pngInk,
+          xor,
+        };
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.pngBands).toHaveLength(result?.svgBands.length ?? 0);
+    for (let index = 0; index < (result?.pngBands.length ?? 0); index++) {
+      const pngBand = result?.pngBands[index];
+      const svgBand = result?.svgBands[index];
+      if (!pngBand || !svgBand) throw new Error('Missing ink band');
+      expect(Math.abs(pngBand.top - svgBand.top)).toBeLessThanOrEqual(1);
+      expect(Math.abs(pngBand.bottom - svgBand.bottom)).toBeLessThanOrEqual(1);
+      expect(Math.abs(pngBand.left - svgBand.left)).toBeLessThanOrEqual(1);
+      expect(Math.abs(pngBand.right - svgBand.right)).toBeLessThanOrEqual(1);
+    }
+    expect((result?.xor ?? Infinity) / (result?.pngInk ?? 0)).toBeLessThan(0.1);
+  });
+
   test('rasterizes an HTML embed through the export hook', async ({ canvasPage }) => {
     const pixel = await canvasPage.page.evaluate(async () => {
       const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {

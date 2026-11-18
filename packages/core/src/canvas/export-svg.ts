@@ -15,7 +15,6 @@ import { lineEndpoints } from '../elements/shape-geometry';
 import { getArrowCurve, getArrowEndTangent, getArrowLabelAnchor } from '../elements/arrow-geometry';
 import { getArrowDashPattern } from '../elements/renderers/arrow-renderer';
 import { getElementBounds } from '../elements/element-bounds';
-import { renderNoteOnCanvas } from './note-canvas-renderer';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import {
   assertExportSize,
@@ -43,8 +42,10 @@ import { getBoundText } from '../elements/bound-text';
 import { getElbowRoute } from '../elements/elbow-cache';
 import { parseStyledRuns } from '../elements/note-sanitizer';
 import type { StyledRun } from '../elements/note-sanitizer';
-import { layoutStyledRuns, lineOffset } from '../elements/text-layout';
+import { layoutStyledRuns, lineOffset, textFontFamily } from '../elements/text-layout';
 import { measureFragment, TEXT_PADDING } from '../elements/text-measure';
+import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
+import { isFrameElement } from '../elements/frame-element';
 
 export interface ExportSvgOptions
   extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions {
@@ -160,7 +161,12 @@ function emitShape(shape: ShapeElement): string {
   }
 }
 
-function emitArrow(arrow: ArrowElement, store: ElementStore): string {
+function emitArrow(
+  arrow: ArrowElement,
+  store: ElementStore,
+  measurer: SvgMeasurer | null,
+  used: Set<string>,
+): string {
   const resolveBounds = (id: string) => {
     const element = store.getById(id);
     return element ? getElementBounds(element) : null;
@@ -203,13 +209,15 @@ function emitArrow(arrow: ArrowElement, store: ElementStore): string {
     );
   } else if (arrow.label && arrow.label.length > 0) {
     const mid = getArrowLabelAnchor(arrow, resolveBounds);
-    const approxW = arrow.label.length * ARROW_LABEL_FONT_SIZE * 0.6;
+    const font = `normal normal ${ARROW_LABEL_FONT_SIZE}px ${textFontFamily()}`;
+    const labelWidth = measurer?.width(arrow.label, font) ?? measureFragment(arrow.label, font);
     const padX = 6;
     const padY = 4;
-    const lw = approxW + padX * 2;
+    const lw = labelWidth + padX * 2;
     const lh = ARROW_LABEL_FONT_SIZE + padY * 2;
     out += `<rect x="${n(mid.x - lw / 2)}" y="${n(mid.y - lh / 2)}" width="${n(lw)}" height="${n(lh)}" rx="4" fill="rgba(255,255,255,0.9)" />`;
-    out += `<text x="${n(mid.x)}" y="${n(mid.y)}" font-family="system-ui, sans-serif" font-size="${ARROW_LABEL_FONT_SIZE}" fill="#1a1a1a" text-anchor="middle" dominant-baseline="central">${attr(arrow.label)}</text>`;
+    out += `<text x="${n(mid.x)}" y="${n(mid.y)}" font-family="${attr(textFontFamily())}" font-size="${ARROW_LABEL_FONT_SIZE}" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">${attr(arrow.label)}</text>`;
+    used.add('normal/normal');
   }
 
   return out;
@@ -275,7 +283,7 @@ function emitStyledText(
     opts.wrap ? contentWidth : Infinity,
     opts.lineHeight,
   );
-  let out = `<g fill="${attr(fill)}" font-family="system-ui, sans-serif" xml:space="preserve">`;
+  let out = `<g fill="${attr(fill)}" font-family="${attr(textFontFamily())}" xml:space="preserve">`;
   for (const line of layout.lines) {
     const offset = lineOffset(line, opts.align, contentWidth);
     const first = line.fragments[0];
@@ -317,37 +325,21 @@ function emitText(text: TextElement, measurer: SvgMeasurer | null, used: Set<str
   );
 }
 
-function emitNote(
-  note: NoteElement,
-  rasterScale: number,
-  resourceOptions: ExportResourceOptions,
-): string {
+function emitNote(note: NoteElement, measurer: SvgMeasurer | null, used: Set<string>): string {
   const { x, y } = note.position;
   const { w, h } = note.size;
-  if (typeof document === 'undefined') return emitNotePlaceholder(note);
-
-  const width = Math.max(1, Math.ceil(w * rasterScale));
-  const height = Math.max(1, Math.ceil(h * rasterScale));
-  assertExportSize(width, height, resourceOptions);
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return emitNotePlaceholder(note);
-
-  ctx.scale(rasterScale, rasterScale);
-  ctx.translate(-x, -y);
-  renderNoteOnCanvas(ctx, note);
-
-  let dataUri: string;
-  try {
-    dataUri = canvas.toDataURL();
-  } catch {
-    return emitNotePlaceholder(note);
-  }
-  if (!dataUri || !dataUri.startsWith('data:')) return emitNotePlaceholder(note);
-
-  return `<image href="${attr(dataUri)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" />`;
+  const placeholder = emitNotePlaceholder(note);
+  if (!note.text || typeof DOMParser === 'undefined') return placeholder;
+  return `${placeholder}<svg x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" viewBox="${n(x)} ${n(y)} ${n(w)} ${n(h)}" overflow="hidden">${emitStyledText(
+    parseStyledRuns(note.text, note.fontSize ?? DEFAULT_NOTE_FONT_SIZE),
+    x + 8,
+    y + 8,
+    w - 16,
+    { align: 'left', lineHeight: 1.3, wrap: true },
+    note.textColor,
+    measurer,
+    used,
+  )}</svg>`;
 }
 
 function emitNotePlaceholder(note: NoteElement): string {
@@ -479,13 +471,12 @@ export async function exportSvg(
     }
     const prepared = ordinaryById.get(el.id);
     if (!prepared) continue;
+    if (isFrameElement(prepared.element) && prepared.element.data.title) used.add('normal/normal');
     const emitted = emitElement(
       prepared.element,
       imageDataUris,
       htmlDataUris,
-      rasterScale,
       store,
-      options,
       registry,
       bounds,
       measurer,
@@ -602,9 +593,7 @@ function emitElement(
   el: CanvasElement,
   imageDataUris: Map<string, string>,
   htmlDataUris: Map<string, string>,
-  rasterScale: number,
   store: ElementStore,
-  resourceOptions: ExportResourceOptions,
   registry: ElementRegistry,
   viewBox: { x: number; y: number; w: number; h: number },
   measurer: SvgMeasurer | null,
@@ -616,13 +605,13 @@ function emitElement(
     case 'shape':
       return withRotationSvg(el, emitShape(el));
     case 'arrow':
-      return emitArrow(el, store);
+      return emitArrow(el, store, measurer, used);
     case 'image':
       return withRotationSvg(el, emitImage(el, imageDataUris.get(el.id)));
     case 'text':
       return withRotationSvg(el, emitText(el, measurer, used));
     case 'note':
-      return withRotationSvg(el, emitNote(el, rasterScale, resourceOptions));
+      return withRotationSvg(el, emitNote(el, measurer, used));
     case 'html':
       return withRotationSvg(el, emitImage(el, htmlDataUris.get(el.id)));
     case 'extension': {

@@ -94,6 +94,18 @@ describe('exportSvg', () => {
     expect(svg).not.toContain('<polygon');
   });
 
+  it('measures the legacy arrow label on the middle baseline', async () => {
+    const store = new ElementStore();
+    store.add(createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'go' }));
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('width="32" height="22" rx="4"');
+    expect(svg).toContain(
+      'font-family="system-ui, sans-serif" font-size="14" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">go</text>',
+    );
+  });
+
   it('retains the legacy bezier head for coincident endpoints', async () => {
     const store = new ElementStore();
     store.add(createArrow({ from: { x: 40, y: 40 }, to: { x: 40, y: 40 } }));
@@ -1064,6 +1076,56 @@ describe('exportSvg', () => {
     ]);
   });
 
+  it("passes a frame export's padded content bounds to inline emitters", async () => {
+    let receivedViewBox: { x: number; y: number; w: number; h: number } | undefined;
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:frame-view-box',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:frame-view-box',
+        data: {},
+      }),
+      bounds: (el) => ({ x: el.position.x, y: el.position.y, w: 30, h: 40 }),
+      emitSvg: (_el, _allElements, viewBox) => {
+        receivedViewBox = viewBox;
+        return '';
+      },
+    });
+    const store = new ElementStore(registry);
+    const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 74 } });
+    const child: ExtensionElementEnvelope = {
+      id: 'frame-child',
+      type: 'extension',
+      extensionType: 'test:frame-view-box',
+      position: { x: 10, y: 30 },
+      index: '',
+      version: 1,
+      locked: false,
+      layerId: '',
+      parentId: frame.id,
+      data: {},
+    };
+    store.add(frame);
+    store.add(child);
+
+    const svg = await exportSvg(store, {
+      frameId: frame.id,
+      padding: 7,
+      elementRegistry: registry,
+    });
+
+    expect(receivedViewBox).toEqual({ x: -7, y: 17, w: 114, h: 64 });
+    expect(svg).toContain('viewBox="-7 17 114 64"');
+  });
+
   it.each([
     [{ padding: -1 }, 'padding'],
     [{ rasterScale: 0 }, 'rasterScale'],
@@ -1302,16 +1364,43 @@ describe('exportSvg', () => {
     expect((await exportSvg(store)).match(/<tspan[^>]*>(.*?)<\/tspan>/)?.[1]).toBe('aＡb😀');
   });
 
-  it('emits no text without DOMParser', async () => {
+  it('emits only the note rect without DOMParser', async () => {
     const store = new ElementStore();
-    store.add(createText({ position: { x: 0, y: 200 }, text: 'text' }));
+    store.add(
+      createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 60 },
+        backgroundColor: '#abcabc',
+        text: 'x',
+      }),
+    );
     vi.stubGlobal('DOMParser', undefined);
 
     const svg = await exportSvg(store);
 
+    expect(svg).toContain('fill="#abcabc"');
     expect(svg).not.toContain('<text');
     expect(svg).not.toContain('<image');
-    expect(svg).toContain('<svg');
+  });
+
+  it('emits a note as a clipped vector text block', async () => {
+    const store = new ElementStore();
+    store.add(
+      createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 60 },
+        backgroundColor: '#abcabc',
+        textColor: '#222222',
+        text: 'x',
+      }),
+    );
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain(
+      '<rect x="0" y="0" width="100" height="60" rx="4" fill="#abcabc" /><svg x="0" y="0" width="100" height="60" viewBox="0 0 100 60" overflow="hidden"><g fill="#222222" font-family="system-ui, sans-serif" xml:space="preserve"><text dominant-baseline="text-before-edge"><tspan x="8" y="8" font-size="18">x</tspan></text></g></svg>',
+    );
+    expect(svg).not.toContain('<image');
   });
 
   it('emits an image element (data-uri passthrough)', async () => {
