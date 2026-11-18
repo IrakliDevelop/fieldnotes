@@ -85,6 +85,20 @@ describe('exportPdf', () => {
       await text(await exportPdf(store, { frameIds: [wide.id], pageSize: 'letter', dpi: 18 })),
     ).toContain('/MediaBox [0 0 792 612]');
   });
+  it.each([
+    ['landscape', '/MediaBox [0 0 800 400]'],
+    ['portrait', '/MediaBox [0 0 400 800]'],
+    ['auto', '/MediaBox [0 0 800 400]'],
+  ] as const)('normalizes custom page sizes for %s orientation', async (orientation, mediaBox) => {
+    const store = new ElementStore();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 200, h: 100 } }));
+
+    expect(
+      await text(
+        await exportPdf(store, { pageSize: { width: 800, height: 400 }, orientation, dpi: 18 }),
+      ),
+    ).toContain(mediaBox);
+  });
   it('fits portrait pages at default and requested densities', async () => {
     const { store, wide } = fixture();
     const base = { frameIds: [wide.id], orientation: 'portrait' as const, margin: 0 };
@@ -168,6 +182,66 @@ describe('exportPdf', () => {
     expect(await text(await exportPdf(store, { frameIds: [wide.id], dpi: 18 }))).not.toContain(
       'fieldnotes/scene',
     );
+  });
+  it('rejects impossible printable areas before requesting a canvas context', async () => {
+    const { store } = fixture();
+    for (const options of [{ margin: 300 }, { pageSize: { width: 72, height: 72 } }])
+      await expect(exportPdf(store, options)).rejects.toThrow('margin must leave a printable area');
+    expect(contexts).toBe(0);
+  });
+  it('checks required image-export capabilities before requesting a canvas context', async () => {
+    const { store } = fixture();
+
+    await expect(exportPdf(store, { requiredCapabilities: ['fog'] })).rejects.toThrow(
+      'Required render capabilities are missing on imageExport: fog',
+    );
+    expect(contexts).toBe(0);
+  });
+  it('omits links for non-paintable children', async () => {
+    const store = new ElementStore();
+    store.add({
+      id: 'container',
+      type: 'extension',
+      extensionType: 'plugin:not-loaded',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      dataVersion: 1,
+      data: {},
+    } as never);
+    const child = createShape({
+      parentId: 'container',
+      position: { x: 20, y: 60 },
+      size: { w: 20, h: 20 },
+    });
+    child.link = 'https://example.com/';
+    store.add(child);
+
+    const value = await text(await exportPdf(store, { dpi: 18 }));
+    expect(value).not.toContain('/Subtype /Link');
+    expect(value).not.toContain('/Annots');
+  });
+  it('writes indirect link annotations by default and omits them when disabled', async () => {
+    const store = new ElementStore();
+    const linked = createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 10 } });
+    linked.link = 'https://example.com/';
+    store.add(linked);
+
+    const value = await text(await exportPdf(store, { dpi: 18 }));
+    const annots = /\/Annots \[([^\]]+)\]/.exec(value)?.[1];
+    const id = Number(/(\d+) 0 R/.exec(annots ?? '')?.[1]);
+    const xref = /xref\n0 \d+\n[\s\S]*?\nstartxref/.exec(value)?.[0];
+    const entry = xref?.split('\r\n')[id];
+    const offset = Number(entry?.slice(0, 10));
+
+    expect(annots).toMatch(/^\d+ 0 R$/);
+    expect(value).toContain(`${id} 0 obj\n<< /Type /Annot /Subtype /Link`);
+    expect(value.slice(offset, offset + `${id} 0 obj`.length)).toBe(`${id} 0 obj`);
+    const disabled = await text(await exportPdf(store, { dpi: 18, links: false }));
+    expect(disabled).not.toContain('/Subtype /Link');
+    expect(disabled).not.toContain('/Annots');
   });
   it('returns null for null context and prepares later frames before painting', async () => {
     const { store, wide } = fixture();

@@ -78,7 +78,7 @@ const selectionOpsState = {
 } satisfies SelectionOpsState;
 const activationOptions = { gesture: 'single' } satisfies ActivationOptions;
 const exportImageOptions = { padding: 0 } satisfies ExportImageOptions;
-const exportPdfOptions = { padding: 0 } satisfies ExportPdfOptions;
+const exportPdfOptions = { padding: 0, links: false } satisfies ExportPdfOptions;
 const exportSvgOptions = { padding: 0 } satisfies ExportSvgOptions;
 const cameraView = { x: 0, y: 0, w: 1, h: 1 } satisfies CameraView;
 const peer: Peer = {

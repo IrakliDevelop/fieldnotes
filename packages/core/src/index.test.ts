@@ -519,7 +519,7 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reports VERSION 0.109.0', async () => {
+  it('reads VERSION 0.109.0 from a dynamic import', async () => {
     const { VERSION } = await import('./index');
     expect(VERSION).toBe('0.109.0');
   });

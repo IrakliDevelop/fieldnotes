@@ -2,6 +2,7 @@ import type { ElementStore } from '../elements/element-store';
 import type { LayerManager } from '../layers/layer-manager';
 import { parseElementLink } from '../elements/link';
 import {
+  assertRenderCapabilities,
   fitExportScale,
   getElementRect,
   nonNegativeOption,
@@ -38,6 +39,8 @@ export interface ExportPdfOptions extends Omit<
   margin?: number;
   /** Raster density of each page in pixels per inch. Default 144. */
   dpi?: number;
+  /** Default true; false omits link annotations. */
+  links?: boolean;
 }
 
 const PAGE_SIZES = { a4: { width: 595.28, height: 841.89 }, letter: { width: 612, height: 792 } };
@@ -56,7 +59,6 @@ interface Page {
   scale: number;
   x: number;
   y: number;
-  id: number;
 }
 
 function intersect(a: Rect, b: Rect): Rect | null {
@@ -88,18 +90,19 @@ function rgb(data: Uint8ClampedArray): Uint8Array {
 }
 
 function annotations(
-  store: ElementStore,
   page: Page,
   pages: readonly Page[],
   pageIds: readonly number[],
+  writer: PdfWriter,
 ): string[] {
   const result: string[] = [];
-  for (const element of page.prepared.visibleElements) {
+  for (const element of page.prepared.paintable) {
     if (!element.link) continue;
     const rect = getElementRect(element, page.prepared.registry);
+    const clip = page.prepared.clips.get(element.id);
+    if (clip === undefined) continue;
     const withinPage = rect && intersect(rect, page.prepared.bounds);
-    const clipped =
-      withinPage && intersect(withinPage, store.getEffectiveClip(element.id) ?? withinPage);
+    const clipped = withinPage && (clip === null ? withinPage : intersect(withinPage, clip));
     if (!clipped) continue;
     const x1 = page.x + (clipped.x - page.prepared.bounds.x) * page.scale;
     const x2 = x1 + clipped.w * page.scale;
@@ -108,11 +111,12 @@ function annotations(
     const target = parseElementLink(element.link);
     let action: string | null = null;
     if (target) {
+      const framePageIndex = pages.findIndex((candidate) => candidate.frameId === target);
       const targetIndex =
-        pages.findIndex((candidate) => candidate.frameId === target) >= 0
-          ? pages.findIndex((candidate) => candidate.frameId === target)
+        framePageIndex >= 0
+          ? framePageIndex
           : pages.findIndex((candidate) =>
-              candidate.prepared.visibleElements.some(
+              candidate.prepared.paintable.some(
                 (candidateElement) => candidateElement.id === target,
               ),
             );
@@ -127,10 +131,12 @@ function annotations(
         // Existing element links are validated at creation; unsupported legacy links are skipped.
       }
     }
-    if (action)
-      result.push(
+    if (action) {
+      const id = writer.addObject(
         `<< /Type /Annot /Subtype /Link /Rect [${pdfNumber(x1)} ${pdfNumber(y1)} ${pdfNumber(x2)} ${pdfNumber(y2)}] /Border [0 0 0] ${action} >>`,
       );
+      result.push(`${id} 0 R`);
+    }
   }
   return result;
 }
@@ -141,6 +147,11 @@ export async function exportPdf(
   options: ExportPdfOptions = {},
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
+  assertRenderCapabilities(
+    options.renderHooks?.imageExport,
+    'imageExport',
+    options.requiredCapabilities,
+  );
   if (
     options.frameIds &&
     (options.frameIds.length === 0 || new Set(options.frameIds).size !== options.frameIds.length)
@@ -152,6 +163,10 @@ export async function exportPdf(
   if (!['portrait', 'landscape', 'auto'].includes(orientation))
     throw new RangeError("orientation must be 'portrait', 'landscape', or 'auto'");
   const requestedSize = pageSize(options.pageSize);
+  if (requestedSize.width - margin * 2 <= 0 || requestedSize.height - margin * 2 <= 0)
+    throw new RangeError('margin must leave a printable area');
+  const short = Math.min(requestedSize.width, requestedSize.height);
+  const long = Math.max(requestedSize.width, requestedSize.height);
   const reporting = withAssetWarning(options);
   const ids = options.frameIds ?? [undefined];
   const prepared = ids.map((frameId) =>
@@ -171,8 +186,8 @@ export async function exportPdf(
     const landscape =
       orientation === 'landscape' ||
       (orientation === 'auto' && preparedPage.bounds.w > preparedPage.bounds.h);
-    const width = landscape ? requestedSize.height : requestedSize.width;
-    const height = landscape ? requestedSize.width : requestedSize.height;
+    const width = landscape ? long : short;
+    const height = landscape ? short : long;
     const scale = Math.min(
       (width - margin * 2) / preparedPage.bounds.w,
       (height - margin * 2) / preparedPage.bounds.h,
@@ -185,7 +200,6 @@ export async function exportPdf(
       scale,
       x: (width - preparedPage.bounds.w * scale) / 2,
       y: (height - preparedPage.bounds.h * scale) / 2,
-      id: 0,
     };
   });
   const writer = new PdfWriter();
@@ -193,11 +207,8 @@ export async function exportPdf(
   const pagesId = writer.reserve();
   const pageIds = pages.map(() => writer.reserve());
   for (const [index, page] of pages.entries()) {
-    const id = pageIds[index];
-    if (id === undefined) throw new Error('Missing PDF page object');
-    page.id = id;
-  }
-  for (const page of pages) {
+    const pageId = pageIds[index];
+    if (pageId === undefined) throw new Error('Missing PDF page object');
     const canvas = await paintExport(
       store,
       page.prepared,
@@ -219,9 +230,9 @@ export async function exportPdf(
         `q ${pdfNumber(page.prepared.bounds.w * page.scale)} 0 0 ${pdfNumber(page.prepared.bounds.h * page.scale)} ${pdfNumber(page.x)} ${pdfNumber(page.y)} cm /Im0 Do Q`,
       ),
     );
-    const annots = annotations(store, page, pages, pageIds);
+    const annots = options.links === false ? [] : annotations(page, pages, pageIds, writer);
     writer.set(
-      page.id,
+      pageId,
       `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pdfNumber(page.width)} ${pdfNumber(page.height)}] /Contents ${contentId} 0 R /Resources << /XObject << /Im0 ${imageId} 0 R >> >>${annots.length ? ` /Annots [${annots.join(' ')}]` : ''} >>`,
     );
   }
