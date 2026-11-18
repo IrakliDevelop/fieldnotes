@@ -1745,6 +1745,87 @@ describe('exportSvg fonts', () => {
     expect(onFontError).toHaveBeenCalledWith(expect.objectContaining({ reason: 'timeout' }));
   });
 
+  it('times out while a fetched Blob arrayBuffer never settles', async () => {
+    class StalledBlob extends Blob {
+      override arrayBuffer(): Promise<ArrayBuffer> {
+        return new Promise(() => undefined);
+      }
+    }
+
+    vi.useFakeTimers();
+    const response = new Response();
+    vi.spyOn(response, 'blob').mockResolvedValue(new StalledBlob());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    const pending = exportSvg(textStore('text'), {
+      fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+      imageTimeoutMs: 50,
+      onFontError,
+    });
+    await vi.runAllTimersAsync();
+    expect(await pending).not.toContain('<style>');
+    expect(onFontError).toHaveBeenCalledOnce();
+    expect(onFontError).toHaveBeenCalledWith({
+      family: 'Inter',
+      weight: 'normal',
+      style: 'normal',
+      reason: 'timeout',
+      cause: undefined,
+    });
+  });
+
+  it('reports an arrayBuffer rejection as encode once', async () => {
+    const cause = new Error('bytes failed');
+    class FailingBlob extends Blob {
+      override arrayBuffer(): Promise<ArrayBuffer> {
+        return Promise.reject(cause);
+      }
+    }
+
+    const response = new Response();
+    vi.spyOn(response, 'blob').mockResolvedValue(new FailingBlob());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    expect(
+      await exportSvg(textStore('text'), {
+        fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+        onFontError,
+      }),
+    ).not.toContain('<style>');
+    expect(onFontError).toHaveBeenCalledOnce();
+    expect(onFontError).toHaveBeenCalledWith({
+      family: 'Inter',
+      weight: 'normal',
+      style: 'normal',
+      reason: 'encode',
+      cause,
+    });
+  });
+
+  it('reports empty bytes as encode once', async () => {
+    const response = new Response();
+    vi.spyOn(response, 'blob').mockResolvedValue(new Blob());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    setTextFontFamily('Inter');
+    const onFontError = vi.fn();
+    expect(
+      await exportSvg(textStore('text'), {
+        fonts: [{ family: 'Inter', src: 'https://fonts.test/inter.woff2' }],
+        onFontError,
+      }),
+    ).not.toContain('<style>');
+    expect(onFontError).toHaveBeenCalledOnce();
+    expect(onFontError).toHaveBeenCalledWith({
+      family: 'Inter',
+      weight: 'normal',
+      style: 'normal',
+      reason: 'encode',
+      cause: undefined,
+    });
+  });
+
   it('warns when there is no onFontError', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')));

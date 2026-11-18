@@ -22,52 +22,52 @@ test.describe('export', () => {
       async ({ url, moduleUrl }) => {
         const { setTextFontFamily } = await import(moduleUrl);
         setTextFontFamily('Kalam, sans-serif');
-        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
-          store: { add(element: Record<string, unknown>): void };
-          exportSVG(options?: { fonts?: { family: string; src: string }[] }): Promise<string>;
-        };
-        vp.store.add({
-          id: 'embedded-font',
-          type: 'text',
-          position: { x: 0, y: 0 },
-          size: { w: 180, h: 40 },
-          index: '',
-          version: 1,
-          locked: false,
-          layerId: '',
-          text: 'Kalam sample',
-          fontSize: 28,
-          color: '#000000',
-          textAlign: 'left',
-          wrap: false,
-        });
-        const without = await vp.exportSVG();
-        const withFont = await vp.exportSVG({ fonts: [{ family: 'Kalam', src: url }] });
-        const ink = async (svg: string) => {
-          const image = new Image();
-          const objectUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-          try {
-            await new Promise<void>((resolve, reject) => {
-              image.onload = () => resolve();
-              image.onerror = () => reject(new Error('SVG did not load'));
-              image.src = objectUrl;
-            });
-            const canvas = document.createElement('canvas');
-            canvas.width = 180;
-            canvas.height = 40;
-            const context = canvas.getContext('2d');
-            if (!context) throw new Error('2d context unavailable');
-            context.drawImage(image, 0, 0, canvas.width, canvas.height);
-            return new Uint8Array(
-              context
-                .getImageData(0, 0, canvas.width, canvas.height)
-                .data.filter((_, i) => i % 4 === 3),
-            );
-          } finally {
-            URL.revokeObjectURL(objectUrl);
-          }
-        };
         try {
+          const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+            store: { add(element: Record<string, unknown>): void };
+            exportSVG(options?: { fonts?: { family: string; src: string }[] }): Promise<string>;
+          };
+          vp.store.add({
+            id: 'embedded-font',
+            type: 'text',
+            position: { x: 0, y: 0 },
+            size: { w: 180, h: 40 },
+            index: '',
+            version: 1,
+            locked: false,
+            layerId: '',
+            text: 'Kalam sample',
+            fontSize: 28,
+            color: '#000000',
+            textAlign: 'left',
+            wrap: false,
+          });
+          const without = await vp.exportSVG();
+          const withFont = await vp.exportSVG({ fonts: [{ family: 'Kalam', src: url }] });
+          const ink = async (svg: string) => {
+            const image = new Image();
+            const objectUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+            try {
+              await new Promise<void>((resolve, reject) => {
+                image.onload = () => resolve();
+                image.onerror = () => reject(new Error('SVG did not load'));
+                image.src = objectUrl;
+              });
+              const canvas = document.createElement('canvas');
+              canvas.width = 180;
+              canvas.height = 40;
+              const context = canvas.getContext('2d');
+              if (!context) throw new Error('2d context unavailable');
+              context.drawImage(image, 0, 0, canvas.width, canvas.height);
+              return new Uint8Array(
+                context
+                  .getImageData(0, 0, canvas.width, canvas.height)
+                  .data.filter((_, i) => i % 4 === 3),
+              );
+            } finally {
+              URL.revokeObjectURL(objectUrl);
+            }
+          };
           const first = await ink(without);
           const second = await ink(withFont);
           let firstInk = 0;
