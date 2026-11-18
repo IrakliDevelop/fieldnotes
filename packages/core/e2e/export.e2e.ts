@@ -58,7 +58,7 @@ test.describe('export', () => {
         layerId,
         text: 'Hello world wrap',
         textColor: '#222222',
-        backgroundColor: '#abcabc',
+        backgroundColor: '#ffffff',
       });
 
       const png = await vp.exportImage({ scale: 2, background: '#ffffff' });
@@ -140,6 +140,8 @@ test.describe('export', () => {
     });
 
     expect(result).not.toBeNull();
+    expect(result?.pngBands).toHaveLength(6);
+    expect(result?.svgBands).toHaveLength(6);
     expect(result?.pngBands).toHaveLength(result?.svgBands.length ?? 0);
     for (let index = 0; index < (result?.pngBands.length ?? 0); index++) {
       const pngBand = result?.pngBands[index];
