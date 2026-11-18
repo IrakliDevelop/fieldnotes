@@ -24,13 +24,12 @@ export function setTextMeasurer(measure: TextMeasurer | null): void {
 /** Sets the font family stack; a browser-rejected stack throws TypeError. */
 export function setTextFontFamily(family: string | null): void {
   if (family !== null && typeof document !== 'undefined') {
-    const context = (() => {
-      try {
-        return document.createElement('canvas').getContext('2d');
-      } catch {
-        return null;
-      }
-    })();
+    let context: CanvasRenderingContext2D | null;
+    try {
+      context = document.createElement('canvas').getContext('2d');
+    } catch {
+      context = null;
+    }
     if (context) {
       const previous = context.font;
       context.font = `16px ${family}`;
