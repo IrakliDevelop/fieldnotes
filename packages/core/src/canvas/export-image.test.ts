@@ -390,7 +390,8 @@ describe('exportImage', () => {
       const initial = images[0];
       if (!initial) throw new Error('Initial image missing');
       const initialError = initial.onerror;
-      initialError?.(new Event('error'));
+      const initialCause = new Event('error');
+      initialError?.(initialCause);
       const probe = images[1];
       if (!probe) throw new Error('Plain probe missing');
       const probeLoad = probe.onload;
@@ -460,7 +461,8 @@ describe('exportImage', () => {
       const initial = images[0];
       if (!initial) throw new Error('Initial image missing');
       const initialError = initial.onerror;
-      initialError?.(new Event('error'));
+      const initialCause = new Event('error');
+      initialError?.(initialCause);
       const probe = images[1];
       if (!probe) throw new Error('Plain probe missing');
       const probeLoad = probe.onload;
@@ -468,14 +470,14 @@ describe('exportImage', () => {
       probeError?.(new Event('error'));
       await exporting;
 
-      const expected = { elementId: image.id, src: image.src, reason: 'load' };
+      const expected = { elementId: image.id, src: image.src, reason: 'load', cause: initialCause };
       expect(onAssetError).toHaveBeenCalledTimes(1);
-      expect(onAssetError).toHaveBeenCalledWith(expect.objectContaining(expected));
+      expect(onAssetError).toHaveBeenCalledWith(expected);
       initialError?.(new Event('error'));
       probeLoad?.();
       probeError?.(new Event('error'));
       expect(onAssetError).toHaveBeenCalledTimes(1);
-      expect(onAssetError).toHaveBeenCalledWith(expect.objectContaining(expected));
+      expect(onAssetError).toHaveBeenCalledWith(expected);
       expect(fills).toContain('#eeeeee');
     } finally {
       globalThis.Image = originalImage;
@@ -526,6 +528,11 @@ describe('exportImage', () => {
       if (!initial) throw new Error('Initial image missing');
       const initialLoad = initial.onload;
       const initialError = initial.onerror;
+      initialError?.(new Event('error'));
+      const probe = images[1];
+      if (!probe) throw new Error('Plain probe missing');
+      const probeLoad = probe.onload;
+      const probeError = probe.onerror;
       await vi.advanceTimersByTimeAsync(20);
       await exporting;
 
@@ -538,6 +545,8 @@ describe('exportImage', () => {
       });
       initialLoad?.();
       initialError?.(new Event('error'));
+      probeLoad?.();
+      probeError?.(new Event('error'));
       expect(onAssetError).toHaveBeenCalledTimes(1);
       expect(onAssetError).toHaveBeenCalledWith(expected);
       expect(fills).toContain('#eeeeee');
