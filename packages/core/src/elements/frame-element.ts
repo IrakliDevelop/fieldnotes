@@ -1,5 +1,6 @@
 import type { Bounds, Point, Size } from '../core/types';
 import { createId } from './create-id';
+import { textFontFamily } from './text-layout';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 
 /** The built-in extension type used for board frames. */
@@ -241,7 +242,7 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
     ctx.moveTo(el.position.x, el.position.y + HEADER_HEIGHT);
     ctx.lineTo(el.position.x + el.size.w, el.position.y + HEADER_HEIGHT);
     ctx.stroke();
-    ctx.font = '14px sans-serif';
+    ctx.font = `14px ${textFontFamily()}`;
     ctx.textBaseline = 'middle';
     ctx.save();
     ctx.beginPath();

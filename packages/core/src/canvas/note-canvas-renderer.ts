@@ -2,7 +2,7 @@ import type { NoteElement } from '../elements/types';
 import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { parseStyledRuns } from '../elements/note-sanitizer';
 import type { StyledRun } from '../elements/note-sanitizer';
-import { layoutStyledRuns } from '../elements/text-layout';
+import { layoutStyledRuns, lineOffset } from '../elements/text-layout';
 
 export { parseStyledRuns };
 export type { StyledRun };
@@ -63,12 +63,7 @@ export function renderStyledRuns(
   // PASS 2 — draw each line at its alignment offset. For align 'left' the
   // offset is 0, so the absolute x equals the original streaming cursorX.
   for (const line of layout.lines) {
-    const offset =
-      align === 'center'
-        ? (maxWidth - line.width) / 2
-        : align === 'right'
-          ? maxWidth - line.width
-          : 0;
+    const offset = lineOffset(line, align, maxWidth);
     for (const fragment of line.fragments) {
       ctx.font = fragment.font;
       const fx = startX + offset + fragment.x;

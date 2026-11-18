@@ -78,6 +78,7 @@ describe('core public surface', () => {
   it('exports text measurement helpers', () => {
     expect(typeof FN.measureText).toBe('function');
     expect(typeof FN.setTextMeasurer).toBe('function');
+    expect(typeof FN.setTextFontFamily).toBe('function');
   });
 
   it('exports mount autosave options and no autosave without the option', () => {

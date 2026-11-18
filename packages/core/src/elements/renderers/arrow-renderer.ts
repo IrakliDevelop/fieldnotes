@@ -4,6 +4,7 @@ import { getArrowCurve, getArrowEndTangent, getArrowLabelAnchor } from '../arrow
 import { getElementBounds } from '../element-bounds';
 import { getBoundText } from '../bound-text';
 import { getElbowRoute } from '../elbow-cache';
+import { textFontFamily } from '../text-layout';
 
 const ARROWHEAD_LENGTH = 12;
 const ARROWHEAD_ANGLE = Math.PI / 6;
@@ -94,7 +95,7 @@ function renderArrowLabel(
   if (!arrow.label || arrow.label.length === 0) return;
   const mid = getArrowLabelAnchor(arrow, resolveBounds);
   ctx.save();
-  ctx.font = `${ARROW_LABEL_FONT_SIZE}px system-ui, sans-serif`;
+  ctx.font = `${ARROW_LABEL_FONT_SIZE}px ${textFontFamily()}`;
   const metrics = ctx.measureText(arrow.label);
   const padX = 6;
   const padY = 4;

@@ -1,13 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { measureText, setTextMeasurer } from './text-measure';
+import { measureText, setTextFontFamily, setTextMeasurer } from './text-measure';
 
 const suiteMeasurer = (text: string) => text.length * 10;
 
 afterEach(() => {
+  setTextFontFamily(null);
   setTextMeasurer(suiteMeasurer);
 });
 
 describe('measureText', () => {
+  it('setTextFontFamily changes the font string and recomputes cached sizes', () => {
+    const measure = vi.fn(suiteMeasurer);
+    setTextMeasurer(measure);
+
+    measureText('ab', 16, null);
+    measureText('ab', 16, null);
+    expect(measure).toHaveBeenCalledTimes(1);
+
+    setTextFontFamily('Inter');
+    measureText('ab', 16, null);
+    expect(measure).toHaveBeenLastCalledWith('ab', 'normal normal 16px Inter');
+    expect(measure).toHaveBeenCalledTimes(2);
+
+    setTextFontFamily(null);
+    measureText('ab', 16, null);
+    expect(measure).toHaveBeenLastCalledWith('ab', 'normal normal 16px system-ui, sans-serif');
+  });
+
   it('keeps cached measurements isolated from callers', () => {
     setTextMeasurer(suiteMeasurer);
 

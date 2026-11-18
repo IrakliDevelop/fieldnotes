@@ -2,7 +2,7 @@ export const VERSION = '0.108.0';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
 export { snapPoint } from './core/snap';
-export { measureText, setTextMeasurer } from './elements/text-measure';
+export { measureText, setTextFontFamily, setTextMeasurer } from './elements/text-measure';
 export type { TextMeasurer } from './elements/text-measure';
 export {
   CANVAS_STATE_VERSION,
