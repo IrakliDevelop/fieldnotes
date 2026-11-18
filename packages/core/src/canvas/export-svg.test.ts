@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { exportSvg } from './export-svg';
+import { readSceneFile } from './scene-file';
 import {
   createStroke,
   createNote,
@@ -76,6 +77,8 @@ function buildStore() {
 }
 
 describe('exportSvg', () => {
+  afterEach(vi.unstubAllGlobals);
+
   it('uses final nonzero tangent and omits a wholly degenerate head', async () => {
     const store = new ElementStore();
     const arrow = createArrow({
@@ -147,6 +150,8 @@ describe('exportSvg', () => {
     expect(svg).toContain(
       `<rect x="${laidOut.position.x - 4}" y="${laidOut.position.y - 2}" width="68" height="24" rx="4" fill="rgba(255,255,255,0.9)" />`,
     );
+    expect(svg).toContain('>bound</tspan>');
+    expect(svg).not.toContain('<image');
     expect(svg).not.toContain('legacy');
   });
 
@@ -1137,55 +1142,169 @@ describe('exportSvg', () => {
     expect(svg).toMatch(/<rect[^>]*fill="#ff0000"/);
   });
 
-  it('rasterizes text elements to an <image> and never emits literal HTML tags', async () => {
-    // Text now renders RICH via the shared canvas renderer, rasterized to a data-URI
-    // <image> (like notes). Under a working canvas it is an <image>; under jsdom's
-    // null-context degradation the text is simply skipped — either way no raw <text>
-    // node carrying the literal markup is emitted.
+  it('emits a text element as positioned tspans with its spaces', async () => {
     const store = new ElementStore();
     store.add(
       createText({
         position: { x: 0, y: 200 },
         size: { w: 200, h: 60 },
         text: 'Line 1<b>bold</b>',
+        fontSize: 16,
         color: '#123456',
       }),
     );
 
-    const origCreate = document.createElement.bind(document);
-    const ctxStub = {
-      save: vi.fn(),
-      restore: vi.fn(),
-      scale: vi.fn(),
-      translate: vi.fn(),
-      fillRect: vi.fn(),
-      fillText: vi.fn(),
-      measureText: vi.fn().mockReturnValue({ width: 40 }),
-      fillStyle: '',
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain(
+      '<g fill="#123456" font-family="system-ui, sans-serif" xml:space="preserve"><text dominant-baseline="text-before-edge"><tspan x="2" y="202" font-size="16">Line </tspan><tspan x="52" y="202" font-size="16">1</tspan><tspan x="62" y="202" font-size="16" font-weight="bold">bold</tspan></text></g>',
+    );
+    expect(svg).not.toContain('<image');
+  });
+
+  it('never emits literal HTML tags from text', async () => {
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 200 }, text: 'Line 1<b>bold</b>' }));
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('>bold</tspan>');
+    expect(svg).not.toContain('<b>');
+    expect(svg).not.toContain('&lt;b&gt;');
+  });
+
+  it('uses the measured ascent when a 2D context exists', async () => {
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 0, y: 200 },
+        size: { w: 200, h: 60 },
+        text: 'Line 1<b>bold</b>',
+        fontSize: 16,
+      }),
+    );
+    const createElement = document.createElement.bind(document);
+    const ctx = {
       font: '',
       textBaseline: '',
+      measureText(this: { textBaseline: string }, text: string) {
+        return {
+          width: text.length * 10,
+          fontBoundingBoxAscent: this.textBaseline === 'alphabetic' ? 13 : 0.5,
+        };
+      },
     } as unknown as CanvasRenderingContext2D;
-
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = origCreate(tag);
-      if (tag === 'canvas') {
-        vi.spyOn(el as HTMLCanvasElement, 'getContext').mockReturnValue(ctxStub as never);
-        vi.spyOn(el as HTMLCanvasElement, 'toDataURL').mockReturnValue(
-          'data:image/png;base64,AAAA',
-        );
-      }
-      return el;
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const element = createElement(tag);
+      if (tag === 'canvas')
+        vi.spyOn(element as HTMLCanvasElement, 'getContext').mockReturnValue(ctx);
+      return element;
     });
 
     const svg = await exportSvg(store);
-    vi.restoreAllMocks();
+    createSpy.mockRestore();
 
-    expect(svg).toContain('<image');
-    expect(svg).toContain('data:image/png;base64,AAAA');
-    // No raw <text> emitter and no literal/escaped markup leaking into the SVG.
+    expect(svg).toContain('<text><tspan x="2" y="214.5" font-size="16">Line </tspan>');
+    expect(svg).not.toContain('dominant-baseline');
+  });
+
+  it('wraps the way the canvas does', async () => {
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 0, y: 200 },
+        size: { w: 40, h: 60 },
+        text: 'ab cd',
+        fontSize: 16,
+      }),
+    );
+
+    const svg = await exportSvg(store);
+
+    expect(svg).toContain('<tspan x="2" y="202" font-size="16">ab </tspan>');
+    expect(svg).toContain(
+      '<text dominant-baseline="text-before-edge"><tspan x="2" y="224.4" font-size="16">cd</tspan></text>',
+    );
+  });
+
+  it.each([
+    ['center', '50'],
+    ['right', '98'],
+  ] as const)('aligns each line by its own width for %s text', async (textAlign, x) => {
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 0, y: 200 },
+        size: { w: 200, h: 60 },
+        text: 'Line 1<b>bold</b>',
+        fontSize: 16,
+        textAlign,
+      }),
+    );
+
+    expect(await exportSvg(store)).toContain(
+      `<tspan x="${x}" y="202" font-size="16">Line </tspan>`,
+    );
+  });
+
+  it('keeps one line when wrap is false', async () => {
+    const store = new ElementStore();
+    store.add(
+      createText({
+        position: { x: 0, y: 200 },
+        size: { w: 40, h: 60 },
+        text: 'ab cd',
+        fontSize: 16,
+        wrap: false,
+      }),
+    );
+
+    const svg = await exportSvg(store);
+
+    expect(svg.match(/<text /g)).toHaveLength(1);
+    expect(svg).toContain('<tspan x="2" y="202" font-size="16">ab </tspan>');
+    expect(svg).toContain('<tspan x="32" y="202" font-size="16">cd</tspan>');
+  });
+
+  it('draws underline as a one pixel rect', async () => {
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 200 }, text: '<u>ab</u>', fontSize: 16 }));
+
+    expect(await exportSvg(store)).toContain('<rect x="2" y="219" width="20" height="1" />');
+  });
+
+  it('drops XML-forbidden characters and stays parseable', async () => {
+    const store = new ElementStore();
+    const text = createText({ position: { x: 0, y: 200 }, text: 'a\u000cb\ud800c' });
+    store.add(text);
+
+    const svg = await exportSvg(store, { embedScene: true });
+    const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const state = await readSceneFile(new Blob([svg], { type: 'image/svg+xml' }));
+
+    expect(parsed.querySelector('parsererror')).toBeNull();
+    expect(parsed.querySelector('tspan')?.textContent).toBe('abc');
+    expect(state?.elements.find((element) => element.type === 'text')?.text).toBe(text.text);
+    expect(text.text).toContain('\u000c');
+  });
+
+  it('keeps every XML-legal character', async () => {
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 200 }, text: 'aＡb😀' }));
+
+    expect((await exportSvg(store)).match(/<tspan[^>]*>(.*?)<\/tspan>/)?.[1]).toBe('aＡb😀');
+  });
+
+  it('emits no text without DOMParser', async () => {
+    const store = new ElementStore();
+    store.add(createText({ position: { x: 0, y: 200 }, text: 'text' }));
+    vi.stubGlobal('DOMParser', undefined);
+
+    const svg = await exportSvg(store);
+
     expect(svg).not.toContain('<text');
-    expect(svg).not.toContain('<b>');
-    expect(svg).not.toContain('&lt;b&gt;');
+    expect(svg).not.toContain('<image');
+    expect(svg).toContain('<svg');
   });
 
   it('emits an image element (data-uri passthrough)', async () => {
