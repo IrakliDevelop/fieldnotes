@@ -6,6 +6,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.109.0 — SVG text, fonts and PDF export
+
+**Added**
+
+- `setTextFontFamily`; `ExportSvgOptions.fonts` and `onFontError`; `ExportFontFace`,
+  `ExportFontError`, `ExportFontErrorReason` and `ExportFontOptions`; `exportPdf`,
+  `Viewport.exportPDF`, `ExportPdfOptions` and `PdfPageSize`. `ExportAssetErrorReason` adds
+  `cors`.
+
+**Changed**
+
+- SVG text, notes and labels use `<text>`, and note overflow is clipped. Failed images draw the
+  placeholder in PNG and PDF and warn once per URL without `onAssetError`. Screen images load
+  CORS-first, then plain; credentialed hosts pay for one extra request per URL, and hosts must use
+  `Vary: Origin` to avoid a cached plain response preventing the CORS request.
+- Note and text DOM nodes receive inline `font-family` once set. Frame titles use
+  `system-ui, sans-serif` on canvas. `imageTimeoutMs` also bounds font files.
+
+**Fixed**
+
+- C15, the frame-title font and size in SVG, and XML-forbidden characters in legacy arrow labels.
+
+### React 0.16.0 — exportPDF
+
+**Added**
+
+- `exportPDF` on `useExport` and the `ExportPdfOptions` type re-export.
+
+**Removed**
+
+- `CanvasElement` and `CanvasElementProps`, announced in 0.15.0. Use `HostElement` and
+  `HostElementProps` instead.
+
+**Changed**
+
+- Peer floor: `@fieldnotes/core >=0.109.0 <1.0.0`.
+
 ### Core 0.108.0 — clipboard, drag-drop and hyperlinks
 
 **Added**

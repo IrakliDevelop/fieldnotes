@@ -6,7 +6,7 @@ afterEach(() => {
 });
 
 describe('getFacts', () => {
-  it('gives the landing four facts in A3 wording and the docs block with browsers, versions and gaps', async () => {
+  it('gives the landing four facts and the docs block with browsers, versions and planned gaps', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => Response.json({ version: '9.9.9' })),
@@ -45,7 +45,8 @@ describe('getFacts', () => {
       source: 'npm',
     });
     expect(facts.docs.notBuilt).toEqual([
-      'Exporting a board or a selected frame as PDF, and SVG exports that embed their fonts',
+      'Theming with a dark canvas',
+      'Vector PDF with selectable text',
     ]);
   });
 });
