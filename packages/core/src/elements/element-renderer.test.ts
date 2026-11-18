@@ -772,6 +772,10 @@ describe('ElementRenderer', () => {
       if (img instanceof HTMLImageElement) {
         img.onerror?.(new Event('error') as never);
       }
+      const retry = cache.get(src);
+      if (retry instanceof HTMLImageElement) {
+        retry.onerror?.(new Event('error') as never);
+      }
     }
 
     it('ignores an image error that arrives after the image cache is cleared', () => {
@@ -848,7 +852,9 @@ describe('ElementRenderer', () => {
       const cache = (renderer as unknown as { imageCache: Map<string, unknown> }).imageCache;
       const img = cache.get(image.src);
       const event = new Event('error');
-      if (img instanceof HTMLImageElement) img.onerror?.(event as never);
+      if (img instanceof HTMLImageElement) img.onerror?.(new Event('error') as never);
+      const retry = cache.get(image.src);
+      if (retry instanceof HTMLImageElement) retry.onerror?.(event as never);
       expect(onError).toHaveBeenCalledWith(image.src, event);
     });
   });
