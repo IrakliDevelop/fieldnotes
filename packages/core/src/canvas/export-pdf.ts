@@ -157,9 +157,12 @@ export async function exportPdf(
     ),
   );
   if (!options.frameIds && !prepared[0]) return null;
-  if (prepared.some((item) => !item)) throw new Error('Unable to prepare PDF page');
-  const pages = prepared.map((item, index) => {
-    const preparedPage = item as PreparedExport;
+  const preparedPages: PreparedExport[] = [];
+  for (const item of prepared) {
+    if (!item) throw new Error('Unable to prepare PDF page');
+    preparedPages.push(item);
+  }
+  const pages = preparedPages.map((preparedPage, index) => {
     const landscape =
       orientation === 'landscape' ||
       (orientation === 'auto' && preparedPage.bounds.w > preparedPage.bounds.h);

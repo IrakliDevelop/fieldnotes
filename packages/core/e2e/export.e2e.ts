@@ -128,8 +128,8 @@ test.describe('export', () => {
           parentId: first.id,
           position: { x: 10, y: 34 },
           size: { w: 20, h: 10 },
-          link: 'https://example.com',
         });
+        linked.link = 'https://example.com';
         vp.store.add(first);
         vp.store.add(second);
         vp.store.add(linked);
@@ -141,7 +141,7 @@ test.describe('export', () => {
     );
     expect(result.startsWith('%PDF-1.4')).toBe(true);
     expect(result.match(/\/Type\s*\/Page(?!s)/g)).toHaveLength(2);
-    expect(result).toContain('/URI');
+    expect(result.match(/\/URI/g)).toHaveLength(1);
   });
 
   test('SVG text sits where the PNG text sits', async ({ canvasPage }) => {
