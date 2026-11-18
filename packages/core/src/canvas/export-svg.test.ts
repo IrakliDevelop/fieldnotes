@@ -1270,7 +1270,14 @@ describe('exportSvg', () => {
     const store = new ElementStore();
     store.add(createText({ position: { x: 0, y: 200 }, text: '<u>ab</u>', fontSize: 16 }));
 
-    expect(await exportSvg(store)).toContain('<rect x="2" y="219" width="20" height="1" />');
+    const svg = await exportSvg(store);
+    const root = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const group = root.querySelector('g[fill="#1a1a1a"]');
+    const rect = group?.querySelector('rect');
+
+    expect(svg).toContain('<rect x="2" y="219" width="20" height="1" />');
+    expect(rect?.parentElement).toBe(group);
+    expect(root.querySelector('text > rect')).toBeNull();
   });
 
   it('drops XML-forbidden characters and stays parseable', async () => {

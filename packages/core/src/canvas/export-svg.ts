@@ -281,6 +281,7 @@ function emitStyledText(
     const first = line.fragments[0];
     const baseline = first ? (measurer?.ascent(first.font) ?? null) : null;
     out += `<text${baseline === null ? ' dominant-baseline="text-before-edge"' : ''}>`;
+    let decorations = '';
     for (const fragment of line.fragments) {
       const bold = fragment.font.includes(' bold ');
       const italic = fragment.font.startsWith('italic ');
@@ -291,13 +292,13 @@ function emitStyledText(
       out += `<tspan x="${n(x)}" y="${n(y)}" font-size="${n(fragment.fontSize)}"${weight}${style}>${attr(fragment.text + (fragment.trailingSpace ? ' ' : ''))}</tspan>`;
       used.add(`${bold ? 'bold' : 'normal'}/${italic ? 'italic' : 'normal'}`);
       if (fragment.underline) {
-        out += `<rect x="${n(x)}" y="${n(startY + line.y + fragment.fontSize + 1)}" width="${n(fragment.width)}" height="1" />`;
+        decorations += `<rect x="${n(x)}" y="${n(startY + line.y + fragment.fontSize + 1)}" width="${n(fragment.width)}" height="1" />`;
       }
       if (fragment.strikethrough) {
-        out += `<rect x="${n(x)}" y="${n(startY + line.y + fragment.fontSize * 0.55)}" width="${n(fragment.width)}" height="1" />`;
+        decorations += `<rect x="${n(x)}" y="${n(startY + line.y + fragment.fontSize * 0.55)}" width="${n(fragment.width)}" height="1" />`;
       }
     }
-    out += '</text>';
+    out += `</text>${decorations}`;
   }
   return `${out}</g>`;
 }
