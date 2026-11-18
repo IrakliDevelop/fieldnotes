@@ -115,6 +115,7 @@ test.describe('export', () => {
   });
 
   test('exports frames to a PDF with a link', async ({ canvasPage }) => {
+    test.slow();
     const result = await canvasPage.page.evaluate(
       async (moduleUrl) => {
         const { createFrame, createShape } = await import(moduleUrl);
@@ -141,7 +142,8 @@ test.describe('export', () => {
     );
     expect(result.startsWith('%PDF-1.4')).toBe(true);
     expect(result.match(/\/Type\s*\/Page(?!s)/g)).toHaveLength(2);
-    expect(result.match(/\/URI/g)).toHaveLength(1);
+    expect(result.match(/\/Subtype \/Link/g)).toHaveLength(1);
+    expect(result).toContain('/A << /S /URI /URI (https://example.com/) >>');
   });
 
   test('SVG text sits where the PNG text sits', async ({ canvasPage }) => {

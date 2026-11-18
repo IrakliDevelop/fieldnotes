@@ -75,9 +75,12 @@ describe('exportPdf', () => {
   it('orders auto pages and uses Letter landscape', async () => {
     const { store, wide, tall } = fixture();
     const ordered = await text(await exportPdf(store, { frameIds: [tall.id, wide.id], dpi: 18 }));
-    expect(ordered.indexOf('/MediaBox [0 0 595.28 841.89]')).toBeLessThan(
-      ordered.indexOf('/MediaBox [0 0 841.89 595.28]'),
-    );
+    expect(ordered.match(/\/Type\s*\/Page(?!s)/g)).toHaveLength(2);
+    const tallBox = ordered.indexOf('/MediaBox [0 0 595.28 841.89]');
+    const wideBox = ordered.indexOf('/MediaBox [0 0 841.89 595.28]');
+    expect(tallBox).toBeGreaterThanOrEqual(0);
+    expect(wideBox).toBeGreaterThanOrEqual(0);
+    expect(tallBox).toBeLessThan(wideBox);
     expect(
       await text(await exportPdf(store, { frameIds: [wide.id], pageSize: 'letter', dpi: 18 })),
     ).toContain('/MediaBox [0 0 792 612]');
@@ -178,6 +181,7 @@ describe('exportPdf', () => {
   });
   it('deduplicates asset warnings across PDF pages', async () => {
     const { store, wide, tall } = fixture();
+    vi.useFakeTimers();
     vi.stubGlobal('CompressionStream', undefined);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     store.add(
@@ -196,7 +200,11 @@ describe('exportPdf', () => {
         src: 'broken',
       }),
     );
-    await exportPdf(store, { frameIds: [wide.id, tall.id], imageTimeoutMs: 1, dpi: 18 });
+    const result = exportPdf(store, { frameIds: [wide.id, tall.id], imageTimeoutMs: 1, dpi: 18 });
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
     expect(warn).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 });
