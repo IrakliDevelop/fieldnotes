@@ -1,6 +1,6 @@
 ---
-title: Export to PNG and SVG
-description: By the end of this page you can download the board as a PNG or an SVG file, with your HTML elements drawn into it.
+title: Export to PNG, SVG and PDF
+description: Download a board or frame as a PNG, SVG or raster PDF page.
 group: Guides
 order: 5
 ---
@@ -36,16 +36,45 @@ nothing behind the elements.
 
 ::code{example="export" region="svg"}
 
-Strokes, shapes and arrows become SVG paths and shapes. Text elements (including the text in a
-shape or on an arrow), notes and HTML elements are embedded as PNG pictures at `rasterScale`
-(default 2), so their words can't be selected or searched in the file. Images are embedded as data
-URLs; one that can't be loaded keeps its original URL. An empty board gives a 0 by 0 SVG.
+Strokes, shapes and arrows become SVG paths and shapes. Text, sticky notes and labels are SVG text
+laid out as on the canvas, so viewers can select them and find words. Text running past a sticky
+note is clipped to the note. Images and HTML elements remain PNG pictures at `rasterScale` (default
+2). Images are embedded as data URLs; one that can't be loaded keeps its original URL. An empty
+board gives a 0 by 0 SVG.
+
+## Fonts
+
+Call `setTextFontFamily` once at startup before creating a viewport. The host loads that face in
+its page. A later call takes effect as elements redraw.
+
+::code{example="export" region="font-family"}
+
+`ExportSvgOptions.fonts` embeds supplied faces in the SVG. The export loads only faces it uses.
+`onFontError` receives an embedding failure; without it, the exporter logs the failure with
+`console.warn` and keeps the family name in the SVG.
+
+::code{example="export" region="fonts"}
+
+## Export a PDF
+
+`viewport.exportPDF(options)` returns a PDF `Blob`. `frameIds` writes one page per frame. Omitting
+`frameIds` writes one page for the board. `pageSize` defaults to A4 (595.28 x 841.89 pt), accepts
+Letter (612 x 792 pt), or accepts a custom size. `orientation` defaults to `auto`, `margin` defaults
+to 36 pt, and `dpi` defaults to 144 dpi. Element links become PDF links. Pages are pictures, so
+text is not selectable. An empty board returns `null`.
+
+::code{example="export" region="pdf"}
 
 ## What an export includes
 
 - Elements on visible layers, at each layer's opacity. Elements on hidden layers are left out.
 - Drawing that plugins register for exports, such as the fog on a [tabletop map](/docs/tabletop-maps/).
-- Images from another origin, fetched with anonymous CORS. An image that fails to load, or takes longer than `imageTimeoutMs` (default 10 seconds), is left out of a PNG, and `onAssetError` receives its id, URL and reason.
+- Images from another origin, fetched with anonymous CORS. A lost image shows the grey placeholder
+  in PNG and PDF; SVG retains the original URL. `onAssetError` receives its id, URL and `cors`,
+  `load`, `timeout`, or `encode` reason. Without a callback, the exporter logs one `console.warn`
+  per URL. If a server varies CORS headers by request but omits `Vary: Origin`, a previously cached
+  plain response can make export use the placeholder. Configure `Vary: Origin` or avoid loading the
+  URL without CORS first.
 - An explicit `background`, caller `filter`, HTML renderers or painters, image diagnostics, registry
   capabilities, and render hooks also apply to a frame export.
 

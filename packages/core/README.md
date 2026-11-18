@@ -18,7 +18,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Select & multi-select** — click, drag box, move, resize (layer-aware)
 - **Undo / redo** — history of the last 100 steps
 - **State serialization** — export/import JSON snapshots with automatic migration
-- **Export** — PNG export with scale, padding, background, and element filter options
+- **Export**: PNG, SVG and PDF export
 - **Performance instrumentation** — `getRenderStats()` and `logPerformance()` for frame timing
 - **Touch & tablet** — Pointer Events API, pinch-to-zoom, two-finger pan, stylus pressure
 - **Zero dependencies** — vanilla TypeScript, no framework required
@@ -155,8 +155,10 @@ output. `frameId` works with `exportImage()` and `exportSVG()`. For raster expor
 image diagnostics, registry capabilities, and render hooks still apply. Frame PNG export defaults to
 transparent; JPEG retains its opaque default.
 
-Remote images are requested with anonymous CORS using their original URLs; failures are omitted from
-the result and reported through `onAssetError` when supplied.
+Remote images are requested with anonymous CORS using their original URLs. PNG and PDF exports draw
+a placeholder when an image fails; `onAssetError` reports the failure, including `cors`, and each
+URL warns once when no callback is supplied. `exportSVG` writes text, notes and labels as SVG text
+and can embed supplied font faces. `exportPDF` returns raster board or frame pages with element links.
 
 `embedScene: true` stores the exported elements in the PNG or SVG, so the file can be opened again
 as a board. The scene holds every element inside the export bounds, including ones that fog or
