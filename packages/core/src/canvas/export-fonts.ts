@@ -9,16 +9,24 @@ export interface ExportFontFace {
   readonly src: string | Blob;
 }
 
+/** Why embedding a font face failed. */
 export type ExportFontErrorReason = 'load' | 'timeout' | 'encode';
 
+/** Details of a font face that could not be embedded. */
 export interface ExportFontError {
+  /** CSS font family requested for export. */
   readonly family: string;
+  /** Normalized font weight. */
   readonly weight: 'normal' | 'bold';
+  /** Normalized font style. */
   readonly style: 'normal' | 'italic';
+  /** Why embedding failed. */
   readonly reason: ExportFontErrorReason;
+  /** Underlying fetch or encoding failure, when available. */
   readonly cause?: unknown;
 }
 
+/** Font embedding options for SVG export. */
 export interface ExportFontOptions {
   /** Faces to embed as `@font-face`; only faces the export uses are loaded. */
   fonts?: readonly ExportFontFace[];

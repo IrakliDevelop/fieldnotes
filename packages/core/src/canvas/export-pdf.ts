@@ -28,10 +28,15 @@ export interface ExportPdfOptions extends Omit<
   | 'embedScene'
   | 'onSceneOmitted'
 > {
+  /** One page per root frame, in this order. Omitted: one page for the whole board. */
   frameIds?: readonly string[];
+  /** Default 'a4'. A4 is 595.28 × 841.89 pt, Letter 612 × 792 pt. */
   pageSize?: PdfPageSize;
+  /** Default 'auto': landscape when the page content is wider than tall. */
   orientation?: 'portrait' | 'landscape' | 'auto';
+  /** Page margin in points. Default 36. */
   margin?: number;
+  /** Raster density of each page in pixels per inch. Default 144. */
   dpi?: number;
 }
 
