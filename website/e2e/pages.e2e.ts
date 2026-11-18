@@ -14,7 +14,7 @@ const [oldestBuilt] = ROADMAP.built;
 const newestBuilt = ROADMAP.built.at(-1);
 if (!oldestBuilt || !newestBuilt) throw new Error('roadmap.md has no Built item');
 
-const NOT_BUILT = ['Theming with a dark canvas', 'Vector PDF with selectable text'];
+const NOT_BUILT = ['Theming with a dark board', 'Vector PDF with selectable text'];
 
 const BUILT = [
   'Command palette on Ctrl or ⌘+K to search and run actions',
@@ -23,7 +23,7 @@ const BUILT = [
   'React props and hooks for autosave, export and load, camera control, shortcuts, element activation and presence',
   'Text inside shapes and arrow labels as text elements, with wrapping and auto-resize',
   'Elbow arrows that route around shapes',
-  'PDF export of a board or of frames, one page each, with element links kept, and SVG exports with real text and embedded fonts',
+  'PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts',
 ];
 
 const NEXT = [
@@ -156,6 +156,6 @@ test.describe('changelog and roadmap without JavaScript', () => {
     await page.goto('/roadmap/');
     await expect(
       page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem'),
-    ).toHaveText(['Theming with a dark canvas', 'Vector PDF with selectable text']);
+    ).toHaveText(['Theming with a dark board', 'Vector PDF with selectable text']);
   });
 });

@@ -65,7 +65,7 @@ test.describe('landing without JavaScript', () => {
 
     const notBuilt = page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem');
     await expect(notBuilt).toHaveText([
-      'Theming with a dark canvas',
+      'Theming with a dark board',
       'Vector PDF with selectable text',
     ]);
 
