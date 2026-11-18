@@ -26,6 +26,7 @@ import { resolveFrameExport } from './frame-export';
 import { buildSceneEnvelope, SCENE_PNG_KEYWORD, serializeSceneEnvelope } from './scene-embed';
 import type { SceneEmbedOptions } from './scene-embed';
 import { appendItxtChunk } from './png-chunks';
+import { renderImagePlaceholder } from '../elements/renderers/image-renderer';
 
 export interface ExportImageOptions
   extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions {
@@ -78,7 +79,7 @@ export interface ExportImageOptions
   afterElements?: (ctx: CanvasRenderingContext2D, width: number, height: number) => void;
 }
 
-export type ExportAssetErrorReason = 'load' | 'timeout' | 'encode';
+export type ExportAssetErrorReason = 'load' | 'timeout' | 'encode' | 'cors';
 
 export interface ExportAssetError {
   elementId: string;
@@ -96,6 +97,28 @@ export interface ExportResourceOptions {
   maxPixels?: number;
   /** Called when an image cannot be loaded or embedded. The export continues. */
   onAssetError?: (error: ExportAssetError) => void;
+}
+
+/** Export options with a reporter that always handles asset failures. */
+export type ReportingExportOptions<T extends ExportResourceOptions> = T & {
+  onAssetError: (error: ExportAssetError) => void;
+};
+
+/** Adds the default once-per-source warning when an export has no asset reporter. */
+export function withAssetWarning<T extends ExportResourceOptions>(
+  options: T,
+): ReportingExportOptions<T> {
+  if (options.onAssetError) return { ...options, onAssetError: options.onAssetError };
+
+  const warned = new Set<string>();
+  return {
+    ...options,
+    onAssetError: ({ src, reason }) => {
+      if (warned.has(src)) return;
+      warned.add(src);
+      console.warn(`[fieldnotes] image not exported (${reason}): ${src}`);
+    },
+  };
 }
 
 const DEFAULT_IMAGE_TIMEOUT_MS = 10_000;
@@ -371,9 +394,21 @@ function loadImages(
         done();
       };
       img.onerror = (cause) => {
-        if (!settle()) return;
-        options.onAssetError?.({ elementId: el.id, src: el.src, reason: 'load', cause });
-        done();
+        if (settled) return;
+        img.onload = null;
+        img.onerror = null;
+        const probe = new Image();
+        probe.onload = () => {
+          if (!settle()) return;
+          options.onAssetError?.({ elementId: el.id, src: el.src, reason: 'cors' });
+          done();
+        };
+        probe.onerror = () => {
+          if (!settle()) return;
+          options.onAssetError?.({ elementId: el.id, src: el.src, reason: 'load', cause });
+          done();
+        };
+        probe.src = el.src;
       };
       img.src = el.src;
     }
@@ -385,6 +420,7 @@ export async function exportImage(
   options: ExportImageOptions = {},
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
+  const reportingOptions = withAssetWarning(options);
   assertRenderCapabilities(
     options.renderHooks?.imageExport,
     'imageExport',
@@ -472,7 +508,7 @@ export async function exportImage(
   const width = Math.ceil(bounds.w * scale);
   const height = Math.ceil(bounds.h * scale);
   assertExportSize(width, height, options);
-  const imageCache = await loadImages(paintableElements, options);
+  const imageCache = await loadImages(paintableElements, reportingOptions);
   const htmlElements = paintableElements.filter((el): el is HtmlElement => el.type === 'html');
 
   // Resolve routing per visible html element before doing any rendering work: canvas-routed
@@ -587,12 +623,14 @@ export async function exportImage(
 
       if (el.type === 'image') {
         const img = imageCache.get(el.id);
-        if (img) {
-          const b = getElementBounds(el);
-          withRotation(target, el, b ? center(b) : el.position, () =>
-            target.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h),
-          );
-        }
+        const b = getElementBounds(el);
+        withRotation(target, el, b ? center(b) : el.position, () => {
+          if (img) {
+            target.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h);
+          } else {
+            renderImagePlaceholder(target, el);
+          }
+        });
         return;
       }
 

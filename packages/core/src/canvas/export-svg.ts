@@ -25,6 +25,7 @@ import {
   positiveOption,
   validateExportResourceOptions,
   resolveExportBounds,
+  withAssetWarning,
 } from './export-image';
 import type { ExportResourceOptions } from './export-image';
 import { renderHtmlElements, validateHtmlExportOptions } from './html-export';
@@ -355,6 +356,7 @@ export async function exportSvg(
   options: ExportSvgOptions = {},
   layerManager?: LayerManager,
 ): Promise<string> {
+  const reportingOptions = withAssetWarning(options);
   assertRenderCapabilities(
     options.renderHooks?.svgExport,
     'svgExport',
@@ -412,8 +414,8 @@ export async function exportSvg(
   const remoteImages = paintableElements.filter(
     (el) => el.type === 'image' && !el.src.startsWith('data:'),
   );
-  const imageCache = await loadImages(remoteImages, options);
-  const imageDataUris = encodeImages(paintableElements, imageCache, rasterScale, options);
+  const imageCache = await loadImages(remoteImages, reportingOptions);
+  const imageDataUris = encodeImages(paintableElements, imageCache, rasterScale, reportingOptions);
   const htmlElements = paintableElements.filter((el): el is HtmlElement => el.type === 'html');
 
   // Resolve routing per visible html element before doing any rendering work: canvas-routed

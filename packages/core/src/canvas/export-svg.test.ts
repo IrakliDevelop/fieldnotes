@@ -84,6 +84,33 @@ describe('exportSvg', () => {
     vi.useRealTimers();
   });
 
+  it('warns once for a remote image failure and keeps its original URL', async () => {
+    const originalImage = globalThis.Image;
+    globalThis.Image = class MockImage {
+      crossOrigin: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: ((cause: unknown) => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onerror?.(new Event('error')));
+      }
+    } as unknown as typeof Image;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const store = new ElementStore();
+    const src = 'https://assets.example/missing.png';
+    store.add(createImage({ position: { x: 10, y: 20 }, size: { w: 30, h: 40 }, src }));
+
+    try {
+      const svg = await exportSvg(store);
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(src));
+      expect(svg).toContain(`href="${src}"`);
+    } finally {
+      globalThis.Image = originalImage;
+      warn.mockRestore();
+    }
+  });
+
   it('uses final nonzero tangent and omits a wholly degenerate head', async () => {
     const store = new ElementStore();
     const arrow = createArrow({

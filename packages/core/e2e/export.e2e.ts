@@ -811,4 +811,130 @@ test.describe('export', () => {
     expect(result.svg.hookWrapper).toEqual({ id: null, rect: null });
     expect(errors).toEqual([]);
   });
+
+  test('shows and exports images with and without CORS headers', async ({ canvasPage }) => {
+    const ok = 'https://cors-test.example/ok.png';
+    const noCors = 'https://cors-test.example/nocors.png';
+    const red = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    await canvasPage.page.route('https://cors-test.example/*.png', (route) =>
+      route.request().url() === ok
+        ? route.fulfill({
+            body: red,
+            contentType: 'image/png',
+            headers: { 'Access-Control-Allow-Origin': '*' },
+          })
+        : route.request().headers().origin
+          ? route.fulfill({ status: 403 })
+          : route.fulfill({ body: red, contentType: 'image/png' }),
+    );
+    const rects = await canvasPage.page.evaluate(
+      ({ ok, noCors }) => {
+        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+          store: { add(element: Record<string, unknown>): void };
+          getVisibleRect(): { x: number; y: number; w: number; h: number };
+          requestRender(): void;
+        };
+        vp.store.add({
+          id: 'cors-ok',
+          type: 'image',
+          position: { x: 200, y: 200 },
+          size: { w: 40, h: 40 },
+          index: '',
+          version: 1,
+          locked: false,
+          layerId: '',
+          src: ok,
+        });
+        vp.store.add({
+          id: 'cors-no',
+          type: 'image',
+          position: { x: 260, y: 200 },
+          size: { w: 40, h: 40 },
+          index: 'a0',
+          version: 1,
+          locked: false,
+          layerId: '',
+          src: noCors,
+        });
+        vp.requestRender();
+        return {
+          visible: vp.getVisibleRect(),
+          elements: [
+            { x: 200, y: 200 },
+            { x: 260, y: 200 },
+          ],
+        };
+      },
+      { ok, noCors },
+    );
+    const wrapper = await canvasPage.wrapper().boundingBox();
+    if (!wrapper) throw new Error('Canvas wrapper not found');
+    const screenRect = (element: { x: number; y: number }) => ({
+      x: wrapper.x + ((element.x - rects.visible.x) / rects.visible.w) * wrapper.width,
+      y: wrapper.y + ((element.y - rects.visible.y) / rects.visible.h) * wrapper.height,
+      width: (40 / rects.visible.w) * wrapper.width,
+      height: (40 / rects.visible.h) * wrapper.height,
+    });
+    const screenshotIsRed = async (element: { x: number; y: number }) => {
+      const screenshot = await canvasPage.page.screenshot({ clip: screenRect(element) });
+      return canvasPage.page.evaluate(async (png) => {
+        const image = new Image();
+        await new Promise<void>((resolve, reject) => {
+          image.onload = () => resolve();
+          image.onerror = () => reject(new Error('Screenshot did not decode'));
+          image.src = `data:image/png;base64,${png}`;
+        });
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('2d context unavailable');
+        context.drawImage(image, 0, 0);
+        const pixel = context.getImageData(
+          Math.floor(canvas.width / 2),
+          Math.floor(canvas.height / 2),
+          1,
+          1,
+        ).data;
+        return pixel[0] === 255 && pixel[1] === 0 && pixel[2] === 0;
+      }, screenshot.toString('base64'));
+    };
+
+    const [first, second] = rects.elements;
+    if (!first || !second) throw new Error('Image rectangles missing');
+    await expect.poll(() => screenshotIsRed(first)).toBe(true);
+    await expect.poll(() => screenshotIsRed(second)).toBe(true);
+    const exported = await canvasPage.page.evaluate(
+      async ({ noCors }) => {
+        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
+          exportImage(options: {
+            scale: number;
+            onAssetError(error: { reason: string; src: string }): void;
+          }): Promise<Blob | null>;
+        };
+        const reports: { reason: string; src: string }[] = [];
+        const blob = await vp.exportImage({
+          scale: 1,
+          onAssetError: (error) => reports.push({ reason: error.reason, src: error.src }),
+        });
+        if (!blob) throw new Error('PNG export missing');
+        const bitmap = await createImageBitmap(blob);
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('2d context unavailable');
+        context.drawImage(bitmap, 0, 0);
+        const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
+        return { reports, cors: pixel(4, 4), noCors: pixel(64, 4), source: noCors };
+      },
+      { noCors },
+    );
+    expect(exported.reports).toEqual([{ reason: 'cors', src: exported.source }]);
+    expect(exported.cors).toEqual([255, 0, 0, 255]);
+    expect(exported.noCors).toEqual([238, 238, 238, 255]);
+  });
 });
