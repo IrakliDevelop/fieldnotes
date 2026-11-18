@@ -78,7 +78,7 @@ describe('parseRoadmap', () => {
     expect(camera).toBeLessThan(frames);
     expect(frames).toBeLessThan(shortcuts);
     expect(roadmap.built.at(-1)).toBe(
-      'PDF export of a board or of frames, one page each, with element links kept, and SVG exports with real text and embedded fonts',
+      'PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts',
     );
     expect(roadmap.built.at(-2)).toBe(
       'PNG and SVG exports that reopen as the board they came from',
@@ -100,7 +100,7 @@ describe('parseRoadmap', () => {
       "I'm working on theming: colour tokens for the canvas, a dark board and exports that follow them.",
     ]);
     expect(roadmap.notBuilt).toEqual([
-      'Theming with a dark canvas',
+      'Theming with a dark board',
       'Vector PDF with selectable text',
     ]);
     for (const section of [roadmap.built, roadmap.next, roadmap.notBuilt]) {

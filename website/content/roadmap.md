@@ -39,7 +39,7 @@
 - Copying and pasting between boards, pasting text and links, and dropping board and text files on a board
 - Links on elements that open from a badge or with ⌘/Ctrl+click
 - PNG and SVG exports that reopen as the board they came from
-- PDF export of a board or of frames, one page each, with element links kept, and SVG exports with real text and embedded fonts
+- PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts
 
 ## Next
 
@@ -47,5 +47,5 @@
 
 ## Not built yet
 
-- Theming with a dark canvas
+- Theming with a dark board
 - Vector PDF with selectable text

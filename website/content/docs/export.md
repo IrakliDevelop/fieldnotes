@@ -1,6 +1,6 @@
 ---
 title: Export to PNG, SVG and PDF
-description: Download a board or frame as a PNG, SVG or raster PDF page.
+description: Download a board or a frame as a PNG or SVG file, or a PDF with one page per frame.
 group: Guides
 order: 5
 ---
@@ -44,8 +44,10 @@ board gives a 0 by 0 SVG.
 
 ## Fonts
 
-Call `setTextFontFamily` once at startup before creating a viewport. The host loads that face in
-its page. A later call takes effect as elements redraw.
+`setTextFontFamily(family)` sets the font of board text on screen and in exports. Call it once at
+startup, before creating a viewport, because a later call reaches each element only when it next
+redraws. Field Notes doesn't load the font, so load it in your page, for example with a CSS
+`@font-face` rule.
 
 ::code{example="export" region="font-family"}
 
@@ -57,12 +59,21 @@ its page. A later call takes effect as elements redraw.
 
 ## Export a PDF
 
-`viewport.exportPDF(options)` returns a PDF `Blob`. `frameIds` writes one page per frame. Omitting
-`frameIds` writes one page for the board. [`ExportPdfOptions`](/api/interfaces/ExportPdfOptions.html)
-lists the defaults: `pageSize` is A4 (595.28 x 841.89 pt), accepts Letter (612 x 792 pt), or accepts
-a custom size. `orientation` defaults to `auto`, `margin` defaults to 36 pt, and `dpi` defaults to
-144 dpi. Element links become PDF links. Pages are pictures, so text is not selectable. An empty
-board returns `null`.
+`viewport.exportPDF(options)` resolves to a PDF `Blob`, or `null` for an empty board. Each page is a
+picture, so its text can't be selected. Element links to web pages, email addresses and elements in
+the PDF stay clickable. [`ExportPdfOptions`](/api/interfaces/_fieldnotes_core.ExportPdfOptions.html)
+lists:
+
+- `frameIds`: one page per root frame, in this order; without it, one page for the board.
+- `pageSize`: `'a4'` 595.28 x 841.89 pt, the default; `'letter'` 612 x 792 pt; or `{ width, height }`
+  in points.
+- `orientation`: `'portrait'`, `'landscape'` or `'auto'`, the default, landscape when the content is
+  wider than tall.
+- `margin`: in points, default 36.
+- `dpi`: pixels per inch of each page picture, default 144.
+- `links`: default true; false writes no clickable links.
+
+PDF links still point at elements under fog; pass `links: false` when sharing a fogged board.
 
 ::code{example="export" region="pdf"}
 
@@ -73,9 +84,9 @@ board returns `null`.
 - Images from another origin, fetched with anonymous CORS. An image that fails to load shows the
   grey placeholder in PNG and PDF; SVG retains the original URL. `onAssetError` receives its id,
   URL and `cors`, `load`, `timeout`, or `encode` reason. Without a callback, the exporter logs one
-  `console.warn` per URL. If a server varies CORS headers by request but omits `Vary: Origin`, a
-  previously cached plain response can make export use the placeholder. Configure `Vary: Origin` or
-  avoid loading the URL without CORS first.
+  `console.warn` per URL. If the image server leaves out `Vary: Origin`, the browser can reuse a
+  cached response without CORS headers and the export draws the placeholder. Send `Vary: Origin`
+  from that server, or don't show the same URL elsewhere on your page without `crossorigin`.
 - An explicit `background`, caller `filter`, HTML renderers or painters, image diagnostics, registry
   capabilities, and render hooks also apply to a frame export.
 

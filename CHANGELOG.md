@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   `ExportFontError`, `ExportFontErrorReason` and `ExportFontOptions`; `exportPdf`,
   `Viewport.exportPDF`, `ExportPdfOptions` and `PdfPageSize`. `ExportAssetErrorReason` adds
   `cors`.
+- `ExportPdfOptions.links` controls whether PDF export writes clickable element links.
 
 **Changed**
 
@@ -26,7 +27,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 **Fixed**
 
-- C15, the frame-title font and size in SVG, and XML-forbidden characters in legacy arrow labels.
+- Images that showed on screen but were left out of exports because only the export requested them
+  with CORS, the frame-title font and size in SVG, and XML-forbidden characters in legacy arrow labels.
 
 ### React 0.16.0 — exportPDF
 

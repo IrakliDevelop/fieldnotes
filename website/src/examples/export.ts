@@ -5,6 +5,10 @@ import {
   type Viewport,
 } from '@fieldnotes/core';
 
+type PdfViewport = Pick<Viewport, 'exportPDF'> & {
+  store: Pick<Viewport['store'], 'getAll'>;
+};
+
 // #region font-family
 setTextFontFamily('Inter, system-ui, sans-serif');
 // #endregion font-family
@@ -42,12 +46,16 @@ export async function exportSvgWithFonts(viewport: Viewport): Promise<void> {
 // #endregion fonts
 
 // #region pdf
-export async function exportPdf(viewport: Viewport): Promise<void> {
+export async function exportPdf(viewport: PdfViewport): Promise<void> {
   const frameIds = viewport.store
     .getAll()
     .filter(isFrameElement)
+    .filter((frame) => frame.parentId === undefined)
     .map((frame) => frame.id);
-  const blob = await viewport.exportPDF({ frameIds, pageSize: 'a4' });
+  const blob = await viewport.exportPDF({
+    ...(frameIds.length > 0 ? { frameIds } : {}),
+    pageSize: 'a4',
+  });
   if (blob) download(blob, 'board.pdf');
 }
 // #endregion pdf

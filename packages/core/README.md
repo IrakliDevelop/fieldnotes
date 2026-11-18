@@ -157,14 +157,16 @@ transparent; JPEG retains its opaque default.
 
 See the [export guide](https://iraklidevelop.github.io/fieldnotes/docs/export/). Remote images are
 requested with anonymous CORS using their original URLs. PNG and PDF exports draw a placeholder when
-an image fails; `onAssetError` reports `cors`, `load`, `timeout`, or `encode`, and each URL warns
-once when no callback is supplied. `exportSVG` writes text, notes and labels as SVG text and can
-embed supplied font faces. `exportPDF` returns raster board or frame pages with element links.
+an image fails; `onAssetError` reports `cors`, `load`, `timeout`, or `encode`, and without a callback
+each failed URL logs one `console.warn`. `exportSVG` writes text, notes and labels as SVG text and
+can embed font faces you supply. `exportPDF` resolves to a PDF with one picture page per frame, or
+one for the board, and keeps element links clickable.
 
 `embedScene: true` stores the exported elements in the PNG or SVG, so the file can be opened again
 as a board. The scene holds every element inside the export bounds, including ones that fog or
 render hooks paint over, so never embed it in an export for viewers who must not see those
-elements. `readSceneFile` reads the scene back, and dropping the file on a board inserts it:
+elements. PDF links still point at elements under fog; pass `links: false` when sharing a fogged
+board. `readSceneFile` reads the scene back, and dropping the file on a board inserts it:
 
 ```typescript
 const png = await viewport.exportImage({ embedScene: true });
