@@ -65,7 +65,8 @@ test.describe('landing without JavaScript', () => {
 
     const notBuilt = page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem');
     await expect(notBuilt).toHaveText([
-      'Exporting a board or a selected frame as PDF, and SVG exports that embed their fonts',
+      'Theming with a dark canvas',
+      'Vector PDF with selectable text',
     ]);
 
     const packages = page.getByRole('contentinfo').getByRole('row');

@@ -128,7 +128,7 @@ test('the docs index shows the facts and the nav groups', async ({ page }) => {
     'HTML elements',
     'Layers',
     'Undo and history',
-    'Export to PNG and SVG',
+    'Export to PNG, SVG and PDF',
     'Multiplayer',
     'Tabletop maps',
     'Writing a plugin',
