@@ -132,6 +132,16 @@ interface Rect {
   h: number;
 }
 
+/** Prepared elements and bounds for image export painting. */
+export interface PreparedExport {
+  readonly bounds: Rect;
+  readonly visibleElements: CanvasElement[];
+  readonly paintable: CanvasElement[];
+  readonly fullCanvas: CanvasElement[];
+  readonly clips: Map<string, Rect | null>;
+  readonly registry: ElementRegistry;
+}
+
 function assertRenderCapabilities(
   registry: TypedHookRegistry<ImageExportHooks> | TypedHookRegistry<SvgExportHooks> | undefined,
   surface: 'imageExport' | 'svgExport',
@@ -415,42 +425,21 @@ function loadImages(
   });
 }
 
-export async function exportImage(
+/** Validates shared options and resolves the elements and bounds to export. */
+export function prepareExport(
   store: ElementStore,
-  options: ExportImageOptions = {},
+  options: ExportImageOptions,
   layerManager?: LayerManager,
-): Promise<Blob | null> {
-  const reportingOptions = withAssetWarning(options);
-  assertRenderCapabilities(
-    options.renderHooks?.imageExport,
-    'imageExport',
-    options.requiredCapabilities,
-  );
+): PreparedExport | null {
   if (options.frameId !== undefined && options.region !== undefined) {
     throw new RangeError('frameId and region cannot be used together');
-  }
-  const requestedScale = positiveOption(options.scale, 2, 'scale');
-  const scaleMode = options.scaleMode ?? 'exact';
-  if (scaleMode !== 'exact' && scaleMode !== 'fit') {
-    throw new RangeError(`scaleMode must be 'exact' or 'fit'`);
   }
   const padding = nonNegativeOption(options.padding, 0, 'padding');
   validateExportResourceOptions(options);
   validateHtmlExportOptions(options);
-  const format = options.format ?? 'png';
-  if (format !== 'png' && format !== 'jpeg') {
-    throw new RangeError(`format must be 'png' or 'jpeg'`);
-  }
-  if (options.quality !== undefined) {
-    if (!Number.isFinite(options.quality) || options.quality <= 0 || options.quality > 1) {
-      throw new RangeError('quality must be a finite number in (0, 1]');
-    }
-  }
   const filter = options.filter;
   const registry = options.elementRegistry ?? getDefaultElementRegistry();
   const frameExport = resolveFrameExport(store, options.frameId);
-  const background =
-    options.background ?? (frameExport && format === 'png' ? 'transparent' : '#ffffff');
 
   const allElements = store.getAll();
   let visibleElements = frameExport
@@ -470,13 +459,6 @@ export async function exportImage(
     registry,
   );
   if (!bounds) return null;
-  const sceneJson =
-    format === 'png' && options.embedScene
-      ? serializeSceneEnvelope(
-          buildSceneEnvelope(visibleElements, bounds, layerManager, registry),
-          options,
-        )
-      : null;
 
   const fullCanvasElements: CanvasElement[] = [];
   const paintableElements: CanvasElement[] = [];
@@ -503,12 +485,40 @@ export async function exportImage(
     paintableElements.push(el);
   }
 
-  const scale =
-    scaleMode === 'fit' ? fitExportScale(bounds, requestedScale, options) : requestedScale;
+  return {
+    bounds,
+    visibleElements,
+    paintable: paintableElements,
+    fullCanvas: fullCanvasElements,
+    clips: effectiveClips,
+    registry,
+  };
+}
+
+/** Paints a prepared export into a new canvas at the supplied scale. */
+export async function paintExport(
+  store: ElementStore,
+  prepared: PreparedExport,
+  scale: number,
+  options: ReportingExportOptions<ExportImageOptions>,
+  layerManager?: LayerManager,
+): Promise<HTMLCanvasElement | null> {
+  const {
+    bounds,
+    visibleElements,
+    paintable: paintableElements,
+    fullCanvas: fullCanvasElements,
+    clips: effectiveClips,
+    registry,
+  } = prepared;
+  const format = options.format ?? 'png';
+  const background =
+    options.background ??
+    (options.frameId !== undefined && format === 'png' ? 'transparent' : '#ffffff');
+
   const width = Math.ceil(bounds.w * scale);
   const height = Math.ceil(bounds.h * scale);
-  assertExportSize(width, height, options);
-  const imageCache = await loadImages(paintableElements, reportingOptions);
+  const imageCache = await loadImages(paintableElements, options);
   const htmlElements = paintableElements.filter((el): el is HtmlElement => el.type === 'html');
 
   // Resolve routing per visible html element before doing any rendering work: canvas-routed
@@ -722,6 +732,61 @@ export async function exportImage(
     );
   }
 
+  return canvas;
+}
+
+export async function exportImage(
+  store: ElementStore,
+  options: ExportImageOptions = {},
+  layerManager?: LayerManager,
+): Promise<Blob | null> {
+  const reportingOptions = withAssetWarning(options);
+  assertRenderCapabilities(
+    options.renderHooks?.imageExport,
+    'imageExport',
+    options.requiredCapabilities,
+  );
+  if (options.frameId !== undefined && options.region !== undefined) {
+    throw new RangeError('frameId and region cannot be used together');
+  }
+  const requestedScale = positiveOption(options.scale, 2, 'scale');
+  const scaleMode = options.scaleMode ?? 'exact';
+  if (scaleMode !== 'exact' && scaleMode !== 'fit') {
+    throw new RangeError(`scaleMode must be 'exact' or 'fit'`);
+  }
+  nonNegativeOption(options.padding, 0, 'padding');
+  validateExportResourceOptions(options);
+  validateHtmlExportOptions(options);
+  const format = options.format ?? 'png';
+  if (format !== 'png' && format !== 'jpeg') {
+    throw new RangeError(`format must be 'png' or 'jpeg'`);
+  }
+  if (options.quality !== undefined) {
+    if (!Number.isFinite(options.quality) || options.quality <= 0 || options.quality > 1) {
+      throw new RangeError('quality must be a finite number in (0, 1]');
+    }
+  }
+  const prepared = prepareExport(store, options, layerManager);
+  if (!prepared) return null;
+  const sceneJson =
+    format === 'png' && options.embedScene
+      ? serializeSceneEnvelope(
+          buildSceneEnvelope(
+            prepared.visibleElements,
+            prepared.bounds,
+            layerManager,
+            prepared.registry,
+          ),
+          options,
+        )
+      : null;
+  const scale =
+    scaleMode === 'fit' ? fitExportScale(prepared.bounds, requestedScale, options) : requestedScale;
+  const width = Math.ceil(prepared.bounds.w * scale);
+  const height = Math.ceil(prepared.bounds.h * scale);
+  assertExportSize(width, height, options);
+  const canvas = await paintExport(store, prepared, scale, reportingOptions, layerManager);
+  if (!canvas) return null;
   const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
   const blob = await new Promise<Blob | null>((resolve) => {
     canvas.toBlob((result) => resolve(result), mimeType, options.quality);
