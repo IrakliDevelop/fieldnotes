@@ -205,8 +205,10 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
         ? { frameId, renderHtml: renderWidgetForExport }
         : { padding: 32, renderHtml: renderWidgetForExport };
     };
-    const rootFrameIds = () =>
-      viewport.store
+    const pdfOptions = (): ExportPdfOptions => {
+      const selected = selectedFrameId();
+      if (selected) return { frameIds: [selected], renderHtml: renderWidgetForExport };
+      const rootIds = viewport.store
         .getAll()
         .filter(
           (el) =>
@@ -215,10 +217,6 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
             viewport.layerManager.isLayerVisible(el.layerId),
         )
         .map((el) => el.id);
-    const pdfOptions = (): ExportPdfOptions => {
-      const selected = selectedFrameId();
-      if (selected) return { frameIds: [selected], renderHtml: renderWidgetForExport };
-      const rootIds = rootFrameIds();
       if (rootIds.length > 0) return { frameIds: rootIds, renderHtml: renderWidgetForExport };
       return { padding: 32, renderHtml: renderWidgetForExport };
     };
