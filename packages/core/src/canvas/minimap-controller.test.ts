@@ -274,6 +274,12 @@ function makeController(
   });
 }
 
+function controllerRenderer(controller: MinimapController): ElementRenderer {
+  const renderer = Reflect.get(controller, 'renderer');
+  if (!(renderer instanceof ElementRenderer)) throw new Error('missing controller renderer');
+  return renderer;
+}
+
 function createClipRegistry(): ElementRegistry {
   const registry = new ElementRegistry();
   registry.register<ExtensionElementEnvelope>({
@@ -321,6 +327,76 @@ function clipElement(
 // ---------------------------------------------------------------------------
 
 describe('MinimapController', () => {
+  it('uses the current theme for the viewport stroke unless explicitly overridden', () => {
+    const { viewport } = makeViewportHarness({ theme: 'dark' });
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const controller = makeController(viewport, canvas, queue);
+    queue.flush();
+    expect(recorder.strokeStyle).toBe('#60a5fa');
+    viewport.setTheme('light');
+    vi.advanceTimersByTime(200);
+    queue.flush();
+    expect(recorder.strokeStyle).toBe('#3b82f6');
+    controller.dispose();
+
+    const fixed = makeController(viewport, document.createElement('canvas'), queue, {
+      viewportStroke: '#123456',
+    });
+    queue.flush();
+    expect(recorder.strokeStyle).toBe('#123456');
+    viewport.setTheme('dark');
+    vi.advanceTimersByTime(200);
+    queue.flush();
+    expect(recorder.strokeStyle).toBe('#123456');
+    fixed.dispose();
+    viewport.destroy();
+  });
+
+  it('adapts text fallback rectangles and rebuilds after a theme change', () => {
+    const { viewport } = makeViewportHarness({ theme: 'dark' });
+    const layerId = viewport.layerManager.activeLayerId;
+    viewport.store.add(
+      createText({
+        position: { x: 0, y: 0 },
+        size: { w: 50, h: 20 },
+        layerId,
+        text: 'ink',
+        color: '#000000',
+      }),
+    );
+    const canvas = document.createElement('canvas');
+    const queue = makeFrameQueue();
+    const constructionSetTheme = vi.spyOn(ElementRenderer.prototype, 'setTheme');
+    const controller = makeController(viewport, canvas, queue);
+    expect(constructionSetTheme).toHaveBeenCalledOnce();
+    expect(constructionSetTheme).toHaveBeenCalledWith(expect.objectContaining({ base: 'dark' }));
+    constructionSetTheme.mockRestore();
+    const setTheme = vi.spyOn(controllerRenderer(controller), 'setTheme');
+    expect(recorder.fillRectLog.at(-1)?.fillStyle).toBe('#ededed');
+    queue.flush();
+    const scene = lastComposite().args[0];
+    createElementSpy.mockClear();
+    viewport.setTheme('light');
+    expect(setTheme).toHaveBeenCalledOnce();
+    expect(setTheme).toHaveBeenCalledWith(expect.objectContaining({ base: 'light' }));
+    expect(canvasCreations()).toBe(0);
+    queue.flush();
+    expect(lastComposite().args[0]).toBe(scene);
+    vi.advanceTimersByTime(200);
+    expect(canvasCreations()).toBe(1);
+    expect(recorder.fillRectLog.at(-1)?.fillStyle).toBe('#000000');
+
+    controller.dispose();
+    setTheme.mockClear();
+    createElementSpy.mockClear();
+    viewport.setTheme('dark');
+    vi.runAllTimers();
+    expect(setTheme).not.toHaveBeenCalled();
+    expect(canvasCreations()).toBe(0);
+    viewport.destroy();
+  });
+
   it('1. renders the scene synchronously at construction and composites only on the first flushed frame', () => {
     const { viewport } = makeViewportHarness();
     const layerId = viewport.layerManager.activeLayerId;

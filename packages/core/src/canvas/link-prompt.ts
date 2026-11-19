@@ -1,5 +1,6 @@
 import { normalizeLink } from '../elements/link';
 import { focusBoard, openDialogShell } from './dialog-shell';
+import type { ResolvedTheme } from './theme';
 
 export interface LinkPromptDeps {
   container: HTMLElement;
@@ -8,6 +9,7 @@ export interface LinkPromptDeps {
   label: string;
   onSubmit: (link: string | null) => void;
   onClose: () => void;
+  getTheme?: () => ResolvedTheme;
 }
 
 /** Opens the link text prompt; an empty value submits null. Returns close. */
@@ -59,6 +61,7 @@ export function openLinkPrompt(deps: LinkPromptDeps): () => void {
     root,
     initialFocus: input,
     textInput: input,
+    theme: deps.getTheme?.(),
     onKeyDown,
     onDismiss: close,
   });

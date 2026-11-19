@@ -3,6 +3,7 @@ import { resolveActionLabel } from '../actions/action-label';
 import { focusBoard, openDialogShell } from './dialog-shell';
 import { buildHelpSections, formatBinding } from './palette-model';
 import type { PaletteStrings } from './palette-model';
+import type { ResolvedTheme } from './theme';
 
 export interface ShortcutsHelpApi {
   open(): void;
@@ -20,6 +21,7 @@ export interface ShortcutsHelpDeps {
   isMac(): boolean;
   strings: PaletteStrings;
   closeOthers(): void;
+  getTheme?: () => ResolvedTheme;
 }
 
 export class ShortcutsHelp implements ShortcutsHelpApi {
@@ -79,6 +81,7 @@ export class ShortcutsHelp implements ShortcutsHelpApi {
       container: this.deps.container,
       root,
       initialFocus: root,
+      theme: this.deps.getTheme?.(),
       onDismiss: () => this.close(),
       onKeyDown: (event) => {
         if (

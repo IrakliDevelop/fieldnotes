@@ -379,6 +379,7 @@ export class Viewport {
       toolbar: options.toolbar,
       placeholder: options.placeholder,
     });
+    this.noteEditor.setTheme(this.theme);
     this.noteEditor.setOnInput((id) => this.interactions.liveFitHeight(id));
     this.noteEditor.setOnAbandon((id) => this.interactions.abandonEditHistory(id));
     this.noteEditor.setHistoryHooks(
@@ -654,6 +655,7 @@ export class Viewport {
         matchShortcut: (event) => this.inputHandler.matchShortcut(event),
         isMac,
         strings,
+        getTheme: () => this.theme,
         closeOthers: () => {
           this.contextMenu?.close();
           palette?.close();
@@ -678,6 +680,7 @@ export class Viewport {
         selectionColor: () => options.selectionColor ?? this.theme.tokens.selection,
         isMac,
         strings,
+        getTheme: () => this.theme,
       });
       this.commandPalette = palette;
       this.shortcutsHelpDialog = help;
@@ -1761,6 +1764,7 @@ export class Viewport {
     this.linkPromptClose = openLinkPrompt({
       container: this.container,
       wrapper: this.wrapper,
+      getTheme: () => this.theme,
       initialValue: initial,
       label,
       // A peer may delete or lock an id while the prompt is open.
@@ -2042,6 +2046,8 @@ export class Viewport {
     this.toolContext.theme = theme;
     this.renderLoop.setTheme(theme);
     this.domNodeManager.setTheme(theme);
+    this.noteEditor.setTheme(theme);
+    this.minimap?.setTheme(theme);
     this.renderLoop.markAllLayersDirty();
     this.requestRender();
     for (const listener of [...this.themeListeners]) {

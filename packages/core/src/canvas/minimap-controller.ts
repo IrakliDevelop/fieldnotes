@@ -4,6 +4,7 @@ import type { Viewport } from './viewport';
 import type { HtmlPainterRegistry } from './html-painter-registry';
 import type { TypedHookRegistry, MinimapRenderHooks, MinimapMapping } from './render-hooks';
 import { ElementRenderer } from '../elements/element-renderer';
+import type { ResolvedTheme } from './theme';
 import { getElementBounds, getElementVisualBounds } from '../elements/element-bounds';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { getBoundText } from '../elements/bound-text';
@@ -44,7 +45,6 @@ const DEFAULT_WIDTH = 200;
 const DEFAULT_HEIGHT = 140;
 const DEFAULT_PADDING = 8;
 const DEFAULT_DEBOUNCE_MS = 200;
-const DEFAULT_VIEWPORT_STROKE = '#3b82f6';
 const NEUTRAL = 'rgba(100,116,139,0.6)';
 
 function elementColor(el: CanvasElement): string {
@@ -73,7 +73,8 @@ export class MinimapController {
   private height: number;
   private readonly padding: number;
   private readonly background: string | null;
-  private readonly viewportStroke: string;
+  private readonly viewportStroke: string | undefined;
+  private theme: ResolvedTheme;
   private readonly debounceMs: number;
   private readonly interactive: boolean;
   private readonly requestFrame: (cb: () => void) => number;
@@ -101,7 +102,8 @@ export class MinimapController {
     this.height = options.height ?? DEFAULT_HEIGHT;
     this.padding = options.padding ?? DEFAULT_PADDING;
     this.background = options.background ?? null;
-    this.viewportStroke = options.viewportStroke ?? DEFAULT_VIEWPORT_STROKE;
+    this.viewportStroke = options.viewportStroke;
+    this.theme = viewport.getTheme();
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.interactive = options.interactive !== false;
     this.requestFrame =
@@ -116,6 +118,7 @@ export class MinimapController {
     this.getExtraBounds = options.getExtraBounds;
 
     this.renderer.setStore(viewport.store);
+    this.renderer.setTheme(this.theme);
     this.renderer.setElementRegistry(viewport.elementRegistry);
     this.renderer.setOnImageLoad(() => this.markSceneDirty());
     this.htmlPainters = viewport.getHtmlPainters(); // parameter, not this.viewport
@@ -134,6 +137,11 @@ export class MinimapController {
       viewport.camera.onChange(() => this.onViewChanged()),
       viewport.onResize(() => this.onViewChanged()),
       this.htmlPainters.onChange(() => this.invalidateScene()),
+      viewport.onThemeChange((theme) => {
+        this.theme = theme;
+        this.renderer.setTheme(theme);
+        this.markSceneDirty();
+      }),
     );
 
     if (this.interactive) {
@@ -381,7 +389,7 @@ export class MinimapController {
           ctx.rect(clipTl.x, clipTl.y, clip.w * t.scale, clip.h * t.scale);
           ctx.clip();
         }
-        ctx.fillStyle = elementColor(el);
+        ctx.fillStyle = this.theme.adapt(elementColor(el));
         ctx.fillRect(tl.x, tl.y, Math.max(1, b.w * t.scale), Math.max(1, b.h * t.scale));
         ctx.restore();
         continue;
@@ -421,7 +429,7 @@ export class MinimapController {
     // with (atomic-swap invariant) — never a fresher transform.
     const viewportRect = this.viewport.getVisibleRect();
     const tl = worldToMini(scene.transform, { x: viewportRect.x, y: viewportRect.y });
-    ctx.strokeStyle = this.viewportStroke;
+    ctx.strokeStyle = this.viewportStroke ?? this.theme.tokens.minimapViewport;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(
       tl.x,

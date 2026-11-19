@@ -89,6 +89,17 @@ describe('Minimap (built-in wrapper)', () => {
     viewport.destroy();
   });
 
+  it('uses dark chrome and updates it with the viewport theme', () => {
+    const viewport = new Viewport(container, { minimap: true, theme: 'dark' });
+    const canvas = minimapCanvas(wrapperOf(container));
+    expect(canvas?.style.background).toBe('rgba(30, 31, 34, 0.85)');
+    expect(canvas?.style.border).toBe('1px solid rgba(255, 255, 255, 0.15)');
+    viewport.setTheme('light');
+    expect(canvas?.style.background).toBe('rgba(255, 255, 255, 0.85)');
+    expect(canvas?.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');
+    viewport.destroy();
+  });
+
   it('2. no minimap canvas is created without the option', () => {
     const viewport = new Viewport(container);
     const wrapper = wrapperOf(container);

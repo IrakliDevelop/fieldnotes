@@ -15,6 +15,7 @@ import type { LingerOverlayHost } from './linger-overlay';
 import { formatBinding, revealView, searchActions } from './palette-model';
 import type { PaletteActionRow, PaletteStrings } from './palette-model';
 import type { ShortcutsHelpApi } from './shortcuts-help';
+import type { ResolvedTheme } from './theme';
 
 export interface PaletteApi {
   /** Opens the palette with `query` in the input (empty by default); re-opening replaces it. */
@@ -44,6 +45,7 @@ export interface CommandPaletteDeps {
   strings: PaletteStrings;
   frames?: FrameScheduler;
   now?: () => number;
+  getTheme?: () => ResolvedTheme;
 }
 
 interface HitExcerpt {
@@ -186,6 +188,7 @@ export class CommandPalette implements PaletteApi {
       root,
       initialFocus: input,
       textInput: input,
+      theme: this.deps.getTheme?.(),
       onDismiss: () => this.close(),
       onKeyDown: (event) => this.onKeyDown(event),
     });

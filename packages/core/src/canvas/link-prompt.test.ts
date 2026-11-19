@@ -3,10 +3,15 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openLinkPrompt } from './link-prompt';
+import { resolveTheme } from './theme';
 
 const opened: (() => void)[] = [];
 
-function setup(initialValue = '', label = 'Add link') {
+function setup(
+  initialValue = '',
+  label = 'Add link',
+  getTheme?: () => ReturnType<typeof resolveTheme>,
+) {
   const wrapper = document.createElement('div');
   wrapper.tabIndex = 0;
   document.body.append(wrapper);
@@ -19,6 +24,7 @@ function setup(initialValue = '', label = 'Add link') {
     label,
     onSubmit,
     onClose,
+    getTheme,
   });
   opened.push(close);
   const input = document.querySelector<HTMLInputElement>('.fieldnotes-palette-input');
@@ -41,6 +47,25 @@ afterEach(() => {
 });
 
 describe('openLinkPrompt', () => {
+  it('marks dark prompt roots and leaves default roots unmarked', () => {
+    const dark = setup('', 'Add link', () => resolveTheme('dark'));
+    const darkRoot = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Add link"]');
+    if (!darkRoot) throw new Error('dark link prompt not mounted');
+    expect(darkRoot.dataset.fieldnotesTheme).toBe('dark');
+    expect(darkRoot.style.colorScheme).toBe('dark');
+    expect(darkRoot.style.getPropertyValue('--fieldnotes-palette-theme-bg')).toBe('#2a2b30');
+    dark.close();
+
+    setup();
+    const lightRoot = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Add link"]');
+    if (!lightRoot) throw new Error('default link prompt not mounted');
+    expect(lightRoot.dataset.fieldnotesTheme).toBeUndefined();
+    expect(lightRoot.style.colorScheme).toBe('');
+    for (const property of ['bg', 'border', 'shadow', 'fg', 'active', 'muted']) {
+      expect(lightRoot.style.getPropertyValue(`--fieldnotes-palette-theme-${property}`)).toBe('');
+    }
+  });
+
   it('Enter submits the normalized link, removes the root and closes once', () => {
     const { onSubmit, onClose, input, wrapper } = setup();
     input.value = 'example.com';

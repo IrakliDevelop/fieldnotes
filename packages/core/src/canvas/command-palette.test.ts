@@ -11,6 +11,7 @@ import { Viewport } from './viewport';
 import type { CommandPaletteDeps } from './command-palette';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
 import type { BaseElement, ElementTypeDefinition } from '../elements/types';
+import { resolveTheme } from './theme';
 
 const cleanup: (() => void)[] = [];
 
@@ -171,6 +172,25 @@ afterEach(() => {
 });
 
 describe('command palette', () => {
+  it('marks dark palette roots and leaves default roots unmarked', () => {
+    const dark = makeDeps({ getTheme: () => resolveTheme('dark') });
+    dark.palette.open();
+    const darkRoot = dark.container.querySelector<HTMLElement>('.fieldnotes-palette');
+    expect(darkRoot?.dataset.fieldnotesTheme).toBe('dark');
+    expect(darkRoot?.style.colorScheme).toBe('dark');
+    expect(darkRoot?.style.getPropertyValue('--fieldnotes-palette-theme-bg')).toBe('#2a2b30');
+    dark.palette.close();
+
+    const light = makeDeps();
+    light.palette.open();
+    const lightRoot = light.container.querySelector<HTMLElement>('.fieldnotes-palette');
+    expect(lightRoot?.dataset.fieldnotesTheme).toBeUndefined();
+    expect(lightRoot?.style.colorScheme).toBe('');
+    for (const property of ['bg', 'border', 'shadow', 'fg', 'active', 'muted']) {
+      expect(lightRoot?.style.getPropertyValue(`--fieldnotes-palette-theme-${property}`)).toBe('');
+    }
+  });
+
   it('keeps the palette open when an action label throws', () => {
     const { harness, container, palette } = makeDeps();
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
