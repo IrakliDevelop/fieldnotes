@@ -25,3 +25,4 @@ export type {
   ElementStyle,
   SelectionStyleDetails,
 } from '@fieldnotes/core';
+export type { Theme } from '@fieldnotes/core';

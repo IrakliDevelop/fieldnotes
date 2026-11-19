@@ -16,6 +16,7 @@ import type {
   ViewportOptions,
   Tool,
   CanvasState,
+  Theme,
   ImportableCanvasState,
 } from '@fieldnotes/core';
 import { ViewportKey } from './context';
@@ -44,6 +45,8 @@ export interface FieldNotesCanvasProps {
    * VTT grid/constraint service instead.
    */
   snapToGrid?: boolean;
+  /** Reactive. `undefined` leaves the viewport's theme alone. Hoist a theme object. */
+  theme?: Theme;
   /** Called once the viewport exists; a throw destroys the viewport and is rethrown. */
   onReady?: (viewport: Viewport) => void;
   /** Trailing-debounced with the exported state after any change; flushed on unmount. */
@@ -76,6 +79,7 @@ export const fieldNotesCanvasProps = {
   tool: String,
   // Vue casts an absent Boolean prop to false; undefined keeps the core flag untouched.
   snapToGrid: { type: Boolean, default: undefined },
+  theme: { type: [String, Object] as PropType<Theme>, default: undefined },
   onReady: Function as PropType<(viewport: Viewport) => void>,
   onChange: Function as PropType<(state: CanvasState) => void>,
   onToolChange: Function as PropType<(name: string) => void>,
@@ -98,7 +102,10 @@ export const FieldNotesCanvas = defineComponent({
 
       const tools = props.tools;
       mounted = mountViewport(el, {
-        options: toRaw(props.options),
+        options:
+          props.theme === undefined
+            ? toRaw(props.options)
+            : { ...toRaw(props.options), theme: toRaw(props.theme) },
         tools: tools === 'default' ? tools : tools?.map(toRaw),
         initialData: toRaw(props.initialData),
         get tool() {
@@ -137,6 +144,11 @@ export const FieldNotesCanvas = defineComponent({
     watch([viewport, () => props.snapToGrid], ([vp, snapToGrid]) => {
       if (!vp || snapToGrid === undefined) return;
       vp.setSnapToGrid(snapToGrid);
+    });
+
+    watch([viewport, () => props.theme], ([vp, theme]) => {
+      if (!vp || theme === undefined) return;
+      vp.setTheme(toRaw(theme));
     });
 
     watch(

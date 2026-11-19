@@ -1,6 +1,7 @@
 import { Component, NgZone, effect, inject, input, signal, viewChild } from '@angular/core';
 import type { ElementRef, OnInit } from '@angular/core';
 import { MinimapController } from '@fieldnotes/core';
+import type { ThemeTokens } from '@fieldnotes/core';
 import { injectViewport } from './inject-viewport';
 
 /**
@@ -15,7 +16,10 @@ import { injectViewport } from './inject-viewport';
       <button
         type="button"
         aria-label="Expand minimap"
-        style="min-width: 44px; min-height: 44px; border: 1px solid rgba(0,0,0,0.15); border-radius: 8px; background: rgba(255,255,255,0.85); cursor: pointer; font: 18px/1 system-ui, sans-serif"
+        style="min-width: 44px; min-height: 44px; border-radius: 8px; cursor: pointer; font: 18px/1 system-ui, sans-serif"
+        [style.background]="tokens()?.minimapBackground"
+        [style.border]="tokens() ? '1px solid ' + tokens()?.minimapBorder : null"
+        [style.color]="tokens()?.chromeText || null"
         (click)="collapsed.set(false)"
       >
         ▣
@@ -53,6 +57,9 @@ export class Minimap implements OnInit {
   readonly viewportStroke = input<string>();
 
   protected readonly collapsed = signal(false);
+  protected readonly tokens = signal<ThemeTokens | undefined>(
+    injectViewport()()?.getTheme().tokens,
+  );
   private readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
 
   constructor() {
@@ -72,6 +79,13 @@ export class Minimap implements OnInit {
       if (collapsed || !canvas || !vp) return;
       const controller = zone.runOutsideAngular(() => new MinimapController(vp, canvas, options));
       onCleanup(() => controller.dispose());
+    });
+
+    effect((onCleanup) => {
+      const vp = viewport();
+      if (!vp) return;
+      this.tokens.set(vp.getTheme().tokens);
+      onCleanup(vp.onThemeChange((theme) => this.tokens.set(theme.tokens)));
     });
   }
 

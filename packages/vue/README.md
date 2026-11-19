@@ -99,6 +99,7 @@ Not all props are reactive — the canvas is stateful. Changing a mount-only pro
 | `tool` / `onToolChange`         | Reactive (controlled). `v-model:tool` binds both                                          |
 | `defaultTool`                   | Mount-only (uncontrolled initial tool); ignored when `tool` is set                        |
 | `snapToGrid` (deprecated)       | Reactive compatibility prop; prefer a domain constraint service                           |
+| `theme`                         | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object.            |
 | `class` / `style`               | Fall through to the root `<div>`                                                          |
 
 `tools` as an array registers each tool once (tools cannot be unregistered). `tools="default"`

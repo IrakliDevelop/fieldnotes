@@ -559,6 +559,49 @@ describe('FieldNotesCanvas', () => {
     expect(viewport.snapToGrid).toBe(false);
   });
 
+  it('theme prop is reactive', () => {
+    let themeAtReady: string | undefined;
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const { rerender } = render(
+      <FieldNotesCanvas
+        options={{ theme: 'light' }}
+        theme="dark"
+        onReady={(viewport) => {
+          themeAtReady = viewport.getTheme().base;
+          onReady(viewport);
+        }}
+      />,
+    );
+    const viewport = viewportAt(onReady, 0);
+    expect(themeAtReady).toBe('dark');
+
+    rerender(<FieldNotesCanvas options={{ theme: 'light' }} theme="light" onReady={onReady} />);
+    expect(viewport.getTheme().base).toBe('light');
+  });
+
+  it('an absent theme leaves the viewport theme untouched', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const { rerender } = render(
+      <FieldNotesCanvas options={{ theme: 'dark' }} snapToGrid onReady={onReady} />,
+    );
+    const viewport = viewportAt(onReady, 0);
+
+    rerender(<FieldNotesCanvas options={{ theme: 'dark' }} snapToGrid={false} onReady={onReady} />);
+    expect(viewport.getTheme().base).toBe('dark');
+  });
+
+  it('an equal theme object does not fire onThemeChange', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const { rerender } = render(<FieldNotesCanvas theme={{ base: 'dark' }} onReady={onReady} />);
+    const viewport = viewportAt(onReady, 0);
+    const onThemeChange = vi.fn();
+    const dispose = viewport.onThemeChange(onThemeChange);
+
+    rerender(<FieldNotesCanvas theme={{ base: 'dark' }} onReady={onReady} />);
+    expect(onThemeChange).not.toHaveBeenCalled();
+    dispose();
+  });
+
   it('tools added after mount are registered', () => {
     const onReady = vi.fn<(viewport: Viewport) => void>();
     const { rerender } = render(<FieldNotesCanvas tools={[new HandTool()]} onReady={onReady} />);

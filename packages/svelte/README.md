@@ -73,16 +73,17 @@ For your own toolbar, pass an explicit tool array and control the active tool wi
 
 Not all props are reactive — the canvas is stateful. Changing a mount-only prop after mount has no effect:
 
-| Prop                            | Reactivity                                                                   |
-| ------------------------------- | ---------------------------------------------------------------------------- |
-| `options`                       | Mount-only — the canvas is stateful; construct with the right options        |
-| `tools`                         | Array: reactive, append-only. Omitted or `'default'`: mount-only (see below) |
-| `initialData`                   | Mount-only — loaded once before `onready`                                    |
-| `onchange` / `changeDebounceMs` | Reactive — the latest callback is used without resubscribing                 |
-| `tool` / `ontoolchange`         | Reactive (controlled)                                                        |
-| `defaultTool`                   | Mount-only (uncontrolled initial tool); ignored when `tool` is set           |
-| `snapToGrid` (deprecated)       | Reactive compatibility prop; prefer a domain constraint service              |
-| `class` / `style` / `children`  | Reactive; `class` and `style` apply to the root `<div>`                      |
+| Prop                            | Reactivity                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `options`                       | Mount-only — the canvas is stateful; construct with the right options          |
+| `tools`                         | Array: reactive, append-only. Omitted or `'default'`: mount-only (see below)   |
+| `initialData`                   | Mount-only — loaded once before `onready`                                      |
+| `onchange` / `changeDebounceMs` | Reactive — the latest callback is used without resubscribing                   |
+| `tool` / `ontoolchange`         | Reactive (controlled)                                                          |
+| `defaultTool`                   | Mount-only (uncontrolled initial tool); ignored when `tool` is set             |
+| `snapToGrid` (deprecated)       | Reactive compatibility prop; prefer a domain constraint service                |
+| `theme`                         | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object. |
+| `class` / `style` / `children`  | Reactive; `class` and `style` apply to the root `<div>`                        |
 
 `tools` as an array registers each tool once (tools cannot be unregistered). `tools="default"`
 registers `createDefaultTools()` at mount, before `onready` (so you can customise them there).

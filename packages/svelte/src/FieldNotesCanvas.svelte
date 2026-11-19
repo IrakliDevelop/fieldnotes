@@ -6,6 +6,7 @@
     CanvasState,
     ImportableCanvasState,
     Viewport,
+    Theme,
   } from '@fieldnotes/core';
 
   export interface FieldNotesCanvasProps {
@@ -32,6 +33,8 @@
      * VTT grid/constraint service instead.
      */
     snapToGrid?: boolean;
+    /** Reactive. `undefined` leaves the viewport's theme alone. Hoist a theme object. */
+    theme?: Theme;
     /** Called once the viewport exists; a throw destroys the viewport and is rethrown. */
     onready?: (viewport: Viewport) => void;
     /** Trailing-debounced with the exported state after any change; flushed on unmount. */
@@ -59,6 +62,7 @@
     defaultTool,
     tool,
     snapToGrid,
+    theme,
     onready,
     onchange,
     ontoolchange,
@@ -75,7 +79,7 @@
   // Getters keep the destructured props live for the helper's deferred reads.
   onMount(() => {
     const handle = mountViewport(root, {
-      options,
+      options: theme === undefined ? options : { ...options, theme },
       tools,
       initialData,
       get tool() {
@@ -108,6 +112,11 @@
   $effect(() => {
     if (!viewport || tool === undefined) return;
     mounted?.setTool(tool);
+  });
+
+  $effect(() => {
+    if (!viewport || theme === undefined) return;
+    viewport.setTheme(theme);
   });
 
   $effect(() => {

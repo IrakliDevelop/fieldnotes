@@ -27,3 +27,4 @@ export type {
   ElementRect,
 } from '@fieldnotes/core';
 export type { AlignEdge, DistributeAxis } from '@fieldnotes/core';
+export type { Theme } from '@fieldnotes/core';

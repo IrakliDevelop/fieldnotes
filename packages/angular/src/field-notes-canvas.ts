@@ -20,6 +20,7 @@ import type {
   Tool,
   Viewport,
   ViewportOptions,
+  Theme,
 } from '@fieldnotes/core';
 import { FIELDNOTES_VIEWPORT } from './context';
 
@@ -50,6 +51,8 @@ export class FieldNotesCanvas implements OnDestroy {
   readonly defaultTool = input<string>();
   /** Controlled active tool; pair with `[(tool)]`. Keyboard and API changes write it back. */
   readonly tool = model<string | undefined>();
+  /** Reactive. `undefined` leaves the viewport's theme alone. Hoist a theme object. */
+  readonly theme = input<Theme>();
   /** Emits once the viewport exists; a throwing listener does not destroy it. */
   readonly ready = output<Viewport>();
   /** Trailing-debounced with the exported state after any change; flushed on destroy. */
@@ -67,7 +70,10 @@ export class FieldNotesCanvas implements OnDestroy {
     const { tool, defaultTool, changeDebounceMs } = this;
     afterNextRender(() => {
       const opts = {
-        options: untracked(this.options),
+        options:
+          untracked(this.theme) === undefined
+            ? untracked(this.options)
+            : { ...untracked(this.options), theme: untracked(this.theme) },
         tools: untracked(this.tools),
         initialData: untracked(this.initialData),
         get tool() {
@@ -103,6 +109,13 @@ export class FieldNotesCanvas implements OnDestroy {
       if (!vp || !this.mounted || tool === undefined) return;
       const { mounted } = this;
       untracked(() => mounted.setTool(tool));
+    });
+
+    effect(() => {
+      const vp = this.viewport();
+      const theme = this.theme();
+      if (!vp || theme === undefined) return;
+      untracked(() => vp.setTheme(theme));
     });
 
     effect(() => {

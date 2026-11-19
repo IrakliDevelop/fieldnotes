@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, cleanup, screen, fireEvent } from '@testing-library/react';
+import { render, cleanup, screen, fireEvent, act } from '@testing-library/react';
 import { FieldNotesCanvas } from './field-notes-canvas';
 import { Minimap } from './minimap';
-import { MinimapController } from '@fieldnotes/core';
+import { MinimapController, type Viewport } from '@fieldnotes/core';
 
 // ---------------------------------------------------------------------------
 // Permissive fake 2D context: every read of an unset property returns a
@@ -65,6 +65,36 @@ describe('Minimap', () => {
     expect(container.querySelectorAll('canvas').length).toBe(1);
     expect(screen.getByRole('button', { name: 'Expand minimap' })).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Collapse minimap' })).toBeNull();
+  });
+
+  it('the collapsed minimap button keeps its light chrome', () => {
+    render(
+      <FieldNotesCanvas>
+        <Minimap defaultCollapsed />
+      </FieldNotesCanvas>,
+    );
+    const button = screen.getByRole('button', { name: 'Expand minimap' });
+    expect(button.style.background).toBe('rgba(255, 255, 255, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');
+    expect(button.style.color).toBe('');
+  });
+
+  it('the collapsed minimap button updates to dark chrome', () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    render(
+      <FieldNotesCanvas onReady={onReady}>
+        <Minimap defaultCollapsed />
+      </FieldNotesCanvas>,
+    );
+    const mounted = onReady.mock.calls[0]?.[0];
+    if (!mounted) throw new Error('viewport not mounted');
+
+    act(() => mounted.setTheme('dark'));
+
+    const button = screen.getByRole('button', { name: 'Expand minimap' });
+    expect(button.style.background).toBe('rgba(30, 31, 34, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(255, 255, 255, 0.15)');
+    expect(button.style.color).toBe('rgb(232, 234, 237)');
   });
 
   it('clicking collapse removes the canvas and disposes the controller', () => {

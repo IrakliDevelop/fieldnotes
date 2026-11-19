@@ -121,6 +121,7 @@ afterwards has no effect:
 | Member             | Kind                        | Reactivity                                                                                     |
 | ------------------ | --------------------------- | ---------------------------------------------------------------------------------------------- |
 | `options`          | input `ViewportOptions`     | Mount-only. The canvas is stateful; construct it with the right options                        |
+| `theme`            | input `Theme`               | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object.                 |
 | `tools`            | input `Tool[] \| 'default'` | An array is append-only: a new array reference registers its new tools. `'default'` mount-only |
 | `initialData`      | input                       | Mount-only. Loaded once before `ready`                                                         |
 | `changeDebounceMs` | input, default `250`        | Read each time a change is scheduled                                                           |

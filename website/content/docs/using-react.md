@@ -27,6 +27,8 @@ npm install @fieldnotes/core @fieldnotes/react
 
 Give `<FieldNotesCanvas>` a height through `style` or `className`. It renders one `div`, and the board fills it.
 
+The `theme` prop is reactive; `undefined` leaves the viewport theme alone.
+
 ## Use the viewport from a component
 
 Children of `<FieldNotesCanvas>` can call the hooks. `useActiveTool` returns the active tool's name and a setter:

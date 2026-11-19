@@ -87,6 +87,28 @@ describe('Minimap', () => {
     expect(root.querySelector(collapseButton)).toBeNull();
   });
 
+  it('the collapsed minimap button keeps its light chrome', async () => {
+    const { root } = await mount(true);
+    const button = root.querySelector<HTMLButtonElement>(expandButton);
+    if (!button) throw new Error('no expand button');
+    expect(button.style.background).toBe('rgba(255, 255, 255, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');
+    expect(button.style.color).toBe('');
+  });
+
+  it('the collapsed minimap button updates to dark chrome', async () => {
+    const { fixture, host, root } = await mount(true);
+    if (!host.viewport) throw new Error('viewport not mounted');
+
+    host.viewport.setTheme('dark');
+    await fixture.whenStable();
+    const button = root.querySelector<HTMLButtonElement>(expandButton);
+    if (!button) throw new Error('no expand button');
+    expect(button.style.background).toBe('rgba(30, 31, 34, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(255, 255, 255, 0.15)');
+    expect(button.style.color).toBe('rgb(232, 234, 237)');
+  });
+
   it('constructs no controller while collapsed', async () => {
     const requestDraw = vi.spyOn(MinimapController.prototype, 'requestDraw');
     await mount(true);

@@ -5,6 +5,7 @@ import {
   InjectionToken,
   NgZone,
   inject,
+  input,
   signal,
   viewChild,
 } from '@angular/core';
@@ -12,7 +13,13 @@ import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture, TestModuleMetadata } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { HandTool, PencilTool, SelectTool, Viewport, createShape } from '@fieldnotes/core';
-import type { CanvasState, ImportableCanvasState, Tool, ViewportOptions } from '@fieldnotes/core';
+import type {
+  CanvasState,
+  ImportableCanvasState,
+  Theme,
+  Tool,
+  ViewportOptions,
+} from '@fieldnotes/core';
 import { FIELDNOTES_VIEWPORT } from './context';
 import { FieldNotesCanvas } from './field-notes-canvas';
 
@@ -35,6 +42,7 @@ interface HostInit {
   changeDebounceMs?: number;
   defaultTool?: string;
   tool?: string;
+  theme?: Theme;
   onReady?: (viewport: Viewport) => void;
   onChange?: (state: CanvasState) => void;
 }
@@ -51,6 +59,7 @@ const HOST_INIT = new InjectionToken<HostInit>('HOST_INIT');
     [changeDebounceMs]="changeDebounceMs()"
     [defaultTool]="defaultTool"
     [(tool)]="tool"
+    [theme]="theme()"
     (ready)="onReady($event)"
     (stateChange)="onChange($event)"
     (toolChange)="toolChanges.push($event)"
@@ -65,6 +74,7 @@ class Host {
   readonly changeDebounceMs = signal(this.init.changeDebounceMs ?? 250);
   readonly defaultTool = this.init.defaultTool;
   readonly tool = signal(this.init.tool);
+  readonly theme = input<Theme>();
   readonly readies: Viewport[] = [];
   readonly viewportsAtReady: (Viewport | null)[] = [];
   readonly states: CanvasState[] = [];
@@ -88,6 +98,7 @@ async function mount(init: HostInit = {}, { providers = [], ...rest }: TestModul
     providers: [{ provide: HOST_INIT, useValue: init }, ...providers],
   });
   const fixture = TestBed.createComponent(Host);
+  if (init.theme !== undefined) fixture.componentRef.setInput('theme', init.theme);
   await fixture.whenStable();
   const host = fixture.componentInstance;
   return { fixture, host, viewport: host.readies.at(-1) ?? null };
@@ -260,6 +271,41 @@ describe('FieldNotesCanvas', () => {
     await fixture.whenStable();
     expect(mounted(viewport).toolManager.activeTool?.name).toBe('hand');
     expect(host.toolChanges).toEqual([]);
+  });
+
+  it('theme input is reactive', async () => {
+    let themeAtReady: string | undefined;
+    const { fixture, viewport } = await mount({
+      options: { theme: 'light' },
+      theme: 'dark',
+      onReady(viewport) {
+        themeAtReady = viewport.getTheme().base;
+      },
+    });
+    expect(themeAtReady).toBe('dark');
+
+    fixture.componentRef.setInput('theme', 'light');
+    await fixture.whenStable();
+    expect(mounted(viewport).getTheme().base).toBe('light');
+  });
+
+  it('an absent theme leaves the viewport theme untouched', async () => {
+    const { fixture, host, viewport } = await mount({ options: { theme: 'dark' } });
+
+    host.tool.set('hand');
+    await fixture.whenStable();
+    expect(mounted(viewport).getTheme().base).toBe('dark');
+  });
+
+  it('an equal theme object does not fire onThemeChange', async () => {
+    const { fixture, viewport } = await mount({ theme: { base: 'dark' } });
+    const onThemeChange = vi.fn();
+    const dispose = mounted(viewport).onThemeChange(onThemeChange);
+
+    fixture.componentRef.setInput('theme', { base: 'dark' });
+    await fixture.whenStable();
+    expect(onThemeChange).not.toHaveBeenCalled();
+    dispose();
   });
 
   it('an API tool switch writes back through [(tool)] and emits toolChange once', async () => {

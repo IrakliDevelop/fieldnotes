@@ -49,6 +49,7 @@ export function Minimap({
 }: MinimapProps) {
   const viewport = useViewport();
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [tokens, setTokens] = useState(() => viewport.getTheme().tokens);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -64,6 +65,11 @@ export function Minimap({
     return () => controller.dispose();
   }, [viewport, collapsed, width, height, background, viewportStroke]);
 
+  useEffect(() => {
+    setTokens(viewport.getTheme().tokens);
+    return viewport.onThemeChange((theme) => setTokens(theme.tokens));
+  }, [viewport]);
+
   if (collapsed) {
     return (
       <button
@@ -74,9 +80,10 @@ export function Minimap({
         style={{
           minWidth: 44,
           minHeight: 44,
-          border: '1px solid rgba(0,0,0,0.15)',
+          border: `1px solid ${tokens.minimapBorder}`,
           borderRadius: 8,
-          background: 'rgba(255,255,255,0.85)',
+          background: tokens.minimapBackground,
+          ...(tokens.chromeText === '' ? {} : { color: tokens.chromeText }),
           cursor: 'pointer',
           font: '18px/1 system-ui, sans-serif',
           ...style,
