@@ -341,6 +341,7 @@ export class Viewport {
       this.attachSelectionSource(existingSelect);
     }
     this.renderer = new ElementRenderer();
+    this.renderer.setTheme(this.theme);
     this.disposers.push(() => this.renderer.clearImageCache());
     this.renderer.setStore(this.store);
     this.renderer.setCamera(this.camera);
@@ -750,6 +751,7 @@ export class Viewport {
       hooks: this._renderHooks,
       onFullFrame: () => this.contextLossGuard.frameComplete(),
     });
+    this.renderLoop.setTheme(this.theme);
     this.disposers.push(this.contextLossGuard.watch(this.canvasEl, () => undefined));
     this.disposers.push(() => this.contextLossGuard.dispose());
     this.disposers.push(
@@ -2016,7 +2018,9 @@ export class Viewport {
     this.theme = theme;
     this.wrapper.dataset.fieldnotesTheme = theme.base;
     this.background.setTheme(theme);
+    this.renderer.setTheme(theme);
     this.toolContext.theme = theme;
+    this.renderLoop.setTheme(theme);
     this.renderLoop.markAllLayersDirty();
     this.requestRender();
     for (const listener of [...this.themeListeners]) {

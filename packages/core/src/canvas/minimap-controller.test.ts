@@ -899,7 +899,13 @@ describe('MinimapController', () => {
     vi.advanceTimersByTime(200);
     queue.flush();
 
-    expect(render).toHaveBeenCalledWith(expect.anything(), element, [element], undefined);
+    expect(render).toHaveBeenCalledWith(
+      expect.anything(),
+      element,
+      [element],
+      undefined,
+      expect.objectContaining({ theme: expect.objectContaining({ base: 'light' }) }),
+    );
 
     controller.dispose();
     viewport.destroy();
@@ -936,12 +942,13 @@ describe('MinimapController', () => {
     const queue = makeFrameQueue();
     const controller = makeController(viewport, document.createElement('canvas'), queue);
 
-    expect(render).toHaveBeenCalledWith(expect.anything(), element, [element], {
-      minX: 0,
-      minY: 0,
-      maxX: 800,
-      maxY: 600,
-    });
+    expect(render).toHaveBeenCalledWith(
+      expect.anything(),
+      element,
+      [element],
+      { minX: 0, minY: 0, maxX: 800, maxY: 600 },
+      expect.objectContaining({ theme: expect.objectContaining({ base: 'light' }) }),
+    );
 
     controller.dispose();
     viewport.destroy();

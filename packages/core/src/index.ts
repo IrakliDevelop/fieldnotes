@@ -13,6 +13,8 @@ export type {
 } from './canvas/theme';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
+/** Context passed to extension element renderers. */
+export type { ElementRenderContext } from './elements/types';
 export { snapPoint } from './core/snap';
 export { measureText, setTextFontFamily, setTextMeasurer } from './elements/text-measure';
 export type { TextMeasurer } from './elements/text-measure';

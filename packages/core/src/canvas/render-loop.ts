@@ -16,6 +16,7 @@ import type { HybridRenderSurface } from './hybrid-render-surface';
 import type { RenderHooks } from './render-hooks';
 import { reportFailure } from '../core/report-failure';
 import { takeAffectedElbowLayers } from '../elements/elbow-cache';
+import type { ResolvedTheme } from './theme';
 
 /**
  * A world-space draw callback rendered above elements on every frame,
@@ -108,6 +109,7 @@ export class RenderLoop {
   // id -> last update time: `warm` saw one recent update, `live` is drawn outside the layer cache.
   private readonly warm = new Map<string, number>();
   private readonly live = new Map<string, number>();
+  private blendedNeverLive = false;
 
   constructor(deps: RenderLoopDeps) {
     this.canvasEl = deps.canvasEl;
@@ -131,6 +133,10 @@ export class RenderLoop {
 
   requestOverlayRender(): void {
     this.needsOverlayRender = true;
+  }
+
+  setTheme(theme: ResolvedTheme): void {
+    this.blendedNeverLive = theme.base === 'dark';
   }
 
   flush(): void {
@@ -200,6 +206,7 @@ export class RenderLoop {
       previous.index !== current.index ||
       this.renderer.isDomElement(current) ||
       this.renderer.isFullCanvasElement(current) ||
+      (this.blendedNeverLive && current.type === 'stroke' && current.blendMode !== undefined) ||
       (current.type === 'extension' &&
         this.store.getChildren(id).length > 0 &&
         this.store.elementRegistry.getAdapter(current.extensionType)?.clipBounds !== undefined) ||
@@ -359,15 +366,29 @@ export class RenderLoop {
         hi = i;
       }
       if (lo >= 0) {
-        const layerT0 = performance.now();
-        this.drawLayerPart(ctx, layerId, 'under', elements, 0, lo, cullingRect);
-        for (let i = lo; i <= hi; i++) {
-          const element = elements[i];
-          if (element) this.renderCulled(ctx, element, cullingRect);
+        let includesBlendedStroke = false;
+        if (this.blendedNeverLive) {
+          for (let i = lo; i <= hi; i++) {
+            const element = elements[i];
+            if (element?.type === 'stroke' && element.blendMode !== undefined) {
+              includesBlendedStroke = true;
+              break;
+            }
+          }
         }
-        this.drawLayerPart(ctx, layerId, 'over', elements, hi + 1, elements.length, cullingRect);
-        timers.layersMs += performance.now() - layerT0;
-        return;
+        if (includesBlendedStroke) {
+          this.layerCache.markDirty(layerId);
+        } else {
+          const layerT0 = performance.now();
+          this.drawLayerPart(ctx, layerId, 'under', elements, 0, lo, cullingRect);
+          for (let i = lo; i <= hi; i++) {
+            const element = elements[i];
+            if (element) this.renderCulled(ctx, element, cullingRect);
+          }
+          this.drawLayerPart(ctx, layerId, 'over', elements, hi + 1, elements.length, cullingRect);
+          timers.layersMs += performance.now() - layerT0;
+          return;
+        }
       }
     }
 

@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { NoteElement } from '../elements/types';
 import { renderNoteOnCanvas, renderStyledRuns } from './note-canvas-renderer';
 import type { StyledRun } from '../elements/note-sanitizer';
+import { resolveTheme } from './theme';
 
 function makeNote(overrides: Partial<NoteElement> = {}): NoteElement {
   return {
@@ -41,6 +42,23 @@ function makeMockCtx(): CanvasRenderingContext2D {
 }
 
 describe('renderNoteOnCanvas', () => {
+  it('adapts note colours only with a dark theme', () => {
+    const dark = makeMockCtx();
+    const colors: string[] = [];
+    Object.defineProperty(dark, 'fillStyle', {
+      set(value: string) {
+        colors.push(value);
+      },
+      get() {
+        return colors.at(-1) ?? '';
+      },
+    });
+    renderNoteOnCanvas(dark, makeNote({ text: 'x' }), resolveTheme('dark'));
+    expect(colors).toEqual(['#5c540d', '#ededed']);
+    const light = makeMockCtx();
+    renderNoteOnCanvas(light, makeNote());
+    expect(light.fillStyle).toBe('#ffeb3b');
+  });
   it('renders background rectangle', () => {
     const ctx = makeMockCtx();
     const note = makeNote();

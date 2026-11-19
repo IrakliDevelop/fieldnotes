@@ -1,4 +1,6 @@
 import type { ImageElement } from '../types';
+import { DEFAULT_THEME } from '../../canvas/theme';
+import type { ResolvedTheme } from '../../canvas/theme';
 
 export function renderImage(
   ctx: CanvasRenderingContext2D,
@@ -6,9 +8,10 @@ export function renderImage(
   imageCache: Map<string, ImageBitmap | HTMLImageElement | 'failed'>,
   onImageLoad: ((src: string) => void) | null,
   onImageError: ((src: string, cause?: unknown) => void) | null,
+  theme: ResolvedTheme = DEFAULT_THEME,
 ): void {
   if (imageCache.get(image.src) === 'failed') {
-    renderImagePlaceholder(ctx, image);
+    renderImagePlaceholder(ctx, image, theme);
     return;
   }
   const img = getImage(image.src, imageCache, onImageLoad, onImageError);
@@ -23,20 +26,24 @@ export function renderImage(
 }
 
 /** Draws the fallback for an image that could not load. */
-export function renderImagePlaceholder(ctx: CanvasRenderingContext2D, image: ImageElement): void {
+export function renderImagePlaceholder(
+  ctx: CanvasRenderingContext2D,
+  image: ImageElement,
+  theme: ResolvedTheme = DEFAULT_THEME,
+): void {
   const { x, y } = image.position;
   const { w, h } = image.size;
   ctx.save();
-  ctx.fillStyle = '#eeeeee';
+  ctx.fillStyle = theme.tokens.placeholderFill;
   ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = '#bdbdbd';
+  ctx.strokeStyle = theme.tokens.placeholderStroke;
   ctx.lineWidth = 1;
   ctx.strokeRect(x, y, w, h);
 
   const glyph = Math.min(24, w / 2, h / 2);
   const cx = x + w / 2;
   const cy = y + h / 2;
-  ctx.strokeStyle = '#9e9e9e';
+  ctx.strokeStyle = theme.tokens.placeholderText;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(cx, cy, glyph / 2, 0, Math.PI * 2);

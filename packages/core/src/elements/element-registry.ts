@@ -158,15 +158,15 @@ export class ElementRegistry {
           }
         : undefined,
       render: def.render
-        ? (ctx, envelope, allElements, worldBounds) => {
+        ? (ctx, envelope, allElements, worldBounds, context) => {
             const fn = def.render;
-            if (fn) fn(ctx, def.unwrap(envelope), allElements, worldBounds);
+            if (fn) fn(ctx, def.unwrap(envelope), allElements, worldBounds, context);
           }
         : undefined,
       emitSvg: def.emitSvg
-        ? (envelope, allElements, viewBox) => {
+        ? (envelope, allElements, viewBox, context) => {
             const fn = def.emitSvg;
-            if (fn) return fn(def.unwrap(envelope), allElements, viewBox);
+            if (fn) return fn(def.unwrap(envelope), allElements, viewBox, context);
             return '';
           }
         : undefined,

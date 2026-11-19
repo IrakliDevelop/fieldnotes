@@ -5,6 +5,8 @@ import { getElementBounds } from '../element-bounds';
 import { getBoundText } from '../bound-text';
 import { getElbowRoute } from '../elbow-cache';
 import { textFontFamily } from '../text-layout';
+import { DEFAULT_THEME } from '../../canvas/theme';
+import type { ResolvedTheme } from '../../canvas/theme';
 
 const ARROWHEAD_LENGTH = 12;
 const ARROWHEAD_ANGLE = Math.PI / 6;
@@ -25,6 +27,7 @@ export function renderArrow(
   ctx: CanvasRenderingContext2D,
   arrow: ArrowElement,
   store: ElementStore | null,
+  theme: ResolvedTheme = DEFAULT_THEME,
 ): void {
   const resolveBounds = (id: string) => {
     const element = store?.getById(id);
@@ -34,7 +37,7 @@ export function renderArrow(
   const curve = getArrowCurve(arrow, resolveBounds);
 
   ctx.save();
-  ctx.strokeStyle = arrow.color;
+  ctx.strokeStyle = theme.adapt(arrow.color);
   ctx.lineWidth = arrow.width;
   ctx.lineCap = 'round';
 
@@ -56,10 +59,10 @@ export function renderArrow(
   const last = route?.points.at(-1) ?? curve.to;
   const angle = getArrowEndTangent(arrow, curve.t1, route?.points);
   if (angle !== null) {
-    renderArrowhead(ctx, arrow, last, angle);
+    renderArrowhead(ctx, arrow, last, angle, theme);
   }
   ctx.restore();
-  renderArrowLabel(ctx, arrow, store, resolveBounds);
+  renderArrowLabel(ctx, arrow, store, resolveBounds, theme);
 }
 
 function renderArrowLabel(
@@ -67,11 +70,12 @@ function renderArrowLabel(
   arrow: ArrowElement,
   store: ElementStore | null,
   resolveBounds: (id: string) => { x: number; y: number; w: number; h: number } | null,
+  theme: ResolvedTheme,
 ): void {
   const boundText = store && getBoundText(arrow, store);
   if (boundText) {
     ctx.save();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillStyle = theme.tokens.labelPlate;
     const angle = boundText.rotation ?? 0;
     if (angle) {
       const x = boundText.position.x + boundText.size.w / 2;
@@ -101,11 +105,11 @@ function renderArrowLabel(
   const padY = 4;
   const w = metrics.width + padX * 2;
   const h = ARROW_LABEL_FONT_SIZE + padY * 2;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.fillStyle = theme.tokens.labelPlate;
   ctx.beginPath();
   ctx.roundRect(mid.x - w / 2, mid.y - h / 2, w, h, 4);
   ctx.fill();
-  ctx.fillStyle = '#1a1a1a';
+  ctx.fillStyle = theme.adapt('#1a1a1a');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(arrow.label, mid.x, mid.y);
@@ -117,6 +121,7 @@ function renderArrowhead(
   arrow: ArrowElement,
   tip: { x: number; y: number },
   angle: number,
+  theme: ResolvedTheme,
 ): void {
   ctx.beginPath();
   ctx.moveTo(tip.x, tip.y);
@@ -129,6 +134,6 @@ function renderArrowhead(
     tip.y - ARROWHEAD_LENGTH * Math.sin(angle + ARROWHEAD_ANGLE),
   );
   ctx.closePath();
-  ctx.fillStyle = arrow.color;
+  ctx.fillStyle = theme.adapt(arrow.color);
   ctx.fill();
 }

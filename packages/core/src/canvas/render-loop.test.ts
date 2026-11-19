@@ -18,7 +18,8 @@ import type { RenderHooks, ViewportRenderHooks } from './render-hooks';
 import { ElementStore as RealElementStore } from '../elements/element-store';
 import { LayerManager as RealLayerManager } from '../layers/layer-manager';
 import { LayerCache as RealLayerCache } from './layer-cache';
-import { createArrow, createNote, createShape } from '../elements/element-factory';
+import { createArrow, createNote, createShape, createStroke } from '../elements/element-factory';
+import { DEFAULT_THEME, resolveTheme } from './theme';
 import { getElbowRoute } from '../elements/elbow-cache';
 import type { ExtensionElementEnvelope } from '../elements/types';
 import { ElementRegistry } from '../elements/element-registry';
@@ -2050,6 +2051,73 @@ describe('RenderLoop', () => {
     function move(id: string, x: number): void {
       store.update(id, { position: { x, y: 0 } });
     }
+
+    function liveIds(): string[] {
+      return [...(renderLoop as unknown as { live: Map<string, number> }).live.keys()];
+    }
+
+    function highlighter(id = 'highlighter') {
+      return {
+        ...createStroke({
+          position: { x: 0, y: 0 },
+          layerId,
+          index: 'a0',
+          color: '#ffeb3b',
+          blendMode: 'multiply',
+          points: [
+            { x: 0, y: 0, pressure: 1 },
+            { x: 10, y: 0, pressure: 1 },
+          ],
+        }),
+        id,
+      };
+    }
+
+    it('a blended stroke never goes live on a dark board', () => {
+      renderLoop.setTheme(resolveTheme('dark'));
+      store.add(highlighter());
+      const dirty = vi.spyOn(cache, 'markDirty');
+      move('highlighter', 1);
+      now += 16;
+      move('highlighter', 2);
+      expect(liveIds()).toEqual([]);
+      expect(dirty).toHaveBeenCalledWith(layerId);
+      store.add(shape('plain', 1));
+      move('plain', 1);
+      now += 16;
+      move('plain', 2);
+      expect(liveIds()).toContain('plain');
+    });
+
+    it('light keeps the live path for a blended stroke', () => {
+      renderLoop.setTheme(DEFAULT_THEME);
+      store.add(highlighter());
+      move('highlighter', 1);
+      now += 16;
+      move('highlighter', 2);
+      expect(liveIds()).toEqual(['highlighter']);
+    });
+
+    it('a live span bracketing a blended stroke redraws its layer each frame on dark', () => {
+      store.add({ ...shape('a', 0), index: 'a0' });
+      store.add({ ...highlighter('h'), index: 'a1' });
+      store.add({ ...shape('b', 2), index: 'a2' });
+      move('a', 1);
+      now += 16;
+      move('a', 2);
+      move('b', 1);
+      now += 16;
+      move('b', 2);
+      renderLoop.setTheme(resolveTheme('dark'));
+      frame();
+      const cacheContext = cache.getContext(layerId);
+      expect(drawnIds(deps.canvasEl.getContext('2d'))).toEqual([]);
+      expect(drawnIds(cacheContext)).toEqual(expect.arrayContaining(['a', 'h', 'b']));
+      vi.mocked(deps.renderer.renderCanvasElement).mockClear();
+      move('a', 3);
+      frame();
+      expect(drawnIds(cacheContext)).toContain('a');
+    });
 
     function drawnIds(ctx: unknown): string[] {
       return vi

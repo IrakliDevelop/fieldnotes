@@ -5300,6 +5300,24 @@ describe('Viewport theme', () => {
     viewport.destroy();
   });
 
+  it('keeps a highlighter out of live rendering from dark construction', () => {
+    const viewport = new Viewport(container, { theme: 'dark' });
+    const stroke = createStroke({
+      points: [
+        { x: 0, y: 0, pressure: 1 },
+        { x: 10, y: 0, pressure: 1 },
+      ],
+      blendMode: 'multiply',
+      layerId: viewport.layerManager.activeLayerId,
+    });
+    viewport.store.add(stroke);
+    viewport.store.update(stroke.id, { position: { x: 1, y: 0 } });
+    viewport.store.update(stroke.id, { position: { x: 2, y: 0 } });
+    const loop = (viewport as unknown as { renderLoop: { live: Map<string, number> } }).renderLoop;
+    expect(loop.live.size).toBe(0);
+    viewport.destroy();
+  });
+
   it('a dark viewport paints the board on its first frame', () => {
     const recording = installRecordingContexts();
     const viewport = new Viewport(container, { theme: 'dark' });

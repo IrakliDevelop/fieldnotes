@@ -24,6 +24,7 @@ import { ElementRegistry } from './element-registry';
 import { ElementStore } from './element-store';
 import { Camera } from '../canvas/camera';
 import { HtmlPainterRegistry } from '../canvas/html-painter-registry';
+import { DEFAULT_THEME, resolveTheme } from '../canvas/theme';
 
 function mockCtx(): CanvasRenderingContext2D {
   return {
@@ -129,6 +130,54 @@ function totalCtxCalls(ctx: CanvasRenderingContext2D): number {
 }
 
 describe('ElementRenderer', () => {
+  it('reuses a frozen extension context until its theme changes', () => {
+    const registry = new ElementRegistry();
+    const render = vi.fn();
+    registry.register<ExtensionElementEnvelope>({
+      type: 'test:theme-context',
+      legacyTypes: [],
+      decodeLegacy: () => extension,
+      validateData: () => true,
+      unwrap: (el) => el,
+      wrap: (el) => el,
+      bounds: () => null,
+      render,
+    });
+    const extension: ExtensionElementEnvelope = {
+      id: 'theme-context',
+      type: 'extension',
+      extensionType: 'test:theme-context',
+      position: { x: 0, y: 0 },
+      index: 'a',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    };
+    const renderer = new ElementRenderer();
+    renderer.setElementRegistry(registry);
+    renderer.setTheme(resolveTheme('dark'));
+    const ctx = mockCtx();
+    renderer.renderCanvasElement(ctx, extension);
+    renderer.renderCanvasElement(ctx, extension);
+    renderer.renderExtensionWithBounds(ctx, extension, { minX: 0, minY: 0, maxX: 1, maxY: 1 }, []);
+    const dark = render.mock.calls[0]?.[4];
+    expect(dark).toBe(render.mock.calls[1]?.[4]);
+    expect(dark).toBe(render.mock.calls[2]?.[4]);
+    expect(Object.isFrozen(dark)).toBe(true);
+    expect(dark?.theme.base).toBe('dark');
+    renderer.setTheme(DEFAULT_THEME);
+    renderer.renderCanvasElement(ctx, extension);
+    expect(render.mock.calls[3]?.[4]).not.toBe(dark);
+    expect(render.mock.calls[3]?.[4]?.theme.base).toBe('light');
+  });
+  it('adapts black stroke ink under a dark theme', () => {
+    const renderer = new ElementRenderer();
+    renderer.setTheme(resolveTheme('dark'));
+    const ctx = mockCtx();
+    renderer.renderCanvasElement(ctx, makeStroke({ color: '#000000' }));
+    expect(ctx.strokeStyle).toBe('#ededed');
+  });
   describe('renderStroke', () => {
     it('draws curved segments through points', () => {
       const renderer = new ElementRenderer();

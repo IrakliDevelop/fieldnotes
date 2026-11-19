@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { renderTextOnCanvas } from './text-canvas-renderer';
 import { createText } from '../elements/element-factory';
 import { TEXT_PADDING } from '../elements/text-measure';
+import { resolveTheme } from './theme';
 
 interface FillTextCall {
   text: string;
@@ -50,6 +51,19 @@ function deterministicCtx() {
 }
 
 describe('renderTextOnCanvas', () => {
+  it('adapts dark text and contrast-adjusts text on a filled container', () => {
+    const { ctx } = recordingCtx();
+    const text = createText({
+      position: { x: 0, y: 0 },
+      size: { w: 20, h: 20 },
+      text: 'x',
+      color: '#1a1a1a',
+    });
+    renderTextOnCanvas(ctx, text, resolveTheme('dark'));
+    expect(ctx.fillStyle).toBe('#d7d7d7');
+    renderTextOnCanvas(ctx, { ...text, color: '#ffffff' }, resolveTheme('dark'), '#1e88e5');
+    expect(ctx.fillStyle).toBe('#0d0d0d');
+  });
   it('renders rich runs and never draws literal HTML tags', () => {
     const { ctx, fillTextCalls } = recordingCtx();
     const text = createText({

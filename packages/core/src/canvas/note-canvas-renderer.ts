@@ -3,11 +3,17 @@ import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { parseStyledRuns } from '../elements/note-sanitizer';
 import type { StyledRun } from '../elements/note-sanitizer';
 import { layoutStyledRuns, lineOffset } from '../elements/text-layout';
+import { DEFAULT_THEME } from './theme';
+import type { ResolvedTheme } from './theme';
 
 export { parseStyledRuns };
 export type { StyledRun };
 
-export function renderNoteOnCanvas(ctx: CanvasRenderingContext2D, note: NoteElement): void {
+export function renderNoteOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  note: NoteElement,
+  theme: ResolvedTheme = DEFAULT_THEME,
+): void {
   const { x, y } = note.position;
   const { w, h } = note.size;
   const r = 4;
@@ -15,7 +21,7 @@ export function renderNoteOnCanvas(ctx: CanvasRenderingContext2D, note: NoteElem
   const baseFontSize = note.fontSize ?? DEFAULT_NOTE_FONT_SIZE;
 
   ctx.save();
-  ctx.fillStyle = note.backgroundColor;
+  ctx.fillStyle = theme.adapt(note.backgroundColor);
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
@@ -30,7 +36,7 @@ export function renderNoteOnCanvas(ctx: CanvasRenderingContext2D, note: NoteElem
   ctx.fill();
 
   if (note.text) {
-    ctx.fillStyle = note.textColor;
+    ctx.fillStyle = theme.adaptOn(note.textColor, note.backgroundColor);
     const runs = parseStyledRuns(note.text, baseFontSize);
     renderStyledRuns(ctx, runs, x + pad, y + pad, w - pad * 2);
   }

@@ -20,8 +20,12 @@ import type {
   ShortcutsHelpApi,
   MountAutoSaveOptions,
 } from './index';
+import type { ElementRenderContext } from './index';
 
 describe('core public surface', () => {
+  it('exports ElementRenderContext as a public type', () => {
+    expectTypeOf<ElementRenderContext>().toMatchTypeOf<{ readonly theme: FN.ResolvedTheme }>();
+  });
   it('exports the theme model without colour internals', () => {
     expect([
       typeof FN.resolveTheme,
