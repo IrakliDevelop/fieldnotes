@@ -46,23 +46,28 @@ export function renderTemplate(
   ctx: CanvasRenderingContext2D,
   template: TemplateElement,
   allElements: readonly CanvasElement[],
+  adapt: (color: string) => string = (color) => color,
 ): void {
   const grid = findGridInStore(allElements);
   if (grid && grid.gridType === 'hex' && template.renderStyle !== 'geometric') {
-    renderHexTemplate(ctx, template, grid.cellSize, grid.hexOrientation);
+    renderHexTemplate(ctx, template, grid.cellSize, grid.hexOrientation, adapt);
     return;
   }
-  renderGeometricTemplate(ctx, template);
+  renderGeometricTemplate(ctx, template, adapt);
 }
 
-function renderGeometricTemplate(ctx: CanvasRenderingContext2D, template: TemplateElement): void {
+function renderGeometricTemplate(
+  ctx: CanvasRenderingContext2D,
+  template: TemplateElement,
+  adapt: (color: string) => string,
+): void {
   const { x: cx, y: cy } = template.position;
   const r = template.radius;
 
   ctx.save();
   ctx.globalAlpha = template.opacity;
-  ctx.fillStyle = template.fillColor;
-  ctx.strokeStyle = template.strokeColor;
+  ctx.fillStyle = adapt(template.fillColor);
+  ctx.strokeStyle = adapt(template.strokeColor);
   ctx.lineWidth = template.strokeWidth;
 
   switch (template.templateShape) {
@@ -132,7 +137,7 @@ function renderGeometricTemplate(ctx: CanvasRenderingContext2D, template: Templa
       angle: template.angle,
       templateShape: template.templateShape,
       feet: template.radiusFeet,
-      color: template.strokeColor,
+      color: adapt(template.strokeColor),
     });
   }
 
@@ -144,6 +149,7 @@ function renderHexTemplate(
   template: TemplateElement,
   cellSize: number,
   orientation: HexOrientation,
+  adapt: (color: string) => string,
 ): void {
   const snapUnit = Math.sqrt(3) * cellSize;
   const radiusCells = template.radius / snapUnit;
@@ -184,14 +190,14 @@ function renderHexTemplate(
   for (const cell of cells) {
     drawHexPath(ctx, cell.x, cell.y, cellSize, orientation);
   }
-  ctx.fillStyle = template.fillColor;
+  ctx.fillStyle = adapt(template.fillColor);
   ctx.fill();
 
   ctx.beginPath();
   for (const cell of cells) {
     drawHexPath(ctx, cell.x, cell.y, cellSize, orientation);
   }
-  ctx.strokeStyle = template.strokeColor;
+  ctx.strokeStyle = adapt(template.strokeColor);
   ctx.lineWidth = template.strokeWidth;
   ctx.stroke();
 
@@ -199,9 +205,9 @@ function renderHexTemplate(
     ctx.globalAlpha = Math.min(template.opacity + 0.1, 1);
     ctx.beginPath();
     drawHexPath(ctx, center.x, center.y, cellSize, orientation);
-    ctx.fillStyle = template.strokeColor;
+    ctx.fillStyle = adapt(template.strokeColor);
     ctx.fill();
-    ctx.strokeStyle = template.strokeColor;
+    ctx.strokeStyle = adapt(template.strokeColor);
     ctx.lineWidth = template.strokeWidth;
     ctx.stroke();
   }
@@ -213,7 +219,7 @@ function renderHexTemplate(
       angle: template.angle,
       templateShape: template.templateShape,
       feet: template.radiusFeet,
-      color: template.strokeColor,
+      color: adapt(template.strokeColor),
     });
   }
 
@@ -225,19 +231,20 @@ function renderHexTemplate(
 export function emitTemplateSvg(
   template: TemplateElement,
   allElements: readonly CanvasElement[],
+  adapt: (color: string) => string = (color) => color,
 ): string {
   const grid = findGridInStore(allElements);
   if (grid && grid.gridType === 'hex') {
-    return emitHexTemplateSvg(template, grid);
+    return emitHexTemplateSvg(template, grid, adapt);
   }
-  return emitGeometricTemplateSvg(template);
+  return emitGeometricTemplateSvg(template, adapt);
 }
 
-function emitGeometricTemplateSvg(t: TemplateElement): string {
+function emitGeometricTemplateSvg(t: TemplateElement, adapt: (color: string) => string): string {
   const { x: cx, y: cy } = t.position;
   const r = t.radius;
-  const fill = esc(t.fillColor);
-  const stroke = esc(t.strokeColor);
+  const fill = esc(adapt(t.fillColor));
+  const stroke = esc(adapt(t.strokeColor));
   const sw = n(t.strokeWidth);
   const op = n(t.opacity);
   const attrs = `fill="${fill}" stroke="${stroke}" stroke-width="${sw}" opacity="${op}"`;
@@ -293,7 +300,11 @@ function emitGeometricTemplateSvg(t: TemplateElement): string {
   }
 }
 
-function emitHexTemplateSvg(t: TemplateElement, grid: GridElement): string {
+function emitHexTemplateSvg(
+  t: TemplateElement,
+  grid: GridElement,
+  adapt: (color: string) => string,
+): string {
   const cellSize = grid.cellSize;
   const orientation = grid.hexOrientation;
   const snapUnit = Math.sqrt(3) * cellSize;
@@ -340,7 +351,7 @@ function emitHexTemplateSvg(t: TemplateElement, grid: GridElement): string {
     }
     d += 'Z';
   }
-  return `<path d="${d}" fill="${esc(t.fillColor)}" stroke="${esc(t.strokeColor)}" stroke-width="${n(t.strokeWidth)}" opacity="${n(t.opacity)}" />`;
+  return `<path d="${d}" fill="${esc(adapt(t.fillColor))}" stroke="${esc(adapt(t.strokeColor))}" stroke-width="${n(t.strokeWidth)}" opacity="${n(t.opacity)}" />`;
 }
 
 // ─── Grid SVG export ─────────────────────────────────────────────────────────
@@ -348,6 +359,7 @@ function emitHexTemplateSvg(t: TemplateElement, grid: GridElement): string {
 export function emitGridSvg(
   grid: GridElement,
   viewBox: { x: number; y: number; w: number; h: number },
+  adapt: (color: string) => string = (color) => color,
 ): string {
   if (grid.cellSize <= 0) return '';
   const vb = {
@@ -356,7 +368,7 @@ export function emitGridSvg(
     maxX: viewBox.x + viewBox.w,
     maxY: viewBox.y + viewBox.h,
   };
-  const stroke = esc(grid.strokeColor);
+  const stroke = esc(adapt(grid.strokeColor));
   const sw = n(grid.strokeWidth);
   const op = n(grid.opacity);
 

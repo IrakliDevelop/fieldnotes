@@ -1,4 +1,4 @@
-import { pickBaseFields } from '@fieldnotes/core';
+import { DEFAULT_THEME, pickBaseFields } from '@fieldnotes/core';
 import type {
   BaseElement,
   CanvasElement,
@@ -90,8 +90,10 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
     grid: GridElement,
     _allElements: readonly CanvasElement[],
     worldBounds?: { minX: number; minY: number; maxX: number; maxY: number },
+    context?,
   ): void {
     const bounds = worldBounds ?? { minX: -1e6, minY: -1e6, maxX: 1e6, maxY: 1e6 };
+    const strokeColor = (context?.theme ?? DEFAULT_THEME).adapt(grid.strokeColor);
 
     if (grid.gridType === 'hex') {
       renderHexGrid(
@@ -99,19 +101,12 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
         bounds,
         grid.cellSize,
         grid.hexOrientation,
-        grid.strokeColor,
+        strokeColor,
         grid.strokeWidth,
         grid.opacity,
       );
     } else {
-      renderSquareGrid(
-        ctx,
-        bounds,
-        grid.cellSize,
-        grid.strokeColor,
-        grid.strokeWidth,
-        grid.opacity,
-      );
+      renderSquareGrid(ctx, bounds, grid.cellSize, strokeColor, grid.strokeWidth, grid.opacity);
     }
   },
 
@@ -119,7 +114,8 @@ export const gridElementTypeDefinition: ElementTypeDefinition<GridElement> = {
     grid: GridElement,
     _allElements: readonly CanvasElement[],
     viewBox: { x: number; y: number; w: number; h: number },
+    context?,
   ): string {
-    return emitGridSvg(grid, viewBox);
+    return emitGridSvg(grid, viewBox, (context?.theme ?? DEFAULT_THEME).adapt);
   },
 };

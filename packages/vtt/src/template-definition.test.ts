@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { templateElementTypeDefinition } from './template/template-definition';
-import { ElementRegistry } from '@fieldnotes/core';
+import { ElementRegistry, resolveTheme } from '@fieldnotes/core';
 import type { ExtensionElementEnvelope } from '@fieldnotes/core';
 import type { TemplateElement } from './elements/types';
 
@@ -49,6 +49,34 @@ function makeEnvelope(overrides: Partial<ExtensionElementEnvelope> = {}): Extens
 }
 
 describe('TemplateElementTypeDefinition', () => {
+  it('uses the theme token for selection handle fills', () => {
+    const interaction = templateElementTypeDefinition.interaction;
+    if (!interaction?.renderSelection) throw new Error('selection renderer is required');
+    const fills: string[] = [];
+    const ctx = {
+      fillRect: vi.fn(),
+      strokeRect: vi.fn(),
+      setLineDash: vi.fn(),
+      set fillStyle(value: string) {
+        fills.push(value);
+      },
+    } as unknown as CanvasRenderingContext2D;
+    const template = makeTemplate();
+
+    interaction.renderSelection(ctx, template, {
+      zoom: 1,
+      selectedCount: 1,
+      theme: resolveTheme('dark'),
+    });
+    interaction.renderSelection(ctx, template, {
+      zoom: 1,
+      selectedCount: 1,
+      theme: resolveTheme('light'),
+    });
+
+    expect(fills).toEqual(['#1e1f22', '#ffffff']);
+  });
+
   it('has correct type and legacy types', () => {
     expect(templateElementTypeDefinition.type).toBe('vtt:template');
     expect(templateElementTypeDefinition.legacyTypes).toEqual(['template']);

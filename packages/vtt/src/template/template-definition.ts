@@ -1,4 +1,4 @@
-import { HANDLE_SIZE, HANDLE_HIT_PADDING, pickBaseFields } from '@fieldnotes/core';
+import { DEFAULT_THEME, HANDLE_SIZE, HANDLE_HIT_PADDING, pickBaseFields } from '@fieldnotes/core';
 import type { BaseElement, Bounds, CanvasElement } from '@fieldnotes/core';
 import type {
   ElementTypeDefinition,
@@ -252,7 +252,7 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
         ctx.strokeRect(point.x - handleSize / 2, point.y - handleSize / 2, handleSize, handleSize);
       };
       ctx.setLineDash([]);
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = context.theme.tokens.handleFill;
       if (el.templateShape === 'rectangle') {
         if (context.selectedCount === 1) {
           const cos = Math.cos(el.angle);
@@ -297,12 +297,14 @@ export const templateElementTypeDefinition: ElementTypeDefinition<TemplateElemen
     ctx: CanvasRenderingContext2D,
     template: TemplateElement,
     allElements: readonly CanvasElement[],
+    _worldBounds,
+    context,
   ): void {
-    renderTemplate(ctx, template, allElements);
+    renderTemplate(ctx, template, allElements, (context?.theme ?? DEFAULT_THEME).adapt);
   },
 
-  emitSvg(template: TemplateElement, allElements: readonly CanvasElement[]): string {
-    return emitTemplateSvg(template, allElements);
+  emitSvg(template, allElements, _viewBox, context): string {
+    return emitTemplateSvg(template, allElements, (context?.theme ?? DEFAULT_THEME).adapt);
   },
 };
 
