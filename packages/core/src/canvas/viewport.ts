@@ -2057,6 +2057,7 @@ export class Viewport {
       } catch {
         // One theme listener must not prevent the others from observing a change.
       }
+      if (this.theme !== theme) break;
     }
   }
 

@@ -1,5 +1,5 @@
 import { ensurePaletteStyles } from './palette-styles';
-import { DEFAULT_THEME } from './theme';
+import { DEFAULT_THEME, LIGHT_THEME_TOKENS } from './theme';
 import type { ResolvedTheme } from './theme';
 
 export interface DialogShellOptions {
@@ -36,11 +36,23 @@ export function openDialogShell(options: DialogShellOptions): () => void {
   if (theme.base === 'dark') {
     root.dataset.fieldnotesTheme = 'dark';
     root.style.colorScheme = 'dark';
+  }
+  if (theme.tokens.paletteBackground !== LIGHT_THEME_TOKENS.paletteBackground) {
     root.style.setProperty('--fieldnotes-palette-theme-bg', theme.tokens.paletteBackground);
+  }
+  if (theme.tokens.paletteBorder !== LIGHT_THEME_TOKENS.paletteBorder) {
     root.style.setProperty('--fieldnotes-palette-theme-border', theme.tokens.paletteBorder);
+  }
+  if (theme.tokens.paletteShadow !== LIGHT_THEME_TOKENS.paletteShadow) {
     root.style.setProperty('--fieldnotes-palette-theme-shadow', theme.tokens.paletteShadow);
+  }
+  if (theme.tokens.paletteText !== LIGHT_THEME_TOKENS.paletteText) {
     root.style.setProperty('--fieldnotes-palette-theme-fg', theme.tokens.paletteText);
+  }
+  if (theme.tokens.paletteActive !== LIGHT_THEME_TOKENS.paletteActive) {
     root.style.setProperty('--fieldnotes-palette-theme-active', theme.tokens.paletteActive);
+  }
+  if (theme.tokens.paletteMuted !== LIGHT_THEME_TOKENS.paletteMuted) {
     root.style.setProperty('--fieldnotes-palette-theme-muted', theme.tokens.paletteMuted);
   }
   Object.assign(root.style, {

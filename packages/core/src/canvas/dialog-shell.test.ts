@@ -85,6 +85,55 @@ describe('dialog shell', () => {
     expect(root.style.getPropertyValue('--fieldnotes-palette-theme-muted')).toBe('#9aa0a6');
   });
 
+  it('supplies overridden light palette tokens without marking the shell dark', () => {
+    const { container, root, input } = setup();
+    own(
+      openDialogShell({
+        container,
+        root,
+        initialFocus: input,
+        onDismiss: vi.fn(),
+        onKeyDown: vi.fn(),
+        theme: resolveTheme({
+          base: 'light',
+          tokens: {
+            paletteBackground: '#fedcba',
+            paletteBorder: '#abcdef',
+            paletteText: '#123456',
+            paletteMuted: '#654321',
+            paletteActive: '#f0f0f0',
+            paletteShadow: '0 1px 2px #000',
+          },
+        }),
+      }),
+    );
+    expect(root.dataset.fieldnotesTheme).toBeUndefined();
+    expect(root.style.colorScheme).toBe('');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-bg')).toBe('#fedcba');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-border')).toBe('#abcdef');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-fg')).toBe('#123456');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-muted')).toBe('#654321');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-active')).toBe('#f0f0f0');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-shadow')).toBe('0 1px 2px #000');
+  });
+
+  it('leaves default light palette tokens and theme marks unset', () => {
+    const { container, root, input } = setup();
+    open(container, root, input);
+    expect(root.dataset.fieldnotesTheme).toBeUndefined();
+    expect(root.style.colorScheme).toBe('');
+    for (const property of [
+      '--fieldnotes-palette-theme-bg',
+      '--fieldnotes-palette-theme-border',
+      '--fieldnotes-palette-theme-fg',
+      '--fieldnotes-palette-theme-muted',
+      '--fieldnotes-palette-theme-active',
+      '--fieldnotes-palette-theme-shadow',
+    ]) {
+      expect(root.style.getPropertyValue(property)).toBe('');
+    }
+  });
+
   it('uses the public palette variables with their approved fallbacks', () => {
     const { container, root, input } = setup();
     open(container, root, input);

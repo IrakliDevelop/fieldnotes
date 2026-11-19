@@ -1,6 +1,6 @@
 import { DEFAULT_NOTE_FONT_SIZE } from './element-factory';
 import { setFontSize, getActiveFormats } from './note-formatting';
-import { DEFAULT_THEME } from '../canvas/theme';
+import { DEFAULT_THEME, LIGHT_THEME_TOKENS } from '../canvas/theme';
 import type { ResolvedTheme } from '../canvas/theme';
 
 const TOOLBAR_HEIGHT = 52;
@@ -234,7 +234,7 @@ export class NoteToolbar {
       const isActive = active[config.format as keyof typeof active] ?? false;
       btn.style.background = isActive ? this.theme.tokens.toolbarActive : 'none';
       btn.style.borderColor = isActive
-        ? this.theme.base === 'light'
+        ? this.theme.tokens.toolbarBorder === LIGHT_THEME_TOKENS.toolbarBorder
           ? '#bbb'
           : this.theme.tokens.toolbarBorder
         : 'transparent';

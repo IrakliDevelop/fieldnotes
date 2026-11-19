@@ -66,6 +66,17 @@ describe('NoteToolbar', () => {
     toolbar.hide();
   });
 
+  it('uses an overridden light toolbar border for active format buttons', () => {
+    const toolbar = new NoteToolbar();
+    toolbar.setTheme(resolveTheme({ base: 'light', tokens: { toolbarBorder: '#ff0000' } }));
+    toolbar.show(container);
+    const button = toolbar.getElement()?.querySelector<HTMLElement>('[data-format="bold"]');
+    vi.spyOn(document, 'queryCommandState').mockReturnValue(true);
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(button?.style.borderColor).toBe('rgb(255, 0, 0)');
+    toolbar.hide();
+  });
+
   it('creates toolbar element on show', () => {
     const toolbar = new NoteToolbar();
     toolbar.show(container);

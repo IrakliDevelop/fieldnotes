@@ -327,6 +327,23 @@ function clipElement(
 // ---------------------------------------------------------------------------
 
 describe('MinimapController', () => {
+  it('does not receive a stale theme after an earlier listener switches back to light', () => {
+    const { viewport } = makeViewportHarness({ theme: 'light' });
+    viewport.onThemeChange((theme) => {
+      if (theme.base === 'dark') viewport.setTheme('light');
+    });
+    const controller = makeController(viewport, document.createElement('canvas'), makeFrameQueue());
+    const setTheme = vi.spyOn(controllerRenderer(controller), 'setTheme');
+
+    viewport.setTheme('dark');
+
+    expect(viewport.getTheme().base).toBe('light');
+    expect(setTheme).toHaveBeenCalledOnce();
+    expect(setTheme).toHaveBeenCalledWith(expect.objectContaining({ base: 'light' }));
+    controller.dispose();
+    viewport.destroy();
+  });
+
   it('uses the current theme for the viewport stroke unless explicitly overridden', () => {
     const { viewport } = makeViewportHarness({ theme: 'dark' });
     const canvas = document.createElement('canvas');

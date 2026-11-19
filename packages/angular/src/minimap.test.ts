@@ -55,6 +55,12 @@ class Host {
   readonly height = signal(140);
 }
 
+@Component({
+  imports: [Minimap],
+  template: '<fn-minimap [defaultCollapsed]="true" />',
+})
+class NullViewportHost {}
+
 async function mount(defaultCollapsed = false) {
   TestBed.configureTestingModule({
     providers: [{ provide: DEFAULT_COLLAPSED, useValue: defaultCollapsed }],
@@ -91,6 +97,24 @@ describe('Minimap', () => {
     const { root } = await mount(true);
     const button = root.querySelector<HTMLButtonElement>(expandButton);
     if (!button) throw new Error('no expand button');
+    expect(button.style.background).toBe('rgba(255, 255, 255, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');
+    expect(button.style.color).toBe('');
+  });
+
+  it('keeps base light chrome while its viewport signal is null', async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: FIELDNOTES_VIEWPORT, useValue: signal<Viewport | null>(null) }],
+    });
+    const fixture = TestBed.createComponent(NullViewportHost);
+    await fixture.whenStable();
+    const root: HTMLElement = fixture.nativeElement;
+    const button = root.querySelector<HTMLButtonElement>(expandButton);
+    if (!button) throw new Error('no expand button');
+
+    expect(button.getAttribute('style')).toBe(
+      'min-width: 44px; min-height: 44px; border: 1px solid rgba(0,0,0,0.15); border-radius: 8px; background: rgba(255,255,255,0.85); cursor: pointer; font: 18px/1 system-ui, sans-serif',
+    );
     expect(button.style.background).toBe('rgba(255, 255, 255, 0.85)');
     expect(button.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');
     expect(button.style.color).toBe('');
