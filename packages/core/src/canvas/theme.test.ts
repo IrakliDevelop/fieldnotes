@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { adaptColor } from './theme-color';
 import {
   blendModeFor,
   DARK_THEME_TOKENS,
@@ -89,6 +88,6 @@ describe('themes', () => {
     expect(inkFor(dark, '#808080', 'multiply')).toBe('#7f7f7f');
     expect(inkFor(dark, '#818181', 'multiply')).toBe('#818181');
     expect(inkFor(dark, '#000000')).toBe('#ededed');
-    expect(adaptColor('#000000', dark.tokens.board)).toBe('#ededed');
+    expect(dark.adapt('#000000')).toBe('#ededed');
   });
 });

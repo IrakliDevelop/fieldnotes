@@ -47,10 +47,9 @@
   // svelte-ignore state_referenced_locally
   let collapsed = $state(defaultCollapsed);
   let canvas = $state<HTMLCanvasElement | null>(null);
-  let tokens = $state(viewport?.getTheme()?.tokens);
+  let tokens = $state(viewport.getTheme().tokens);
 
   $effect(() => {
-    if (!viewport) return;
     tokens = viewport.getTheme().tokens;
     return viewport.onThemeChange((theme) => (tokens = theme.tokens));
   });
@@ -73,7 +72,7 @@
     aria-label="Expand minimap"
     onclick={() => (collapsed = false)}
     class={className}
-    style="min-width: 44px; min-height: 44px; border: {tokens ? `1px solid ${tokens.minimapBorder}` : ''}; border-radius: 8px; background: {tokens?.minimapBackground ?? ''}; cursor: pointer; font: 18px/1 system-ui, sans-serif;{tokens?.chromeText === '' || !tokens ? '' : ` color: ${tokens.chromeText};`} {style}">▣</button
+    style="min-width: 44px; min-height: 44px; border: 1px solid {tokens.minimapBorder}; border-radius: 8px; background: {tokens.minimapBackground}; cursor: pointer; font: 18px/1 system-ui, sans-serif;{tokens.chromeText === '' ? '' : ` color: ${tokens.chromeText};`} {style}">▣</button
   >
 {:else}
   <div class={className} style="position: relative; {style}">

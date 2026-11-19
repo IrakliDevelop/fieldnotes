@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { adaptColor, createAdapter, flip, oklabLightness } from './theme-color';
+import { createAdapter, flip, oklabLightness } from './theme-color';
 
 function rgb(hex: string): readonly [number, number, number] {
   return [
@@ -52,7 +52,7 @@ describe('theme colour adaptation', () => {
     ['rgba(0,0,0,0.5)', 'rgba(237, 237, 237, 0.5)'],
     ['rgba(255, 87, 34, 0.2)', 'rgba(184, 55, 10, 0.2)'],
   ])('maps %s on the dark board to %s', (input, expected) => {
-    expect(adaptColor(input, '#1e1f22')).toBe(expected);
+    expect(createAdapter('#1e1f22').adapt(input)).toBe(expected);
   });
 
   it('keeps sentinels and maps HSL', () => {
@@ -63,10 +63,10 @@ describe('theme colour adaptation', () => {
   });
 
   it('uses the board floor and fallback lightness', () => {
-    expect(adaptColor('#808080', '#000000')).toBe('#7f7f7f');
-    expect(oklabLightness(adaptColor('#808080', '#717171'))).toBeCloseTo(0.75, 2);
-    expect(adaptColor('#ffffff', 'garbage')).toBe('#525252');
-    expect(adaptColor('#ffffff', 'transparent')).toBe('#525252');
+    expect(createAdapter('#000000').adapt('#808080')).toBe('#7f7f7f');
+    expect(oklabLightness(createAdapter('#717171').adapt('#808080'))).toBeCloseTo(0.75, 2);
+    expect(createAdapter('garbage').adapt('#ffffff')).toBe('#525252');
+    expect(createAdapter('transparent').adapt('#ffffff')).toBe('#525252');
     expect(flip(0.6)).toBeCloseTo(0.6, 2);
     expect(flip(0)).toBeCloseTo(0.9466, 3);
   });

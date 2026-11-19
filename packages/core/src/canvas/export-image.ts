@@ -145,7 +145,7 @@ export interface PreparedExport {
   readonly fullCanvas: CanvasElement[];
   readonly clips: Map<string, Rect | null>;
   readonly registry: ElementRegistry;
-  readonly theme: ReturnType<typeof resolveTheme>;
+  readonly theme: ResolvedTheme;
 }
 
 function assertRenderCapabilities(

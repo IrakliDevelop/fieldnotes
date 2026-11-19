@@ -92,17 +92,16 @@ function parseHsl(input: string): Rgba | null {
   if (!Number.isFinite(hue) || saturation === null || lightness === null || a === null) return null;
   const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
   const second = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
-  const matchHue = hue;
   const [r, g, b] =
-    matchHue < 60
+    hue < 60
       ? [chroma, second, 0]
-      : matchHue < 120
+      : hue < 120
         ? [second, chroma, 0]
-        : matchHue < 180
+        : hue < 180
           ? [0, chroma, second]
-          : matchHue < 240
+          : hue < 240
             ? [0, second, chroma]
-            : matchHue < 300
+            : hue < 300
               ? [second, 0, chroma]
               : [chroma, 0, second];
   const offset = lightness - chroma / 2;
@@ -113,7 +112,8 @@ function parseLiteralColor(input: string): Rgba | null {
   return parseHex(input.trim()) ?? parseRgb(input) ?? parseHsl(input);
 }
 
-function normalizedColor(input: string): Rgba | null {
+/** Parses a CSS colour used by the theme implementation. */
+export function parseColor(input: string): Rgba | null {
   const direct = parseLiteralColor(input);
   if (direct) return direct;
   if (canvasUnavailable || typeof document === 'undefined') return null;
@@ -130,11 +130,6 @@ function normalizedColor(input: string): Rgba | null {
   activeContext.fillStyle = input;
   const normalized = activeContext.fillStyle;
   return normalized === '#010203' ? null : parseLiteralColor(normalized);
-}
-
-/** Parses a CSS colour used by the theme implementation. */
-export function parseColor(input: string): Rgba | null {
-  return normalizedColor(input);
 }
 
 function linear(value: number): number {
@@ -193,7 +188,7 @@ function format(color: Rgba): string {
 
 /** Returns the OKLab lightness of a parsed colour. */
 export function oklabLightness(color: string): number {
-  const parsed = normalizedColor(color);
+  const parsed = parseColor(color);
   return parsed ? toOklab(parsed).l : FALLBACK_BOARD_LIGHTNESS;
 }
 
@@ -223,17 +218,9 @@ function adaptParsed(color: Rgba, boardLightness: number): Rgba {
   return result;
 }
 
-/** Adapts one colour for a dark board. */
-export function adaptColor(color: string, boardColor: string): string {
-  if (isSentinel(color)) return color;
-  const parsed = normalizedColor(color);
-  if (!parsed) return color;
-  return format(adaptParsed(parsed, resolveBoard(boardColor).lightness));
-}
-
 function resolveBoard(boardColor: string): { readonly color: Rgba; readonly lightness: number } {
   if (isSentinel(boardColor)) return { color: FALLBACK_BOARD, lightness: FALLBACK_BOARD_LIGHTNESS };
-  const parsed = normalizedColor(boardColor);
+  const parsed = parseColor(boardColor);
   return parsed
     ? { color: parsed, lightness: toOklab(parsed).l }
     : { color: FALLBACK_BOARD, lightness: FALLBACK_BOARD_LIGHTNESS };
@@ -269,7 +256,7 @@ export function createAdapter(boardColor: string) {
     const adapted = isSentinel(color)
       ? color
       : (() => {
-          const parsed = normalizedColor(color);
+          const parsed = parseColor(color);
           return parsed ? format(adaptParsed(parsed, board.lightness)) : color;
         })();
     if (adaptCache.size === CACHE_LIMIT) adaptCache.clear();
@@ -286,17 +273,17 @@ export function createAdapter(boardColor: string) {
       return value;
     };
     if (isSentinel(text)) return store(text);
-    const originalText = normalizedColor(text);
+    const originalText = parseColor(text);
     if (originalText?.a === 0) return store(text);
-    const adaptedText = normalizedColor(adapt(text));
+    const adaptedText = parseColor(adapt(text));
     if (!adaptedText) return store(text);
-    const adaptedBackground = isSentinel(background) ? null : normalizedColor(adapt(background));
+    const adaptedBackground = isSentinel(background) ? null : parseColor(adapt(background));
     const contrastBackground = adaptedBackground
       ? composite(adaptedBackground, board.color)
       : board.color;
     const score = (candidate: Rgba): string | null => {
       const value = format(candidate);
-      const parsed = normalizedColor(value);
+      const parsed = parseColor(value);
       if (!parsed || contrast(composite(parsed, contrastBackground), contrastBackground) < 4.5)
         return null;
       return value;

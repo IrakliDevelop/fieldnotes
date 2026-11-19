@@ -240,8 +240,7 @@ export class Viewport {
   private theme: ResolvedTheme;
   private themeSpec: Theme;
   private systemMedia: MediaQueryList | null = null;
-  private systemListener: ((event: MediaQueryListEvent) => void) | null = null;
-  private systemListenerMode: 'event' | 'legacy' | null = null;
+  private systemThemeDispose: (() => void) | null = null;
   private destroyed = false;
   private readonly themeListeners = new Set<(theme: ResolvedTheme) => void>();
   private readonly renderer: ElementRenderer;
@@ -2007,31 +2006,25 @@ export class Viewport {
   }
 
   private listenToSystemTheme(): void {
-    if (this.systemMedia === null) return;
-    this.systemListener = (event) => {
+    const media = this.systemMedia;
+    if (media === null) return;
+    const listener = (event: MediaQueryListEvent) => {
       if (this.destroyed) return;
       this.setResolvedTheme(resolveTheme(this.themeSpec, event.matches));
     };
-    if (typeof this.systemMedia.addEventListener === 'function') {
-      this.systemMedia.addEventListener('change', this.systemListener);
-      this.systemListenerMode = 'event';
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', listener);
+      this.systemThemeDispose = () => media.removeEventListener('change', listener);
     } else {
-      this.systemMedia.addListener(this.systemListener);
-      this.systemListenerMode = 'legacy';
+      media.addListener(listener);
+      this.systemThemeDispose = () => media.removeListener(listener);
     }
   }
 
   private removeSystemThemeListener(): void {
-    if (this.systemMedia !== null && this.systemListener !== null) {
-      if (this.systemListenerMode === 'event') {
-        this.systemMedia.removeEventListener('change', this.systemListener);
-      } else if (this.systemListenerMode === 'legacy') {
-        this.systemMedia.removeListener(this.systemListener);
-      }
-    }
+    this.systemThemeDispose?.();
     this.systemMedia = null;
-    this.systemListener = null;
-    this.systemListenerMode = null;
+    this.systemThemeDispose = null;
   }
 
   private isSystemTheme(theme: Theme): boolean {
@@ -2062,9 +2055,9 @@ export class Viewport {
   }
 
   private themesEqual(a: ResolvedTheme, b: ResolvedTheme): boolean {
+    const bTokens = Object.values(b.tokens);
     return (
-      a.base === b.base &&
-      Object.values(a.tokens).every((token, index) => token === Object.values(b.tokens).at(index))
+      a.base === b.base && Object.values(a.tokens).every((token, index) => token === bTokens[index])
     );
   }
 

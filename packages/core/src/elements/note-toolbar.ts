@@ -133,8 +133,6 @@ export class NoteToolbar {
       height: '44px',
       lineHeight: '44px',
     });
-    if (this.theme.tokens.chromeText) btn.style.color = this.theme.tokens.chromeText;
-
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       document.execCommand(config.command);
@@ -156,8 +154,6 @@ export class NoteToolbar {
       height: '44px',
       marginLeft: '4px',
     });
-    if (this.theme.tokens.chromeText) select.style.color = this.theme.tokens.chromeText;
-
     for (const preset of this.fontSizePresets) {
       const option = document.createElement('option');
       option.value = String(preset.size);

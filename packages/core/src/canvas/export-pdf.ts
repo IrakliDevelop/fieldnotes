@@ -174,12 +174,7 @@ export async function exportPdf(
   const background = options.background ?? defaultExportBackground(theme);
   const ids = options.frameIds ?? [undefined];
   const prepared = ids.map((frameId) =>
-    prepareExport(
-      store,
-      { ...options, frameId, background, theme: options.theme ?? 'light' },
-      layerManager,
-      theme,
-    ),
+    prepareExport(store, { ...options, frameId, background }, layerManager, theme),
   );
   if (!options.frameIds && !prepared[0]) return null;
   const preparedPages: PreparedExport[] = [];
