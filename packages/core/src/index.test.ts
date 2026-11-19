@@ -22,6 +22,30 @@ import type {
 } from './index';
 
 describe('core public surface', () => {
+  it('exports the theme model without colour internals', () => {
+    expect([
+      typeof FN.resolveTheme,
+      typeof FN.DEFAULT_THEME,
+      typeof FN.LIGHT_THEME_TOKENS,
+      typeof FN.DARK_THEME_TOKENS,
+    ]).toEqual(['function', 'object', 'object', 'object']);
+    const system: FN.Theme = 'system';
+    const systemSpec: FN.Theme = { base: 'system' };
+    // @ts-expect-error FixedTheme excludes system.
+    const fixedString: FN.FixedTheme = system;
+    // @ts-expect-error FixedTheme excludes system specs.
+    const fixedSpec: FN.FixedTheme = systemSpec;
+    expect([fixedString, fixedSpec]).toEqual(['system', { base: 'system' }]);
+    for (const name of [
+      'inkFor',
+      'blendModeFor',
+      'adaptColor',
+      'oklabLightness',
+      'flip',
+      'createAdapter',
+    ])
+      expect(name in FN).toBe(false);
+  });
   it('keeps bound-text-compatible shape factory results literal', () => {
     const rectangle = FN.createShape({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } });
     const ellipse = FN.createShape({
