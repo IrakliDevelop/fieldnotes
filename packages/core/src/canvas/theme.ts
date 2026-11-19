@@ -1,4 +1,4 @@
-import { createAdapter } from './theme-color';
+import { createAdapter, parseColor } from './theme-color';
 
 /** Concrete theme bases. */
 export type ThemeBase = 'light' | 'dark';
@@ -140,6 +140,13 @@ export function resolveTheme(theme: Theme, systemDark = false): ResolvedTheme {
 
 /** The frozen default light theme. */
 export const DEFAULT_THEME = Object.freeze(resolveTheme('light'));
+
+/** Returns the opaque board colour used when exporting a surface. */
+export function defaultExportBackground(theme: ResolvedTheme): string {
+  const board = parseColor(theme.tokens.board);
+  if (board?.a === 1) return theme.tokens.board;
+  return theme.base === 'dark' ? DARK_THEME_TOKENS.board : '#ffffff';
+}
 
 /** Maps stored blend modes to the active drawing mode. */
 export function blendModeFor(

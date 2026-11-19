@@ -1187,6 +1187,7 @@ export class Viewport {
       ...this.withHtmlDefaults(options),
       elementRegistry: options?.elementRegistry ?? this.elementRegistry,
       renderHooks: options?.renderHooks ?? this._renderHooks,
+      theme: options?.theme ?? { base: this.theme.base, tokens: this.theme.tokens },
     };
   }
 

@@ -61,7 +61,58 @@ async function text(pdf: Blob | null): Promise<string> {
   return new TextDecoder('latin1').decode(await pdf.arrayBuffer());
 }
 
+function pageContent(value: string): string {
+  const match = value.match(/stream\n(q [^\n]* cm \/Im0 Do Q)\nendstream/);
+  if (!match?.[1]) throw new Error('PDF page content missing');
+  return match[1];
+}
+
 describe('exportPdf', () => {
+  it('prefixes tall dark pages with their opaque board fill and paints the raster background', async () => {
+    const { store, tall } = fixture();
+    const fills: string[] = [];
+    const original = HTMLCanvasElement.prototype.getContext;
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (
+      this: HTMLCanvasElement,
+    ) {
+      const context = new Proxy(
+        {
+          canvas: this,
+          fillStyle: '',
+          fillRect: () => fills.push(context.fillStyle.toString()),
+          getImageData: (_x: number, _y: number, width: number, height: number) => ({
+            data: new Uint8ClampedArray(width * height * 4).map((_, index) => rgba[index % 4] ?? 0),
+          }),
+        },
+        { get: (target, key) => (key in target ? Reflect.get(target, key) : () => undefined) },
+      ) as unknown as CanvasRenderingContext2D;
+      return context;
+    });
+    const value = await text(
+      await exportPdf(store, { frameIds: [tall.id], theme: 'dark', dpi: 18 }),
+    );
+    expect(value).toContain('stream\nq 0.118 0.122 0.133 rg 0 0 595.28 841.89 re f Q q ');
+    expect(fills).toContain('#1e1f22');
+    HTMLCanvasElement.prototype.getContext = original;
+  });
+
+  it.each(['white', '#fff', 'rgb(255,255,255)'])(
+    'keeps parsed opaque white %s unprefixed',
+    async (background) => {
+      const store = new ElementStore();
+      store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 10 } }));
+      const value = await text(await exportPdf(store, { background, dpi: 18 }));
+      expect(pageContent(value)).toMatch(/^q .* \/Im0 Do Q$/);
+    },
+  );
+
+  it('keeps translucent explicit backgrounds unprefixed', async () => {
+    const store = new ElementStore();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 10 } }));
+    const value = await text(await exportPdf(store, { background: 'rgba(0,0,0,0.5)', dpi: 18 }));
+    expect(pageContent(value)).toMatch(/^q .* \/Im0 Do Q$/);
+  });
+
   it('writes one PDF page for a board shape and null for an empty board', async () => {
     const store = new ElementStore();
     store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 10 } }));

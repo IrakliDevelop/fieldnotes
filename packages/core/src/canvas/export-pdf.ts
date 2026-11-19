@@ -13,6 +13,8 @@ import {
 } from './export-image';
 import type { ExportImageOptions, PreparedExport } from './export-image';
 import { deflate, pdfNumber, pdfString, PdfWriter } from './pdf-writer';
+import { defaultExportBackground, resolveTheme } from './theme';
+import { parseColor } from './theme-color';
 
 /** Page size in PDF points (1/72 in). */
 export type PdfPageSize = 'a4' | 'letter' | { readonly width: number; readonly height: number };
@@ -168,12 +170,15 @@ export async function exportPdf(
   const short = Math.min(requestedSize.width, requestedSize.height);
   const long = Math.max(requestedSize.width, requestedSize.height);
   const reporting = withAssetWarning(options);
+  const theme = resolveTheme(options.theme ?? 'light');
+  const background = options.background ?? defaultExportBackground(theme);
   const ids = options.frameIds ?? [undefined];
   const prepared = ids.map((frameId) =>
     prepareExport(
       store,
-      { ...options, frameId, background: options.background ?? '#ffffff' },
+      { ...options, frameId, background, theme: options.theme ?? 'light' },
       layerManager,
+      theme,
     ),
   );
   if (!options.frameIds && !prepared[0]) return null;
@@ -224,10 +229,16 @@ export async function exportPdf(
       `<< /Type /XObject /Subtype /Image /Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB /BitsPerComponent 8${pixels.filter ? ` /Filter ${pixels.filter}` : ''} >>`,
       pixels.data,
     );
+    const parsedBackground = parseColor(background);
+    const pageFill =
+      parsedBackground?.a === 1 &&
+      (parsedBackground.r !== 255 || parsedBackground.g !== 255 || parsedBackground.b !== 255)
+        ? `q ${pdfNumber(parsedBackground.r / 255)} ${pdfNumber(parsedBackground.g / 255)} ${pdfNumber(parsedBackground.b / 255)} rg 0 0 ${pdfNumber(page.width)} ${pdfNumber(page.height)} re f Q `
+        : '';
     const contentId = writer.addStream(
       '<< >>',
       new TextEncoder().encode(
-        `q ${pdfNumber(page.prepared.bounds.w * page.scale)} 0 0 ${pdfNumber(page.prepared.bounds.h * page.scale)} ${pdfNumber(page.x)} ${pdfNumber(page.y)} cm /Im0 Do Q`,
+        `${pageFill}q ${pdfNumber(page.prepared.bounds.w * page.scale)} 0 0 ${pdfNumber(page.prepared.bounds.h * page.scale)} ${pdfNumber(page.x)} ${pdfNumber(page.y)} cm /Im0 Do Q`,
       ),
     );
     const annots = options.links === false ? [] : annotations(page, pages, pageIds, writer);

@@ -4793,6 +4793,76 @@ describe('Viewport html painters', () => {
       expect(painter).toHaveBeenCalled();
     });
 
+    it('uses the viewport theme by default and a fixed override across exports', async () => {
+      const vp = makeViewport({ theme: 'dark' });
+      const seen: string[] = [];
+      vp.elementRegistry.register({
+        type: 'test:viewport-theme',
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('legacy');
+        },
+        validateData: () => true,
+        unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+        wrap: ({ type: _type, ...base }) => ({
+          ...base,
+          type: 'extension',
+          extensionType: 'test:viewport-theme',
+          data: {},
+        }),
+        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 20, h: 20 }),
+        render: (_ctx, _element, _all, _bounds, context) => {
+          if (!context) throw new Error('theme context missing');
+          seen.push(`image:${context.theme.base}`);
+        },
+        emitSvg: (_element, _all, _bounds, context) => {
+          if (!context) throw new Error('theme context missing');
+          seen.push(`svg:${context.theme.base}`);
+          return `<path data-theme="${context.theme.base}" />`;
+        },
+      });
+      vp.store.add({
+        id: 'viewport-theme',
+        type: 'extension',
+        extensionType: 'test:viewport-theme',
+        position: { x: 0, y: 0 },
+        index: 'a0',
+        version: 1,
+        locked: false,
+        layerId: '',
+        data: {},
+      });
+      await nextFrame(vp);
+      seen.length = 0;
+      const dark = await vp.exportSVG();
+      expect(seen).toEqual(['svg:dark']);
+      seen.length = 0;
+      const light = await vp.exportSVG({ theme: 'light' });
+      expect(dark).toContain('fill="#1e1f22"');
+      expect(light).not.toContain('fill="#1e1f22"');
+      expect(seen).toEqual(['svg:light']);
+      seen.length = 0;
+      await vp.exportImage();
+      expect(seen).toEqual(['image:dark']);
+      seen.length = 0;
+      await vp.exportImage({ theme: 'light' });
+      expect(seen).toEqual(['image:light']);
+      seen.length = 0;
+      const darkPdf = await vp.exportPDF({ dpi: 18 });
+      if (!darkPdf) throw new Error('dark PDF missing');
+      expect(new TextDecoder('latin1').decode(await darkPdf.arrayBuffer())).toContain(
+        '0.118 0.122 0.133 rg',
+      );
+      expect(seen).toEqual(['image:dark']);
+      seen.length = 0;
+      const lightPdf = await vp.exportPDF({ theme: 'light', dpi: 18 });
+      if (!lightPdf) throw new Error('light PDF missing');
+      expect(new TextDecoder('latin1').decode(await lightPdf.arrayBuffer())).not.toContain(
+        '0.118 0.122 0.133 rg',
+      );
+      expect(seen).toEqual(['image:light']);
+    });
+
     it('exportPDF runs the image export hook once per page', async () => {
       const vp = makeViewport();
       const hook = vi.fn();

@@ -49,12 +49,17 @@ import { DEFAULT_NOTE_FONT_SIZE } from '../elements/element-factory';
 import { isFrameElement } from '../elements/frame-element';
 import { loadFontFaces, selectFaces } from './export-fonts';
 import type { ExportFontOptions } from './export-fonts';
+import { defaultExportBackground, inkFor, resolveTheme } from './theme';
+import type { FixedTheme, ResolvedTheme } from './theme';
+import { getBoundTextContainerId } from '../elements/bound-text';
 
 export interface ExportSvgOptions
   extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions, ExportFontOptions {
   frameId?: string;
   padding?: number;
   background?: string;
+  /** Theme the export draws with. Direct exports default to light; viewport exports use its theme. */
+  theme?: FixedTheme;
   filter?: (el: CanvasElement) => boolean;
   rasterScale?: number;
   htmlPainters?: HtmlPainterRegistry;
@@ -115,7 +120,7 @@ function withRotationSvg(el: CanvasElement, fragment: string): string {
 // (always populated) rather than the Path2D buckets, which are absent under jsdom.
 const WIDTH_QUANTUM = 0.25;
 
-function emitStroke(stroke: StrokeElement): string {
+function emitStroke(stroke: StrokeElement, theme: ResolvedTheme): string {
   if (stroke.points.length < 2) return '';
   const data = getStrokeRenderData(stroke);
   const { x: ox, y: oy } = stroke.position;
@@ -136,20 +141,25 @@ function emitStroke(stroke: StrokeElement): string {
     );
   }
 
-  const blend = stroke.blendMode === 'multiply' ? ' style="mix-blend-mode:multiply"' : '';
+  const blend =
+    stroke.blendMode === 'multiply'
+      ? ` style="mix-blend-mode:${theme.base === 'dark' ? 'screen' : 'multiply'}"`
+      : '';
   let out = '';
   for (const [width, parts] of byWidth) {
-    out += `<path d="${parts.join(' ')}" fill="none" stroke="${attr(stroke.color)}" stroke-width="${n(width)}" stroke-linecap="round" stroke-linejoin="round" opacity="${n(stroke.opacity)}"${blend} />`;
+    out += `<path d="${parts.join(' ')}" fill="none" stroke="${attr(inkFor(theme, stroke.color, stroke.blendMode))}" stroke-width="${n(width)}" stroke-linecap="round" stroke-linejoin="round" opacity="${n(stroke.opacity)}"${blend} />`;
   }
   return out;
 }
 
-function emitShape(shape: ShapeElement): string {
+function emitShape(shape: ShapeElement, theme: ResolvedTheme): string {
   const { x, y } = shape.position;
   const { w, h } = shape.size;
   const fill =
-    shape.fillColor !== 'none' && shape.shape !== 'line' ? attr(shape.fillColor) : 'none';
-  const stroke = shape.strokeWidth > 0 ? attr(shape.strokeColor) : 'none';
+    shape.fillColor !== 'none' && shape.shape !== 'line'
+      ? attr(theme.adapt(shape.fillColor))
+      : 'none';
+  const stroke = shape.strokeWidth > 0 ? attr(theme.adapt(shape.strokeColor)) : 'none';
   const sw = shape.strokeWidth > 0 ? ` stroke-width="${n(shape.strokeWidth)}"` : '';
 
   switch (shape.shape) {
@@ -169,6 +179,7 @@ function emitArrow(
   store: ElementStore,
   measurer: SvgMeasurer | null,
   used: Set<string>,
+  theme: ResolvedTheme,
 ): string {
   const resolveBounds = (id: string) => {
     const element = store.getById(id);
@@ -191,7 +202,7 @@ function emitArrow(
 
   const pattern = getArrowDashPattern(arrow.strokeStyle);
   const dash = pattern.length > 0 ? ` stroke-dasharray="${pattern.join(' ')}"` : '';
-  let out = `<path d="${d}" fill="none" stroke="${attr(arrow.color)}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
+  let out = `<path d="${d}" fill="none" stroke="${attr(theme.adapt(arrow.color))}" stroke-width="${n(arrow.width)}" stroke-linecap="round"${dash} />`;
 
   const last = route?.points.at(-1) ?? to;
   const angle = getArrowEndTangent(arrow, curve.t1, route?.points);
@@ -201,14 +212,14 @@ function emitArrow(
     const p1y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle - ARROWHEAD_ANGLE);
     const p2x = tip.x - ARROWHEAD_LENGTH * Math.cos(angle + ARROWHEAD_ANGLE);
     const p2y = tip.y - ARROWHEAD_LENGTH * Math.sin(angle + ARROWHEAD_ANGLE);
-    out += `<polygon points="${n(tip.x)},${n(tip.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${attr(arrow.color)}" />`;
+    out += `<polygon points="${n(tip.x)},${n(tip.y)} ${n(p1x)},${n(p1y)} ${n(p2x)},${n(p2y)}" fill="${attr(theme.adapt(arrow.color))}" />`;
   }
 
   const boundText = getBoundText(arrow, store);
   if (boundText) {
     out += withRotationSvg(
       boundText,
-      `<rect x="${n(boundText.position.x - 4)}" y="${n(boundText.position.y - 2)}" width="${n(boundText.size.w + 8)}" height="${n(boundText.size.h + 4)}" rx="4" fill="rgba(255,255,255,0.9)" />`,
+      `<rect x="${n(boundText.position.x - 4)}" y="${n(boundText.position.y - 2)}" width="${n(boundText.size.w + 8)}" height="${n(boundText.size.h + 4)}" rx="4" fill="${attr(theme.tokens.labelPlate)}" />`,
     );
   } else if (arrow.label && arrow.label.length > 0) {
     const mid = getArrowLabelAnchor(arrow, resolveBounds);
@@ -218,8 +229,8 @@ function emitArrow(
     const padY = 4;
     const lw = labelWidth + padX * 2;
     const lh = ARROW_LABEL_FONT_SIZE + padY * 2;
-    out += `<rect x="${n(mid.x - lw / 2)}" y="${n(mid.y - lh / 2)}" width="${n(lw)}" height="${n(lh)}" rx="4" fill="rgba(255,255,255,0.9)" />`;
-    out += `<text x="${n(mid.x)}" y="${n(mid.y)}" font-family="${attr(textFontFamily())}" font-size="${ARROW_LABEL_FONT_SIZE}" fill="#1a1a1a" text-anchor="middle" dominant-baseline="middle">${attr(arrow.label)}</text>`;
+    out += `<rect x="${n(mid.x - lw / 2)}" y="${n(mid.y - lh / 2)}" width="${n(lw)}" height="${n(lh)}" rx="4" fill="${attr(theme.tokens.labelPlate)}" />`;
+    out += `<text x="${n(mid.x)}" y="${n(mid.y)}" font-family="${attr(textFontFamily())}" font-size="${ARROW_LABEL_FONT_SIZE}" fill="${theme.adapt('#1a1a1a')}" text-anchor="middle" dominant-baseline="middle">${attr(arrow.label)}</text>`;
     used.add('normal/normal');
   }
 
@@ -313,7 +324,13 @@ function emitStyledText(
   return `${out}</g>`;
 }
 
-function emitText(text: TextElement, measurer: SvgMeasurer | null, used: Set<string>): string {
+function emitText(
+  text: TextElement,
+  measurer: SvgMeasurer | null,
+  used: Set<string>,
+  theme: ResolvedTheme,
+  containerFill: string | null,
+): string {
   if (!text.text || typeof DOMParser === 'undefined') return '';
   return emitStyledText(
     parseStyledRuns(text.text, text.fontSize),
@@ -321,16 +338,21 @@ function emitText(text: TextElement, measurer: SvgMeasurer | null, used: Set<str
     text.position.y + TEXT_PADDING,
     Math.max(0, text.size.w - TEXT_PADDING * 2),
     { align: text.textAlign, lineHeight: 1.4, wrap: text.wrap !== false },
-    text.color,
+    containerFill === null ? theme.adapt(text.color) : theme.adaptOn(text.color, containerFill),
     measurer,
     used,
   );
 }
 
-function emitNote(note: NoteElement, measurer: SvgMeasurer | null, used: Set<string>): string {
+function emitNote(
+  note: NoteElement,
+  measurer: SvgMeasurer | null,
+  used: Set<string>,
+  theme: ResolvedTheme,
+): string {
   const { x, y } = note.position;
   const { w, h } = note.size;
-  const placeholder = emitNotePlaceholder(note);
+  const placeholder = emitNotePlaceholder(note, theme);
   if (!note.text || typeof DOMParser === 'undefined') return placeholder;
   return `${placeholder}<svg x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" viewBox="${n(x)} ${n(y)} ${n(w)} ${n(h)}" overflow="hidden">${emitStyledText(
     parseStyledRuns(note.text, note.fontSize ?? DEFAULT_NOTE_FONT_SIZE),
@@ -338,16 +360,16 @@ function emitNote(note: NoteElement, measurer: SvgMeasurer | null, used: Set<str
     y + 8,
     w - 16,
     { align: 'left', lineHeight: 1.3, wrap: true },
-    note.textColor,
+    theme.adaptOn(note.textColor, note.backgroundColor),
     measurer,
     used,
   )}</svg>`;
 }
 
-function emitNotePlaceholder(note: NoteElement): string {
+function emitNotePlaceholder(note: NoteElement, theme: ResolvedTheme): string {
   const { x, y } = note.position;
   const { w, h } = note.size;
-  return `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="4" fill="${attr(note.backgroundColor)}" />`;
+  return `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="4" fill="${attr(theme.adapt(note.backgroundColor))}" />`;
 }
 
 export async function exportSvg(
@@ -367,6 +389,8 @@ export async function exportSvg(
   validateHtmlExportOptions(options);
   const filter = options.filter;
   const registry = options.elementRegistry ?? getDefaultElementRegistry();
+  const theme = resolveTheme(options.theme ?? 'light');
+  const renderContext = Object.freeze({ theme });
   const measurer = createSvgMeasurer();
   const used = new Set<string>();
   const frameExport = resolveFrameExport(store, options.frameId);
@@ -450,14 +474,24 @@ export async function exportSvg(
   );
   for (const [id, uri] of canvasHtmlDataUris) htmlDataUris.set(id, uri);
 
-  const backgroundSvg = options.background
-    ? `<rect x="${rootNumber(bounds.x)}" y="${rootNumber(bounds.y)}" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" fill="${attr(options.background)}" />`
+  const defaultBackground = defaultExportBackground(theme);
+  const background =
+    options.background ??
+    (options.frameId === undefined && defaultBackground !== '#ffffff'
+      ? defaultBackground
+      : undefined);
+  const backgroundSvg = background
+    ? `<rect x="${rootNumber(bounds.x)}" y="${rootNumber(bounds.y)}" width="${rootNumber(bounds.w)}" height="${rootNumber(bounds.h)}" fill="${attr(background)}" />`
     : '';
 
   const fullCanvasSvg: string[] = [];
   const layerBodies = new Map<
     string,
-    { fragment: string; clip: { x: number; y: number; w: number; h: number } | null }[]
+    {
+      element: CanvasElement;
+      fragment: string;
+      clip: { x: number; y: number; w: number; h: number } | null;
+    }[]
   >();
   const ordinaryById = new Map(ordinaryElements.map((entry) => [entry.element.id, entry]));
   for (const el of visibleElements) {
@@ -465,7 +499,7 @@ export async function exportSvg(
       const adapter = registry.getAdapter(el.extensionType);
       if (adapter?.emitSvg) {
         const viewBox = { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h };
-        const emitted = adapter.emitSvg(el, visibleElements, viewBox);
+        const emitted = adapter.emitSvg(el, visibleElements, viewBox, renderContext);
         const opacity = layerManager?.getLayer?.(el.layerId)?.opacity ?? 1;
         fullCanvasSvg.push(opacity === 1 ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`);
       }
@@ -483,10 +517,12 @@ export async function exportSvg(
       bounds,
       measurer,
       used,
+      theme,
+      renderContext,
     );
     if (!emitted) continue;
     const entries = layerBodies.get(prepared.element.layerId) ?? [];
-    entries.push({ fragment: emitted, clip: prepared.clip });
+    entries.push({ element: prepared.element, fragment: emitted, clip: prepared.clip });
     layerBodies.set(prepared.element.layerId, entries);
   }
 
@@ -567,7 +603,15 @@ export async function exportSvg(
   for (const [layerId, entries] of layerBodies) {
     const emitted = entries.map((entry) => entry.fragment).join('');
     const opacity = layerManager?.getLayer?.(layerId)?.opacity ?? 1;
-    body += opacity === 1 || emitted === '' ? emitted : `<g opacity="${n(opacity)}">${emitted}</g>`;
+    const isolate =
+      theme.base === 'dark' &&
+      entries.some(({ element }) => element.type === 'stroke' && element.blendMode === 'multiply');
+    body +=
+      opacity === 1 || emitted === ''
+        ? isolate
+          ? `<g style="isolation:isolate">${emitted}</g>`
+          : emitted
+        : `<g opacity="${n(opacity)}"${isolate ? ' style="isolation:isolate"' : ''}>${emitted}</g>`;
   }
   for (const svg of fullCanvasSvg) {
     body += svg;
@@ -607,27 +651,41 @@ function emitElement(
   viewBox: { x: number; y: number; w: number; h: number },
   measurer: SvgMeasurer | null,
   used: Set<string>,
+  theme: ResolvedTheme,
+  renderContext: { readonly theme: ResolvedTheme },
 ): string {
   switch (el.type) {
     case 'stroke':
-      return withRotationSvg(el, emitStroke(el));
+      return withRotationSvg(el, emitStroke(el, theme));
     case 'shape':
-      return withRotationSvg(el, emitShape(el));
+      return withRotationSvg(el, emitShape(el, theme));
     case 'arrow':
-      return emitArrow(el, store, measurer, used);
+      return emitArrow(el, store, measurer, used, theme);
     case 'image':
       return withRotationSvg(el, emitImage(el, imageDataUris.get(el.id)));
-    case 'text':
-      return withRotationSvg(el, emitText(el, measurer, used));
+    case 'text': {
+      const container = getBoundTextContainerId(el);
+      const parent = container ? store.getById(container) : undefined;
+      return withRotationSvg(
+        el,
+        emitText(
+          el,
+          measurer,
+          used,
+          theme,
+          parent?.type === 'shape' && parent.fillColor !== 'none' ? parent.fillColor : null,
+        ),
+      );
+    }
     case 'note':
-      return withRotationSvg(el, emitNote(el, measurer, used));
+      return withRotationSvg(el, emitNote(el, measurer, used, theme));
     case 'html':
       return withRotationSvg(el, emitImage(el, htmlDataUris.get(el.id)));
     case 'extension': {
       const adapter = registry.getAdapter(el.extensionType);
       if (adapter?.emitSvg) {
         const allElements = store.getAll();
-        return adapter.emitSvg(el, allElements, viewBox);
+        return adapter.emitSvg(el, allElements, viewBox, renderContext);
       }
       return '';
     }

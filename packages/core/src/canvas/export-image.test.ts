@@ -24,7 +24,12 @@ import type { CanvasState } from '../core/state-serializer';
 import { findItxtChunk } from './png-chunks';
 import { createFrame } from '../elements/frame-element';
 import { HtmlPainterRegistry, HtmlPainterMissingError } from './html-painter-registry';
-import type { CanvasElement, ExtensionElementEnvelope, HtmlElement } from '../elements/types';
+import type {
+  CanvasElement,
+  ElementRenderContext,
+  ExtensionElementEnvelope,
+  HtmlElement,
+} from '../elements/types';
 import { ElementRegistry } from '../elements/element-registry';
 import { createRenderHooks } from './render-hooks';
 import { createBoundText } from '../elements/bound-text';
@@ -1244,6 +1249,226 @@ describe('exportImage — rendering paths', () => {
     });
     return ctx;
   }
+
+  it('uses dark export backgrounds, adapted ink, and preserves explicit and frame transparency', async () => {
+    const ctx = mockGetContext();
+    const fills: string[] = [];
+    (ctx.fillRect as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      fills.push(ctx.fillStyle.toString()),
+    );
+    const store = new ElementStore();
+    const stroke = createStroke({
+      points: [
+        { x: 0, y: 0, pressure: 0.5 },
+        { x: 20, y: 20, pressure: 0.5 },
+      ],
+      position: { x: 0, y: 0 },
+      color: '#000000',
+    });
+    store.add(stroke);
+    await exportImage(store, { theme: 'dark' });
+    expect(fills[0]).toBe('#1e1f22');
+    expect(ctx.strokeStyle).toBe('#ededed');
+    fills.length = 0;
+    await exportImage(store, { theme: { base: 'dark', tokens: { board: 'transparent' } } });
+    expect(fills[0]).toBe('#1e1f22');
+    fills.length = 0;
+    await exportImage(store, { theme: 'dark', background: '#ffffff' });
+    expect(fills[0]).toBe('#ffffff');
+    fills.length = 0;
+    const frame = createFrame({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } });
+    frame.id = 'transparent-frame';
+    store.add(frame);
+    await exportImage(store, { theme: 'dark', frameId: frame.id });
+    expect(fills).toEqual(['transparent']);
+    fills.length = 0;
+    await exportImage(store, { theme: { base: 'light', tokens: { board: '#fffbe6' } } });
+    expect(fills[0]).toBe('#fffbe6');
+    vi.restoreAllMocks();
+  });
+
+  it('uses a layer canvas only for dark multiply ink and passes dark extension contexts', async () => {
+    const recorder = recordExportCanvases();
+    const registry = new ElementRegistry();
+    const ordinaryContexts: ElementRenderContext[] = [];
+    const fullCanvasContexts: ElementRenderContext[] = [];
+    const definition = {
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }: ExtensionElementEnvelope) =>
+        base,
+      wrap: ({ type: _type, ...base }: ExtensionElementEnvelope) => ({
+        ...base,
+        type: 'extension' as const,
+        data: {},
+      }),
+      bounds: (element: ExtensionElementEnvelope) => ({
+        x: element.position.x,
+        y: element.position.y,
+        w: 10,
+        h: 10,
+      }),
+    };
+    registry.register({
+      type: 'test:theme-image',
+      ...definition,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:theme-image',
+        data: {},
+      }),
+      render: (_ctx, _element, _all, _bounds, context) => {
+        if (!context) throw new Error('theme context missing');
+        ordinaryContexts.push(context);
+      },
+    });
+    registry.register({
+      type: 'test:theme-image-full',
+      ...definition,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:theme-image-full',
+        data: {},
+      }),
+      fullCanvas: true,
+      render: (_ctx, _element, _all, _bounds, context) => {
+        if (!context) throw new Error('theme context missing');
+        fullCanvasContexts.push(context);
+      },
+    });
+    const store = new ElementStore(registry);
+    store.add(
+      createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 20, y: 20, pressure: 0.5 },
+        ],
+        position: { x: 0, y: 0 },
+        blendMode: 'multiply',
+      }),
+    );
+    store.add({
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:theme-image',
+      position: { x: 30, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add({
+      id: 'full-extension',
+      type: 'extension',
+      extensionType: 'test:theme-image-full',
+      position: { x: 45, y: 0 },
+      index: 'a1',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add({
+      id: 'second-extension',
+      type: 'extension',
+      extensionType: 'test:theme-image',
+      position: { x: 60, y: 0 },
+      index: 'a2',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add({
+      id: 'second-full-extension',
+      type: 'extension',
+      extensionType: 'test:theme-image-full',
+      position: { x: 75, y: 0 },
+      index: 'a3',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    await exportImage(store, { theme: 'dark', elementRegistry: registry });
+    expect(recorder.canvases).toHaveLength(2);
+    expect(ordinaryContexts).toHaveLength(2);
+    expect(ordinaryContexts[0]).toBe(ordinaryContexts[1]);
+    expect(fullCanvasContexts).toHaveLength(2);
+    expect(fullCanvasContexts[0]).toBe(fullCanvasContexts[1]);
+    for (const context of [...ordinaryContexts, ...fullCanvasContexts]) {
+      expect(Object.isFrozen(context)).toBe(true);
+      expect(context.theme.base).toBe('dark');
+    }
+    recorder.restore();
+    const lightRecorder = recordExportCanvases();
+    ordinaryContexts.length = 0;
+    fullCanvasContexts.length = 0;
+    await exportImage(store, { theme: 'light', elementRegistry: registry });
+    expect(lightRecorder.draws).toHaveLength(0);
+    expect(ordinaryContexts).toHaveLength(2);
+    expect(ordinaryContexts[0]).toBe(ordinaryContexts[1]);
+    expect(fullCanvasContexts).toHaveLength(2);
+    expect(fullCanvasContexts[0]).toBe(fullCanvasContexts[1]);
+    for (const context of [...ordinaryContexts, ...fullCanvasContexts]) {
+      expect(Object.isFrozen(context)).toBe(true);
+      expect(context.theme.base).toBe('light');
+    }
+    lightRecorder.restore();
+  });
+
+  it('adapts dark note, text, bound text, and image placeholder colours independently', async () => {
+    const ctx = mockGetContext();
+    const textFills: { text: string; fill: string }[] = [];
+    const rectFills: { x: number; y: number; w: number; h: number; fill: string }[] = [];
+    const pathFills: string[] = [];
+    const placeholderStrokes: { operation: string; stroke: string }[] = [];
+    (ctx.fillText as ReturnType<typeof vi.fn>).mockImplementation((text: string) =>
+      textFills.push({ text, fill: ctx.fillStyle.toString() }),
+    );
+    (ctx.fillRect as ReturnType<typeof vi.fn>).mockImplementation((x, y, w, h) =>
+      rectFills.push({ x, y, w, h, fill: ctx.fillStyle.toString() }),
+    );
+    (ctx.fill as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      pathFills.push(ctx.fillStyle.toString()),
+    );
+    (ctx.strokeRect as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      placeholderStrokes.push({ operation: 'rect', stroke: ctx.strokeStyle.toString() }),
+    );
+    (ctx.stroke as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      placeholderStrokes.push({ operation: 'glyph', stroke: ctx.strokeStyle.toString() }),
+    );
+    const store = new ElementStore();
+    const shape = createShape({
+      position: { x: 0, y: 0 },
+      size: { w: 80, h: 40 },
+      fillColor: '#1e88e5',
+    });
+    store.add(shape);
+    store.add({
+      ...createBoundText(shape, { text: 'bound', color: '#ffffff' }),
+      position: { x: 4, y: 4 },
+      size: { w: 72, h: 24 },
+    });
+    store.add(createNote({ position: { x: 0, y: 50 }, size: { w: 80, h: 40 }, text: 'note' }));
+    store.add(createText({ position: { x: 0, y: 100 }, text: 'text', color: '#1a1a1a' }));
+    store.add(createImage({ position: { x: 0, y: 140 }, size: { w: 20, h: 20 }, src: '' }));
+    await exportImage(store, { theme: 'dark', imageTimeoutMs: 1 });
+    expect(pathFills).toContain('#5c540d');
+    expect(textFills).toContainEqual({ text: 'note', fill: '#ededed' });
+    expect(textFills).toContainEqual({ text: 'text', fill: '#d7d7d7' });
+    expect(textFills).toContainEqual({ text: 'bound', fill: '#0d0d0d' });
+    expect(rectFills).toContainEqual({ x: 0, y: 140, w: 20, h: 20, fill: '#2a2b30' });
+    expect(placeholderStrokes).toContainEqual({ operation: 'rect', stroke: '#4b4b4b' });
+    expect(placeholderStrokes).toContainEqual({ operation: 'glyph', stroke: '#9aa0a6' });
+    vi.restoreAllMocks();
+  });
 
   it('renders notes via note-canvas-renderer', async () => {
     const ctx = mockGetContext();

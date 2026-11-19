@@ -19,6 +19,9 @@ import type {
   PaletteStrings,
   ShortcutsHelpApi,
   MountAutoSaveOptions,
+  ExportImageOptions,
+  ExportPdfOptions,
+  ExportSvgOptions,
 } from './index';
 import type { ElementRenderContext } from './index';
 
@@ -49,6 +52,34 @@ describe('core public surface', () => {
       'createAdapter',
     ])
       expect(name in FN).toBe(false);
+  });
+  it('accepts only fixed export themes', () => {
+    const light: ExportImageOptions['theme'] = 'light';
+    const dark: ExportSvgOptions['theme'] = { base: 'dark' };
+    const pdf: ExportPdfOptions['theme'] = { base: 'light', tokens: { board: '#fffbe6' } };
+    // @ts-expect-error image exports cannot follow system preference.
+    const imageSystem: ExportImageOptions['theme'] = 'system';
+    // @ts-expect-error image exports cannot use a system specification.
+    const imageSystemSpec: ExportImageOptions['theme'] = { base: 'system' };
+    // @ts-expect-error SVG exports cannot follow system preference.
+    const svgSystem: ExportSvgOptions['theme'] = 'system';
+    // @ts-expect-error SVG exports cannot use a system specification.
+    const svgSystemSpec: ExportSvgOptions['theme'] = { base: 'system' };
+    // @ts-expect-error PDF exports cannot follow system preference.
+    const pdfSystem: ExportPdfOptions['theme'] = 'system';
+    // @ts-expect-error PDF exports cannot use a system specification.
+    const pdfSystemSpec: ExportPdfOptions['theme'] = { base: 'system' };
+    expect([
+      light,
+      dark,
+      pdf,
+      imageSystem,
+      imageSystemSpec,
+      svgSystem,
+      svgSystemSpec,
+      pdfSystem,
+      pdfSystemSpec,
+    ]).toHaveLength(9);
   });
   it('keeps bound-text-compatible shape factory results literal', () => {
     const rectangle = FN.createShape({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } });
