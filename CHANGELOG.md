@@ -27,7 +27,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   `theme` overrides it and explicit `background` wins. Dark frame PNG and SVG exports remain
   transparent with light ink, and dark PDFs fill each page. On a dark board, a layer holding a
   highlighter stroke redraws from its layer cache instead of drawing the stroke live, so screen
-  blending stays correct during a drag.
+  blending stays correct while the highlighter or the ink above it is dragged.
 
 ### React 0.17.0 — theme prop
 

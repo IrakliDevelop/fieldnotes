@@ -5403,6 +5403,16 @@ describe('Viewport theme', () => {
     viewport.destroy();
   });
 
+  it('normalizes a runtime null theme to light', () => {
+    const viewport = new Viewport(container, { theme: 'dark' });
+
+    viewport.setTheme(null as never);
+
+    expect(viewport.getTheme().base).toBe('light');
+    expect(container.firstElementChild?.getAttribute('data-fieldnotes-theme')).toBe('light');
+    viewport.destroy();
+  });
+
   it('constructs with undefined dark theme overrides', () => {
     const viewport = new Viewport(container, {
       theme: { base: 'dark', tokens: { board: undefined } },

@@ -68,6 +68,21 @@ describe('themes', () => {
     });
   });
 
+  it('treats runtime null as light', () => {
+    const theme = resolveTheme(null as never);
+    expect({
+      base: theme.base,
+      tokens: theme.tokens,
+      adapted: theme.adapt('#000000'),
+      blend: blendModeFor(theme, 'multiply'),
+    }).toEqual({
+      base: 'light',
+      tokens: LIGHT_THEME_TOKENS,
+      adapted: '#000000',
+      blend: 'multiply',
+    });
+  });
+
   it('uses base export backgrounds for unparseable board tokens', () => {
     expect(
       defaultExportBackground(resolveTheme({ base: 'light', tokens: { board: 'var(--x)' } })),

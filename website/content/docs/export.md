@@ -36,9 +36,10 @@ The options:
 `frameId` options. `frameId` selects one root frame's exact content rectangle and includes only its
 descendants, without frame title, border, padding chrome, or unrelated overlap. An empty frame
 produces an SVG at that size. SVG does not support `region`. `theme` works as for PNG, and an
-explicit `background` wins. Without `background`, a dark board's SVG gets a rectangle in the board
-colour and a light board's SVG has nothing behind the elements. A frame SVG never gets a background,
-so its light ink on a dark board needs a dark page behind it.
+explicit `background` wins. Without `background`, a board SVG gets a rectangle in the board colour
+when that colour is opaque (a dark board or a custom opaque `board` token), while the default light
+board has nothing behind the elements. A frame SVG never gets a background, so its light ink on a
+dark board needs a dark page behind it.
 
 ::code{example="export" region="svg"}
 

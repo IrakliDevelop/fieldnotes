@@ -121,14 +121,15 @@ function definedTokens(tokens: Partial<ThemeTokens> | undefined): Partial<ThemeT
 /** Resolves a theme for an optional known system preference. */
 export function resolveTheme(theme: Theme, systemDark = false): ResolvedTheme {
   if (theme === 'system') return resolveTheme(systemDark ? 'dark' : 'light');
-  if (typeof theme === 'object' && theme.base === 'system')
+  if (theme !== null && typeof theme === 'object' && theme.base === 'system')
     return resolveTheme({
       base: systemDark ? 'dark' : 'light',
       tokens: definedTokens(theme[systemDark ? 'dark' : 'light']),
     });
   const base: ThemeBase =
-    (typeof theme === 'string' ? theme : theme.base) === 'dark' ? 'dark' : 'light';
-  const overrides = typeof theme === 'object' ? definedTokens(theme.tokens) : undefined;
+    (typeof theme === 'string' ? theme : theme?.base) === 'dark' ? 'dark' : 'light';
+  const overrides =
+    typeof theme === 'object' && theme !== null ? definedTokens(theme.tokens) : undefined;
   const tokens = Object.freeze({
     ...(base === 'dark' ? DARK_THEME_TOKENS : LIGHT_THEME_TOKENS),
     ...overrides,

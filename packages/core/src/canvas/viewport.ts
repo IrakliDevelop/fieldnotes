@@ -2028,7 +2028,9 @@ export class Viewport {
   }
 
   private isSystemTheme(theme: Theme): boolean {
-    return theme === 'system' || (typeof theme === 'object' && theme.base === 'system');
+    return (
+      theme === 'system' || (theme !== null && typeof theme === 'object' && theme.base === 'system')
+    );
   }
 
   private setResolvedTheme(theme: ResolvedTheme): void {

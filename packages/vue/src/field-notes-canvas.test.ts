@@ -336,6 +336,16 @@ describe('FieldNotesCanvas', () => {
     expect(viewport.getTheme().base).toBe('light');
   });
 
+  it('forwards a runtime null theme prop to the viewport', async () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const wrapper = mount(FieldNotesCanvas, { props: { theme: 'dark', onReady } });
+    const viewport = viewportAt(onReady, 0);
+
+    await wrapper.setProps({ theme: null as never });
+
+    expect(viewport.getTheme().base).toBe('light');
+  });
+
   it('normalizes invalid runtime theme strings at mount and update', async () => {
     const onReady = vi.fn<(viewport: Viewport) => void>();
     const wrapper = mount(FieldNotesCanvas, { props: { theme: 'Dark' as never, onReady } });
