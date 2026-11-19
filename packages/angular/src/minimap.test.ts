@@ -112,8 +112,15 @@ describe('Minimap', () => {
     const button = root.querySelector<HTMLButtonElement>(expandButton);
     if (!button) throw new Error('no expand button');
 
-    expect(button.getAttribute('style')).toBe(
-      'min-width: 44px; min-height: 44px; border: 1px solid rgba(0,0,0,0.15); border-radius: 8px; background: rgba(255,255,255,0.85); cursor: pointer; font: 18px/1 system-ui, sans-serif',
+    const style = button.getAttribute('style');
+    if (!style) throw new Error('no inline style');
+    expect(style).toContain('border: 1px solid rgba(0,0,0,0.15)');
+    expect(style).toContain('background: rgba(255,255,255,0.85)');
+    expect(style.indexOf('border: 1px solid rgba(0,0,0,0.15)')).toBeLessThan(
+      style.indexOf('border-radius'),
+    );
+    expect(style.indexOf('background: rgba(255,255,255,0.85)')).toBeLessThan(
+      style.indexOf('cursor'),
     );
     expect(button.style.background).toBe('rgba(255, 255, 255, 0.85)');
     expect(button.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');

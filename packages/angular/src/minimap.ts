@@ -1,13 +1,4 @@
-import {
-  Component,
-  NgZone,
-  computed,
-  effect,
-  inject,
-  input,
-  signal,
-  viewChild,
-} from '@angular/core';
+import { Component, NgZone, effect, inject, input, signal, viewChild } from '@angular/core';
 import type { ElementRef, OnInit } from '@angular/core';
 import { LIGHT_THEME_TOKENS, MinimapController } from '@fieldnotes/core';
 import type { ThemeTokens } from '@fieldnotes/core';
@@ -26,7 +17,9 @@ import { injectViewport } from './inject-viewport';
         type="button"
         aria-label="Expand minimap"
         style="min-width: 44px; min-height: 44px; border: 1px solid rgba(0,0,0,0.15); border-radius: 8px; background: rgba(255,255,255,0.85); cursor: pointer; font: 18px/1 system-ui, sans-serif"
-        [attr.style]="collapsedButtonStyle()"
+        [style.background]="tokens().minimapBackground"
+        [style.border]="'1px solid ' + tokens().minimapBorder"
+        [style.color]="tokens().chromeText || null"
         (click)="collapsed.set(false)"
       >
         ▣
@@ -67,10 +60,6 @@ export class Minimap implements OnInit {
   protected readonly tokens = signal<ThemeTokens>(
     injectViewport()()?.getTheme().tokens ?? LIGHT_THEME_TOKENS,
   );
-  protected readonly collapsedButtonStyle = computed(() => {
-    const tokens = this.tokens();
-    return `min-width: 44px; min-height: 44px; border: 1px solid ${tokens.minimapBorder}; border-radius: 8px; background: ${tokens.minimapBackground}; cursor: pointer; font: 18px/1 system-ui, sans-serif${tokens.chromeText ? `; color: ${tokens.chromeText}` : ''}`;
-  });
   private readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('canvas');
 
   constructor() {
