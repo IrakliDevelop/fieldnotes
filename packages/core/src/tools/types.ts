@@ -3,6 +3,7 @@ import type { ElementStore } from '../elements/element-store';
 import type { Bounds } from '../core/types';
 import type { ConstraintServiceAccess } from '../core/constraint-service';
 import type { ElementRegistry } from '../elements/element-registry';
+import type { ResolvedTheme } from '../canvas/theme';
 
 export interface ToolContext {
   camera: Camera;
@@ -24,7 +25,9 @@ export interface ToolContext {
   getVisibleRect?: () => Bounds;
   constraintService?: ConstraintServiceAccess;
   elementRegistry?: ElementRegistry;
-  /** Colour of selection chrome; tools fall back to `DEFAULT_SELECTION_COLOR`. */
+  /** Active viewport theme; tools fall back to `DEFAULT_THEME`. */
+  theme?: ResolvedTheme;
+  /** Colour of selection chrome; tools fall back to `theme.tokens.selection`. */
   selectionColor?: string;
   /** Opens the element's link through the viewport's open path. */
   openLink?: (elementId: string) => void;

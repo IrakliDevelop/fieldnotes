@@ -1,6 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { Background } from './background';
 import type { Camera } from './camera';
+import { resolveTheme } from './theme';
 
 function mockCamera(overrides: Partial<Camera> = {}): Camera {
   return {
@@ -67,6 +68,52 @@ describe('Background', () => {
     expect(ctx.clearRect).toHaveBeenCalled();
     expect(ctx.arc).not.toHaveBeenCalled();
     expect(ctx.fillRect).not.toHaveBeenCalled();
+  });
+
+  it('dark theme fills the board before the pattern', () => {
+    const bg = new Background();
+    const ctx = mockCtx();
+    const calls: string[] = [];
+    ctx.clearRect = vi.fn(() => calls.push('clear'));
+    ctx.fillRect = vi.fn(() => calls.push(`fill:${ctx.fillStyle}`));
+    ctx.beginPath = vi.fn(() => calls.push(`path:${ctx.fillStyle}`));
+    bg.setTheme(resolveTheme('dark'));
+    bg.render(ctx, mockCamera());
+
+    expect(calls).toEqual(['clear', 'fill:#1e1f22', 'path:#3b3d42']);
+  });
+
+  it("dark fills the board with pattern 'none'", () => {
+    const bg = new Background({ pattern: 'none' });
+    const ctx = mockCtx();
+    bg.setTheme(resolveTheme('dark'));
+    bg.render(ctx, mockCamera());
+
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 800, 600);
+    expect(ctx.arc).not.toHaveBeenCalled();
+  });
+
+  it('an explicit colour wins under dark', () => {
+    const bg = new Background({ color: '#abcdef' });
+    const ctx = mockCtx();
+    bg.setTheme(resolveTheme('dark'));
+    bg.render(ctx, mockCamera());
+
+    expect(ctx.fillStyle).toBe('#abcdef');
+  });
+
+  it('setTheme invalidates the cache', () => {
+    vi.stubGlobal('OffscreenCanvas', undefined);
+    const bg = new Background();
+    const ctx = mockCtx();
+    bg.render(ctx, mockCamera());
+    bg.render(ctx, mockCamera());
+    (ctx.arc as ReturnType<typeof vi.fn>).mockClear();
+
+    bg.setTheme(resolveTheme('dark'));
+    bg.render(ctx, mockCamera());
+
+    expect(ctx.arc).toHaveBeenCalled();
   });
 
   it('accounts for camera offset', () => {

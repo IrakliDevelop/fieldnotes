@@ -8,6 +8,8 @@ import { createLinkActions, createToolAction } from '../actions/builtin-actions'
 import { buildContextMenuItems } from '../actions/context-menu-items';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
+import { resolveTheme } from './theme';
+import type { ResolvedTheme, Theme } from './theme';
 import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { setElbowVisibleLayers } from '../elements/elbow-cache';
@@ -138,6 +140,8 @@ const INERT_SHORTCUTS_HELP: ShortcutsHelpApi = {
 export interface ViewportOptions {
   camera?: CameraOptions;
   background?: BackgroundOptions;
+  /** Board theme. Default `'light'`; `'system'` follows the system preference. */
+  theme?: Theme;
   fontSizePresets?: FontSizePreset[];
   toolbar?: boolean;
   placeholder?: string;
@@ -229,6 +233,13 @@ export class Viewport {
   private readonly commandPalette: CommandPalette | null;
   private readonly shortcutsHelpDialog: ShortcutsHelp | null;
   private readonly background: Background;
+  private theme: ResolvedTheme;
+  private themeSpec: Theme;
+  private systemMedia: MediaQueryList | null = null;
+  private systemListener: ((event: MediaQueryListEvent) => void) | null = null;
+  private systemListenerMode: 'event' | 'legacy' | null = null;
+  private destroyed = false;
+  private readonly themeListeners = new Set<(theme: ResolvedTheme) => void>();
   private readonly renderer: ElementRenderer;
   private readonly noteEditor: NoteEditor;
   readonly historyRecorder: HistoryRecorder;
@@ -290,8 +301,17 @@ export class Viewport {
     private readonly container: HTMLElement,
     options: ViewportOptions = {},
   ) {
+    this.themeSpec = options.theme ?? 'light';
+    this.systemMedia = this.createSystemMedia(this.themeSpec);
+    this.theme = resolveTheme(this.themeSpec, this.systemMedia?.matches ?? false);
+    this.listenToSystemTheme();
+    this.disposers.push(() => {
+      this.removeSystemThemeListener();
+      this.themeListeners.clear();
+    });
     this.camera = new Camera(options.camera);
     this.background = new Background(options.background);
+    this.background.setTheme(this.theme);
     this.elementRegistry =
       options.elementRegistry ?? new ElementRegistry(getDefaultElementRegistry());
     this.store = new ElementStore(this.elementRegistry);
@@ -386,6 +406,7 @@ export class Viewport {
     });
 
     this.wrapper = createWrapper();
+    this.wrapper.dataset.fieldnotesTheme = this.theme.base;
     this.noteEditor.setFocusReturnTarget(this.wrapper);
     this.canvasEl = createCanvas();
     this.paintStack = createPaintStack();
@@ -427,6 +448,7 @@ export class Viewport {
     this.toolContext = {
       camera: this.camera,
       store: this.store,
+      theme: this.theme,
       requestRender: () => this.requestRender(),
       requestOverlayRender: () => this.requestOverlayRender(),
       switchTool: (name: string) => this.toolManager.setTool(name, this.toolContext),
@@ -1025,6 +1047,33 @@ export class Viewport {
   onResize(listener: () => void): () => void {
     this.resizeListeners.add(listener);
     return () => this.resizeListeners.delete(listener);
+  }
+
+  /** Sets the board theme. */
+  setTheme(theme: Theme): void {
+    if (this.destroyed) return;
+    const wasSystem = this.isSystemTheme(this.themeSpec);
+    const isSystem = this.isSystemTheme(theme);
+    this.themeSpec = theme;
+    if (!wasSystem && isSystem) {
+      this.systemMedia = this.createSystemMedia(theme);
+      this.listenToSystemTheme();
+    } else if (wasSystem && !isSystem) {
+      this.removeSystemThemeListener();
+    }
+    this.setResolvedTheme(resolveTheme(theme, this.systemMedia?.matches ?? false));
+  }
+
+  /** Returns the active, resolved board theme. */
+  getTheme(): ResolvedTheme {
+    return this.theme;
+  }
+
+  /** Fires after the viewport resolves to a different theme. */
+  onThemeChange(listener: (theme: ResolvedTheme) => void): () => void {
+    if (this.destroyed) return noop;
+    this.themeListeners.add(listener);
+    return () => this.themeListeners.delete(listener);
   }
 
   requestRender(): void {
@@ -1920,7 +1969,70 @@ export class Viewport {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     for (const dispose of this.disposers.splice(0).reverse()) dispose();
+  }
+
+  private createSystemMedia(theme: Theme): MediaQueryList | null {
+    if (!this.isSystemTheme(theme) || typeof matchMedia !== 'function') return null;
+    return matchMedia('(prefers-color-scheme: dark)');
+  }
+
+  private listenToSystemTheme(): void {
+    if (this.systemMedia === null) return;
+    this.systemListener = (event) => {
+      if (this.destroyed) return;
+      this.setResolvedTheme(resolveTheme(this.themeSpec, event.matches));
+    };
+    if (typeof this.systemMedia.addEventListener === 'function') {
+      this.systemMedia.addEventListener('change', this.systemListener);
+      this.systemListenerMode = 'event';
+    } else {
+      this.systemMedia.addListener(this.systemListener);
+      this.systemListenerMode = 'legacy';
+    }
+  }
+
+  private removeSystemThemeListener(): void {
+    if (this.systemMedia !== null && this.systemListener !== null) {
+      if (this.systemListenerMode === 'event') {
+        this.systemMedia.removeEventListener('change', this.systemListener);
+      } else if (this.systemListenerMode === 'legacy') {
+        this.systemMedia.removeListener(this.systemListener);
+      }
+    }
+    this.systemMedia = null;
+    this.systemListener = null;
+    this.systemListenerMode = null;
+  }
+
+  private isSystemTheme(theme: Theme): boolean {
+    return theme === 'system' || (typeof theme === 'object' && theme.base === 'system');
+  }
+
+  private setResolvedTheme(theme: ResolvedTheme): void {
+    if (this.themesEqual(this.theme, theme)) return;
+    this.theme = theme;
+    this.wrapper.dataset.fieldnotesTheme = theme.base;
+    this.background.setTheme(theme);
+    this.toolContext.theme = theme;
+    this.renderLoop.markAllLayersDirty();
+    this.requestRender();
+    for (const listener of [...this.themeListeners]) {
+      try {
+        listener(theme);
+      } catch {
+        // One theme listener must not prevent the others from observing a change.
+      }
+    }
+  }
+
+  private themesEqual(a: ResolvedTheme, b: ResolvedTheme): boolean {
+    return (
+      a.base === b.base &&
+      Object.values(a.tokens).every((token, index) => token === Object.values(b.tokens).at(index))
+    );
   }
 
   stopInteracting(): void {

@@ -1,5 +1,6 @@
 import type { Camera } from './camera';
 import type { CanvasWatch } from './context-loss-guard';
+import type { ResolvedTheme } from './theme';
 
 export type BackgroundPattern = 'dots' | 'grid' | 'none';
 
@@ -24,9 +25,11 @@ const DEFAULTS = {
 export class Background {
   private readonly pattern: BackgroundPattern;
   private readonly spacing: number;
-  private readonly color: string;
+  private readonly explicitColor: string | undefined;
   private readonly dotRadius: number;
   private readonly lineWidth: number;
+  private boardFill = 'transparent';
+  private patternColor = DEFAULTS.color;
   private cachedCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
   private cachedCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
   private lastZoom = -1;
@@ -48,6 +51,12 @@ export class Background {
     this.lastZoom = -1;
   }
 
+  setTheme(theme: ResolvedTheme): void {
+    this.boardFill = theme.tokens.board;
+    this.patternColor = this.explicitColor ?? theme.tokens.pattern;
+    this.invalidate();
+  }
+
   dispose(): void {
     this.watchDispose?.();
     this.watchDispose = null;
@@ -59,7 +68,8 @@ export class Background {
   constructor(options: BackgroundOptions = {}) {
     this.pattern = options.pattern ?? DEFAULTS.pattern;
     this.spacing = options.spacing ?? DEFAULTS.spacing;
-    this.color = options.color ?? DEFAULTS.color;
+    this.explicitColor = options.color;
+    this.patternColor = options.color ?? DEFAULTS.color;
     this.dotRadius = options.dotRadius ?? DEFAULTS.dotRadius;
     this.lineWidth = options.lineWidth ?? DEFAULTS.lineWidth;
   }
@@ -73,6 +83,10 @@ export class Background {
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssWidth, cssHeight);
+    if (this.boardFill !== 'transparent') {
+      ctx.fillStyle = this.boardFill;
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
+    }
 
     // A zero-size cache canvas throws InvalidStateError as a drawImage source, and there
     // is nothing to draw into anyway (hidden or collapsed viewport).
@@ -204,7 +218,7 @@ export class Background {
     const offsetY = camera.position.y % spacing;
     const radius = this.dotRadius * Math.min(camera.zoom, 2);
 
-    ctx.fillStyle = this.color;
+    ctx.fillStyle = this.patternColor;
     ctx.beginPath();
 
     for (let x = offsetX; x < width; x += spacing) {
@@ -228,7 +242,7 @@ export class Background {
     const offsetY = camera.position.y % spacing;
     const lineW = this.lineWidth * Math.min(camera.zoom, 2);
 
-    ctx.fillStyle = this.color;
+    ctx.fillStyle = this.patternColor;
 
     for (let x = offsetX; x < width; x += spacing) {
       ctx.fillRect(x, 0, lineW, height);
