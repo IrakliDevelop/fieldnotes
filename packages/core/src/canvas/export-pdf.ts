@@ -231,6 +231,7 @@ export async function exportPdf(
     );
     const parsedBackground = parseColor(background);
     const pageFill =
+      theme.base !== 'light' &&
       parsedBackground?.a === 1 &&
       (parsedBackground.r !== 255 || parsedBackground.g !== 255 || parsedBackground.b !== 255)
         ? `q ${pdfNumber(parsedBackground.r / 255)} ${pdfNumber(parsedBackground.g / 255)} ${pdfNumber(parsedBackground.b / 255)} rg 0 0 ${pdfNumber(page.width)} ${pdfNumber(page.height)} re f Q `

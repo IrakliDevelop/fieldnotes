@@ -922,14 +922,24 @@ function loadSampleBoard(): void {
 document.getElementById('sample')?.addEventListener('click', loadSampleBoard);
 
 const exportPaddingCheckbox = document.getElementById('export-padding') as HTMLInputElement | null;
+const exportBackgroundInput = document.getElementById('export-bg') as HTMLInputElement | null;
+let exportBackgroundSelected = false;
+exportBackgroundInput?.addEventListener('input', () => {
+  exportBackgroundSelected = true;
+});
 
 document.getElementById('export-png')?.addEventListener('click', async () => {
   const padding = exportPaddingCheckbox?.checked ? 20 : 0;
-  const bg = (document.getElementById('export-bg') as HTMLInputElement | null)?.value ?? '#ffffff';
   const scale = Number(
     (document.getElementById('export-scale') as HTMLSelectElement | null)?.value ?? 2,
   );
-  const blob = await viewport.exportImage({ scale, padding, background: bg });
+  const blob = await viewport.exportImage({
+    scale,
+    padding,
+    ...(exportBackgroundSelected && exportBackgroundInput
+      ? { background: exportBackgroundInput.value }
+      : {}),
+  });
   if (!blob) {
     console.warn('Nothing to export');
     return;

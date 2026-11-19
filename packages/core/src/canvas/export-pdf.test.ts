@@ -61,6 +61,11 @@ async function text(pdf: Blob | null): Promise<string> {
   return new TextDecoder('latin1').decode(await pdf.arrayBuffer());
 }
 
+async function bytes(pdf: Blob | null): Promise<Uint8Array> {
+  if (!pdf) throw new Error('PDF missing');
+  return new Uint8Array(await pdf.arrayBuffer());
+}
+
 function pageContent(value: string): string {
   const match = value.match(/stream\n(q [^\n]* cm \/Im0 Do Q)\nendstream/);
   if (!match?.[1]) throw new Error('PDF page content missing');
@@ -68,6 +73,16 @@ function pageContent(value: string): string {
 }
 
 describe('exportPdf', () => {
+  it('keeps light explicit-background PDF bytes unchanged', async () => {
+    const store = new ElementStore();
+    store.add(createShape({ position: { x: 0, y: 0 }, size: { w: 20, h: 10 } }));
+
+    const base = await bytes(await exportPdf(store, { background: '#fff', dpi: 18 }));
+    const explicit = await bytes(await exportPdf(store, { background: '#336699', dpi: 18 }));
+
+    expect(explicit).toEqual(base);
+  });
+
   it('prefixes tall dark pages with their opaque board fill and paints the raster background', async () => {
     const { store, tall } = fixture();
     const fills: string[] = [];

@@ -8,6 +8,12 @@ interface Position {
   y: number;
 }
 
+declare global {
+  interface Window {
+    __fieldnotesExportBlob?: Blob;
+  }
+}
+
 const readBoardPixels = (page: Page, x: number, y: number): Promise<Pixel[]> =>
   page.evaluate(
     ({ x, y }) => {
@@ -80,6 +86,25 @@ const readExportWorldPixel = (page: Page, world: Position): Promise<Pixel> =>
     const y = Math.round((point.y - region.y) * scale);
     return [...context.getImageData(x, y, 1, 1).data] as Pixel;
   }, world);
+
+const readDemoExportColors = (page: Page): Promise<{ dark: number; custom: number }> =>
+  page.evaluate(async () => {
+    const blob = window.__fieldnotesExportBlob;
+    if (!blob) throw new Error('Missing demo PNG export');
+    const bitmap = await createImageBitmap(blob);
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Missing export context');
+    context.drawImage(bitmap, 0, 0);
+    const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let dark = 0;
+    let custom = 0;
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index] === 30 && data[index + 1] === 31 && data[index + 2] === 34) dark += 1;
+      if (data[index] === 51 && data[index + 1] === 102 && data[index + 2] === 153) custom += 1;
+    }
+    return { dark, custom };
+  });
 
 async function draw(
   canvasPage: CanvasPage,
@@ -271,6 +296,49 @@ test.describe('themes', () => {
     expectPixelNear(live, [104, 105, 107], 3);
     expectPixelNear(exported, [104, 105, 107], 3);
     expectPixelNear(live, exported, 2);
+  });
+
+  test('demo PNG export follows dark theme until a background is chosen', async ({
+    canvasPage,
+  }) => {
+    const errors: string[] = [];
+    canvasPage.page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text());
+    });
+    canvasPage.page.on('pageerror', (error) => errors.push(error.message));
+    await canvasPage.page.addInitScript(() => {
+      const createObjectURL = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = (value) => {
+        if (value instanceof Blob && value.type === 'image/png')
+          window.__fieldnotesExportBlob = value;
+        return createObjectURL(value);
+      };
+    });
+    await canvasPage.page.goto('/?theme=dark');
+    await canvasPage.page.waitForFunction(
+      () => window.__fieldnotes_viewport.getTheme().base === 'dark',
+    );
+    await canvasPage.page.locator('#sample').click();
+    await canvasPage.page.waitForFunction(() => window.__fieldnotes_viewport.store.count > 0);
+
+    await canvasPage.page.locator('#export-png').click();
+    await canvasPage.page.waitForFunction(() => Boolean(window.__fieldnotesExportBlob));
+    const dark = await readDemoExportColors(canvasPage.page);
+    expect(dark.dark).toBeGreaterThan(0);
+
+    await canvasPage.page.locator('#export-bg').evaluate((input) => {
+      if (!(input instanceof HTMLInputElement)) throw new Error('Missing export background input');
+      input.value = '#336699';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await canvasPage.page.evaluate(() => {
+      window.__fieldnotesExportBlob = undefined;
+    });
+    await canvasPage.page.locator('#export-png').click();
+    await canvasPage.page.waitForFunction(() => Boolean(window.__fieldnotesExportBlob));
+    const custom = await readDemoExportColors(canvasPage.page);
+    expect(custom.custom).toBeGreaterThan(0);
+    expect(errors).toEqual([]);
   });
 
   test('system follows media and exports a dark board', async ({ canvasPage }) => {
