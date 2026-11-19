@@ -112,6 +112,16 @@ describe('select-overlay', () => {
     expect(styles).toContain('#1e1f22');
   });
 
+  it('fills selection handles with #ffffff without a theme', () => {
+    const { ctx, styles } = recordingCanvas();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    store.add(note);
+    renderSelectionBoxes(ctx, { selectedIds: [note.id], store, zoom: 1 });
+
+    expect(styles).toContain('#ffffff');
+  });
+
   it.each([
     ['dark', resolveTheme('dark'), '#1e1f22'],
     ['without theme', undefined, '#ffffff'],

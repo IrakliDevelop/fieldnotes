@@ -181,6 +181,9 @@ describe('renderImagePlaceholder theme', () => {
     const light = mockCtx();
     renderImagePlaceholder(light, imageElement());
     expect(light.fillStyle).toBe('#eeeeee');
-    expect(light.strokeStyle).toBe('#9e9e9e');
+    expect((light as CanvasRenderingContext2D & { strokeStyles: string[] }).strokeStyles).toEqual([
+      '#bdbdbd',
+      '#9e9e9e',
+    ]);
   });
 });

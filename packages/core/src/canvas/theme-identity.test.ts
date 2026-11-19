@@ -16,7 +16,10 @@ import { createFrame } from '../elements/frame-element';
 import { NoteToolbar } from '../elements/note-toolbar';
 import { installRecordingContexts } from '../test-helpers/recording-contexts';
 
+const recordingRestores: (() => void)[] = [];
+
 afterEach(() => {
+  for (const restore of recordingRestores.splice(0)) restore();
   document.body.replaceChildren();
   vi.restoreAllMocks();
 });
@@ -117,10 +120,10 @@ describe('light identity', () => {
 
   it('a light PDF content stream starts with the image operator', async () => {
     const recording = installRecordingContexts();
+    recordingRestores.push(recording.restore);
     const store = new ElementStore();
     store.add(createFrame({ position: { x: 0, y: 0 }, size: { w: 80, h: 184 } }));
     const pdf = await exportPdf(store, { dpi: 18 });
-    recording.restore();
     if (!pdf) throw new Error('PDF missing');
     const value = new TextDecoder('latin1').decode(await pdf.arrayBuffer());
     const stream = value.match(/stream\n(q [^]+?)\nendstream/)?.[1];
@@ -131,6 +134,7 @@ describe('light identity', () => {
 
   it('the board clears and draws dots as on base', () => {
     const recording = installRecordingContexts();
+    recordingRestores.push(recording.restore);
     const container = document.createElement('div');
     document.body.appendChild(container);
     const viewport = new Viewport(container);
@@ -156,6 +160,5 @@ describe('light identity', () => {
       '#d0d0d0',
     );
     viewport.destroy();
-    recording.restore();
   });
 });
