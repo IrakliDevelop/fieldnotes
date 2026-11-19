@@ -6,7 +6,7 @@ import type { MinimapProps } from './index.js';
 import { Minimap } from './index.js';
 import HelperHost from './test-fixtures/HelperHost.svelte';
 
-// Never touched on the server: the controller is created in an effect, which SSR skips.
+// SSR reads the theme during render; controller effects do not run on the server.
 const viewport: Viewport = Object.assign(Object.create(Viewport.prototype), {
   getTheme: () => DEFAULT_THEME,
 });
