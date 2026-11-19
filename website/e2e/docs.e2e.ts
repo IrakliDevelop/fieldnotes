@@ -132,6 +132,7 @@ test('the docs index shows the facts and the nav groups', async ({ page }) => {
     'Multiplayer',
     'Tabletop maps',
     'Writing a plugin',
+    'Theming',
   ]);
   await expect(
     page.getByRole('region', { name: 'Reference' }).getByRole('link', { name: 'Roadmap' }),

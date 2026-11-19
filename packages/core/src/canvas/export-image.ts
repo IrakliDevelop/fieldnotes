@@ -49,7 +49,7 @@ export interface ExportImageOptions
   region?: { x: number; y: number; w: number; h: number };
   /**
    * Output encoding. Defaults to 'png'. JPEG output is opaque — a transparent
-   * `background` renders as black; keep the default `#ffffff` (or any opaque color)
+   * `background` renders as black; keep an opaque `background` (the default follows the theme)
    * for JPEG exports.
    */
   format?: 'png' | 'jpeg';

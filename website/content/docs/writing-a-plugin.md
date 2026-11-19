@@ -15,6 +15,9 @@ A plugin adds element types, tools, render hooks, actions and services to a boar
 - `validateData` checks `data` when a board is loaded and when an element arrives from another person.
 - `bounds` returns the area the element covers, in board units. Culling, selection, the minimap and exports use it. An envelope with `size` gets resize handles from the select tool, so `bounds` must read `size`.
 - `render` draws in board coordinates, with the camera already applied. It must depend only on its arguments, because the board caches each layer's drawing.
+- `context.theme` is the resolved theme for that render. Use `context.theme.tokens` for chrome
+  colours and `context.theme.adapt(color)` for element colours. Do not store or mutate the resolved
+  theme.
 - `legacyTypes` lists older `type` strings the definition reads. A new type has none, so `decodeLegacy` is never called.
 - An SVG export leaves the element out unless the definition has `emitSvg`.
 

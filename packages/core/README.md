@@ -19,6 +19,7 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Undo / redo** — history of the last 100 steps
 - **State serialization** — export/import JSON snapshots with automatic migration
 - [**Export**](https://iraklidevelop.github.io/fieldnotes/docs/export/): PNG, SVG and PDF export
+- [**Theming**](https://iraklidevelop.github.io/fieldnotes/docs/theming/): light, dark or system board, tokens, themed exports
 - **Performance instrumentation** — `getRenderStats()` and `logPerformance()` for frame timing
 - **Touch & tablet** — Pointer Events API, pinch-to-zoom, two-finger pan, stylus pressure
 - **Zero dependencies** — vanilla TypeScript, no framework required

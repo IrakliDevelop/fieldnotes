@@ -54,7 +54,7 @@ describe('parseRoadmap', () => {
     );
   });
 
-  it('appends PDF and SVG export to Built and keeps the remaining sections current', () => {
+  it('appends theming to Built and keeps the remaining sections current', () => {
     const roadmap = parseRoadmap(
       readFileSync(new URL('../../content/roadmap.md', import.meta.url), 'utf8'),
     );
@@ -78,17 +78,20 @@ describe('parseRoadmap', () => {
     expect(camera).toBeLessThan(frames);
     expect(frames).toBeLessThan(shortcuts);
     expect(roadmap.built.at(-1)).toBe(
-      'PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts',
+      'Light, dark and system board themes with colour tokens, element colours adapted on the dark board, and exports that follow them',
     );
     expect(roadmap.built.at(-2)).toBe(
-      'PNG and SVG exports that reopen as the board they came from',
+      'PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts',
     );
     expect(roadmap.built.at(-3)).toBe(
+      'PNG and SVG exports that reopen as the board they came from',
+    );
+    expect(roadmap.built.at(-4)).toBe(
       'Links on elements that open from a badge or with ⌘/Ctrl+click',
     );
     const elbow = roadmap.built.indexOf('Elbow arrows that route around shapes');
     expect(elbow).toBeGreaterThanOrEqual(0);
-    expect(elbow).toBeLessThan(roadmap.built.length - 4);
+    expect(elbow).toBeLessThan(roadmap.built.length - 5);
     expect(roadmap.built).toContain('React bindings: a canvas component and hooks');
     expect(roadmap.built.indexOf('React bindings: a canvas component and hooks')).toBeLessThan(
       roadmap.built.indexOf(
@@ -97,12 +100,9 @@ describe('parseRoadmap', () => {
     );
     expect(roadmap.built).toHaveLength(new Set(roadmap.built).size);
     expect(roadmap.next).toEqual([
-      "I'm working on theming: colour tokens for the canvas, a dark board and exports that follow them.",
+      "I'm working on selection and input polish: lasso selection, flipping, `setSelection`, wheel zoom and pan, and following the display's pixel density.",
     ]);
-    expect(roadmap.notBuilt).toEqual([
-      'Theming with a dark board',
-      'Vector PDF with selectable text',
-    ]);
+    expect(roadmap.notBuilt).toEqual(['Vector PDF with selectable text']);
     for (const section of [roadmap.built, roadmap.next, roadmap.notBuilt]) {
       expect(section).not.toContain(
         "I'm making starter templates on StackBlitz and CodeSandbox for a vanilla board and a React board.",

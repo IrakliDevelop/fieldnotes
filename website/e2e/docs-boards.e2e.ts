@@ -44,6 +44,59 @@ test('the live board draws a mouse stroke and Reset board empties it', async ({ 
   await expect(page.locator(WRAPPER)).toHaveCount(1);
 });
 
+test('the theming board is dark, unruled, and draws light ink', async ({ page }) => {
+  test.skip(test.info().project.name === 'phone', 'canvas pixels are not readable on a phone');
+  const board = page.locator('figure[data-live-board="theming"]');
+  const wrapper = `${'figure[data-live-board="theming"]'} [data-live-board-mount] > div[tabindex]`;
+  await page.goto('/docs/theming/?debug-boards');
+  await board.scrollIntoViewIfNeeded();
+  await expect
+    .poll(() => page.evaluate(() => window.__docsBoards.theming !== undefined))
+    .toBe(true);
+  await expect(page.locator(wrapper)).toHaveAttribute('data-fieldnotes-theme', 'dark');
+
+  const pixel = await page.locator(wrapper).evaluate((el) => {
+    const canvas = el.querySelector('canvas');
+    if (!canvas) throw new Error('theming board has no canvas');
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('theming board canvas has no context');
+    const x = Math.round(canvas.width / 2);
+    const y = Math.round(canvas.height / 2);
+    return Array.from(context.getImageData(x, y, 1, 1).data);
+  });
+  expect(pixel).toEqual([30, 31, 34, 255]);
+
+  const box = await page.locator(wrapper).boundingBox();
+  if (!box) throw new Error('theming board is not mounted');
+  const start = { x: box.x + box.width / 2 - 50, y: box.y + box.height / 2 };
+  const end = { x: box.x + box.width / 2 + 50, y: box.y + box.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 8 });
+  await page.mouse.up();
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__docsBoards.theming?.store.getElementsByType('stroke').length),
+    )
+    .toBe(1);
+  await expect
+    .poll(() =>
+      page.locator(wrapper).evaluate(
+        (el, point) =>
+          Array.from(el.querySelectorAll('canvas')).map((canvas) => {
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('theming board canvas has no context');
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.round((point.x - rect.x) * (canvas.width / rect.width));
+            const y = Math.round((point.y - rect.y) * (canvas.height / rect.height));
+            return Array.from(context.getImageData(x, y, 1, 1).data);
+          }),
+        { x: (start.x + end.x) / 2, y: start.y },
+      ),
+    )
+    .toContainEqual([237, 237, 237, 255]);
+});
+
 test('the saving board opens its saved board, and again after Reset board', async ({ page }) => {
   const board = page.locator('figure[data-live-board="saving-and-loading"]');
   const counts = () =>
