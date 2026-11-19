@@ -2,6 +2,8 @@ import type { Point } from '../core/types';
 import type { ShapeKind } from '../elements/types';
 import type { Tool, ToolContext, PointerState } from './types';
 import { createShape } from '../elements/element-factory';
+import { DEFAULT_THEME } from '../canvas/theme';
+import type { ResolvedTheme } from '../canvas/theme';
 
 function snapTo45(start: Point, end: Point): Point {
   const dx = end.x - start.x;
@@ -31,6 +33,7 @@ export class ShapeTool implements Tool {
   private strokeWidth: number;
   private fillColor: string;
   private optionListeners = new Set<() => void>();
+  private theme: ResolvedTheme = DEFAULT_THEME;
 
   constructor(options: ShapeToolOptions = {}) {
     this.shape = options.shape ?? 'rectangle';
@@ -77,6 +80,7 @@ export class ShapeTool implements Tool {
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
+    this.theme = ctx.theme ?? DEFAULT_THEME;
     this.drawing = true;
     this.start = this.snap(ctx.camera.screenToWorld({ x: state.x, y: state.y }), ctx);
     this.end = { ...this.start };
@@ -129,11 +133,11 @@ export class ShapeTool implements Tool {
 
     ctx.save();
     ctx.globalAlpha = 0.5;
-    ctx.strokeStyle = this.strokeColor;
+    ctx.strokeStyle = this.theme.adapt(this.strokeColor);
     ctx.lineWidth = this.strokeWidth;
 
     if (this.fillColor !== 'none') {
-      ctx.fillStyle = this.fillColor;
+      ctx.fillStyle = this.theme.adapt(this.fillColor);
     }
 
     switch (this.shape) {

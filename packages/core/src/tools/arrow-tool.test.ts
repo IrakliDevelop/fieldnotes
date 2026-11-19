@@ -7,6 +7,7 @@ import { ConstraintServiceProxy } from '../core/constraint-service';
 import { snapPoint } from '../core/snap';
 import type { ToolContext, PointerState } from './types';
 import type { ArrowElement } from '../elements/types';
+import { resolveTheme } from '../canvas/theme';
 
 function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
   const proxy = new ConstraintServiceProxy();
@@ -286,6 +287,31 @@ describe('ArrowTool', () => {
 
       expect(styles.filter((s) => s === '#B8322A')).toHaveLength(2);
       expect(styles).not.toContain('#2196F3');
+    });
+
+    it('uses dark ink for the line and head, and dark or explicit binding highlights', () => {
+      const styles: string[] = [];
+      const canvas = Object.assign(mockCanvas(), { strokeRect: vi.fn(), setLineDash: vi.fn() });
+      Object.defineProperty(canvas, 'strokeStyle', { set: (value: string) => styles.push(value) });
+      Object.defineProperty(canvas, 'fillStyle', { set: (value: string) => styles.push(value) });
+      const tool = new ArrowTool({ color: '#000000' });
+      const ctx = makeCtx({ theme: resolveTheme('dark') });
+      ctx.store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
+      ctx.store.add(createNote({ position: { x: 300, y: 300 }, size: { w: 100, h: 100 } }));
+      tool.onPointerDown(pt(50, 50), ctx);
+      tool.onPointerMove(pt(350, 350), ctx);
+      tool.renderOverlay?.(canvas);
+      expect(styles.filter((value) => value === '#ededed').length).toBeGreaterThanOrEqual(2);
+      expect(styles.filter((value) => value === '#64b5f6')).toHaveLength(2);
+
+      const explicit = makeCtx({ theme: resolveTheme('dark'), selectionColor: '#ff0000' });
+      explicit.store.add(createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));
+      explicit.store.add(createNote({ position: { x: 300, y: 300 }, size: { w: 100, h: 100 } }));
+      const explicitTool = new ArrowTool();
+      explicitTool.onPointerDown(pt(50, 50), explicit);
+      explicitTool.onPointerMove(pt(350, 350), explicit);
+      explicitTool.renderOverlay?.(canvas);
+      expect(styles.filter((value) => value === '#ff0000')).toHaveLength(2);
     });
   });
 });

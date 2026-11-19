@@ -6,6 +6,7 @@ import { Camera } from '../canvas/camera';
 import { ConstraintServiceProxy } from '../core/constraint-service';
 import { snapPoint } from '../core/snap';
 import type { ToolContext, PointerState } from './types';
+import { resolveTheme } from '../canvas/theme';
 
 function makeSnapProxy(gridSize: number): ConstraintServiceProxy {
   const proxy = new ConstraintServiceProxy();
@@ -286,6 +287,20 @@ describe('ShapeTool', () => {
       expect(canvas.strokeRect).toHaveBeenCalled();
     });
 
+    it('does not assign a fill style or call fill for a none rectangle', () => {
+      const tool = new ShapeTool({ shape: 'rectangle', fillColor: 'none' });
+      const ctx = makeCtx({ theme: resolveTheme('dark') });
+      const canvas = mockCanvasCtx();
+      const fills: string[] = [];
+      Object.defineProperty(canvas, 'fillStyle', { set: (value: string) => fills.push(value) });
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(100, 80), ctx);
+      tool.renderOverlay(canvas);
+      expect(fills).toEqual([]);
+      expect(canvas.fillRect).not.toHaveBeenCalled();
+      expect(canvas.fill).not.toHaveBeenCalled();
+    });
+
     it('renders ellipse preview during drag', () => {
       const tool = new ShapeTool({ shape: 'ellipse' });
       const ctx = makeCtx();
@@ -352,6 +367,18 @@ describe('ShapeTool', () => {
       tool.renderOverlay(canvas);
 
       expect(canvas.globalAlpha).toBe(0.5);
+    });
+
+    it('captures dark stroke and fill colours at pointer down', () => {
+      const tool = new ShapeTool({ fillColor: '#ffeb3b' });
+      const ctx = makeCtx({ theme: resolveTheme('dark') });
+      tool.onPointerDown(pt(0, 0), ctx);
+      ctx.theme = resolveTheme('light');
+      tool.onPointerMove(pt(10, 10), ctx);
+      const canvas = mockCanvasCtx();
+      tool.renderOverlay(canvas);
+      expect(canvas.strokeStyle).toBe('#ededed');
+      expect(canvas.fillStyle).toBe('#5c540d');
     });
   });
 

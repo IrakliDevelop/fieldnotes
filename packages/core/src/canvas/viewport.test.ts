@@ -4372,6 +4372,32 @@ describe('Viewport', () => {
       expect(viewport.history.undoCount).toBe(undoCount);
       expect(viewport.getSelectedIds()).toEqual([]);
     });
+
+    it('wires the dark palette linger overlay through the viewport selection token', () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      cleanup.push(() => vi.unstubAllGlobals());
+      const register = vi.spyOn(Viewport.prototype, 'registerOverlay');
+      const viewport = createPaletteViewport(container, { theme: 'dark' });
+      sizeCanvas(viewport);
+      viewport.store.add(
+        createNote({
+          position: { x: 100, y: 100 },
+          size: { w: 50, h: 20 },
+          text: 'Budget',
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+      );
+      viewport.palette.open('budget');
+      const input = container.querySelector('.fieldnotes-palette-input');
+      if (!(input instanceof HTMLInputElement)) throw new Error('palette input not found');
+      keydown(input, { key: 'Enter' });
+      const draw = register.mock.calls.at(-1)?.[0];
+      if (!draw) throw new Error('palette overlay not registered');
+      const canvas = recordingCanvas();
+      draw(canvas.ctx);
+      expect(canvas.styles).toContain('#64b5f6');
+      register.mockRestore();
+    });
   });
 
   describe('getCanvasSize', () => {

@@ -196,7 +196,11 @@ export interface ElementInteractionAdapter<T extends BaseElement> {
   renderSelection?(
     ctx: CanvasRenderingContext2D,
     el: T,
-    context: { readonly zoom: number; readonly selectedCount: number },
+    context: {
+      readonly zoom: number;
+      readonly selectedCount: number;
+      readonly theme: ResolvedTheme;
+    },
   ): void;
   rotate?(el: T, pivot: Point, delta: number): T;
 }
@@ -279,7 +283,11 @@ export interface ElementTypeAdapter {
   renderSelection?(
     ctx: CanvasRenderingContext2D,
     el: ExtensionElementEnvelope,
-    context: { readonly zoom: number; readonly selectedCount: number },
+    context: {
+      readonly zoom: number;
+      readonly selectedCount: number;
+      readonly theme: ResolvedTheme;
+    },
   ): void;
   rotate?(el: ExtensionElementEnvelope, pivot: Point, delta: number): ExtensionElementEnvelope;
   render?(

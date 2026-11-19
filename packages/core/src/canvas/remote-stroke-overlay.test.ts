@@ -8,6 +8,7 @@ import {
 import type { OverlayRenderer } from './render-loop';
 import { ElementStore } from '../elements/element-store';
 import { createStroke } from '../elements/element-factory';
+import { resolveTheme } from './theme';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -60,6 +61,91 @@ const stroke = (id: string): unknown =>
   });
 
 describe('RemoteStrokeOverlay', () => {
+  it('adapts dark ink, preserves dark highlighter ink, and reads the theme once per draw', () => {
+    const host = makeHost();
+    const getTheme = vi.fn(() => resolveTheme('dark'));
+    Object.assign(host, { getTheme });
+    const overlay = new RemoteStrokeOverlay(host);
+    overlay.apply(
+      'a',
+      toStrokePreviewPresence({
+        id: 'black',
+        points: [
+          [0, 0],
+          [10, 10],
+        ],
+        color: '#000000',
+        width: 4,
+      }),
+    );
+    overlay.apply(
+      'b',
+      toStrokePreviewPresence({
+        id: 'marker',
+        points: [
+          [0, 0],
+          [10, 10],
+        ],
+        color: '#ffeb3b',
+        width: 4,
+        blendMode: 'multiply',
+      }),
+    );
+    const styles: string[] = [];
+    const composites: string[] = [];
+    const canvas = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      bezierCurveTo: vi.fn(),
+      stroke: vi.fn(),
+      set strokeStyle(value: string) {
+        styles.push(value);
+      },
+      set globalCompositeOperation(value: string) {
+        composites.push(value);
+      },
+    } as unknown as CanvasRenderingContext2D;
+
+    for (const draw of host.registered) draw(canvas);
+
+    expect(styles).toEqual(expect.arrayContaining(['#ededed', '#ffeb3b']));
+    expect(composites).toContain('screen');
+    expect(getTheme).toHaveBeenCalledOnce();
+  });
+
+  it('uses raw light ink when the host has no theme getter', () => {
+    const host = makeHost();
+    const overlay = new RemoteStrokeOverlay(host);
+    overlay.apply(
+      'a',
+      toStrokePreviewPresence({
+        id: 'black',
+        points: [
+          [0, 0],
+          [10, 10],
+        ],
+        color: '#000000',
+        width: 4,
+      }),
+    );
+    const styles: string[] = [];
+    const canvas = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      bezierCurveTo: vi.fn(),
+      stroke: vi.fn(),
+      set strokeStyle(value: string) {
+        styles.push(value);
+      },
+    } as unknown as CanvasRenderingContext2D;
+    for (const draw of host.registered) draw(canvas);
+    expect(styles).toContain('#000000');
+  });
+
   it('draws an applied preview until it is dropped', () => {
     const host = makeHost();
     const overlay = new RemoteStrokeOverlay(host);

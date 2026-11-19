@@ -6,7 +6,8 @@ import { findBindTarget, getElementCenter } from '../elements/arrow-binding';
 import { getElementBounds } from '../elements/element-bounds';
 import { getPolylineEndTangent } from '../elements/arrow-geometry';
 import { getElbowRoute } from '../elements/elbow-cache';
-import { DEFAULT_SELECTION_COLOR } from './selection-color';
+import { DEFAULT_THEME } from '../canvas/theme';
+import type { ResolvedTheme } from '../canvas/theme';
 
 const BIND_THRESHOLD = 20;
 
@@ -30,7 +31,8 @@ export class ArrowTool implements Tool {
   private fromTarget: CanvasElement | null = null;
   private toTarget: CanvasElement | null = null;
   // renderOverlay gets no ToolContext, so keep the colour from the gesture's context.
-  private selectionColor = DEFAULT_SELECTION_COLOR;
+  private selectionColor = DEFAULT_THEME.tokens.selection;
+  private theme: ResolvedTheme = DEFAULT_THEME;
   private previewArrow: ReturnType<typeof createArrow> | null = null;
   private previewRoute: ReturnType<typeof getElbowRoute> = null;
   private optionListeners = new Set<() => void>();
@@ -82,7 +84,8 @@ export class ArrowTool implements Tool {
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     this.drawing = true;
-    this.selectionColor = ctx.selectionColor ?? DEFAULT_SELECTION_COLOR;
+    this.theme = ctx.theme ?? DEFAULT_THEME;
+    this.selectionColor = ctx.selectionColor ?? this.theme.tokens.selection;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     const threshold = BIND_THRESHOLD / ctx.camera.zoom;
     const filter = this.layerFilter(ctx);
@@ -210,7 +213,7 @@ export class ArrowTool implements Tool {
       }
     }
 
-    ctx.strokeStyle = this.color;
+    ctx.strokeStyle = this.theme.adapt(this.color);
     ctx.lineWidth = this.width;
     ctx.lineCap = 'round';
     ctx.globalAlpha = 0.6;
@@ -235,7 +238,7 @@ export class ArrowTool implements Tool {
       const headLen = 12;
       const headAngle = Math.PI / 6;
 
-      ctx.fillStyle = this.color;
+      ctx.fillStyle = this.theme.adapt(this.color);
       ctx.beginPath();
       ctx.moveTo(routeEnd.x, routeEnd.y);
       ctx.lineTo(

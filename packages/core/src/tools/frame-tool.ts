@@ -1,6 +1,8 @@
 import type { Point } from '../core/types';
 import { createFrame } from '../elements/frame-element';
 import type { PointerState, Tool, ToolContext } from './types';
+import { DEFAULT_THEME } from '../canvas/theme';
+import type { ResolvedTheme } from '../canvas/theme';
 
 const MIN_WIDTH = 80;
 const MIN_HEIGHT = 48;
@@ -13,10 +15,12 @@ export class FrameTool implements Tool {
   private end: Point | null = null;
   private layerId: string | undefined;
   private shiftKey = false;
+  private theme: ResolvedTheme = DEFAULT_THEME;
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
     const layerId = ctx.activeLayerId;
     if (!layerId || ctx.isLayerLocked?.(layerId)) return;
+    this.theme = ctx.theme ?? DEFAULT_THEME;
     this.start = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     this.end = this.start;
     this.layerId = layerId;
@@ -72,7 +76,7 @@ export class FrameTool implements Tool {
     const rect = this.rect();
     if (!rect) return;
     ctx.save();
-    ctx.strokeStyle = FRAME_COLOR;
+    ctx.strokeStyle = this.theme.adapt(FRAME_COLOR);
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.strokeRect(rect.position.x, rect.position.y, rect.size.w, rect.size.h);

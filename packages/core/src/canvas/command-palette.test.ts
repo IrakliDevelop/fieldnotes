@@ -824,6 +824,23 @@ describe('command palette', () => {
 });
 
 describe('CommandPalette reveal', () => {
+  it.each([
+    ['string', '#ff0000' as const, '#ff0000'],
+    ['function', () => '#64b5f6', '#64b5f6'],
+  ])('uses the %s selection colour for linger highlights', (_name, selectionColor, expected) => {
+    const overlay = makeHost();
+    const fixture = makeDeps({ overlayHost: overlay.host, selectionColor });
+    fixture.harness.viewport.store.add({
+      ...createNote({ position: { x: 100, y: 100 }, size: { w: 50, h: 20 }, text: 'Budget ping' }),
+      id: 'budget',
+    });
+    fixture.palette.open('budget');
+    key(input(fixture.container), 'ArrowDown');
+    const canvas = recordingCanvas();
+    overlay.getRenderer()?.(canvas.ctx);
+    expect(canvas.strokes).toEqual([{ style: expected, alpha: 1 }]);
+  });
+
   it('ArrowDown onto an element row animates the camera and highlights it', () => {
     let clock = 0;
     let pending: (() => void)[] = [];

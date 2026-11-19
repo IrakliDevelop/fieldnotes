@@ -4,6 +4,8 @@ import type { CurveSegment } from '../elements/stroke-smoothing';
 import { pressureToWidth, smoothToSegments } from '../elements/stroke-smoothing';
 import type { RemoteLaserOverlayHost } from './remote-laser-overlay';
 import { repaint } from './overlay-repaint';
+import { DEFAULT_THEME, blendModeFor, inkFor } from './theme';
+import type { ResolvedTheme } from './theme';
 
 /**
  * The wire shape of a stroke-preview presence payload; `isStrokePreviewPresence`
@@ -62,6 +64,7 @@ export function toStrokePreviewPresence(preview: StrokePreview): StrokePreviewPr
 /** `RemoteLaserOverlayHost` plus the store whose committed strokes replace previews; `Viewport` satisfies it. */
 export interface RemoteStrokeOverlayHost extends RemoteLaserOverlayHost {
   readonly store: ElementStore;
+  getTheme?(): ResolvedTheme;
 }
 
 export interface RemoteStrokeOverlayOptions {
@@ -203,14 +206,16 @@ export class RemoteStrokeOverlay {
   }
 
   private render(ctx: CanvasRenderingContext2D): void {
+    const theme = this.host.getTheme?.() ?? DEFAULT_THEME;
     for (const previews of this.senders.values()) {
       for (const preview of previews.values()) {
         ctx.save();
-        ctx.strokeStyle = preview.color;
+        ctx.strokeStyle = inkFor(theme, preview.color, preview.blendMode);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.globalAlpha = preview.opacity;
-        if (preview.blendMode) ctx.globalCompositeOperation = preview.blendMode;
+        const blendMode = blendModeFor(theme, preview.blendMode);
+        if (blendMode) ctx.globalCompositeOperation = blendMode;
         for (const seg of preview.segments) {
           ctx.lineWidth =
             (pressureToWidth(seg.start.pressure, preview.width) +

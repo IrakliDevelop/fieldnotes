@@ -23,7 +23,6 @@ import { createWrapper, createCanvas, createDomLayer, createPaintStack } from '.
 import { HybridRenderSurface } from './hybrid-render-surface';
 import { unbindArrowsFrom } from '../elements/arrow-binding';
 import { getElementsBoundingBox } from '../elements/bounds';
-import { DEFAULT_SELECTION_COLOR } from '../tools/selection-color';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
@@ -671,7 +670,7 @@ export class Viewport {
         closeContextMenu: () => this.contextMenu?.close(),
         help,
         matchShortcut: (event) => this.inputHandler.matchShortcut(event),
-        selectionColor: options.selectionColor ?? DEFAULT_SELECTION_COLOR,
+        selectionColor: () => options.selectionColor ?? this.theme.tokens.selection,
         isMac,
         strings,
       });

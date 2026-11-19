@@ -7,6 +7,7 @@ import { Camera } from '../canvas/camera';
 import type { ToolContext, PointerState } from './types';
 import type { StrokeElement } from '../elements/types';
 import * as strokeCache from '../elements/stroke-cache';
+import { resolveTheme } from '../canvas/theme';
 
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -23,6 +24,70 @@ function pt(x: number, y: number, pressure = 0.5): PointerState {
 }
 
 describe('PencilTool', () => {
+  it('captures the dark theme for its in-progress preview', () => {
+    const tool = new PencilTool({ color: '#000000' });
+    const ctx = makeCtx({ theme: resolveTheme('dark') });
+    const styles: string[] = [];
+    const canvas = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      bezierCurveTo: vi.fn(),
+      stroke: vi.fn(),
+      set strokeStyle(style: string) {
+        styles.push(style);
+      },
+    } as unknown as CanvasRenderingContext2D;
+
+    tool.onPointerDown(pt(0, 0), ctx);
+    tool.onPointerMove(pt(10, 10), ctx);
+    tool.renderOverlay(canvas);
+
+    expect(styles).toContain('#ededed');
+  });
+
+  it('keeps the pointer-down theme and preserves highlighter ink on dark', () => {
+    const styles: string[] = [];
+    const composites: string[] = [];
+    const canvas = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      bezierCurveTo: vi.fn(),
+      stroke: vi.fn(),
+      set strokeStyle(style: string) {
+        styles.push(style);
+      },
+      set globalCompositeOperation(operation: string) {
+        composites.push(operation);
+      },
+    } as unknown as CanvasRenderingContext2D;
+    const dark = resolveTheme('dark');
+    const darkTool = new PencilTool({ color: '#ffeb3b', blendMode: 'multiply' });
+    const darkCtx = makeCtx({ theme: dark });
+
+    darkTool.onPointerDown(pt(0, 0), darkCtx);
+    darkCtx.theme = resolveTheme('light');
+    darkTool.onPointerMove(pt(10, 10), darkCtx);
+    darkTool.renderOverlay(canvas);
+
+    expect(styles).toContain('#ffeb3b');
+    expect(composites).toContain('screen');
+
+    for (const theme of [resolveTheme('light'), undefined]) {
+      const tool = new PencilTool({ color: '#000000', blendMode: 'multiply' });
+      const ctx = makeCtx({ theme });
+      tool.onPointerDown(pt(0, 0), ctx);
+      tool.onPointerMove(pt(10, 10), ctx);
+      tool.renderOverlay(canvas);
+    }
+
+    expect(styles.filter((style) => style === '#000000')).toHaveLength(2);
+    expect(composites.filter((operation) => operation === 'multiply')).toHaveLength(2);
+  });
+
   it('has name "pencil"', () => {
     const tool = new PencilTool();
     expect(tool.name).toBe('pencil');

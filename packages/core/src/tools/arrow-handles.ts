@@ -9,6 +9,7 @@ import { getElementBounds } from '../elements/element-bounds';
 import { getElbowRoute } from '../elements/elbow-cache';
 import { jsonEqual } from '../core/json-equal';
 import { DEFAULT_SELECTION_COLOR } from './selection-color';
+import { DEFAULT_THEME } from '../canvas/theme';
 
 const BIND_THRESHOLD = 20;
 
@@ -292,6 +293,7 @@ export function renderArrowHandles(
   zoom: number,
   color = DEFAULT_SELECTION_COLOR,
   store?: ElementStore,
+  theme = DEFAULT_THEME,
 ): void {
   const radius = HANDLE_RADIUS / zoom;
   const handles = getArrowHandlePositions(arrow, store);
@@ -300,7 +302,7 @@ export function renderArrowHandles(
   canvasCtx.lineWidth = 1.5 / zoom;
 
   for (const [handle, pos] of handles) {
-    canvasCtx.fillStyle = handle === 'mid' ? color : '#ffffff';
+    canvasCtx.fillStyle = handle === 'mid' ? color : theme.tokens.handleFill;
     canvasCtx.strokeStyle = color;
 
     canvasCtx.beginPath();

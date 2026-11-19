@@ -39,7 +39,7 @@ export interface CommandPaletteDeps {
   closeContextMenu(): void;
   help: ShortcutsHelpApi;
   matchShortcut(event: KeyboardEvent): string | null;
-  selectionColor: string;
+  selectionColor: string | (() => string);
   isMac(): boolean;
   strings: PaletteStrings;
   frames?: FrameScheduler;
@@ -472,7 +472,10 @@ export class CommandPalette implements PaletteApi {
         (ctx, entry, alpha) => {
           const pad = 4 / this.deps.camera.zoom;
           ctx.globalAlpha = alpha;
-          ctx.strokeStyle = this.deps.selectionColor;
+          ctx.strokeStyle =
+            typeof this.deps.selectionColor === 'function'
+              ? this.deps.selectionColor()
+              : this.deps.selectionColor;
           ctx.lineWidth = 2 / this.deps.camera.zoom;
           ctx.strokeRect(entry.x - pad, entry.y - pad, entry.w + pad * 2, entry.h + pad * 2);
         },

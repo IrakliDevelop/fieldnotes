@@ -52,7 +52,7 @@ import {
   renderSelectionBoxes,
   renderGuideLines,
 } from './select-overlay';
-import { DEFAULT_SELECTION_COLOR } from './selection-color';
+import { DEFAULT_THEME } from '../canvas/theme';
 import { computeResize, computeRotatedResize } from './select-resize';
 
 const SNAP_PX = 6;
@@ -532,9 +532,10 @@ export class SelectTool implements Tool {
   }
 
   renderOverlay(canvasCtx: CanvasRenderingContext2D): void {
+    const theme = this.ctx?.theme ?? DEFAULT_THEME;
     if (this.mode.type === 'marquee') {
       const rect = this.getMarqueeRect();
-      if (rect) renderMarquee(canvasCtx, rect, this.ctx?.selectionColor);
+      if (rect) renderMarquee(canvasCtx, rect, this.ctx?.selectionColor ?? theme.tokens.selection);
     }
     if (this.ctx)
       renderSelectionBoxes(canvasCtx, {
@@ -543,7 +544,8 @@ export class SelectTool implements Tool {
         zoom: this.ctx.camera.zoom,
         isLayerLocked: this.ctx.isLayerLocked,
         elementRegistry: this.ctx.elementRegistry,
-        color: this.ctx.selectionColor,
+        color: this.ctx.selectionColor ?? theme.tokens.selection,
+        theme,
       });
 
     if (this.ctx) {
@@ -559,7 +561,13 @@ export class SelectTool implements Tool {
         if (el?.link === undefined) continue;
         const layout = getOverlayLayout(el, zoom, this.ctx.elementRegistry);
         if (layout)
-          drawLinkBadge(canvasCtx, linkBadgeCenter(layout, zoom), zoom, this.ctx.selectionColor);
+          drawLinkBadge(
+            canvasCtx,
+            linkBadgeCenter(layout, zoom),
+            zoom,
+            this.ctx.selectionColor ?? theme.tokens.selection,
+            theme,
+          );
       }
     }
 
@@ -572,7 +580,7 @@ export class SelectTool implements Tool {
       );
       if (target) {
         canvasCtx.save();
-        canvasCtx.strokeStyle = this.ctx.selectionColor ?? DEFAULT_SELECTION_COLOR;
+        canvasCtx.strokeStyle = this.ctx.selectionColor ?? theme.tokens.selection;
         canvasCtx.lineWidth = 2 / this.ctx.camera.zoom;
         canvasCtx.setLineDash([]);
         canvasCtx.strokeRect(target.x, target.y, target.w, target.h);
@@ -592,14 +600,14 @@ export class SelectTool implements Tool {
             el,
             this.ctx.camera.zoom,
             this.ctx.store,
-            this.ctx.selectionColor,
+            this.ctx.selectionColor ?? theme.tokens.selection,
           );
           canvasCtx.restore();
         } else if (el) {
           const b = getElementBounds(el, this.ctx.elementRegistry);
           if (b) {
             canvasCtx.save();
-            canvasCtx.strokeStyle = this.ctx.selectionColor ?? DEFAULT_SELECTION_COLOR;
+            canvasCtx.strokeStyle = this.ctx.selectionColor ?? theme.tokens.selection;
             canvasCtx.globalAlpha = 0.35;
             canvasCtx.lineWidth = 1.5 / this.ctx.camera.zoom;
             canvasCtx.setLineDash([]);
@@ -616,6 +624,7 @@ export class SelectTool implements Tool {
         rect: this.dragVisibleRect,
         currentWorld: this.currentWorld,
         zoom: this.ctx.camera.zoom,
+        theme,
       });
   }
 

@@ -39,6 +39,7 @@ import { createBoundText } from '../elements/bound-text';
 import { setTextMeasurer } from '../elements/text-measure';
 import { KeyboardActions } from '../canvas/keyboard-actions';
 import type { ToolManager } from './tool-manager';
+import { resolveTheme } from '../canvas/theme';
 
 function makeSnapProxy(
   gridSize: number,
@@ -2956,6 +2957,17 @@ describe('SelectTool sized extension resize', () => {
     expect(renderSelection).toHaveBeenCalledTimes(1);
   });
 
+  it('passes the active dark theme to extension selection rendering', () => {
+    const { ctx, tool, renderSelection } = setup({ size: { w: 100, h: 50 } });
+    ctx.theme = resolveTheme('dark');
+    tool.renderOverlay?.(overlayCanvas());
+    expect(renderSelection).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ theme: ctx.theme }),
+    );
+  });
+
   it('draws neither core nor adapter handles for a locked sized extension', () => {
     const { tool, renderSelection } = setup({ size: { w: 100, h: 50 }, locked: true });
     const canvas = overlayCanvas();
@@ -3122,6 +3134,22 @@ describe('SelectTool extension bounds from the context registry', () => {
 });
 
 describe('SelectTool selectionColor', () => {
+  it.each([
+    ['dark default', resolveTheme('dark'), undefined, '#64b5f6'],
+    ['explicit colour', resolveTheme('dark'), '#ff0000', '#ff0000'],
+    ['no theme', undefined, undefined, '#2196F3'],
+  ] as const)('uses %s for selected elements', (_name, theme, selectionColor, expected) => {
+    const tool = new SelectTool();
+    const ctx = makeCtx({ theme, selectionColor });
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    ctx.store.add(note);
+    tool.onActivate(ctx);
+    tool.setSelection([note.id]);
+    const canvas = recordingCanvas();
+    tool.renderOverlay?.(canvas.ctx);
+    expect(canvas.styles).toContain(expected);
+  });
+
   it.each([
     ['note', createNote({ position: { x: 100, y: 100 }, size: { w: 200, h: 100 } })],
     ['arrow', createArrow({ from: { x: 100, y: 130 }, to: { x: 300, y: 130 } })],

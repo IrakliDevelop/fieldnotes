@@ -4,6 +4,8 @@ import { createStroke } from '../elements/element-factory';
 import { createId } from '../elements/create-id';
 import { simplifyPoints, smoothToSegments, pressureToWidth } from '../elements/stroke-smoothing';
 import { computeStrokeSegments } from '../elements/stroke-cache';
+import { DEFAULT_THEME, blendModeFor, inkFor } from '../canvas/theme';
+import type { ResolvedTheme } from '../canvas/theme';
 
 export interface PencilToolOptions {
   name?: string;
@@ -57,6 +59,7 @@ export class PencilTool implements Tool {
   private previewListeners = new Set<(preview: StrokePreview) => void>();
   private strokeId = '';
   private lastPreviewAt = -Infinity;
+  private theme: ResolvedTheme = DEFAULT_THEME;
 
   constructor(options: PencilToolOptions = {}) {
     this.name = options.name ?? 'pencil';
@@ -118,6 +121,7 @@ export class PencilTool implements Tool {
   }
 
   onPointerDown(state: PointerState, ctx: ToolContext): void {
+    this.theme = ctx.theme ?? DEFAULT_THEME;
     this.drawing = true;
     const world = ctx.camera.screenToWorld({ x: state.x, y: state.y });
     const pressure = state.pressure === 0 ? DEFAULT_PRESSURE : state.pressure;
@@ -231,13 +235,14 @@ export class PencilTool implements Tool {
     if (!this.drawing || this.points.length < 2) return;
 
     ctx.save();
-    ctx.strokeStyle = this.color;
+    ctx.strokeStyle = inkFor(this.theme, this.color, this.blendMode);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     // Preview a highlighter at its real opacity + blend so it doesn't snap on commit;
     // a normal pencil keeps the lighter 0.8 in-progress affordance.
     ctx.globalAlpha = this.blendMode ? this.opacity : 0.8;
-    if (this.blendMode) ctx.globalCompositeOperation = this.blendMode;
+    const blendMode = blendModeFor(this.theme, this.blendMode);
+    if (blendMode) ctx.globalCompositeOperation = blendMode;
 
     const segments = smoothToSegments(this.points);
     for (const seg of segments) {
