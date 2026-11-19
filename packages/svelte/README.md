@@ -8,7 +8,7 @@ Svelte bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnote
 npm install @fieldnotes/core @fieldnotes/svelte
 ```
 
-Requires Svelte 5 (`svelte >=5 <6`, runes) and `@fieldnotes/core >=0.96.0`. The package ships
+Requires Svelte 5 (`svelte >=5 <6`, runes) and `@fieldnotes/core >=0.110.0 <1.0.0`. The package ships
 `.svelte` sources, so your bundler compiles them with your Svelte version (Vite with
 `@sveltejs/vite-plugin-svelte`, or SvelteKit).
 
@@ -208,7 +208,7 @@ their children unmount.
 ## Versioning
 
 `@fieldnotes/core` and `@fieldnotes/svelte` are versioned independently. The package's
-`peerDependencies` declare the compatible core range (`>=0.96.0 <1.0.0`). Pre-1.0, minor versions
+`peerDependencies` declare the compatible core range (`@fieldnotes/core >=0.110.0 <1.0.0`). Pre-1.0, minor versions
 may contain breaking changes; if a core minor ever breaks the wrapper, a coordinated release raises
 the lower bound.
 

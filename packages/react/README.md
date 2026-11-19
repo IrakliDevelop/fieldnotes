@@ -8,7 +8,7 @@ React bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnotes
 npm install @fieldnotes/core @fieldnotes/react
 ```
 
-Requires React 18+ and `@fieldnotes/core` 0.105.0 or newer. Using Vue, Svelte or Angular? See [`@fieldnotes/vue`](../vue), [`@fieldnotes/svelte`](../svelte) and [`@fieldnotes/angular`](../angular).
+Requires React 18 or 19 (`react >=18 <20`) and `@fieldnotes/core >=0.110.0 <1.0.0`. Using Vue, Svelte or Angular? See [`@fieldnotes/vue`](../vue), [`@fieldnotes/svelte`](../svelte) and [`@fieldnotes/angular`](../angular).
 
 ## Quick Start
 

@@ -8,7 +8,7 @@ Vue bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnotes) 
 npm install @fieldnotes/core @fieldnotes/vue
 ```
 
-Requires Vue 3.5+ (`vue >=3.5 <4`) and `@fieldnotes/core >=0.96.0`.
+Requires Vue 3.5+ (`vue >=3.5 <4`) and `@fieldnotes/core >=0.110.0 <1.0.0`.
 
 ## Quick Start
 
@@ -247,7 +247,7 @@ under `<KeepAlive>`, where deactivation keeps it and the final unmount destroys 
 ## Versioning
 
 `@fieldnotes/core` and `@fieldnotes/vue` are versioned independently. The package's
-`peerDependencies` declare the compatible core range (`>=0.96.0 <1.0.0`). Pre-1.0, minor versions
+`peerDependencies` declare the compatible core range (`@fieldnotes/core >=0.110.0 <1.0.0`). Pre-1.0, minor versions
 may contain breaking changes; if a core minor ever breaks the wrapper, a coordinated release raises
 the lower bound.
 

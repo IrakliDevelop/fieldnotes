@@ -11,7 +11,7 @@ order: 2
 npm install @fieldnotes/core @fieldnotes/react
 ```
 
-`@fieldnotes/react` needs React 18 or 19 and `@fieldnotes/core` 0.105.0 or newer.
+`@fieldnotes/react` needs React 18 or 19 and `@fieldnotes/core >=0.110.0 <1.0.0`.
 
 ## Mount a board
 
