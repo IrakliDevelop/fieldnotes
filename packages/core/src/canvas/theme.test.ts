@@ -86,6 +86,8 @@ describe('themes', () => {
     expect(inkFor(dark, '#ffeb3b', 'multiply')).toBe('#ffeb3b');
     expect(inkFor(dark, '#1e1e1e', 'multiply')).toBe('#d3d3d3');
     expect(inkFor(dark, '#000000', 'multiply')).toBe('#ededed');
+    expect(inkFor(dark, '#808080', 'multiply')).toBe('#7f7f7f');
+    expect(inkFor(dark, '#818181', 'multiply')).toBe('#818181');
     expect(inkFor(dark, '#000000')).toBe('#ededed');
     expect(adaptColor('#000000', dark.tokens.board)).toBe('#ededed');
   });
