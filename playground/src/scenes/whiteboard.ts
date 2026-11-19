@@ -19,7 +19,8 @@ import { registerWidgets } from '../widgets';
 
 /** Viewport options every playground scene shares. */
 export const VIEWPORT_OPTIONS = {
-  background: { pattern: 'dots', spacing: 24, color: '#d4d4d8' },
+  background: { pattern: 'dots', spacing: 24 },
+  theme: { base: 'light', tokens: { pattern: '#d4d4d8' } },
   minimap: true,
   panInertia: true,
 } satisfies ViewportOptions;

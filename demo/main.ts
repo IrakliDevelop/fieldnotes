@@ -66,6 +66,12 @@ console.log(`Field Notes v${VERSION}`);
 const container = document.getElementById('canvas');
 if (!container) throw new Error('Missing #canvas element');
 
+const requestedTheme = new URLSearchParams(location.search).get('theme');
+const queryTheme =
+  requestedTheme === 'light' || requestedTheme === 'dark' || requestedTheme === 'system'
+    ? requestedTheme
+    : undefined;
+
 const fogPlugin = createFogPlugin({
   editorStyle: {
     kind: 'procedural',
@@ -88,7 +94,8 @@ const fogPlugin = createFogPlugin({
 });
 
 const viewport = new Viewport(container, {
-  background: { pattern: 'dots', spacing: 24, color: '#c0c0c0' },
+  background: { pattern: 'dots', spacing: 24 },
+  theme: queryTheme ?? { base: 'light', tokens: { pattern: '#c0c0c0' } },
   minimap: true,
   plugins: [fogPlugin],
   onImageError: ({ src }) => {
@@ -298,6 +305,26 @@ document
 document
   .getElementById('help-btn')
   ?.addEventListener('click', () => viewport.runAction('palette.help'));
+const themeButton = document.getElementById('theme-btn');
+themeButton?.addEventListener('click', () => {
+  viewport.setTheme(
+    viewport.getTheme().base === 'dark'
+      ? { base: 'light', tokens: { pattern: '#c0c0c0' } }
+      : 'dark',
+  );
+});
+viewport.onThemeChange((theme) => {
+  if (!themeButton) return;
+  const isDark = theme.base === 'dark';
+  themeButton.textContent = isDark ? 'Light' : 'Dark';
+  themeButton.setAttribute('aria-pressed', String(isDark));
+});
+const initialTheme = viewport.getTheme();
+if (themeButton) {
+  const isDark = initialTheme.base === 'dark';
+  themeButton.textContent = isDark ? 'Light' : 'Dark';
+  themeButton.setAttribute('aria-pressed', String(isDark));
+}
 
 const presentationBar = document.getElementById('presentation-bar');
 const presentationCounter = presentationBar?.querySelector('[data-presentation="counter"]');
