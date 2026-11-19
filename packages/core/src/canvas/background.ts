@@ -1,6 +1,7 @@
 import type { Camera } from './camera';
 import type { CanvasWatch } from './context-loss-guard';
-import type { ResolvedTheme } from './theme';
+import { DARK_THEME_TOKENS, LIGHT_THEME_TOKENS, type ResolvedTheme } from './theme';
+import { parseColor } from './theme-color';
 
 export type BackgroundPattern = 'dots' | 'grid' | 'none';
 
@@ -52,7 +53,11 @@ export class Background {
   }
 
   setTheme(theme: ResolvedTheme): void {
-    this.boardFill = theme.tokens.board;
+    this.boardFill = parseColor(theme.tokens.board)
+      ? theme.tokens.board
+      : theme.base === 'dark'
+        ? DARK_THEME_TOKENS.board
+        : LIGHT_THEME_TOKENS.board;
     this.patternColor = this.explicitColor ?? theme.tokens.pattern;
     this.invalidate();
   }

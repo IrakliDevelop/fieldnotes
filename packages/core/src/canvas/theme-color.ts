@@ -286,53 +286,60 @@ export function createAdapter(boardColor: string) {
       return value;
     };
     if (isSentinel(text)) return store(text);
+    const originalText = normalizedColor(text);
+    if (originalText?.a === 0) return store(text);
     const adaptedText = normalizedColor(adapt(text));
     if (!adaptedText) return store(text);
     const adaptedBackground = isSentinel(background) ? null : normalizedColor(adapt(background));
     const contrastBackground = adaptedBackground
       ? composite(adaptedBackground, board.color)
       : board.color;
-    let result = format(adaptedText);
-    if (contrast(adaptedText, contrastBackground) < 4.5) {
+    const score = (candidate: Rgba): string | null => {
+      const value = format(candidate);
+      const parsed = normalizedColor(value);
+      if (!parsed || contrast(composite(parsed, contrastBackground), contrastBackground) < 4.5)
+        return null;
+      return value;
+    };
+    const find = (alpha: number): string | null => {
+      const initial = score({ ...adaptedText, a: alpha });
+      if (initial) return initial;
       const lab = toOklab(adaptedText);
       const chroma = Math.hypot(lab.a, lab.b);
       const hue = Math.atan2(lab.b, lab.a);
-      let best: Rgba | null = null;
       for (let step = 1; step <= 100; step++) {
-        const candidates = [Math.min(1, lab.l + step * 0.01), Math.max(0, lab.l - step * 0.01)];
-        for (const lightness of candidates) {
+        for (const lightness of [
+          Math.min(1, lab.l + step * 0.01),
+          Math.max(0, lab.l - step * 0.01),
+        ]) {
           let c = chroma;
           let candidate = fromOklab(
             { l: lightness, a: c * Math.cos(hue), b: c * Math.sin(hue) },
-            adaptedText.a,
+            alpha,
           );
           while (!inGamut(candidate) && c > 0.000001) {
             c *= 0.9;
             candidate = fromOklab(
               { l: lightness, a: c * Math.cos(hue), b: c * Math.sin(hue) },
-              adaptedText.a,
+              alpha,
             );
           }
-          if (contrast(candidate, contrastBackground) >= 4.5) {
-            best = candidate;
-            break;
-          }
+          const result = score(candidate);
+          if (result) return result;
         }
-        if (best) break;
       }
-      if (!best) {
-        const extremes = [0, 1].map((lightness) =>
-          fromOklab({ l: lightness, a: 0, b: 0 }, adaptedText.a),
-        );
-        best =
-          contrast(extremes[1] ?? adaptedText, contrastBackground) >=
-          contrast(extremes[0] ?? adaptedText, contrastBackground)
-            ? (extremes[1] ?? adaptedText)
-            : (extremes[0] ?? adaptedText);
-      }
-      result = format(best);
-    }
-    return store(result);
+      return null;
+    };
+    const result = find(adaptedText.a) ?? (adaptedText.a < 1 ? find(1) : null);
+    if (result) return store(result);
+    const black = '#000000';
+    const white = '#ffffff';
+    const fallback =
+      contrast({ r: 255, g: 255, b: 255, a: 1 }, contrastBackground) >=
+      contrast({ r: 0, g: 0, b: 0, a: 1 }, contrastBackground)
+        ? white
+        : black;
+    return store(fallback);
   };
   return { adapt, adaptOn, cacheSize: () => adaptCache.size };
 }

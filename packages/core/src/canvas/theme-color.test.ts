@@ -1,6 +1,33 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { adaptColor, createAdapter, flip, oklabLightness } from './theme-color';
 
+function rgb(hex: string): readonly [number, number, number] {
+  return [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16),
+  ];
+}
+
+function contrast(first: readonly number[], second: readonly number[]): number {
+  const linear = (value: number) => {
+    const channel = value / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = (color: readonly number[]) =>
+    0.2126 * linear(color[0] ?? 0) +
+    0.7152 * linear(color[1] ?? 0) +
+    0.0722 * linear(color[2] ?? 0);
+  const [a, b] = [luminance(first), luminance(second)];
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+function rgba(value: string): readonly [number, number, number, number] {
+  const match = /^rgba\((\d+), (\d+), (\d+), (0\.\d+)\)$/.exec(value);
+  if (!match) throw new Error(`expected rgba: ${value}`);
+  return [Number(match[1]), Number(match[2]), Number(match[3]), Number(match[4])];
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -65,6 +92,35 @@ describe('theme colour adaptation', () => {
 
   it('starts contrast search from the formatted adapted colour at a boundary', () => {
     expect(createAdapter('#1e1f22').adaptOn('#ffffff', '#ff9800')).toBe('#c3c3c3');
+  });
+
+  it('measures translucent text after compositing over its adapted background', () => {
+    const adapter = createAdapter('#1e1f22');
+    expect(adapter.adaptOn('rgba(0,0,0,0.2)', '#ffeb3b')).toBe('#ededed');
+    expect(adapter.adaptOn('rgba(0,0,0,0.8)', '#ffeb3b')).toBe('rgba(237, 237, 237, 0.8)');
+    expect(adapter.adaptOn('rgba(0,0,0,0)', '#ffeb3b')).toBe('rgba(0,0,0,0)');
+    const translucent = adapter.adaptOn('rgba(0,0,0,0.7)', '#ffeb3b');
+    expect(translucent).toMatch(/^rgba\(\d+, \d+, \d+, 0\.7\)$/);
+    const [r, g, b, alpha] = rgba(translucent);
+    const background = rgb('#5c540d');
+    expect(
+      contrast(
+        [
+          r * alpha + background[0] * (1 - alpha),
+          g * alpha + background[1] * (1 - alpha),
+          b * alpha + background[2] * (1 - alpha),
+        ],
+        background,
+      ),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each([
+    ['#ffffff', '#7f7f7f', '#808080'],
+    ['#ffeb3b', '#808080', '#7f7f7f'],
+  ])('rounds %s on %s to at least 4.5:1', (text, background, adaptedBackground) => {
+    const output = createAdapter('#1e1f22').adaptOn(text, background);
+    expect(contrast(rgb(output), rgb(adaptedBackground))).toBeGreaterThanOrEqual(4.5);
   });
 
   it('uses bounded independent caches', () => {

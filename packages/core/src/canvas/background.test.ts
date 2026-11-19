@@ -93,6 +93,30 @@ describe('Background', () => {
     expect(ctx.arc).not.toHaveBeenCalled();
   });
 
+  it('falls back from invalid board tokens without retaining a stale canvas colour', () => {
+    const calls: string[] = [];
+    let fillStyle = '#abcdef';
+    const ctx = {
+      ...mockCtx(),
+      get fillStyle() {
+        return fillStyle;
+      },
+      set fillStyle(value: string) {
+        if (value !== 'var(--x)') fillStyle = value;
+      },
+      fillRect: vi.fn(() => calls.push(fillStyle)),
+    } as CanvasRenderingContext2D;
+    const background = new Background({ pattern: 'none' });
+
+    background.setTheme(resolveTheme({ base: 'light', tokens: { board: 'var(--x)' } }));
+    background.render(ctx, mockCamera());
+    expect(calls).toEqual([]);
+
+    background.setTheme(resolveTheme({ base: 'dark', tokens: { board: 'var(--x)' } }));
+    background.render(ctx, mockCamera());
+    expect(calls).toEqual(['#1e1f22']);
+  });
+
   it('an explicit colour wins under dark', () => {
     const bg = new Background({ color: '#abcdef' });
     const ctx = mockCtx();

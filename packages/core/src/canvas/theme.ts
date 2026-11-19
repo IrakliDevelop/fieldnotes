@@ -1,4 +1,4 @@
-import { createAdapter, parseColor } from './theme-color';
+import { createAdapter, oklabLightness, parseColor } from './theme-color';
 
 /** Concrete theme bases. */
 export type ThemeBase = 'light' | 'dark';
@@ -113,16 +113,22 @@ export interface ResolvedTheme {
   adaptOn(text: string, background: string): string;
 }
 
+function definedTokens(tokens: Partial<ThemeTokens> | undefined): Partial<ThemeTokens> {
+  if (!tokens) return {};
+  return Object.fromEntries(Object.entries(tokens).filter(([, value]) => value !== undefined));
+}
+
 /** Resolves a theme for an optional known system preference. */
 export function resolveTheme(theme: Theme, systemDark = false): ResolvedTheme {
   if (theme === 'system') return resolveTheme(systemDark ? 'dark' : 'light');
   if (typeof theme === 'object' && theme.base === 'system')
     return resolveTheme({
       base: systemDark ? 'dark' : 'light',
-      tokens: theme[systemDark ? 'dark' : 'light'],
+      tokens: definedTokens(theme[systemDark ? 'dark' : 'light']),
     });
-  const base: ThemeBase = typeof theme === 'string' ? theme : theme.base;
-  const overrides = typeof theme === 'object' ? theme.tokens : undefined;
+  const base: ThemeBase =
+    (typeof theme === 'string' ? theme : theme.base) === 'dark' ? 'dark' : 'light';
+  const overrides = typeof theme === 'object' ? definedTokens(theme.tokens) : undefined;
   const tokens = Object.freeze({
     ...(base === 'dark' ? DARK_THEME_TOKENS : LIGHT_THEME_TOKENS),
     ...overrides,
@@ -158,5 +164,6 @@ export function blendModeFor(
 
 /** Returns stored highlighter ink or adapted ordinary ink. */
 export function inkFor(theme: ResolvedTheme, color: string, mode?: 'multiply'): string {
-  return theme.base === 'dark' && mode === 'multiply' ? color : theme.adapt(color);
+  if (theme.base !== 'dark' || mode !== 'multiply') return theme.adapt(color);
+  return parseColor(color) && oklabLightness(color) >= 0.6 ? color : theme.adapt(color);
 }

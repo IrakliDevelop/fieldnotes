@@ -5396,6 +5396,21 @@ describe('Viewport theme', () => {
     viewport.destroy();
   });
 
+  it('normalizes invalid runtime themes to a light viewport', () => {
+    const viewport = new Viewport(container, { theme: 'Dark' as never });
+    expect(viewport.getTheme().base).toBe('light');
+    expect(container.firstElementChild?.getAttribute('data-fieldnotes-theme')).toBe('light');
+    viewport.destroy();
+  });
+
+  it('constructs with undefined dark theme overrides', () => {
+    const viewport = new Viewport(container, {
+      theme: { base: 'dark', tokens: { board: undefined } },
+    });
+    expect(viewport.getTheme().tokens.board).toBe('#1e1f22');
+    viewport.destroy();
+  });
+
   it('keeps a highlighter out of live rendering from dark construction', () => {
     const viewport = new Viewport(container, { theme: 'dark' });
     const stroke = createStroke({

@@ -157,6 +157,25 @@ describe('exportSvg', () => {
     expect(light).not.toContain('isolation:isolate');
   });
 
+  it('adapts low-lightness dark highlighter ink for screen SVG output', async () => {
+    const store = new ElementStore();
+    store.add(
+      createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 20, y: 20, pressure: 0.5 },
+        ],
+        position: { x: 0, y: 0 },
+        color: '#1e1e1e',
+        blendMode: 'multiply',
+      }),
+    );
+
+    const svg = await exportSvg(store, { theme: 'dark' });
+    expect(svg).toContain('stroke="#d3d3d3"');
+    expect(svg).toContain('mix-blend-mode:screen');
+  });
+
   it('applies themed note, bound text, extension context, frame, and custom board output', async () => {
     const registry = new ElementRegistry();
     let extensionBase = '';

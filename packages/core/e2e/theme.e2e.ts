@@ -252,6 +252,27 @@ test.describe('themes', () => {
     expect(minimapLightPixels).toBeGreaterThan(minimapBefore);
   });
 
+  test('dark low-lightness highlighter matches its live and PNG-exported screen result', async ({
+    canvasPage,
+  }) => {
+    await canvasPage.page.goto('/?theme=dark');
+    await canvasPage.page.waitForFunction(
+      () => window.__fieldnotes_viewport.getTheme().base === 'dark',
+    );
+    await canvasPage.page.evaluate(() => {
+      const tool = window.__fieldnotes_viewport.toolManager.getTool('highlighter');
+      if (!tool || !('setOptions' in tool)) throw new Error('Missing highlighter');
+      tool.setOptions({ color: '#1e1e1e', opacity: 0.4 });
+    });
+    const midpoint = await draw(canvasPage, 'highlighter');
+    await canvasPage.page.waitForFunction(() => window.__fieldnotes_viewport.store.count === 1);
+    const live = await readLiveWorldPixel(canvasPage.page, midpoint);
+    const exported = await readExportWorldPixel(canvasPage.page, midpoint);
+    expectPixelNear(live, [104, 105, 107], 3);
+    expectPixelNear(exported, [104, 105, 107], 3);
+    expectPixelNear(live, exported, 2);
+  });
+
   test('system follows media and exports a dark board', async ({ canvasPage }) => {
     await canvasPage.page.emulateMedia({ colorScheme: 'dark' });
     await canvasPage.page.goto('/?theme=system');
