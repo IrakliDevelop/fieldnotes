@@ -15,9 +15,12 @@ The options:
 
 - `scale`: pixels per board unit, default 2.
 - `padding`: space around the elements, in board units, default 0.
-- `background`: the fill colour. The export follows the board theme unless `theme` overrides it;
-  an explicit background wins even when it clashes with themed colours. A frame PNG stays
-  transparent with light ink on a dark board. JPEG defaults to opaque.
+- `background`: the fill colour. A board PNG or JPEG defaults to the board colour: `#ffffff` on a
+  light board, `#1e1f22` on a dark one, or your opaque `board` token. A frame PNG defaults to
+  transparent; on a dark board its elements keep their adapted light colours. An explicit
+  `background` wins even when it clashes with the theme.
+- `theme`: the [theme](/docs/theming/) to draw with, `'light'`, `'dark'` or `{ base, tokens }`. It
+  defaults to the board's current theme; `'system'` is not accepted.
 - `filter(element)`: return `false` to leave an element out.
 - `region: { x, y, w, h }`: exports that rectangle of the board instead of the area the elements cover.
 - `frameId`: exports one root frame's exact content rectangle. It includes only that frame's
@@ -32,9 +35,10 @@ The options:
 `viewport.exportSVG(options)` resolves to an SVG string. It takes the same `padding`, `filter`, and
 `frameId` options. `frameId` selects one root frame's exact content rectangle and includes only its
 descendants, without frame title, border, padding chrome, or unrelated overlap. An empty frame
-produces an SVG at that size. SVG does not support `region`. The export follows the board theme
-unless `theme` overrides it, and an explicit `background` wins even when it clashes with themed
-colours. A dark frame SVG stays transparent with light ink.
+produces an SVG at that size. SVG does not support `region`. `theme` works as for PNG, and an
+explicit `background` wins. Without `background`, a dark board's SVG gets a rectangle in the board
+colour and a light board's SVG has nothing behind the elements. A frame SVG never gets a background,
+so its light ink on a dark board needs a dark page behind it.
 
 ::code{example="export" region="svg"}
 
@@ -63,7 +67,7 @@ redraws. Field Notes doesn't load the font, so load it in your page, for example
 
 `viewport.exportPDF(options)` resolves to a PDF `Blob`, or `null` for an empty board. Each page is a
 picture, so its text can't be selected. Element links to web pages, email addresses and elements in
-the PDF stay clickable. A PDF follows the board theme unless `theme` overrides it, and an explicit
+the PDF stay clickable. A PDF follows the [board theme](/docs/theming/) unless `theme` overrides it, and an explicit
 `background` wins even when it clashes with themed colours. A dark PDF fills the whole page.
 [`ExportPdfOptions`](/api/interfaces/_fieldnotes_core.ExportPdfOptions.html) lists:
 

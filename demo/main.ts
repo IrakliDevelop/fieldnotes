@@ -316,13 +316,11 @@ themeButton?.addEventListener('click', () => {
 viewport.onThemeChange((theme) => {
   if (!themeButton) return;
   const isDark = theme.base === 'dark';
-  themeButton.textContent = isDark ? 'Light' : 'Dark';
   themeButton.setAttribute('aria-pressed', String(isDark));
 });
 const initialTheme = viewport.getTheme();
 if (themeButton) {
   const isDark = initialTheme.base === 'dark';
-  themeButton.textContent = isDark ? 'Light' : 'Dark';
   themeButton.setAttribute('aria-pressed', String(isDark));
 }
 

@@ -8,7 +8,7 @@ Viewport plugin system: fog of war, measurement tools, grid snapping, and map te
 owns the fog sync protocol types and CRDT logic used by `@fieldnotes/sync` for real-time fog
 collaboration.
 
-Grids and templates follow the board theme.
+Grids and area templates adapt their colours to the [board theme](https://iraklidevelop.github.io/fieldnotes/docs/theming/). Fog keeps its own colours.
 
 ## Install
 

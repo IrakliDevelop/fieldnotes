@@ -27,7 +27,9 @@ npm install @fieldnotes/core @fieldnotes/react
 
 Give `<FieldNotesCanvas>` a height through `style` or `className`. It renders one `div`, and the board fills it.
 
-The `theme` prop is reactive; `undefined` leaves the viewport theme alone.
+The `theme` prop sets the [board theme](/docs/theming/) and applies later changes. Left `undefined`,
+it keeps whatever theme the viewport has, including one set with `setTheme`. Hoist a theme object
+out of the render.
 
 ## Use the viewport from a component
 

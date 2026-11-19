@@ -298,6 +298,30 @@ test.describe('themes', () => {
     expectPixelNear(live, exported, 2);
   });
 
+  test('demo theme button keeps its dark-board label while it changes theme', async ({
+    canvasPage,
+  }) => {
+    await canvasPage.page.goto('/?theme=light');
+    await canvasPage.page.waitForFunction(
+      () => window.__fieldnotes_viewport.getTheme().base === 'light',
+    );
+    const button = canvasPage.page.getByRole('button', { name: 'Dark board' });
+    await expect(button).toHaveAttribute('title', 'Switch the board between light and dark');
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+
+    await button.click();
+    await canvasPage.page.waitForFunction(
+      () => window.__fieldnotes_viewport.getTheme().base === 'dark',
+    );
+    await expect(button).toHaveAttribute('aria-pressed', 'true');
+
+    await button.click();
+    await canvasPage.page.waitForFunction(
+      () => window.__fieldnotes_viewport.getTheme().base === 'light',
+    );
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+  });
+
   test('demo PNG export follows dark theme until a background is chosen', async ({
     canvasPage,
   }) => {

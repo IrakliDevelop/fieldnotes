@@ -25,8 +25,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 - `Viewport.exportImage`, `exportSVG` and `exportPDF` follow the resolved theme by default;
   `theme` overrides it and explicit `background` wins. Dark frame PNG and SVG exports remain
-  transparent with light ink, and dark PDFs fill each page. Blended strokes are never drawn live
-  on a dark board with an invalid blend.
+  transparent with light ink, and dark PDFs fill each page. On a dark board, a layer holding a
+  highlighter stroke redraws from its layer cache instead of drawing the stroke live, so screen
+  blending stays correct during a drag.
 
 ### React 0.17.0 — theme prop
 

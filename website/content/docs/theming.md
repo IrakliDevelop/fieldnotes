@@ -1,33 +1,35 @@
 ---
 title: Theming
-description: Light, dark or system board themes, token overrides, and exports that follow them.
+description: By the end of this page your board has a dark or system theme, its own colour tokens, and exports drawn in the same theme.
 group: Guides
 order: 9
 ---
 
 ## Set a board theme
 
-Themes change the board, element rendering and board chrome. They never change saved boards, sync,
-images, embeds, laser pointers or remote cursors. Pass `theme` in the viewport options, or change a
-running viewport with `setTheme`. `getTheme` returns the resolved light or dark theme.
-`onThemeChange` subscribes to changes in that resolved theme.
+A theme sets the board colour and dot pattern, adapts element colours, and restyles the selection,
+handles, minimap, note toolbar and command palette. It belongs to one viewport: saved boards and
+sync messages don't change, and images, HTML elements, the laser pointer and remote cursors keep
+their colours. The default is `'light'`. Pass `theme` in the viewport options, or change a running
+viewport with `setTheme`. `getTheme` returns the resolved light or dark theme. `onThemeChange`
+subscribes to changes in that resolved theme.
 
 ::code{example="theming" region="options"}
-
-Use `setTheme` when a board already exists.
 
 ::code{example="theming" region="set-theme"}
 
 ## Follow the display
 
-`'system'` follows `prefers-color-scheme` while the viewport runs. It updates when the display
-preference changes.
+`'system'` follows the reader's `prefers-color-scheme` setting and switches the board when it
+changes. `{ base: 'system', light, dark }` does the same with token overrides for each side.
 
 ::code{example="theming" region="system"}
 
 ## Tokens
 
-Use a fixed theme object to override chrome tokens. The defaults are:
+Override tokens with `{ base: 'light' | 'dark', tokens }`, or for each side with
+`{ base: 'system', light, dark }`. A `background.color` in the viewport options overrides the
+`pattern` token in both themes, so set the dot colour as a token instead. The defaults are:
 
 | Token                     | Light                            | Dark                            |
 | ------------------------- | -------------------------------- | ------------------------------- |
@@ -56,22 +58,28 @@ Use a fixed theme object to override chrome tokens. The defaults are:
 | `paletteActive`           | `#e8f0fe`                        | `#1c3a5e`                       |
 | `paletteShadow`           | `0 8px 24px rgba(0, 0, 0, 0.18)` | `0 8px 24px rgba(0, 0, 0, 0.6)` |
 
+Colour tokens must be concrete CSS colour values, not `var(...)`: canvas drawing cannot resolve CSS
+variables. If it cannot parse `board`, canvas fill and exports use the base theme's board colour.
+
 ::code{example="theming" region="custom"}
 
-On a dark board, element colours flip lightness while keeping their hue. A `0.2` OKLab lightness
-floor keeps adapted colours apart from the board. Sticky-note text stays at 4.5:1 contrast, and
-highlighters use screen blending. Stored element colours are never rewritten.
+On a dark board, element colours flip lightness and keep their hue. A colour that would land within
+`0.2` OKLab lightness of the board is lifted to `0.2` above it, so a custom dark `board` lighter
+than `0.8` is not supported. Text on a sticky note or inside a filled shape is adjusted to at least
+4.5:1 contrast with its background. Highlighters switch from multiply to screen blending. Stored
+element colours are never rewritten.
 
-The viewport wrapper has `data-fieldnotes-theme="light"` or `"dark"` for host CSS. Existing
-`--fieldnotes-palette-*` CSS variables still take precedence over palette tokens.
+The viewport wrapper has `data-fieldnotes-theme="light"` or `"dark"` for host CSS.
+`--fieldnotes-palette-*` CSS variables set by the page override the `palette*` tokens.
 
 ::board{example="theming"}
 
 ## Export a themed board
 
-Viewport exports follow the resolved board theme. Set `theme` on an export to override it. An
-explicit `background` wins even when it clashes with the chosen theme. Dark frame PNG and SVG
-exports stay transparent with light ink. Dark PDFs fill the whole page.
+Viewport exports follow the resolved board theme. Set `theme` on an [export](/docs/export/) to
+`'light'`, `'dark'` or `{ base, tokens }` to override it; exports don't take `'system'`. An explicit
+`background` wins even when it clashes with the chosen theme. Dark frame PNG and SVG exports stay
+transparent with light ink. Dark PDFs fill the whole page.
 
 ::code{example="theming" region="export"}
 
