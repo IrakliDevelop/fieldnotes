@@ -5381,6 +5381,73 @@ describe('Viewport theme', () => {
     viewport.destroy();
   });
 
+  it('updates bound text DOM color when its shape fill changes', async () => {
+    const recording = installRecordingContexts();
+    let callback: ResizeObserverCallback | undefined;
+    const observer = {
+      observe: () => undefined,
+      unobserve: () => undefined,
+      disconnect: () => undefined,
+    } satisfies ResizeObserver;
+    class FakeResizeObserver implements ResizeObserver {
+      constructor(next: ResizeObserverCallback) {
+        callback = next;
+      }
+      observe(_target: Element, _options?: ResizeObserverOptions): void {
+        return undefined;
+      }
+      unobserve(_target: Element): void {
+        return undefined;
+      }
+      disconnect(): void {
+        return undefined;
+      }
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    const viewport = new Viewport(container, { theme: 'dark' });
+    try {
+      Object.defineProperties(container, {
+        clientWidth: { value: 800, configurable: true },
+        clientHeight: { value: 600, configurable: true },
+      });
+      const canvas = container.querySelector('canvas');
+      if (!(canvas instanceof HTMLCanvasElement)) throw new Error('expected canvas');
+      Object.defineProperties(canvas, {
+        clientWidth: { value: 800, configurable: true },
+        clientHeight: { value: 600, configurable: true },
+      });
+      if (!callback) throw new Error('expected ResizeObserver callback');
+      callback([], observer);
+      const shape = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 50 },
+        fillColor: 'none',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const text = createBoundText(shape, { text: 'Label', color: '#ffffff' });
+      viewport.store.add(shape);
+      viewport.store.add(text);
+      viewport.requestRender();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const node = Array.from(container.querySelectorAll<HTMLElement>('[data-element-id]')).find(
+        (candidate) => candidate.dataset['elementId'] === text.id,
+      );
+      if (!node) throw new Error('expected text node');
+      const version = viewport.store.getVersion(text.id);
+
+      expect(node.style.color).toBe('rgb(82, 82, 82)');
+      viewport.store.update(shape.id, { fillColor: '#1e88e5' });
+      viewport.requestRender();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      expect(node.style.color).toBe('rgb(13, 13, 13)');
+      expect(viewport.store.getVersion(text.id)).toBe(version);
+    } finally {
+      viewport.destroy();
+      recording.restore();
+    }
+  });
+
   it('treats structurally equal themes as no-ops', () => {
     const viewport = new Viewport(container);
     const listener = vi.fn();

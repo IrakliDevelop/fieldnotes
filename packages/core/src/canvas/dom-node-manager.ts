@@ -6,6 +6,8 @@ import { textFontFamilySetting } from '../elements/text-layout';
 import { TEXT_PADDING } from '../elements/text-measure';
 import { DoubleTapDetector } from './double-tap-detector';
 import { LIVE_NODE_ATTR } from './live-control';
+import { DEFAULT_THEME } from './theme';
+import type { ResolvedTheme } from './theme';
 export interface DomNodeManagerDeps {
   domLayer: HTMLDivElement;
   onEditRequest: (id: string) => void;
@@ -16,6 +18,7 @@ export interface DomNodeManagerDeps {
   htmlPlaceholders?: boolean;
   /** Gates the note and text double-tap edit listeners. */
   acceptsPointer?: (e: PointerEvent) => boolean;
+  containerFill?: (element: CanvasElement) => string | null;
 }
 
 export class DomNodeManager {
@@ -33,6 +36,8 @@ export class DomNodeManager {
   private readonly isInteracting: (id: string) => boolean;
   private readonly htmlPlaceholders: boolean;
   private readonly acceptsPointer: (e: PointerEvent) => boolean;
+  private readonly containerFill: (element: CanvasElement) => string | null;
+  private theme = DEFAULT_THEME;
   private lastSyncedVersion = new Map<string, number>();
   private lastSyncedZIndex = new Map<string, number>();
   private lastSyncedOpacity = new Map<string, number>();
@@ -47,10 +52,20 @@ export class DomNodeManager {
     this.isInteracting = deps.isInteracting ?? (() => false);
     this.htmlPlaceholders = deps.htmlPlaceholders ?? false;
     this.acceptsPointer = deps.acceptsPointer ?? (() => true);
+    this.containerFill = deps.containerFill ?? (() => null);
   }
 
   getNode(id: string): HTMLDivElement | undefined {
     return this.domNodes.get(id);
+  }
+
+  setTheme(theme: ResolvedTheme): void {
+    this.theme = theme;
+    this.lastSyncedVersion.clear();
+  }
+
+  invalidateNode(id: string): void {
+    this.lastSyncedVersion.delete(id);
   }
 
   setCameraTransform(transform: string): void {
@@ -358,14 +373,14 @@ export class DomNodeManager {
 
       const family = textFontFamilySetting();
       node.style.fontFamily = family ?? '';
+      node.style.backgroundColor = this.theme.adapt(element.backgroundColor);
+      node.style.color = this.theme.adaptOn(element.textColor, element.backgroundColor);
 
       if (!this.isEditingElement(element.id)) {
         const text = element.text || '';
         if (node.innerHTML !== text) {
           node.innerHTML = text;
         }
-        node.style.backgroundColor = element.backgroundColor;
-        node.style.color = element.textColor;
         node.style.fontSize = `${element.fontSize ?? DEFAULT_NOTE_FONT_SIZE}px`;
       }
     }
@@ -386,11 +401,16 @@ export class DomNodeManager {
           // unknown htmlType on an older client produces.
           node.style.pointerEvents = 'none';
           if (this.htmlPlaceholders && !node.firstChild) {
-            node.appendChild(createHtmlPlaceholder(element.htmlType));
+            node.appendChild(createHtmlPlaceholder(element.htmlType, this.theme));
           }
         }
       } else {
         node.style.pointerEvents = pointerEvents;
+      }
+      const placeholder = node.querySelector<HTMLElement>(':scope > .fn-html-placeholder');
+      if (placeholder) {
+        placeholder.style.border = `1px dashed ${this.theme.tokens.widgetPlaceholderStroke}`;
+        placeholder.style.color = this.theme.tokens.widgetPlaceholderText;
       }
     }
 
@@ -428,6 +448,9 @@ export class DomNodeManager {
 
       const family = textFontFamilySetting();
       node.style.fontFamily = family ?? '';
+      const fill = this.containerFill(element);
+      node.style.color =
+        fill === null ? this.theme.adapt(element.color) : this.theme.adaptOn(element.color, fill);
 
       if (!this.isEditingElement(element.id)) {
         const text = element.text || '';
@@ -436,7 +459,6 @@ export class DomNodeManager {
         }
         Object.assign(node.style, {
           fontSize: `${element.fontSize}px`,
-          color: element.color,
           textAlign: element.textAlign,
           wordWrap: element.wrap === false ? 'normal' : 'break-word',
           whiteSpace: element.wrap === false ? 'pre' : 'normal',
@@ -446,7 +468,7 @@ export class DomNodeManager {
   }
 }
 
-function createHtmlPlaceholder(htmlType: string | undefined): HTMLDivElement {
+function createHtmlPlaceholder(htmlType: string | undefined, theme: ResolvedTheme): HTMLDivElement {
   const placeholder = document.createElement('div');
   placeholder.className = 'fn-html-placeholder';
   placeholder.textContent = htmlType ? `${htmlType} widget` : 'HTML widget';
@@ -457,9 +479,9 @@ function createHtmlPlaceholder(htmlType: string | undefined): HTMLDivElement {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    border: '1px dashed #a1a1aa',
+    border: `1px dashed ${theme.tokens.widgetPlaceholderStroke}`,
     borderRadius: '4px',
-    color: '#71717a',
+    color: theme.tokens.widgetPlaceholderText,
     font: '12px sans-serif',
     pointerEvents: 'none',
   });

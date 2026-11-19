@@ -34,7 +34,12 @@ import { InsertQueue } from './insert-queue';
 import type { AssetResolver, ImageErrorInfo } from './content-inserter';
 import { ContentInserter } from './content-inserter';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
-import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
+import {
+  createBoundText,
+  getBoundText,
+  getBoundTextContainerId,
+  isBoundTextContainer,
+} from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import {
   exportState as exportCanvasState,
@@ -711,7 +716,15 @@ export class Viewport {
       isInteracting: (id) => this.interactMode.interactingId === id,
       htmlPlaceholders: !options.onHtmlElementMount,
       acceptsPointer,
+      containerFill: (element) => {
+        const containerId = getBoundTextContainerId(element);
+        const container = containerId ? this.store.getById(containerId) : undefined;
+        return container?.type === 'shape' && container.fillColor !== 'none'
+          ? container.fillColor
+          : null;
+      },
     });
+    this.domNodeManager.setTheme(this.theme);
     this.domNodeManager.setCameraTransform(this.camera.toCSSTransform());
     this.disposers.push(() => this.domNodeManager.clearDomNodes());
 
@@ -795,6 +808,14 @@ export class Viewport {
         if (current.type === 'html') {
           this.stopInteractingIfLive();
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+        }
+        if (
+          previous.type === 'shape' &&
+          current.type === 'shape' &&
+          previous.fillColor !== current.fillColor
+        ) {
+          const text = getBoundText(current, this.store);
+          if (text) this.domNodeManager.invalidateNode(text.id);
         }
         this.renderLoop.noteElementUpdate(previous, current);
         this.requestRender();
@@ -2020,6 +2041,7 @@ export class Viewport {
     this.renderer.setTheme(theme);
     this.toolContext.theme = theme;
     this.renderLoop.setTheme(theme);
+    this.domNodeManager.setTheme(theme);
     this.renderLoop.markAllLayersDirty();
     this.requestRender();
     for (const listener of [...this.themeListeners]) {
