@@ -3,6 +3,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { focusBoard, openDialogShell } from './dialog-shell';
+import { resolveTheme } from './theme';
 
 const cleanup: (() => void)[] = [];
 
@@ -60,17 +61,100 @@ afterEach(() => {
 });
 
 describe('dialog shell', () => {
+  it('marks a dark shell and supplies its palette tokens', () => {
+    const { container, root, input } = setup();
+    own(
+      openDialogShell({
+        container,
+        root,
+        initialFocus: input,
+        onDismiss: vi.fn(),
+        onKeyDown: vi.fn(),
+        theme: resolveTheme('dark'),
+      }),
+    );
+    expect(root.dataset.fieldnotesTheme).toBe('dark');
+    expect(root.style.colorScheme).toBe('dark');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-bg')).toBe('#2a2b30');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-border')).toBe('#4b4b4b');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-shadow')).toBe(
+      '0 8px 24px rgba(0, 0, 0, 0.6)',
+    );
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-fg')).toBe('#e8eaed');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-active')).toBe('#1c3a5e');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-muted')).toBe('#9aa0a6');
+  });
+
+  it('supplies overridden light palette tokens without marking the shell dark', () => {
+    const { container, root, input } = setup();
+    own(
+      openDialogShell({
+        container,
+        root,
+        initialFocus: input,
+        onDismiss: vi.fn(),
+        onKeyDown: vi.fn(),
+        theme: resolveTheme({
+          base: 'light',
+          tokens: {
+            paletteBackground: '#fedcba',
+            paletteBorder: '#abcdef',
+            paletteText: '#123456',
+            paletteMuted: '#654321',
+            paletteActive: '#f0f0f0',
+            paletteShadow: '0 1px 2px #000',
+          },
+        }),
+      }),
+    );
+    expect(root.dataset.fieldnotesTheme).toBeUndefined();
+    expect(root.style.colorScheme).toBe('');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-bg')).toBe('#fedcba');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-border')).toBe('#abcdef');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-fg')).toBe('#123456');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-muted')).toBe('#654321');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-active')).toBe('#f0f0f0');
+    expect(root.style.getPropertyValue('--fieldnotes-palette-theme-shadow')).toBe('0 1px 2px #000');
+  });
+
+  it('leaves default light palette tokens and theme marks unset', () => {
+    const { container, root, input } = setup();
+    open(container, root, input);
+    expect(root.dataset.fieldnotesTheme).toBeUndefined();
+    expect(root.style.colorScheme).toBe('');
+    for (const property of [
+      '--fieldnotes-palette-theme-bg',
+      '--fieldnotes-palette-theme-border',
+      '--fieldnotes-palette-theme-fg',
+      '--fieldnotes-palette-theme-muted',
+      '--fieldnotes-palette-theme-active',
+      '--fieldnotes-palette-theme-shadow',
+    ]) {
+      expect(root.style.getPropertyValue(property)).toBe('');
+    }
+  });
+
   it('uses the public palette variables with their approved fallbacks', () => {
     const { container, root, input } = setup();
     open(container, root, input);
     const styles = document.head.querySelector('style[data-fieldnotes-palette]')?.textContent;
-    expect(styles).toContain('background: var(--fieldnotes-palette-bg, #fff)');
-    expect(styles).toContain('color: var(--fieldnotes-palette-fg, #1a1a1a)');
-    expect(styles).toContain('color: var(--fieldnotes-palette-muted, #6b7280)');
-    expect(styles).toContain('border: 1px solid var(--fieldnotes-palette-border, #d1d5db)');
-    expect(styles).toContain('background: var(--fieldnotes-palette-active, #e8f0fe)');
     expect(styles).toContain(
-      'box-shadow: var(--fieldnotes-palette-shadow, 0 8px 24px rgba(0, 0, 0, 0.18))',
+      'background: var(--fieldnotes-palette-bg, var(--fieldnotes-palette-theme-bg, #fff))',
+    );
+    expect(styles).toContain(
+      'color: var(--fieldnotes-palette-fg, var(--fieldnotes-palette-theme-fg, #1a1a1a))',
+    );
+    expect(styles).toContain(
+      'color: var(--fieldnotes-palette-muted, var(--fieldnotes-palette-theme-muted, #6b7280))',
+    );
+    expect(styles).toContain(
+      'border: 1px solid var(--fieldnotes-palette-border, var(--fieldnotes-palette-theme-border, #d1d5db))',
+    );
+    expect(styles).toContain(
+      'background: var(--fieldnotes-palette-active, var(--fieldnotes-palette-theme-active, #e8f0fe))',
+    );
+    expect(styles).toContain(
+      'box-shadow: var(--fieldnotes-palette-shadow, var(--fieldnotes-palette-theme-shadow, 0 8px 24px rgba(0, 0, 0, 0.18)))',
     );
     expect(styles).toContain('font: var(--fieldnotes-palette-font, 14px system-ui, sans-serif)');
     expect(styles).toContain('.fieldnotes-palette-option--active');

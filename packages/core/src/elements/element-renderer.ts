@@ -1,4 +1,4 @@
-import type { CanvasElement, HtmlElement } from './types';
+import type { CanvasElement, ElementRenderContext, HtmlElement } from './types';
 import { getElementBounds } from './element-bounds';
 import { withRotation } from './rotate-canvas';
 import { renderStroke } from './renderers/stroke-renderer';
@@ -12,6 +12,8 @@ import type { HtmlPainterRegistry } from '../canvas/html-painter-registry';
 import { paintHtmlElement } from '../canvas/html-paint';
 import type { HtmlPaintDiagnostic, HtmlRenderTarget } from '../canvas/html-paint-diagnostics';
 import type { ElementRegistry } from './element-registry';
+import { DEFAULT_THEME } from '../canvas/theme';
+import type { ResolvedTheme } from '../canvas/theme';
 
 const DOM_ELEMENT_TYPES = new Set(['note', 'html', 'text']);
 
@@ -27,6 +29,13 @@ export class ElementRenderer {
   private diagnosticSink: ((d: HtmlPaintDiagnostic) => void) | null = null;
   private surfaceZoom: number | null = null;
   private elementRegistry: ElementRegistry | null = null;
+  private theme: ResolvedTheme = DEFAULT_THEME;
+  private context: ElementRenderContext = Object.freeze({ theme: this.theme });
+
+  setTheme(theme: ResolvedTheme): void {
+    this.theme = theme;
+    this.context = Object.freeze({ theme });
+  }
 
   setStore(store: ElementStore): void {
     this.store = store;
@@ -74,7 +83,7 @@ export class ElementRenderer {
     if (el.type !== 'extension' || !this.elementRegistry) return;
     const adapter = this.elementRegistry.getAdapter(el.extensionType);
     if (!adapter?.render) return;
-    adapter.render(ctx, el, allElements, worldBounds);
+    adapter.render(ctx, el, allElements, worldBounds, this.context);
   }
 
   /** Registry of canvas-backed html painters, plus any types declared canvas-routed
@@ -118,23 +127,30 @@ export class ElementRenderer {
       case 'stroke': {
         const b = getElementBounds(element);
         const c = b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : element.position;
-        withRotation(ctx, element, c, () => renderStroke(ctx, element));
+        withRotation(ctx, element, c, () => renderStroke(ctx, element, this.theme));
         break;
       }
       case 'arrow':
-        renderArrow(ctx, element, this.store);
+        renderArrow(ctx, element, this.store, this.theme);
         break;
       case 'shape': {
         const b = getElementBounds(element);
         const c = b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : element.position;
-        withRotation(ctx, element, c, () => renderShape(ctx, element));
+        withRotation(ctx, element, c, () => renderShape(ctx, element, this.theme));
         break;
       }
       case 'image': {
         const b = getElementBounds(element);
         const c = b ? { x: b.x + b.w / 2, y: b.y + b.h / 2 } : element.position;
         withRotation(ctx, element, c, () =>
-          renderImage(ctx, element, this.imageCache, this.onImageLoad, this.onImageError),
+          renderImage(
+            ctx,
+            element,
+            this.imageCache,
+            this.onImageLoad,
+            this.onImageError,
+            this.theme,
+          ),
         );
         break;
       }
@@ -146,7 +162,7 @@ export class ElementRenderer {
           const adapter = this.elementRegistry.getAdapter(element.extensionType);
           if (adapter?.render) {
             const allElements = this.store?.getAll() ?? [];
-            adapter.render(ctx, element, allElements);
+            adapter.render(ctx, element, allElements, undefined, this.context);
           }
         }
         break;

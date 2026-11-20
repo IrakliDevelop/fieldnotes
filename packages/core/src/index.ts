@@ -1,6 +1,20 @@
-export const VERSION = '0.109.0';
+export const VERSION = '0.110.0';
+
+export { resolveTheme, DEFAULT_THEME, LIGHT_THEME_TOKENS, DARK_THEME_TOKENS } from './canvas/theme';
+export type {
+  Theme,
+  FixedTheme,
+  ThemeBase,
+  ThemeSpec,
+  FixedThemeSpec,
+  SystemThemeSpec,
+  ThemeTokens,
+  ResolvedTheme,
+} from './canvas/theme';
 
 export type { Point, StrokePoint, Size, Bounds } from './core/types';
+/** Context passed to extension element renderers. */
+export type { ElementRenderContext } from './elements/types';
 export { snapPoint } from './core/snap';
 export { measureText, setTextFontFamily, setTextMeasurer } from './elements/text-measure';
 export type { TextMeasurer } from './elements/text-measure';

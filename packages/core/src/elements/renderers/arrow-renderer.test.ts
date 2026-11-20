@@ -4,12 +4,14 @@ import { createArrow, createShape } from '../element-factory';
 import { createBoundText } from '../bound-text';
 import { ElementStore } from '../element-store';
 import type { ArrowElement } from '../types';
+import { resolveTheme } from '../../canvas/theme';
 
 function mockCtx() {
   const moveTo = vi.fn<(x: number, y: number) => void>();
   const lineTo = vi.fn<(x: number, y: number) => void>();
   const quadraticCurveTo = vi.fn<(cpx: number, cpy: number, x: number, y: number) => void>();
-  return {
+  const fillStyles: string[] = [];
+  const ctx = {
     save: vi.fn(),
     restore: vi.fn(),
     beginPath: vi.fn(),
@@ -26,7 +28,12 @@ function mockCtx() {
     translate: vi.fn(),
     rotate: vi.fn(),
     strokeStyle: '',
-    fillStyle: '',
+    get fillStyle() {
+      return fillStyles.at(-1) ?? '';
+    },
+    set fillStyle(value: string) {
+      fillStyles.push(value);
+    },
     lineWidth: 0,
     lineCap: '',
     font: '',
@@ -38,6 +45,7 @@ function mockCtx() {
     lineTo: typeof lineTo;
     quadraticCurveTo: typeof quadraticCurveTo;
   };
+  return Object.assign(ctx, { fillStyles });
 }
 
 function render(overrides: Partial<ArrowElement>) {
@@ -62,6 +70,15 @@ describe('getArrowDashPattern', () => {
   });
   it('maps undefined → []', () => {
     expect(getArrowDashPattern(undefined)).toEqual([]);
+  });
+});
+
+describe('renderArrow theme', () => {
+  it('uses the dark label plate and legacy label ink', () => {
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 100, y: 0 }, label: 'Legacy' });
+    const ctx = mockCtx();
+    renderArrow(ctx, arrow, null, resolveTheme('dark'));
+    expect(ctx.fillStyles).toEqual(expect.arrayContaining(['rgba(30,31,34,0.9)', '#d7d7d7']));
   });
 });
 

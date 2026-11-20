@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { MinimapController } from '@fieldnotes/core';
+import { flushSync } from 'svelte';
+import { MinimapController, type Viewport } from '@fieldnotes/core';
 import { Minimap, type MinimapProps } from './index.js';
 import CanvasChildren from './test-fixtures/CanvasChildren.svelte';
 
@@ -48,6 +49,36 @@ describe('Minimap', () => {
     expect(container.querySelectorAll('canvas').length).toBe(1);
     expect(expandButton()?.textContent).toBe('▣');
     expect(collapseButton()).toBeNull();
+  });
+
+  it('the collapsed minimap button keeps its light chrome', () => {
+    renderMinimap({ defaultCollapsed: true });
+    const button = expandButton();
+    if (!button) throw new Error('no expand button');
+    expect(button.style.background).toBe('rgba(255, 255, 255, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');
+    expect(button.style.color).toBe('');
+  });
+
+  it('the collapsed minimap button updates to dark chrome', () => {
+    const onready = vi.fn<(viewport: Viewport) => void>();
+    render(CanvasChildren, {
+      props: {
+        minimap: { defaultCollapsed: true },
+        onready,
+      },
+    });
+    const viewport = onready.mock.calls[0]?.[0];
+    if (!viewport) throw new Error('viewport not mounted');
+
+    viewport.setTheme('dark');
+    flushSync();
+
+    const button = expandButton();
+    if (!button) throw new Error('no expand button');
+    expect(button.style.background).toBe('rgba(30, 31, 34, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(255, 255, 255, 0.15)');
+    expect(button.style.color).toBe('rgb(232, 234, 237)');
   });
 
   it('constructs no controller while collapsed', () => {

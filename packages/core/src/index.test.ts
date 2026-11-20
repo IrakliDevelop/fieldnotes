@@ -19,9 +19,68 @@ import type {
   PaletteStrings,
   ShortcutsHelpApi,
   MountAutoSaveOptions,
+  ExportImageOptions,
+  ExportPdfOptions,
+  ExportSvgOptions,
 } from './index';
+import type { ElementRenderContext } from './index';
 
 describe('core public surface', () => {
+  it('exports ElementRenderContext as a public type', () => {
+    expectTypeOf<ElementRenderContext>().toMatchTypeOf<{ readonly theme: FN.ResolvedTheme }>();
+  });
+  it('exports the theme model without colour internals', () => {
+    expect([
+      typeof FN.resolveTheme,
+      typeof FN.DEFAULT_THEME,
+      typeof FN.LIGHT_THEME_TOKENS,
+      typeof FN.DARK_THEME_TOKENS,
+    ]).toEqual(['function', 'object', 'object', 'object']);
+    const system: FN.Theme = 'system';
+    const systemSpec: FN.Theme = { base: 'system' };
+    // @ts-expect-error FixedTheme excludes system.
+    const fixedString: FN.FixedTheme = system;
+    // @ts-expect-error FixedTheme excludes system specs.
+    const fixedSpec: FN.FixedTheme = systemSpec;
+    expect([fixedString, fixedSpec]).toEqual(['system', { base: 'system' }]);
+    for (const name of [
+      'inkFor',
+      'blendModeFor',
+      'adaptColor',
+      'oklabLightness',
+      'flip',
+      'createAdapter',
+    ])
+      expect(name in FN).toBe(false);
+  });
+  it('accepts only fixed export themes', () => {
+    const light: ExportImageOptions['theme'] = 'light';
+    const dark: ExportSvgOptions['theme'] = { base: 'dark' };
+    const pdf: ExportPdfOptions['theme'] = { base: 'light', tokens: { board: '#fffbe6' } };
+    // @ts-expect-error image exports cannot follow system preference.
+    const imageSystem: ExportImageOptions['theme'] = 'system';
+    // @ts-expect-error image exports cannot use a system specification.
+    const imageSystemSpec: ExportImageOptions['theme'] = { base: 'system' };
+    // @ts-expect-error SVG exports cannot follow system preference.
+    const svgSystem: ExportSvgOptions['theme'] = 'system';
+    // @ts-expect-error SVG exports cannot use a system specification.
+    const svgSystemSpec: ExportSvgOptions['theme'] = { base: 'system' };
+    // @ts-expect-error PDF exports cannot follow system preference.
+    const pdfSystem: ExportPdfOptions['theme'] = 'system';
+    // @ts-expect-error PDF exports cannot use a system specification.
+    const pdfSystemSpec: ExportPdfOptions['theme'] = { base: 'system' };
+    expect([
+      light,
+      dark,
+      pdf,
+      imageSystem,
+      imageSystemSpec,
+      svgSystem,
+      svgSystemSpec,
+      pdfSystem,
+      pdfSystemSpec,
+    ]).toHaveLength(9);
+  });
   it('keeps bound-text-compatible shape factory results literal', () => {
     const rectangle = FN.createShape({ position: { x: 0, y: 0 }, size: { w: 80, h: 48 } });
     const ellipse = FN.createShape({
@@ -64,8 +123,8 @@ describe('core public surface', () => {
     ])
       expect(name in FN).toBe(false);
   });
-  it('reports VERSION 0.109.0', () => {
-    expect(FN.VERSION).toBe('0.109.0');
+  it('reports VERSION 0.110.0', () => {
+    expect(FN.VERSION).toBe('0.110.0');
   });
 
   it('exports the elbow arrow document model without routing helpers', () => {
@@ -519,9 +578,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reads VERSION 0.109.0 from a dynamic import', async () => {
+  it('reads VERSION 0.110.0 from a dynamic import', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.109.0');
+    expect(VERSION).toBe('0.110.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

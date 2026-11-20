@@ -27,6 +27,9 @@ import { buildSceneEnvelope, SCENE_PNG_KEYWORD, serializeSceneEnvelope } from '.
 import type { SceneEmbedOptions } from './scene-embed';
 import { appendItxtChunk } from './png-chunks';
 import { renderImagePlaceholder } from '../elements/renderers/image-renderer';
+import { defaultExportBackground, resolveTheme } from './theme';
+import type { FixedTheme, ResolvedTheme } from './theme';
+import { getBoundTextContainerId } from '../elements/bound-text';
 
 export interface ExportImageOptions
   extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions {
@@ -34,6 +37,8 @@ export interface ExportImageOptions
   scale?: number;
   padding?: number;
   background?: string;
+  /** Theme the export draws with. Direct exports default to light; viewport exports use its theme. */
+  theme?: FixedTheme;
   filter?: (element: CanvasElement) => boolean;
   /**
    * Optional world-space crop. When set it replaces the computed content
@@ -44,7 +49,7 @@ export interface ExportImageOptions
   region?: { x: number; y: number; w: number; h: number };
   /**
    * Output encoding. Defaults to 'png'. JPEG output is opaque — a transparent
-   * `background` renders as black; keep the default `#ffffff` (or any opaque color)
+   * `background` renders as black; keep an opaque `background` (the default follows the theme)
    * for JPEG exports.
    */
   format?: 'png' | 'jpeg';
@@ -140,6 +145,7 @@ export interface PreparedExport {
   readonly fullCanvas: CanvasElement[];
   readonly clips: Map<string, Rect | null>;
   readonly registry: ElementRegistry;
+  readonly theme: ResolvedTheme;
 }
 
 function assertRenderCapabilities(
@@ -430,6 +436,7 @@ export function prepareExport(
   store: ElementStore,
   options: ExportImageOptions,
   layerManager?: LayerManager,
+  resolvedTheme: ResolvedTheme = resolveTheme(options.theme ?? 'light'),
 ): PreparedExport | null {
   if (options.frameId !== undefined && options.region !== undefined) {
     throw new RangeError('frameId and region cannot be used together');
@@ -492,6 +499,7 @@ export function prepareExport(
     fullCanvas: fullCanvasElements,
     clips: effectiveClips,
     registry,
+    theme: resolvedTheme,
   };
 }
 
@@ -510,11 +518,14 @@ export async function paintExport(
     fullCanvas: fullCanvasElements,
     clips: effectiveClips,
     registry,
+    theme,
   } = prepared;
   const format = options.format ?? 'png';
   const background =
     options.background ??
-    (options.frameId !== undefined && format === 'png' ? 'transparent' : '#ffffff');
+    (options.frameId !== undefined && format === 'png'
+      ? 'transparent'
+      : defaultExportBackground(theme));
 
   const width = Math.ceil(bounds.w * scale);
   const height = Math.ceil(bounds.h * scale);
@@ -561,8 +572,10 @@ export async function paintExport(
   ctx.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
 
   const renderer = new ElementRenderer();
+  renderer.setTheme(theme);
   renderer.setStore(store);
   renderer.setElementRegistry(registry);
+  const renderContext = Object.freeze({ theme });
 
   const onHtmlPaintDiagnostic = (d: HtmlPaintDiagnostic): void => {
     options.onHtmlError?.({
@@ -577,13 +590,21 @@ export async function paintExport(
     const render = (): void => {
       if (el.type === 'note') {
         const b = getElementBounds(el);
-        withRotation(target, el, b ? center(b) : el.position, () => renderNoteOnCanvas(target, el));
+        withRotation(target, el, b ? center(b) : el.position, () =>
+          renderNoteOnCanvas(target, el, theme),
+        );
         return;
       }
 
       if (el.type === 'text') {
         const b = getElementBounds(el);
-        withRotation(target, el, b ? center(b) : el.position, () => renderTextOnCanvas(target, el));
+        const container = getBoundTextContainerId(el);
+        const parent = container ? store.getById(container) : undefined;
+        const fill =
+          parent?.type === 'shape' && parent.fillColor !== 'none' ? parent.fillColor : null;
+        withRotation(target, el, b ? center(b) : el.position, () =>
+          renderTextOnCanvas(target, el, theme, fill),
+        );
         return;
       }
 
@@ -638,7 +659,7 @@ export async function paintExport(
           if (img) {
             target.drawImage(img, el.position.x, el.position.y, el.size.w, el.size.h);
           } else {
-            renderImagePlaceholder(target, el);
+            renderImagePlaceholder(target, el, theme);
           }
         });
         return;
@@ -676,7 +697,10 @@ export async function paintExport(
 
   for (const [layerId, elements] of layerGroups) {
     const opacity = layerManager?.getLayer?.(layerId)?.opacity ?? 1;
-    if (opacity === 1) {
+    const hasBlendedStroke =
+      theme.base === 'dark' &&
+      elements.some((el) => el.type === 'stroke' && el.blendMode !== undefined);
+    if (opacity === 1 && !hasBlendedStroke) {
       for (const el of elements) renderElement(ctx, el);
       continue;
     }
@@ -710,7 +734,7 @@ export async function paintExport(
         maxX: bounds.x + bounds.w,
         maxY: bounds.y + bounds.h,
       };
-      adapter.render(ctx, el, visibleElements, worldBounds);
+      adapter.render(ctx, el, visibleElements, worldBounds, renderContext);
       ctx.restore();
     }
   }

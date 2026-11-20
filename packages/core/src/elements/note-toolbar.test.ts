@@ -1,8 +1,23 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NoteToolbar } from './note-toolbar';
+import { resolveTheme } from '../canvas/theme';
 
 describe('NoteToolbar', () => {
+  it('applies dark chrome to a shown toolbar', () => {
+    const toolbar = new NoteToolbar();
+    toolbar.setTheme(resolveTheme('dark'));
+    toolbar.show(container);
+    const element = toolbar.getElement();
+    const button = element?.querySelector<HTMLElement>('[data-format="bold"]');
+    const select = element?.querySelector<HTMLSelectElement>('select');
+    expect(element?.style.background).toBe('rgb(42, 43, 48)');
+    expect(element?.style.border).toBe('1px solid rgb(75, 75, 75)');
+    expect(button?.style.color).toBe('rgb(232, 234, 237)');
+    expect(select?.style.background).toBe('rgb(42, 43, 48)');
+    expect(select?.style.color).toBe('rgb(232, 234, 237)');
+    toolbar.hide();
+  });
   let container: HTMLDivElement;
 
   beforeEach(() => {
@@ -15,6 +30,51 @@ describe('NoteToolbar', () => {
 
   afterEach(() => {
     container.remove();
+  });
+
+  it('restyles the shown toolbar and active button in place', () => {
+    const toolbar = new NoteToolbar();
+    toolbar.show(container);
+    const element = toolbar.getElement();
+    const button = element?.querySelector<HTMLElement>('[data-format="bold"]');
+    const select = element?.querySelector<HTMLSelectElement>('select');
+    vi.spyOn(document, 'queryCommandState').mockReturnValue(true);
+    toolbar.setTheme(resolveTheme('dark'));
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(toolbar.getElement()).toBe(element);
+    expect(select?.style.background).toBe('rgb(42, 43, 48)');
+    expect(button?.style.background).toBe('rgb(59, 61, 66)');
+    expect(button?.style.borderColor).toBe('rgb(75, 75, 75)');
+    toolbar.hide();
+  });
+
+  it('keeps light toolbar styles free of text color and active border at #bbb', () => {
+    const toolbar = new NoteToolbar();
+    toolbar.show(container);
+    const element = toolbar.getElement();
+    const button = element?.querySelector<HTMLElement>('[data-format="bold"]');
+    const select = element?.querySelector<HTMLSelectElement>('select');
+    vi.spyOn(document, 'queryCommandState').mockReturnValue(true);
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(element?.style.background).toBe('rgb(255, 255, 255)');
+    expect(element?.style.border).toBe('1px solid rgb(204, 204, 204)');
+    expect(element?.style.color).toBe('');
+    expect(button?.style.color).toBe('');
+    expect(select?.style.color).toBe('');
+    expect(select?.style.background).toBe('rgb(255, 255, 255)');
+    expect(button?.style.borderColor).toBe('rgb(187, 187, 187)');
+    toolbar.hide();
+  });
+
+  it('uses an overridden light toolbar border for active format buttons', () => {
+    const toolbar = new NoteToolbar();
+    toolbar.setTheme(resolveTheme({ base: 'light', tokens: { toolbarBorder: '#ff0000' } }));
+    toolbar.show(container);
+    const button = toolbar.getElement()?.querySelector<HTMLElement>('[data-format="bold"]');
+    vi.spyOn(document, 'queryCommandState').mockReturnValue(true);
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(button?.style.borderColor).toBe('rgb(255, 0, 0)');
+    toolbar.hide();
   });
 
   it('creates toolbar element on show', () => {

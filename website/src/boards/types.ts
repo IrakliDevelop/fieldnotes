@@ -6,4 +6,6 @@ export interface BoardExample {
   createBoard(container: HTMLElement, extra?: ViewportOptions): Viewport;
   /** Seeds the mounted board. */
   setup?(viewport: Viewport): void;
+  /** Opts the board out of the ruled-paper overlay. */
+  paper?: false;
 }

@@ -14,6 +14,7 @@ import {
 import { createBoundText } from '../elements/bound-text';
 import { TEXT_PADDING } from '../elements/text-measure';
 import { setTextFontFamily } from '../elements/text-measure';
+import { DEFAULT_THEME, resolveTheme } from './theme';
 
 describe('DomNodeManager', () => {
   it('maps world clip corners into unrotated and inverse-rotated local polygons', () => {
@@ -978,6 +979,173 @@ describe('DomNodeManager', () => {
       const moved = { ...note, position: { x: 999, y: 999 } };
       manager.syncDomNode(moved, 0);
       expect(node?.style.left).toBe('999px');
+    });
+  });
+
+  describe('themed DOM content', () => {
+    it('adapts note colors after a dark theme switch with an unchanged version', () => {
+      const themed = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        getVersion: () => 0,
+      });
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 50 },
+        backgroundColor: '#ffeb3b',
+        textColor: '#000000',
+      });
+      themed.syncDomNode(note);
+      themed.setTheme(resolveTheme('dark'));
+      themed.syncDomNode(note);
+
+      expect(themed.getNode(note.id)?.style.backgroundColor).toBe('rgb(92, 84, 13)');
+      expect(themed.getNode(note.id)?.style.color).toBe('rgb(237, 237, 237)');
+    });
+
+    it.each([
+      ['#e53935', 'rgb(3, 3, 3)'],
+      ['#ff9800', 'rgb(195, 195, 195)'],
+    ])('adapts white note text on %s to %s', (backgroundColor, color) => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 50 },
+        backgroundColor,
+        textColor: '#ffffff',
+      });
+      manager.setTheme(resolveTheme('dark'));
+      manager.syncDomNode(note);
+
+      expect(manager.getNode(note.id)?.style.color).toBe(color);
+    });
+
+    it('adapts plain text', () => {
+      const text = createText({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 50 },
+        color: '#1a1a1a',
+      });
+      manager.setTheme(resolveTheme('dark'));
+      manager.syncDomNode(text);
+
+      expect(manager.getNode(text.id)?.style.color).toBe('rgb(215, 215, 215)');
+    });
+
+    it.each([
+      ['#1e88e5', 'rgb(13, 13, 13)'],
+      [null, 'rgb(82, 82, 82)'],
+    ])('adapts bound white text against its container fill %s', (fill, color) => {
+      const themed = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        containerFill: () => fill,
+      });
+      const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      const text = createBoundText(shape, { color: '#ffffff' });
+      themed.setTheme(resolveTheme('dark'));
+      themed.syncDomNode(text);
+
+      expect(themed.getNode(text.id)?.style.color).toBe(color);
+    });
+
+    it('restyles an edited note without changing its content or font size', () => {
+      const note = createNote({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 50 },
+        text: 'Edited',
+        fontSize: 24,
+        backgroundColor: '#ffeb3b',
+        textColor: '#000000',
+      });
+      manager.syncDomNode(note);
+      const node = manager.getNode(note.id);
+      if (!node) throw new Error('expected note node');
+      const html = node.innerHTML;
+      const fontSize = node.style.fontSize;
+      isEditingElement.mockReturnValue(true);
+
+      manager.setTheme(resolveTheme('dark'));
+      manager.syncDomNode(note);
+
+      expect(node.style.backgroundColor).toBe('rgb(92, 84, 13)');
+      expect(node.style.color).toBe('rgb(237, 237, 237)');
+      expect(node.innerHTML).toBe(html);
+      expect(node.style.fontSize).toBe(fontSize);
+    });
+
+    it('invalidates unchanged versions for color writes', () => {
+      const themed = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        getVersion: () => 0,
+      });
+      const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      themed.syncDomNode(note);
+      const node = themed.getNode(note.id);
+      if (!node) throw new Error('expected note node');
+      const color = vi.spyOn(node.style, 'color', 'set');
+
+      themed.invalidateNode(note.id);
+      themed.syncDomNode(note);
+
+      expect(color).toHaveBeenCalled();
+    });
+
+    it('restyles contentless HTML placeholders', () => {
+      const themed = new DomNodeManager({
+        domLayer,
+        onEditRequest,
+        isEditingElement,
+        getVersion: () => 0,
+        htmlPlaceholders: true,
+      });
+      const html = createHtmlElement({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+      themed.syncDomNode(html);
+      themed.setTheme(resolveTheme('dark'));
+      themed.syncDomNode(html);
+      const placeholder = themed
+        .getNode(html.id)
+        ?.querySelector<HTMLElement>('.fn-html-placeholder');
+
+      expect(placeholder?.style.border).toBe('1px dashed rgb(75, 75, 75)');
+      expect(placeholder?.style.color).toBe('rgb(154, 160, 166)');
+
+      themed.setTheme(DEFAULT_THEME);
+      themed.syncDomNode(html);
+
+      expect(placeholder?.style.cssText).toBe(
+        'box-sizing: border-box; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; border: 1px dashed rgb(161, 161, 170); border-radius: 4px; color: rgb(113, 113, 122); font: 12px sans-serif; pointer-events: none;',
+      );
+    });
+
+    it('restores the exact light inline styles', () => {
+      const note = createNote({
+        position: { x: 10, y: 20 },
+        size: { w: 100, h: 50 },
+        backgroundColor: '#ffeb3b',
+        textColor: '#000000',
+      });
+      manager.setTheme(resolveTheme('dark'));
+      manager.syncDomNode(note);
+      const text = createText({
+        position: { x: 20, y: 30 },
+        text: 'Text',
+        color: '#1a1a1a',
+      });
+      manager.syncDomNode(text);
+      manager.setTheme(DEFAULT_THEME);
+      manager.syncDomNode(note);
+      manager.syncDomNode(text);
+
+      expect(manager.getNode(note.id)?.style.cssText).toBe(
+        'position: absolute; pointer-events: auto; display: block; left: 10px; top: 20px; width: 100px; height: 50px; z-index: 0; opacity: 1; transform-origin: 50% 50%; background-color: rgb(255, 235, 59); color: rgb(0, 0, 0); padding: 8px; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: 18px; overflow: hidden; cursor: default; user-select: none; word-wrap: break-word; box-sizing: border-box;',
+      );
+      expect(manager.getNode(text.id)?.style.cssText).toBe(
+        'position: absolute; pointer-events: auto; display: block; left: 20px; top: 30px; width: 200px; height: 28px; z-index: 0; opacity: 1; transform-origin: 50% 50%; padding: 2px; font-size: 16px; color: rgb(26, 26, 26); text-align: left; background: none; border: medium; box-shadow: none; overflow: visible; cursor: default; user-select: none; word-wrap: break-word; white-space: normal; box-sizing: border-box; line-height: 1.4;',
+      );
     });
   });
 });

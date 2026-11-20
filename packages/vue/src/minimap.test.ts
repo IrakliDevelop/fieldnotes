@@ -1,7 +1,7 @@
 import { describe, it, expect, expectTypeOf, vi, beforeEach, afterEach } from 'vitest';
 import { mount, enableAutoUnmount } from '@vue/test-utils';
 import { createApp, h, nextTick, ref, type ExtractPublicPropTypes } from 'vue';
-import { MinimapController } from '@fieldnotes/core';
+import { MinimapController, type Viewport } from '@fieldnotes/core';
 import { FieldNotesCanvas } from './field-notes-canvas';
 import type { minimapProps } from './minimap';
 import { Minimap, type MinimapProps } from './minimap';
@@ -64,6 +64,32 @@ describe('Minimap', () => {
     expect(wrapper.findAll('canvas').length).toBe(1);
     expect(wrapper.find(expandButton).text()).toBe('▣');
     expect(wrapper.find(collapseButton).exists()).toBe(false);
+  });
+
+  it('the collapsed minimap button keeps its light chrome', async () => {
+    const wrapper = await mountMinimap({ defaultCollapsed: true });
+    const button = wrapper.find<HTMLButtonElement>(expandButton).element;
+    expect(button.style.background).toBe('rgba(255, 255, 255, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');
+    expect(button.style.color).toBe('');
+  });
+
+  it('the collapsed minimap button updates to dark chrome', async () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const wrapper = mount(() =>
+      h(FieldNotesCanvas, { onReady }, () => h(Minimap, { defaultCollapsed: true })),
+    );
+    await nextTick();
+    const viewport = onReady.mock.calls[0]?.[0];
+    if (!viewport) throw new Error('viewport not mounted');
+
+    viewport.setTheme('dark');
+    await nextTick();
+
+    const button = wrapper.find<HTMLButtonElement>(expandButton).element;
+    expect(button.style.background).toBe('rgba(30, 31, 34, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(255, 255, 255, 0.15)');
+    expect(button.style.color).toBe('rgb(232, 234, 237)');
   });
 
   it('constructs no controller while collapsed', async () => {

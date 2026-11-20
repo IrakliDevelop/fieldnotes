@@ -3,6 +3,7 @@ import { NoteToolbar } from './note-toolbar';
 import type { FontSizePreset } from './note-toolbar';
 import { sanitizeNoteHtml } from './note-sanitizer';
 import { toggleBold, toggleItalic, toggleUnderline } from './note-formatting';
+import type { ResolvedTheme } from '../canvas/theme';
 
 const FORMAT_SHORTCUTS: Record<string, () => void> = {
   b: toggleBold,
@@ -84,6 +85,10 @@ export class NoteEditor {
 
   setOnAbandon(callback: (id: string) => void): void {
     this.onAbandonCallback = callback;
+  }
+
+  setTheme(theme: ResolvedTheme): void {
+    this.toolbar?.setTheme(theme);
   }
 
   startEditing(

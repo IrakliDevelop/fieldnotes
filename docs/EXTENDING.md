@@ -128,10 +128,15 @@ independent of parent-child relationships.
 
 ### Rendering
 
-- `render(ctx, el, allElements, worldBounds?)` draws in world coordinates; the camera transform is
+- `render(ctx, el, allElements, worldBounds?, context?)` draws in world coordinates; the camera transform is
   already applied. `worldBounds` is passed only to `fullCanvas` types and is the visible world
   rectangle (`minX`, `minY`, `maxX`, `maxY`).
-- `emitSvg(el, allElements, viewBox)` returns markup that is inserted verbatim, so escape any user
+  `context.theme` is the resolved theme of this drawing (board, minimap or export; an export can use
+  a different theme from the board); element colours go through `context.theme.adapt(color)` and
+  chrome colours come from `context.theme.tokens`. `render` must
+  still depend only on its arguments. A theme change drops the layer cache, so a renderer that
+  reads the passed theme redraws correctly, while one that cached a viewport's theme does not.
+- `emitSvg(el, allElements, viewBox, context?)` returns markup that is inserted verbatim, so escape any user
   text. `viewBox` is the padded export rectangle in world units, the same rectangle for inline and full-canvas emitters and equal to the root `viewBox`. A frame export passes the frame content rectangle plus `padding`; full-canvas elements cannot be frame children, so they are never part of a frame export.
 - `renderMode`: `'canvas'`, `'hybrid'` and `'none'` all draw through `render`. `register` throws
   for `'dom'`; extension elements are never DOM elements.
@@ -154,7 +159,7 @@ the snapped pointer delta but does not snap their centre the way it does for siz
 | ----------------- | ------------------------------------------------------------------------------ |
 | `hitTestHandle`   | On pointer down over a selected element; return `{ id, cursor }` or `null`.    |
 | `updateHandle`    | On drag of a handle returned above; return the updated `T`.                    |
-| `renderSelection` | While selected, in world space, with `{ zoom, selectedCount }`.                |
+| `renderSelection` | While selected, in world space, with `{ zoom, selectedCount, theme }`.         |
 | `rotate`          | By `viewport.rotateSelection()`; return `T` rotated around `pivot` by `delta`. |
 
 `hitTestHandle` and `updateHandle` receive an `ExtensionInteractionContext` (`zoom`, `shiftKey`,

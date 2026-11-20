@@ -51,6 +51,8 @@ const shell = createShell(
 let firstMount = true;
 // Test and demo hook: a scene with nothing saved starts empty instead of with its sample.
 const blank = new URLSearchParams(location.search).has('blank');
+const hasSavedDarkTheme = (): boolean =>
+  localStorage.getItem('fieldnotes-playground-theme') === 'dark';
 
 /** A mounted scene's persistence, room connection and menu items. */
 interface Attached {
@@ -111,6 +113,7 @@ function download(filename: string, blob: Blob): void {
 /** Wires persistence, the room and the file/board menu to a mounted scene. */
 function attach(instance: SceneInstance, sceneId: SceneId): Attached {
   const { viewport } = instance;
+  if (hasSavedDarkTheme()) viewport.setTheme('dark');
   const selectedFrameId = (): string | undefined => {
     const [id] = viewport.getSelectedIds();
     if (!id || viewport.getSelectedIds().length !== 1) return undefined;
@@ -197,7 +200,7 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
       const frameId = selectedFrameId();
       return frameId
         ? { frameId, scale: 2, renderHtml: renderWidgetForExport }
-        : { scale: 2, padding: 32, background: '#ffffff', renderHtml: renderWidgetForExport };
+        : { scale: 2, padding: 32, renderHtml: renderWidgetForExport };
     };
     const svgOptions = (): ExportSvgOptions => {
       const frameId = selectedFrameId();
@@ -296,6 +299,28 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
         },
       ]),
       addMenuItems('board', [
+        {
+          id: 'dark-board',
+          label: 'Dark board',
+          icon: 'moon',
+          run: () => {
+            viewport.setTheme('dark');
+            localStorage.setItem('fieldnotes-playground-theme', 'dark');
+            shell.refresh();
+          },
+          hidden: () => viewport.getTheme().base === 'dark',
+        },
+        {
+          id: 'light-board',
+          label: 'Light board',
+          icon: 'sun',
+          run: () => {
+            viewport.setTheme({ base: 'light', tokens: { pattern: '#d4d4d8' } });
+            localStorage.removeItem('fieldnotes-playground-theme');
+            shell.refresh();
+          },
+          hidden: () => viewport.getTheme().base === 'light',
+        },
         {
           id: 'load-sample',
           label: 'Load sample',

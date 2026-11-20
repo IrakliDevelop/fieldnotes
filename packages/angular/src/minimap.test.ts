@@ -55,6 +55,12 @@ class Host {
   readonly height = signal(140);
 }
 
+@Component({
+  imports: [Minimap],
+  template: '<fn-minimap [defaultCollapsed]="true" />',
+})
+class NullViewportHost {}
+
 async function mount(defaultCollapsed = false) {
   TestBed.configureTestingModule({
     providers: [{ provide: DEFAULT_COLLAPSED, useValue: defaultCollapsed }],
@@ -85,6 +91,53 @@ describe('Minimap', () => {
     expect(root.querySelectorAll('fn-minimap canvas').length).toBe(0);
     expect(root.querySelector(expandButton)?.textContent?.trim()).toBe('▣');
     expect(root.querySelector(collapseButton)).toBeNull();
+  });
+
+  it('the collapsed minimap button keeps its light chrome', async () => {
+    const { root } = await mount(true);
+    const button = root.querySelector<HTMLButtonElement>(expandButton);
+    if (!button) throw new Error('no expand button');
+    expect(button.style.background).toBe('rgba(255, 255, 255, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');
+    expect(button.style.color).toBe('');
+  });
+
+  it('keeps base light chrome while its viewport signal is null', async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: FIELDNOTES_VIEWPORT, useValue: signal<Viewport | null>(null) }],
+    });
+    const fixture = TestBed.createComponent(NullViewportHost);
+    await fixture.whenStable();
+    const root: HTMLElement = fixture.nativeElement;
+    const button = root.querySelector<HTMLButtonElement>(expandButton);
+    if (!button) throw new Error('no expand button');
+
+    const style = button.getAttribute('style');
+    if (!style) throw new Error('no inline style');
+    expect(style).toContain('border: 1px solid rgba(0,0,0,0.15)');
+    expect(style).toContain('background: rgba(255,255,255,0.85)');
+    expect(style.indexOf('border: 1px solid rgba(0,0,0,0.15)')).toBeLessThan(
+      style.indexOf('border-radius'),
+    );
+    expect(style.indexOf('background: rgba(255,255,255,0.85)')).toBeLessThan(
+      style.indexOf('cursor'),
+    );
+    expect(button.style.background).toBe('rgba(255, 255, 255, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');
+    expect(button.style.color).toBe('');
+  });
+
+  it('the collapsed minimap button updates to dark chrome', async () => {
+    const { fixture, host, root } = await mount(true);
+    if (!host.viewport) throw new Error('viewport not mounted');
+
+    host.viewport.setTheme('dark');
+    await fixture.whenStable();
+    const button = root.querySelector<HTMLButtonElement>(expandButton);
+    if (!button) throw new Error('no expand button');
+    expect(button.style.background).toBe('rgba(30, 31, 34, 0.85)');
+    expect(button.style.border).toBe('1px solid rgba(255, 255, 255, 0.15)');
+    expect(button.style.color).toBe('rgb(232, 234, 237)');
   });
 
   it('constructs no controller while collapsed', async () => {

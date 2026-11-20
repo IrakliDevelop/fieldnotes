@@ -20,6 +20,7 @@ import type {
   MountAutoSaveOptions,
   MountedViewport,
   ShortcutBindings,
+  Theme,
 } from '@fieldnotes/core';
 import { ViewportContext } from './context';
 
@@ -65,6 +66,8 @@ export interface FieldNotesCanvasProps extends Omit<
    * VTT grid/constraint service instead.
    */
   snapToGrid?: boolean;
+  /** Reactive. `undefined` leaves the viewport's theme alone. Hoist a theme object. */
+  theme?: Theme;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -94,6 +97,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
       activation,
       onElementActivate,
       snapToGrid,
+      theme,
       className,
       style,
       children,
@@ -135,7 +139,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
       if (!el) return;
 
       const mounted = mountViewport(el, {
-        options,
+        options: theme === undefined ? options : { ...options, theme },
         tools,
         initialData,
         autoSave,
@@ -188,6 +192,11 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
       if (!viewport || snapToGrid === undefined) return;
       viewport.setSnapToGrid(snapToGrid);
     }, [viewport, snapToGrid]);
+
+    useEffect(() => {
+      if (!viewport || theme === undefined) return;
+      viewport.setTheme(theme);
+    }, [viewport, theme]);
 
     useEffect(() => {
       if (!viewport) return;

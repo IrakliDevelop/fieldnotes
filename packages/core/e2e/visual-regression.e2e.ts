@@ -25,4 +25,36 @@ test.describe('visual regression', () => {
       maxDiffPixelRatio: 0.01,
     });
   });
+
+  test('canvas with shapes matches snapshot (dark)', async ({ canvasPage }) => {
+    await canvasPage.page.goto('/?theme=dark');
+    await canvasPage.page.waitForFunction(
+      () => window.__fieldnotes_viewport.getTheme().base === 'dark',
+    );
+    await canvasPage.selectTool('shape');
+    const wrapper = canvasPage.wrapper();
+    const box = await wrapper.boundingBox();
+    if (!box) throw new Error('Wrapper not found');
+
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    await canvasPage.page.mouse.move(cx - 100, cy - 50);
+    await canvasPage.page.mouse.down();
+    await canvasPage.page.mouse.move(cx + 100, cy + 50, { steps: 5 });
+    await canvasPage.page.mouse.up();
+
+    await canvasPage.page.waitForFunction(() => window.__fieldnotes_viewport.store.count === 1);
+    await canvasPage.page.evaluate(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    await canvasPage.page.addStyleTag({
+      content:
+        '#toolbar, #info, #layers-panel, #empty-hint, #toast-container, #shape-panel, #text-panel, #note-panel, #grid-panel, #template-panel, #measure-panel, #zorder-panel, [data-fieldnotes-minimap] { visibility: hidden !important; }',
+    });
+
+    await expect(wrapper).toHaveScreenshot('canvas-with-shape-dark.png', {
+      maxDiffPixelRatio: 0.01,
+    });
+  });
 });

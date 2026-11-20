@@ -8,7 +8,7 @@ Svelte bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnote
 npm install @fieldnotes/core @fieldnotes/svelte
 ```
 
-Requires Svelte 5 (`svelte >=5 <6`, runes) and `@fieldnotes/core >=0.96.0`. The package ships
+Requires Svelte 5 (`svelte >=5 <6`, runes) and `@fieldnotes/core >=0.110.0 <1.0.0`. The package ships
 `.svelte` sources, so your bundler compiles them with your Svelte version (Vite with
 `@sveltejs/vite-plugin-svelte`, or SvelteKit).
 
@@ -73,16 +73,17 @@ For your own toolbar, pass an explicit tool array and control the active tool wi
 
 Not all props are reactive — the canvas is stateful. Changing a mount-only prop after mount has no effect:
 
-| Prop                            | Reactivity                                                                   |
-| ------------------------------- | ---------------------------------------------------------------------------- |
-| `options`                       | Mount-only — the canvas is stateful; construct with the right options        |
-| `tools`                         | Array: reactive, append-only. Omitted or `'default'`: mount-only (see below) |
-| `initialData`                   | Mount-only — loaded once before `onready`                                    |
-| `onchange` / `changeDebounceMs` | Reactive — the latest callback is used without resubscribing                 |
-| `tool` / `ontoolchange`         | Reactive (controlled)                                                        |
-| `defaultTool`                   | Mount-only (uncontrolled initial tool); ignored when `tool` is set           |
-| `snapToGrid` (deprecated)       | Reactive compatibility prop; prefer a domain constraint service              |
-| `class` / `style` / `children`  | Reactive; `class` and `style` apply to the root `<div>`                      |
+| Prop                            | Reactivity                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `options`                       | Mount-only — the canvas is stateful; construct with the right options          |
+| `tools`                         | Array: reactive, append-only. Omitted or `'default'`: mount-only (see below)   |
+| `initialData`                   | Mount-only — loaded once before `onready`                                      |
+| `onchange` / `changeDebounceMs` | Reactive — the latest callback is used without resubscribing                   |
+| `tool` / `ontoolchange`         | Reactive (controlled)                                                          |
+| `defaultTool`                   | Mount-only (uncontrolled initial tool); ignored when `tool` is set             |
+| `snapToGrid` (deprecated)       | Reactive compatibility prop; prefer a domain constraint service                |
+| `theme`                         | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object. |
+| `class` / `style` / `children`  | Reactive; `class` and `style` apply to the root `<div>`                        |
 
 `tools` as an array registers each tool once (tools cannot be unregistered). `tools="default"`
 registers `createDefaultTools()` at mount, before `onready` (so you can customise them there).
@@ -207,7 +208,7 @@ their children unmount.
 ## Versioning
 
 `@fieldnotes/core` and `@fieldnotes/svelte` are versioned independently. The package's
-`peerDependencies` declare the compatible core range (`>=0.96.0 <1.0.0`). Pre-1.0, minor versions
+`peerDependencies` declare the compatible core range (`@fieldnotes/core >=0.110.0 <1.0.0`). Pre-1.0, minor versions
 may contain breaking changes; if a core minor ever breaks the wrapper, a coordinated release raises
 the lower bound.
 

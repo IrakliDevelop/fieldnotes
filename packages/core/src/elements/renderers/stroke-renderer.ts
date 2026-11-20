@@ -1,13 +1,20 @@
 import type { StrokeElement } from '../types';
 import { getStrokeRenderData } from '../stroke-cache';
+import { DEFAULT_THEME, blendModeFor, inkFor } from '../../canvas/theme';
+import type { ResolvedTheme } from '../../canvas/theme';
 
-export function renderStroke(ctx: CanvasRenderingContext2D, stroke: StrokeElement): void {
+export function renderStroke(
+  ctx: CanvasRenderingContext2D,
+  stroke: StrokeElement,
+  theme: ResolvedTheme = DEFAULT_THEME,
+): void {
   if (stroke.points.length < 2) return;
 
   ctx.save();
-  if (stroke.blendMode) ctx.globalCompositeOperation = stroke.blendMode;
+  const blendMode = blendModeFor(theme, stroke.blendMode);
+  if (blendMode) ctx.globalCompositeOperation = blendMode;
   ctx.translate(stroke.position.x, stroke.position.y);
-  ctx.strokeStyle = stroke.color;
+  ctx.strokeStyle = inkFor(theme, stroke.color, stroke.blendMode);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.globalAlpha = stroke.opacity;

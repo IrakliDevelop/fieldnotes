@@ -84,6 +84,220 @@ describe('exportSvg', () => {
     vi.useRealTimers();
   });
 
+  it('uses the dark board and adapted black ink', async () => {
+    const store = new ElementStore();
+    store.add(
+      createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 20, y: 20, pressure: 0.5 },
+        ],
+        position: { x: 0, y: 0 },
+        color: '#000000',
+      }),
+    );
+
+    const svg = await exportSvg(store, { theme: 'dark' });
+
+    expect(svg).toMatch(
+      /^<svg[^>]*><rect x="-1" y="-1" width="22" height="22" fill="#1e1f22" \/><path/,
+    );
+    expect(svg).toContain('stroke="#ededed"');
+  });
+
+  it('preserves stored black ink in a light SVG export', async () => {
+    const store = new ElementStore();
+    store.add(
+      createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 20, y: 20, pressure: 0.5 },
+        ],
+        position: { x: 0, y: 0 },
+        color: '#000000',
+      }),
+    );
+
+    expect(await exportSvg(store, { theme: 'light' })).toContain('stroke="#000000"');
+  });
+
+  it('writes the required dark and light export groups and backgrounds', async () => {
+    const store = new ElementStore();
+    const highlighter = createStroke({
+      points: [
+        { x: 0, y: 0, pressure: 0.5 },
+        { x: 20, y: 20, pressure: 0.5 },
+      ],
+      position: { x: 0, y: 0 },
+      color: '#ffeb3b',
+      blendMode: 'multiply',
+      layerId: 'ink',
+    });
+    store.add(highlighter);
+    const dark = await exportSvg(store, { theme: 'dark' }, {
+      isLayerVisible: () => true,
+      getLayer: () => ({ opacity: 1 }),
+    } as never);
+    expect(dark).toContain('<g style="isolation:isolate"><path');
+    expect(dark).toContain(
+      'stroke="#ffeb3b" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" opacity="1" style="mix-blend-mode:screen"',
+    );
+    expect(dark.match(/isolation:isolate/g) ?? []).toHaveLength(1);
+    const half = await exportSvg(store, { theme: 'dark' }, {
+      isLayerVisible: () => true,
+      getLayer: () => ({ opacity: 0.5 }),
+    } as never);
+    expect(half).toContain('<g opacity="0.5" style="isolation:isolate"><path');
+    expect(half.match(/isolation:isolate/g) ?? []).toHaveLength(1);
+    const light = await exportSvg(store, { theme: 'light' });
+    expect(light).not.toContain('<rect ');
+    expect(light).toContain(
+      'stroke="#ffeb3b" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" opacity="1" style="mix-blend-mode:multiply"',
+    );
+    expect(light).not.toContain('isolation:isolate');
+  });
+
+  it('adapts low-lightness dark highlighter ink for screen SVG output', async () => {
+    const store = new ElementStore();
+    store.add(
+      createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 20, y: 20, pressure: 0.5 },
+        ],
+        position: { x: 0, y: 0 },
+        color: '#1e1e1e',
+        blendMode: 'multiply',
+      }),
+    );
+
+    const svg = await exportSvg(store, { theme: 'dark' });
+    expect(svg).toContain('stroke="#d3d3d3"');
+    expect(svg).toContain('mix-blend-mode:screen');
+  });
+
+  it('applies themed note, bound text, extension context, frame, and custom board output', async () => {
+    const registry = new ElementRegistry();
+    let extensionBase = '';
+    registry.register({
+      type: 'test:theme-context',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:theme-context',
+        data: {},
+      }),
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 10, h: 10 }),
+      emitSvg: (_element, _all, _bounds, context) => {
+        if (!context) throw new Error('theme context missing');
+        extensionBase = context.theme.base;
+        return '<path data-theme-context="dark" />';
+      },
+    });
+    const store = new ElementStore(registry);
+    const shape = createShape({
+      position: { x: 0, y: 0 },
+      size: { w: 80, h: 40 },
+      fillColor: '#1e88e5',
+    });
+    const text = {
+      ...createBoundText(shape, { text: 'bound', color: '#ffffff' }),
+      position: { x: 4, y: 4 },
+      size: { w: 72, h: 24 },
+    };
+    const frame = createFrame({ position: { x: 100, y: 0 }, size: { w: 80, h: 60 } });
+    frame.id = 'theme-frame';
+    store.add(shape);
+    store.add(text);
+    store.add(createNote({ position: { x: 0, y: 60 }, size: { w: 80, h: 40 }, text: 'note' }));
+    store.add({
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:theme-context',
+      position: { x: 100, y: 70 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+    store.add(frame);
+    const dark = await exportSvg(store, { theme: 'dark', elementRegistry: registry });
+    expect(dark).toContain('fill="#5c540d"');
+    expect(dark).toContain('<g fill="#ededed"');
+    expect(dark).toContain('<g fill="#0d0d0d"');
+    expect(dark).toContain('data-theme-context="dark"');
+    expect(extensionBase).toBe('dark');
+    const frameSvg = await exportSvg(store, {
+      frameId: frame.id,
+      theme: 'dark',
+      elementRegistry: registry,
+    });
+    expect(frameSvg).not.toContain('fill="#1e1f22"');
+    const custom = await exportSvg(store, {
+      theme: { base: 'light', tokens: { board: '#fffbe6' } },
+    });
+    expect(custom).toContain('fill="#fffbe6"');
+  });
+
+  it('isolates dark layers for stored multiply strokes, not extension SVG text', async () => {
+    const registry = new ElementRegistry();
+    registry.register({
+      type: 'test:screen-text',
+      legacyTypes: [],
+      decodeLegacy: () => {
+        throw new Error('no legacy');
+      },
+      validateData: () => true,
+      unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+      wrap: ({ type: _type, ...base }) => ({
+        ...base,
+        type: 'extension',
+        extensionType: 'test:screen-text',
+        data: {},
+      }),
+      bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 20, h: 20 }),
+      emitSvg: () => '<text>mix-blend-mode:screen</text>',
+    });
+    const store = new ElementStore(registry);
+    store.add({
+      id: 'extension',
+      type: 'extension',
+      extensionType: 'test:screen-text',
+      position: { x: 0, y: 0 },
+      index: 'a0',
+      version: 1,
+      locked: false,
+      layerId: '',
+      data: {},
+    });
+
+    const fromExtension = await exportSvg(store, { elementRegistry: registry, theme: 'dark' });
+
+    expect(fromExtension).not.toContain('isolation:isolate');
+
+    store.add(
+      createStroke({
+        points: [
+          { x: 0, y: 0, pressure: 0.5 },
+          { x: 20, y: 20, pressure: 0.5 },
+        ],
+        position: { x: 0, y: 0 },
+        blendMode: 'multiply',
+      }),
+    );
+
+    const fromStroke = await exportSvg(store, { elementRegistry: registry, theme: 'dark' });
+
+    expect(fromStroke).toContain('isolation:isolate');
+  });
+
   it('warns once for a remote image failure and keeps its original URL', async () => {
     const originalImage = globalThis.Image;
     globalThis.Image = class MockImage {

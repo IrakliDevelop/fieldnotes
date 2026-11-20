@@ -2,6 +2,7 @@ import type { Bounds, Point, Size } from '../core/types';
 import { createId } from './create-id';
 import { textFontFamily } from './text-layout';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
+import { DEFAULT_THEME } from '../canvas/theme';
 
 /** The built-in extension type used for board frames. */
 export const FRAME_ELEMENT_TYPE = 'core:frame';
@@ -234,10 +235,11 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
       }
     },
   },
-  render: (ctx, el) => {
+  render: (ctx, el, _allElements, _worldBounds, context) => {
+    const color = (context?.theme ?? DEFAULT_THEME).adapt(el.data.color);
     ctx.save();
-    ctx.strokeStyle = el.data.color;
-    ctx.fillStyle = el.data.color;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
     ctx.lineWidth = 1;
     ctx.strokeRect(el.position.x, el.position.y, el.size.w, el.size.h);
     ctx.beginPath();
@@ -254,8 +256,8 @@ export const frameElementDefinition: ElementTypeDefinition<FrameElement> = {
     ctx.restore();
     ctx.restore();
   },
-  emitSvg: (el) => {
-    const color = escapeXml(el.data.color);
+  emitSvg: (el, _allElements, _viewBox, context) => {
+    const color = escapeXml((context?.theme ?? DEFAULT_THEME).adapt(el.data.color));
     const title = escapeXml(el.data.title);
     const { x, y } = el.position;
     const { w, h } = el.size;

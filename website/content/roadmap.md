@@ -40,12 +40,12 @@
 - Links on elements that open from a badge or with ⌘/Ctrl+click
 - PNG and SVG exports that reopen as the board they came from
 - PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts
+- Light, dark and system board themes with colour tokens, element colours adapted on the dark board, and exports that follow them
 
 ## Next
 
-- I'm working on theming: colour tokens for the canvas, a dark board and exports that follow them.
+- I'm working on selection and input polish: lasso selection, flipping, `setSelection`, wheel zoom and pan, and following the display's pixel density.
 
 ## Not built yet
 
-- Theming with a dark board
 - Vector PDF with selectable text

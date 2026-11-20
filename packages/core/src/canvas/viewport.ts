@@ -8,6 +8,8 @@ import { createLinkActions, createToolAction } from '../actions/builtin-actions'
 import { buildContextMenuItems } from '../actions/context-menu-items';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
+import { resolveTheme } from './theme';
+import type { ResolvedTheme, Theme } from './theme';
 import { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { setElbowVisibleLayers } from '../elements/elbow-cache';
@@ -21,7 +23,6 @@ import { createWrapper, createCanvas, createDomLayer, createPaintStack } from '.
 import { HybridRenderSurface } from './hybrid-render-surface';
 import { unbindArrowsFrom } from '../elements/arrow-binding';
 import { getElementsBoundingBox } from '../elements/bounds';
-import { DEFAULT_SELECTION_COLOR } from '../tools/selection-color';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
@@ -33,7 +34,12 @@ import { InsertQueue } from './insert-queue';
 import type { AssetResolver, ImageErrorInfo } from './content-inserter';
 import { ContentInserter } from './content-inserter';
 import { createImage, createHtmlElement, createShape } from '../elements/element-factory';
-import { createBoundText, getBoundText, isBoundTextContainer } from '../elements/bound-text';
+import {
+  createBoundText,
+  getBoundText,
+  getBoundTextContainerId,
+  isBoundTextContainer,
+} from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import {
   exportState as exportCanvasState,
@@ -138,6 +144,8 @@ const INERT_SHORTCUTS_HELP: ShortcutsHelpApi = {
 export interface ViewportOptions {
   camera?: CameraOptions;
   background?: BackgroundOptions;
+  /** Board theme. Default `'light'`; `'system'` follows the system preference. */
+  theme?: Theme;
   fontSizePresets?: FontSizePreset[];
   toolbar?: boolean;
   placeholder?: string;
@@ -229,6 +237,12 @@ export class Viewport {
   private readonly commandPalette: CommandPalette | null;
   private readonly shortcutsHelpDialog: ShortcutsHelp | null;
   private readonly background: Background;
+  private theme: ResolvedTheme;
+  private themeSpec: Theme;
+  private systemMedia: MediaQueryList | null = null;
+  private systemThemeDispose: (() => void) | null = null;
+  private destroyed = false;
+  private readonly themeListeners = new Set<(theme: ResolvedTheme) => void>();
   private readonly renderer: ElementRenderer;
   private readonly noteEditor: NoteEditor;
   readonly historyRecorder: HistoryRecorder;
@@ -290,8 +304,17 @@ export class Viewport {
     private readonly container: HTMLElement,
     options: ViewportOptions = {},
   ) {
+    this.themeSpec = options.theme ?? 'light';
+    this.systemMedia = this.createSystemMedia(this.themeSpec);
+    this.theme = resolveTheme(this.themeSpec, this.systemMedia?.matches ?? false);
+    this.listenToSystemTheme();
+    this.disposers.push(() => {
+      this.removeSystemThemeListener();
+      this.themeListeners.clear();
+    });
     this.camera = new Camera(options.camera);
     this.background = new Background(options.background);
+    this.background.setTheme(this.theme);
     this.elementRegistry =
       options.elementRegistry ?? new ElementRegistry(getDefaultElementRegistry());
     this.store = new ElementStore(this.elementRegistry);
@@ -321,6 +344,7 @@ export class Viewport {
       this.attachSelectionSource(existingSelect);
     }
     this.renderer = new ElementRenderer();
+    this.renderer.setTheme(this.theme);
     this.disposers.push(() => this.renderer.clearImageCache());
     this.renderer.setStore(this.store);
     this.renderer.setCamera(this.camera);
@@ -354,6 +378,7 @@ export class Viewport {
       toolbar: options.toolbar,
       placeholder: options.placeholder,
     });
+    this.noteEditor.setTheme(this.theme);
     this.noteEditor.setOnInput((id) => this.interactions.liveFitHeight(id));
     this.noteEditor.setOnAbandon((id) => this.interactions.abandonEditHistory(id));
     this.noteEditor.setHistoryHooks(
@@ -386,6 +411,7 @@ export class Viewport {
     });
 
     this.wrapper = createWrapper();
+    this.wrapper.dataset.fieldnotesTheme = this.theme.base;
     this.noteEditor.setFocusReturnTarget(this.wrapper);
     this.canvasEl = createCanvas();
     this.paintStack = createPaintStack();
@@ -427,6 +453,7 @@ export class Viewport {
     this.toolContext = {
       camera: this.camera,
       store: this.store,
+      theme: this.theme,
       requestRender: () => this.requestRender(),
       requestOverlayRender: () => this.requestOverlayRender(),
       switchTool: (name: string) => this.toolManager.setTool(name, this.toolContext),
@@ -627,6 +654,7 @@ export class Viewport {
         matchShortcut: (event) => this.inputHandler.matchShortcut(event),
         isMac,
         strings,
+        getTheme: () => this.theme,
         closeOthers: () => {
           this.contextMenu?.close();
           palette?.close();
@@ -648,9 +676,10 @@ export class Viewport {
         closeContextMenu: () => this.contextMenu?.close(),
         help,
         matchShortcut: (event) => this.inputHandler.matchShortcut(event),
-        selectionColor: options.selectionColor ?? DEFAULT_SELECTION_COLOR,
+        selectionColor: () => options.selectionColor ?? this.theme.tokens.selection,
         isMac,
         strings,
+        getTheme: () => this.theme,
       });
       this.commandPalette = palette;
       this.shortcutsHelpDialog = help;
@@ -689,7 +718,15 @@ export class Viewport {
       isInteracting: (id) => this.interactMode.interactingId === id,
       htmlPlaceholders: !options.onHtmlElementMount,
       acceptsPointer,
+      containerFill: (element) => {
+        const containerId = getBoundTextContainerId(element);
+        const container = containerId ? this.store.getById(containerId) : undefined;
+        return container?.type === 'shape' && container.fillColor !== 'none'
+          ? container.fillColor
+          : null;
+      },
     });
+    this.domNodeManager.setTheme(this.theme);
     this.domNodeManager.setCameraTransform(this.camera.toCSSTransform());
     this.disposers.push(() => this.domNodeManager.clearDomNodes());
 
@@ -728,6 +765,7 @@ export class Viewport {
       hooks: this._renderHooks,
       onFullFrame: () => this.contextLossGuard.frameComplete(),
     });
+    this.renderLoop.setTheme(this.theme);
     this.disposers.push(this.contextLossGuard.watch(this.canvasEl, () => undefined));
     this.disposers.push(() => this.contextLossGuard.dispose());
     this.disposers.push(
@@ -772,6 +810,14 @@ export class Viewport {
         if (current.type === 'html') {
           this.stopInteractingIfLive();
           this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+        }
+        if (
+          previous.type === 'shape' &&
+          current.type === 'shape' &&
+          previous.fillColor !== current.fillColor
+        ) {
+          const text = getBoundText(current, this.store);
+          if (text) this.domNodeManager.invalidateNode(text.id);
         }
         this.renderLoop.noteElementUpdate(previous, current);
         this.requestRender();
@@ -1027,6 +1073,33 @@ export class Viewport {
     return () => this.resizeListeners.delete(listener);
   }
 
+  /** Sets the board theme. */
+  setTheme(theme: Theme): void {
+    if (this.destroyed) return;
+    const wasSystem = this.isSystemTheme(this.themeSpec);
+    const isSystem = this.isSystemTheme(theme);
+    this.themeSpec = theme;
+    if (!wasSystem && isSystem) {
+      this.systemMedia = this.createSystemMedia(theme);
+      this.listenToSystemTheme();
+    } else if (wasSystem && !isSystem) {
+      this.removeSystemThemeListener();
+    }
+    this.setResolvedTheme(resolveTheme(theme, this.systemMedia?.matches ?? false));
+  }
+
+  /** Returns the active, resolved board theme. */
+  getTheme(): ResolvedTheme {
+    return this.theme;
+  }
+
+  /** Fires after the viewport resolves to a different theme. */
+  onThemeChange(listener: (theme: ResolvedTheme) => void): () => void {
+    if (this.destroyed) return noop;
+    this.themeListeners.add(listener);
+    return () => this.themeListeners.delete(listener);
+  }
+
   requestRender(): void {
     this.renderLoop.requestRender();
   }
@@ -1113,6 +1186,7 @@ export class Viewport {
       ...this.withHtmlDefaults(options),
       elementRegistry: options?.elementRegistry ?? this.elementRegistry,
       renderHooks: options?.renderHooks ?? this._renderHooks,
+      theme: options?.theme ?? { base: this.theme.base, tokens: this.theme.tokens },
     };
   }
 
@@ -1690,6 +1764,7 @@ export class Viewport {
     this.linkPromptClose = openLinkPrompt({
       container: this.container,
       wrapper: this.wrapper,
+      getTheme: () => this.theme,
       initialValue: initial,
       label,
       // A peer may delete or lock an id while the prompt is open.
@@ -1920,7 +1995,72 @@ export class Viewport {
   }
 
   destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
     for (const dispose of this.disposers.splice(0).reverse()) dispose();
+  }
+
+  private createSystemMedia(theme: Theme): MediaQueryList | null {
+    if (!this.isSystemTheme(theme) || typeof matchMedia !== 'function') return null;
+    return matchMedia('(prefers-color-scheme: dark)');
+  }
+
+  private listenToSystemTheme(): void {
+    const media = this.systemMedia;
+    if (media === null) return;
+    const listener = (event: MediaQueryListEvent) => {
+      if (this.destroyed) return;
+      this.setResolvedTheme(resolveTheme(this.themeSpec, event.matches));
+    };
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', listener);
+      this.systemThemeDispose = () => media.removeEventListener('change', listener);
+    } else {
+      media.addListener(listener);
+      this.systemThemeDispose = () => media.removeListener(listener);
+    }
+  }
+
+  private removeSystemThemeListener(): void {
+    this.systemThemeDispose?.();
+    this.systemMedia = null;
+    this.systemThemeDispose = null;
+  }
+
+  private isSystemTheme(theme: Theme): boolean {
+    return (
+      theme === 'system' || (theme !== null && typeof theme === 'object' && theme.base === 'system')
+    );
+  }
+
+  private setResolvedTheme(theme: ResolvedTheme): void {
+    if (this.themesEqual(this.theme, theme)) return;
+    this.theme = theme;
+    this.wrapper.dataset.fieldnotesTheme = theme.base;
+    this.background.setTheme(theme);
+    this.renderer.setTheme(theme);
+    this.toolContext.theme = theme;
+    this.renderLoop.setTheme(theme);
+    this.domNodeManager.setTheme(theme);
+    this.noteEditor.setTheme(theme);
+    this.minimap?.setTheme(theme);
+    this.renderLoop.markAllLayersDirty();
+    this.requestRender();
+    for (const listener of [...this.themeListeners]) {
+      try {
+        listener(theme);
+      } catch {
+        // One theme listener must not prevent the others from observing a change.
+      }
+      if (this.theme !== theme) break;
+    }
+  }
+
+  private themesEqual(a: ResolvedTheme, b: ResolvedTheme): boolean {
+    const bTokens = Object.values(b.tokens);
+    return (
+      a.base === b.base && Object.values(a.tokens).every((token, index) => token === bTokens[index])
+    );
   }
 
   stopInteracting(): void {

@@ -8,13 +8,15 @@ Viewport plugin system: fog of war, measurement tools, grid snapping, and map te
 owns the fog sync protocol types and CRDT logic used by `@fieldnotes/sync` for real-time fog
 collaboration.
 
+Grids and area templates adapt their colours to the [board theme](https://iraklidevelop.github.io/fieldnotes/docs/theming/). Fog keeps its own colours.
+
 ## Install
 
 ```bash
 pnpm add @fieldnotes/vtt @fieldnotes/core
 ```
 
-Requires `@fieldnotes/core` `>=0.99.0 <1.0.0` (peer dependency).
+Requires `@fieldnotes/core` `>=0.110.0 <1.0.0` (peer dependency).
 
 ## Register element types
 
@@ -78,7 +80,7 @@ Managed authority rooms opt in with `createFogAuthorityClientExtension()` from
 `@fieldnotes/vtt/sync` and `createFogAuthorityServerExtension()` from
 `@fieldnotes/vtt/server`. These adapters require the managed-authority APIs shipped by
 `@fieldnotes/sync` and `@fieldnotes/sync-server` 0.26.0. The package peer ranges are
-`@fieldnotes/core` `>=0.99.0 <1.0.0`, `@fieldnotes/sync` and `@fieldnotes/sync-server`
+`@fieldnotes/core` `>=0.110.0 <1.0.0`, `@fieldnotes/sync` and `@fieldnotes/sync-server`
 `>=0.28.0 <1.0.0`, and `@fieldnotes/sync-redis` `>=0.14.0 <1.0.0`; the three sync peers are
 optional. The exact checkpoint requirement is `fog/fog/1`, and the server owns `fog-meta` and
 `fog-patch` only when the factory is installed.

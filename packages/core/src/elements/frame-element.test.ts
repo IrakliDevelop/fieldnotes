@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   FRAME_ELEMENT_TYPE,
   createFrame,
@@ -9,6 +9,7 @@ import {
 import { ElementRegistry } from './element-registry';
 import type { FrameElement } from './frame-element';
 import { setTextFontFamily } from './text-measure';
+import { resolveTheme } from '../canvas/theme';
 
 afterEach(() => setTextFontFamily(null));
 
@@ -25,6 +26,37 @@ function interaction() {
 }
 
 describe('frame element', () => {
+  it('adapts frame ink for dark canvas and SVG renderers', () => {
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      strokeRect: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      fillText: vi.fn(),
+      rect: vi.fn(),
+      clip: vi.fn(),
+      strokeStyle: '',
+      fillStyle: '',
+      lineWidth: 0,
+      font: '',
+      textBaseline: '',
+    } as unknown as CanvasRenderingContext2D;
+    const value = frame();
+    frameElementDefinition.render?.(ctx, value, [], undefined, { theme: resolveTheme('dark') });
+    expect(ctx.strokeStyle).toBe('#7b8ca4');
+    expect(ctx.fillStyle).toBe('#7b8ca4');
+    expect(
+      frameElementDefinition.emitSvg?.(
+        value,
+        [],
+        { x: 0, y: 0, w: 1, h: 1 },
+        { theme: resolveTheme('dark') },
+      ),
+    ).toContain('stroke="#7b8ca4"');
+  });
   it('creates a complete frame with defaults and outer bounds', () => {
     const frame = createFrame({ position: { x: 10, y: 20 }, size: { w: 120, h: 90 } });
 

@@ -41,6 +41,8 @@ import { FIXED_HELP_ROWS } from './palette-model';
 import { setTextMeasurer } from '../elements/text-measure';
 import { ElementRegistry } from '../elements/element-registry';
 import { createBoundText } from '../elements/bound-text';
+import { installRecordingContexts } from '../test-helpers/recording-contexts';
+import type { RenderLoop } from './render-loop';
 
 function arrowAnchor(from: { x: number; y: number }, to: { x: number; y: number }, bend: number) {
   const dx = to.x - from.x;
@@ -4370,6 +4372,32 @@ describe('Viewport', () => {
       expect(viewport.history.undoCount).toBe(undoCount);
       expect(viewport.getSelectedIds()).toEqual([]);
     });
+
+    it('wires the dark palette linger overlay through the viewport selection token', () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      cleanup.push(() => vi.unstubAllGlobals());
+      const register = vi.spyOn(Viewport.prototype, 'registerOverlay');
+      const viewport = createPaletteViewport(container, { theme: 'dark' });
+      sizeCanvas(viewport);
+      viewport.store.add(
+        createNote({
+          position: { x: 100, y: 100 },
+          size: { w: 50, h: 20 },
+          text: 'Budget',
+          layerId: viewport.layerManager.activeLayerId,
+        }),
+      );
+      viewport.palette.open('budget');
+      const input = container.querySelector('.fieldnotes-palette-input');
+      if (!(input instanceof HTMLInputElement)) throw new Error('palette input not found');
+      keydown(input, { key: 'Enter' });
+      const draw = register.mock.calls.at(-1)?.[0];
+      if (!draw) throw new Error('palette overlay not registered');
+      const canvas = recordingCanvas();
+      draw(canvas.ctx);
+      expect(canvas.styles).toContain('#64b5f6');
+      register.mockRestore();
+    });
   });
 
   describe('getCanvasSize', () => {
@@ -4763,6 +4791,76 @@ describe('Viewport html painters', () => {
       vp.store.add(markerElement());
       await vp.exportSVG();
       expect(painter).toHaveBeenCalled();
+    });
+
+    it('uses the viewport theme by default and a fixed override across exports', async () => {
+      const vp = makeViewport({ theme: 'dark' });
+      const seen: string[] = [];
+      vp.elementRegistry.register({
+        type: 'test:viewport-theme',
+        legacyTypes: [],
+        decodeLegacy: () => {
+          throw new Error('legacy');
+        },
+        validateData: () => true,
+        unwrap: ({ data: _data, extensionType: _extensionType, ...base }) => base,
+        wrap: ({ type: _type, ...base }) => ({
+          ...base,
+          type: 'extension',
+          extensionType: 'test:viewport-theme',
+          data: {},
+        }),
+        bounds: (element) => ({ x: element.position.x, y: element.position.y, w: 20, h: 20 }),
+        render: (_ctx, _element, _all, _bounds, context) => {
+          if (!context) throw new Error('theme context missing');
+          seen.push(`image:${context.theme.base}`);
+        },
+        emitSvg: (_element, _all, _bounds, context) => {
+          if (!context) throw new Error('theme context missing');
+          seen.push(`svg:${context.theme.base}`);
+          return `<path data-theme="${context.theme.base}" />`;
+        },
+      });
+      vp.store.add({
+        id: 'viewport-theme',
+        type: 'extension',
+        extensionType: 'test:viewport-theme',
+        position: { x: 0, y: 0 },
+        index: 'a0',
+        version: 1,
+        locked: false,
+        layerId: '',
+        data: {},
+      });
+      await nextFrame(vp);
+      seen.length = 0;
+      const dark = await vp.exportSVG();
+      expect(seen).toEqual(['svg:dark']);
+      seen.length = 0;
+      const light = await vp.exportSVG({ theme: 'light' });
+      expect(dark).toContain('fill="#1e1f22"');
+      expect(light).not.toContain('fill="#1e1f22"');
+      expect(seen).toEqual(['svg:light']);
+      seen.length = 0;
+      await vp.exportImage();
+      expect(seen).toEqual(['image:dark']);
+      seen.length = 0;
+      await vp.exportImage({ theme: 'light' });
+      expect(seen).toEqual(['image:light']);
+      seen.length = 0;
+      const darkPdf = await vp.exportPDF({ dpi: 18 });
+      if (!darkPdf) throw new Error('dark PDF missing');
+      expect(new TextDecoder('latin1').decode(await darkPdf.arrayBuffer())).toContain(
+        '0.118 0.122 0.133 rg',
+      );
+      expect(seen).toEqual(['image:dark']);
+      seen.length = 0;
+      const lightPdf = await vp.exportPDF({ theme: 'light', dpi: 18 });
+      if (!lightPdf) throw new Error('light PDF missing');
+      expect(new TextDecoder('latin1').decode(await lightPdf.arrayBuffer())).not.toContain(
+        '0.118 0.122 0.133 rg',
+      );
+      expect(seen).toEqual(['image:light']);
     });
 
     it('exportPDF runs the image export hook once per page', async () => {
@@ -5274,6 +5372,368 @@ describe('Viewport overlays', () => {
     vp.requestRender();
     flush();
     expect(draw).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Viewport theme', () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it('constructs dark with its DOM hook before a frame', () => {
+    const viewport = new Viewport(container, { theme: 'dark' });
+
+    expect(viewport.getTheme().base).toBe('dark');
+    expect(container.firstElementChild?.getAttribute('data-fieldnotes-theme')).toBe('dark');
+    viewport.destroy();
+  });
+
+  it('normalizes invalid runtime themes to a light viewport', () => {
+    const viewport = new Viewport(container, { theme: 'Dark' as never });
+    expect(viewport.getTheme().base).toBe('light');
+    expect(container.firstElementChild?.getAttribute('data-fieldnotes-theme')).toBe('light');
+    viewport.destroy();
+  });
+
+  it('normalizes a runtime null theme to light', () => {
+    const viewport = new Viewport(container, { theme: 'dark' });
+
+    viewport.setTheme(null as never);
+
+    expect(viewport.getTheme().base).toBe('light');
+    expect(container.firstElementChild?.getAttribute('data-fieldnotes-theme')).toBe('light');
+    viewport.destroy();
+  });
+
+  it('constructs with undefined dark theme overrides', () => {
+    const viewport = new Viewport(container, {
+      theme: { base: 'dark', tokens: { board: undefined } },
+    });
+    expect(viewport.getTheme().tokens.board).toBe('#1e1f22');
+    viewport.destroy();
+  });
+
+  it('keeps a highlighter out of live rendering from dark construction', () => {
+    const viewport = new Viewport(container, { theme: 'dark' });
+    const stroke = createStroke({
+      points: [
+        { x: 0, y: 0, pressure: 1 },
+        { x: 10, y: 0, pressure: 1 },
+      ],
+      blendMode: 'multiply',
+      layerId: viewport.layerManager.activeLayerId,
+    });
+    viewport.store.add(stroke);
+    viewport.store.update(stroke.id, { position: { x: 1, y: 0 } });
+    viewport.store.update(stroke.id, { position: { x: 2, y: 0 } });
+    const loop = (viewport as unknown as { renderLoop: { live: Map<string, number> } }).renderLoop;
+    expect(loop.live.size).toBe(0);
+    viewport.destroy();
+  });
+
+  it('a dark viewport paints the board on its first frame', () => {
+    const recording = installRecordingContexts();
+    const viewport = new Viewport(container, { theme: 'dark' });
+    const loop = (viewport as unknown as { renderLoop: RenderLoop }).renderLoop;
+    loop.setCanvasSize(800, 600);
+    viewport.requestRender();
+    loop.flush();
+    const canvas = container.querySelector('canvas');
+    if (!canvas) throw new Error('base canvas missing');
+
+    expect(recording.callsOf(canvas)).toContainEqual(
+      expect.objectContaining({ name: 'fillRect', args: [0, 0, 800, 600], fillStyle: '#1e1f22' }),
+    );
+    viewport.destroy();
+    recording.restore();
+  });
+
+  it('defaults to light with its DOM hook', () => {
+    const viewport = new Viewport(container);
+    expect(viewport.getTheme().base).toBe('light');
+    expect(container.firstElementChild?.getAttribute('data-fieldnotes-theme')).toBe('light');
+    viewport.destroy();
+  });
+
+  it('switches theme once and keeps the tool context current', () => {
+    const viewport = new Viewport(container, { theme: 'dark' });
+    const listener = vi.fn();
+    viewport.onThemeChange(listener);
+
+    viewport.setTheme('light');
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith(viewport.getTheme());
+    expect(viewport.toolContext.theme).toBe(viewport.getTheme());
+    viewport.destroy();
+  });
+
+  it('updates bound text DOM color when its shape fill changes', async () => {
+    const recording = installRecordingContexts();
+    let callback: ResizeObserverCallback | undefined;
+    const observer = {
+      observe: () => undefined,
+      unobserve: () => undefined,
+      disconnect: () => undefined,
+    } satisfies ResizeObserver;
+    class FakeResizeObserver implements ResizeObserver {
+      constructor(next: ResizeObserverCallback) {
+        callback = next;
+      }
+      observe(_target: Element, _options?: ResizeObserverOptions): void {
+        return undefined;
+      }
+      unobserve(_target: Element): void {
+        return undefined;
+      }
+      disconnect(): void {
+        return undefined;
+      }
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    const viewport = new Viewport(container, { theme: 'dark' });
+    try {
+      Object.defineProperties(container, {
+        clientWidth: { value: 800, configurable: true },
+        clientHeight: { value: 600, configurable: true },
+      });
+      const canvas = container.querySelector('canvas');
+      if (!(canvas instanceof HTMLCanvasElement)) throw new Error('expected canvas');
+      Object.defineProperties(canvas, {
+        clientWidth: { value: 800, configurable: true },
+        clientHeight: { value: 600, configurable: true },
+      });
+      if (!callback) throw new Error('expected ResizeObserver callback');
+      callback([], observer);
+      const shape = createShape({
+        position: { x: 0, y: 0 },
+        size: { w: 100, h: 50 },
+        fillColor: 'none',
+        layerId: viewport.layerManager.activeLayerId,
+      });
+      const text = createBoundText(shape, { text: 'Label', color: '#ffffff' });
+      viewport.store.add(shape);
+      viewport.store.add(text);
+      viewport.requestRender();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const node = Array.from(container.querySelectorAll<HTMLElement>('[data-element-id]')).find(
+        (candidate) => candidate.dataset['elementId'] === text.id,
+      );
+      if (!node) throw new Error('expected text node');
+      const version = viewport.store.getVersion(text.id);
+
+      expect(node.style.color).toBe('rgb(82, 82, 82)');
+      viewport.store.update(shape.id, { fillColor: '#1e88e5' });
+      viewport.requestRender();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+      expect(node.style.color).toBe('rgb(13, 13, 13)');
+      expect(viewport.store.getVersion(text.id)).toBe(version);
+    } finally {
+      viewport.destroy();
+      recording.restore();
+    }
+  });
+
+  it('treats structurally equal themes as no-ops', () => {
+    const viewport = new Viewport(container);
+    const listener = vi.fn();
+    const loop = (viewport as unknown as { renderLoop: { markAllLayersDirty(): void } }).renderLoop;
+    const dirty = vi.spyOn(loop, 'markAllLayersDirty');
+    const render = vi.spyOn(viewport, 'requestRender');
+    viewport.onThemeChange(listener);
+
+    viewport.setTheme('light');
+    viewport.setTheme({ base: 'light', tokens: {} });
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(dirty).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    viewport.destroy();
+  });
+
+  it('isolates throwing theme listeners', () => {
+    const viewport = new Viewport(container);
+    const listener = vi.fn();
+    viewport.onThemeChange(() => {
+      throw new Error('listener failed');
+    });
+    viewport.onThemeChange(listener);
+
+    viewport.setTheme('dark');
+
+    expect(listener).toHaveBeenCalledOnce();
+    viewport.destroy();
+  });
+
+  it('a theme switch produces no store, layer, history or state events (what SyncClient listens to)', () => {
+    let systemListener: ((event: MediaQueryListEvent) => void) | undefined;
+    const media = {
+      matches: true,
+      addEventListener: vi.fn((_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        systemListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => media),
+    );
+    const viewport = new Viewport(container);
+    const store = vi.fn();
+    const layer = vi.fn();
+    const history = vi.fn();
+    const state = vi.fn();
+    viewport.store.onChange(store);
+    viewport.layerManager.on('change', layer);
+    viewport.history.onChange(history);
+    viewport.onStateChange(state);
+
+    viewport.setTheme('dark');
+    (viewport as unknown as { renderLoop: RenderLoop }).renderLoop.flush();
+    viewport.setTheme('system');
+    media.matches = false;
+    systemListener?.({ matches: false } as MediaQueryListEvent);
+    viewport.setTheme('light');
+
+    expect(store).not.toHaveBeenCalled();
+    expect(layer).not.toHaveBeenCalled();
+    expect(history).not.toHaveBeenCalled();
+    expect(state).not.toHaveBeenCalled();
+    expect(viewport.history.canUndo).toBe(false);
+    viewport.destroy();
+  });
+
+  it('keeps serialized elements and store identities through a theme switch', () => {
+    const viewport = new Viewport(container);
+    const shape = createShape({ position: { x: 0, y: 0 }, size: { w: 80, h: 40 } });
+    const elements = [
+      createStroke({ points: [{ x: 0, y: 0, pressure: 0.5 }] }),
+      createStroke({ points: [{ x: 1, y: 1, pressure: 0.5 }], blendMode: 'multiply' }),
+      shape,
+      createNote({ position: { x: 0, y: 50 }, size: { w: 80, h: 40 } }),
+      createText({ position: { x: 0, y: 0 }, containerId: shape.id }),
+      createText({ position: { x: 0, y: 100 } }),
+      createFrame({ position: { x: 0, y: 150 }, size: { w: 80, h: 48 } }),
+      extension('theme-extension'),
+    ];
+    for (const element of elements) viewport.store.add(element);
+    const state = viewport.exportState();
+    const json = viewport.exportJSON();
+    const references = elements.map((element) => ({
+      id: element.id,
+      reference: viewport.store.getById(element.id),
+    }));
+
+    viewport.setTheme('dark');
+    (viewport as unknown as { renderLoop: RenderLoop }).renderLoop.flush();
+
+    expect(viewport.exportState()).toEqual(state);
+    expect(viewport.exportJSON()).toBe(json);
+    for (const { id, reference } of references) {
+      expect(viewport.store.getById(id)).toBe(reference);
+    }
+    viewport.destroy();
+  });
+
+  it('follows system changes without re-arming its standard listener', () => {
+    let listener: ((event: MediaQueryListEvent) => void) | undefined;
+    const media = {
+      matches: true,
+      addEventListener: vi.fn((_type: string, fn: (event: MediaQueryListEvent) => void) => {
+        listener = fn;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => media),
+    );
+    const viewport = new Viewport(container, { theme: 'system' });
+    const change = vi.fn();
+    viewport.onThemeChange(change);
+    expect(viewport.getTheme().base).toBe('dark');
+
+    media.matches = false;
+    listener?.({ matches: false } as MediaQueryListEvent);
+    expect(viewport.getTheme().base).toBe('light');
+    expect(change).toHaveBeenCalledOnce();
+    listener?.({ matches: false } as MediaQueryListEvent);
+    expect(change).toHaveBeenCalledOnce();
+
+    viewport.setTheme('system');
+    expect(media.addEventListener).toHaveBeenCalledOnce();
+    expect(media.removeEventListener).not.toHaveBeenCalled();
+    viewport.setTheme('dark');
+
+    expect(media.removeEventListener).toHaveBeenCalledWith('change', expect.any(Function));
+    viewport.destroy();
+  });
+
+  it('destroy removes the active standard listener and clears theme listeners', () => {
+    let mediaListener: ((event: MediaQueryListEvent) => void) | undefined;
+    const media = {
+      matches: false,
+      addEventListener: vi.fn((_type: string, listener: (event: MediaQueryListEvent) => void) => {
+        mediaListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => media),
+    );
+    const viewport = new Viewport(container, { theme: 'system' });
+    const listeners = (viewport as unknown as { themeListeners: Set<unknown> }).themeListeners;
+    viewport.onThemeChange(vi.fn());
+
+    viewport.destroy();
+
+    expect(media.removeEventListener).toHaveBeenCalledWith('change', mediaListener);
+    expect(listeners).toHaveLength(0);
+  });
+
+  it('uses and releases the legacy system theme listener', () => {
+    const addListener = vi.fn();
+    const removeListener = vi.fn();
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: false, addListener, removeListener })),
+    );
+    const viewport = new Viewport(container, { theme: 'system' });
+
+    expect(addListener).toHaveBeenCalledOnce();
+    viewport.destroy();
+    expect(removeListener).toHaveBeenCalledOnce();
+  });
+
+  it('does not query matchMedia after destroy', () => {
+    const viewport = new Viewport(container);
+    const matchMedia = vi.fn();
+    vi.stubGlobal('matchMedia', matchMedia);
+    viewport.destroy();
+    viewport.setTheme('system');
+
+    expect(matchMedia).not.toHaveBeenCalled();
+  });
+
+  it('uses light without logging when matchMedia is unavailable', () => {
+    vi.stubGlobal('matchMedia', undefined);
+    const warn = vi.spyOn(console, 'warn');
+    const viewport = new Viewport(container, { theme: 'system' });
+
+    expect(viewport.getTheme().base).toBe('light');
+    viewport.destroy();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

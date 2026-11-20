@@ -63,6 +63,7 @@ export type {
   ShortcutBindings,
   Tool,
   ToolContext,
+  Theme,
   Viewport,
   ViewportOptions,
 } from '@fieldnotes/core';

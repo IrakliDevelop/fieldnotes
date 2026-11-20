@@ -5,10 +5,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { DEFAULT_PALETTE_STRINGS } from './palette-model';
 import { ShortcutsHelp } from './shortcuts-help';
+import { resolveTheme } from './theme';
 
 const cleanup: (() => void)[] = [];
 
-function setup() {
+function setup(getTheme?: () => ReturnType<typeof resolveTheme>) {
   const harness = createViewportHarness();
   cleanup.push(() => harness.cleanup());
   const container = document.createElement('div');
@@ -31,6 +32,7 @@ function setup() {
     isMac: () => false,
     strings: DEFAULT_PALETTE_STRINGS,
     closeOthers,
+    getTheme,
   });
   cleanup.push(() => help.destroy());
   return { harness, container, wrapper, closeOthers, help };
@@ -46,6 +48,25 @@ afterEach(() => {
 });
 
 describe('shortcuts help', () => {
+  it('marks dark help roots and leaves default roots unmarked', () => {
+    const dark = setup(() => resolveTheme('dark'));
+    dark.help.open();
+    const darkRoot = dark.container.querySelector<HTMLElement>('.fieldnotes-help');
+    expect(darkRoot?.dataset.fieldnotesTheme).toBe('dark');
+    expect(darkRoot?.style.colorScheme).toBe('dark');
+    expect(darkRoot?.style.getPropertyValue('--fieldnotes-palette-theme-bg')).toBe('#2a2b30');
+    dark.help.close();
+
+    const light = setup();
+    light.help.open();
+    const lightRoot = light.container.querySelector<HTMLElement>('.fieldnotes-help');
+    expect(lightRoot?.dataset.fieldnotesTheme).toBeUndefined();
+    expect(lightRoot?.style.colorScheme).toBe('');
+    for (const property of ['bg', 'border', 'shadow', 'fg', 'active', 'muted']) {
+      expect(lightRoot?.style.getPropertyValue(`--fieldnotes-palette-theme-${property}`)).toBe('');
+    }
+  });
+
   it('shows the action id when an action label throws', () => {
     const { harness, container, help } = setup();
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);

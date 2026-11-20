@@ -1,6 +1,7 @@
 import type { Viewport } from './viewport';
 import { MinimapController } from './minimap-controller';
 import type { MinimapControllerOptions } from './minimap-controller';
+import type { ResolvedTheme } from './theme';
 
 const WIDTH = 200;
 const HEIGHT = 140;
@@ -35,11 +36,17 @@ export class Minimap {
     canvas.dataset.fieldnotesMinimap = 'true';
     container.appendChild(canvas);
     this.canvas = canvas;
+    this.setTheme(viewport.getTheme());
     this.controller = new MinimapController(viewport, canvas, {
       width: WIDTH,
       height: HEIGHT,
       ...controllerOptions,
     });
+  }
+
+  setTheme(theme: ResolvedTheme): void {
+    this.canvas.style.background = theme.tokens.minimapBackground;
+    this.canvas.style.border = `1px solid ${theme.tokens.minimapBorder}`;
   }
 
   scheduleDraw(): void {

@@ -1,5 +1,7 @@
 import { DEFAULT_NOTE_FONT_SIZE } from './element-factory';
 import { setFontSize, getActiveFormats } from './note-formatting';
+import { DEFAULT_THEME, LIGHT_THEME_TOKENS } from '../canvas/theme';
+import type { ResolvedTheme } from '../canvas/theme';
 
 const TOOLBAR_HEIGHT = 52;
 const TOOLBAR_GAP = 4;
@@ -35,9 +37,15 @@ export class NoteToolbar {
   private positionProvider: (() => DOMRect | null) | null = null;
   private selectionListener: (() => void) | null = null;
   private readonly fontSizePresets: FontSizePreset[];
+  private theme: ResolvedTheme = DEFAULT_THEME;
 
   constructor(fontSizePresets?: FontSizePreset[]) {
     this.fontSizePresets = fontSizePresets ?? DEFAULT_FONT_SIZE_PRESETS;
+  }
+
+  setTheme(theme: ResolvedTheme): void {
+    this.theme = theme;
+    if (this.el) this.applyTheme(this.el);
   }
 
   show(anchor: HTMLElement, positionProvider?: () => DOMRect | null): void {
@@ -83,8 +91,8 @@ export class NoteToolbar {
       alignItems: 'center',
       gap: '2px',
       padding: '2px 4px',
-      background: '#fff',
-      border: '1px solid #ccc',
+      background: this.theme.tokens.toolbarBackground,
+      border: `1px solid ${this.theme.tokens.toolbarBorder}`,
       borderRadius: '4px',
       boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
       zIndex: '10000',
@@ -97,6 +105,7 @@ export class NoteToolbar {
     }
 
     toolbar.appendChild(this.createFontSizeSelect());
+    this.applyTheme(toolbar);
 
     return toolbar;
   }
@@ -124,7 +133,6 @@ export class NoteToolbar {
       height: '44px',
       lineHeight: '44px',
     });
-
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       document.execCommand(config.command);
@@ -137,16 +145,15 @@ export class NoteToolbar {
   private createFontSizeSelect(): HTMLSelectElement {
     const select = document.createElement('select');
     Object.assign(select.style, {
-      border: '1px solid #ccc',
+      border: `1px solid ${this.theme.tokens.toolbarBorder}`,
       borderRadius: '3px',
-      background: '#fff',
+      background: this.theme.tokens.toolbarBackground,
       cursor: 'pointer',
       padding: '2px',
       fontSize: '12px',
       height: '44px',
       marginLeft: '4px',
     });
-
     for (const preset of this.fontSizePresets) {
       const option = document.createElement('option');
       option.value = String(preset.size);
@@ -221,8 +228,31 @@ export class NoteToolbar {
       if (!btn) continue;
 
       const isActive = active[config.format as keyof typeof active] ?? false;
-      btn.style.background = isActive ? '#e0e0e0' : 'none';
-      btn.style.borderColor = isActive ? '#bbb' : 'transparent';
+      btn.style.background = isActive ? this.theme.tokens.toolbarActive : 'none';
+      btn.style.borderColor = isActive
+        ? this.theme.tokens.toolbarBorder === LIGHT_THEME_TOKENS.toolbarBorder
+          ? '#bbb'
+          : this.theme.tokens.toolbarBorder
+        : 'transparent';
     }
+  }
+
+  private applyTheme(toolbar: HTMLDivElement): void {
+    toolbar.style.background = this.theme.tokens.toolbarBackground;
+    toolbar.style.border = `1px solid ${this.theme.tokens.toolbarBorder}`;
+    if (this.theme.tokens.chromeText) toolbar.style.color = this.theme.tokens.chromeText;
+    else toolbar.style.removeProperty('color');
+    const select = toolbar.querySelector<HTMLSelectElement>('select');
+    if (select) {
+      select.style.border = `1px solid ${this.theme.tokens.toolbarBorder}`;
+      select.style.background = this.theme.tokens.toolbarBackground;
+      if (this.theme.tokens.chromeText) select.style.color = this.theme.tokens.chromeText;
+      else select.style.removeProperty('color');
+    }
+    for (const button of toolbar.querySelectorAll<HTMLButtonElement>('button')) {
+      if (this.theme.tokens.chromeText) button.style.color = this.theme.tokens.chromeText;
+      else button.style.removeProperty('color');
+    }
+    this.updateActiveStates();
   }
 }

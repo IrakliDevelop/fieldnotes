@@ -5,6 +5,7 @@ import { pickBaseFields } from './base-fields';
 import { getDefaultElementRegistry } from './default-registry';
 import type { ElementTypeDefinition, ExtensionElementEnvelope } from './types';
 import { FRAME_ELEMENT_TYPE, frameElementDefinition } from './frame-element';
+import { resolveTheme } from '../canvas/theme';
 
 // ─── Test fixture: a minimal extension element type ──────────────────────────
 
@@ -97,6 +98,30 @@ const markerDefinition: ElementTypeDefinition<MarkerElement> = {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('ElementRegistry', () => {
+  it('forwards render and SVG contexts while accepting old signatures', () => {
+    const registry = new ElementRegistry();
+    const render = vi.fn();
+    const emitSvg = vi.fn().mockReturnValue('');
+    registry.register({ ...markerDefinition, render, emitSvg });
+    const adapter = registry.getAdapter('test:marker');
+    if (!adapter?.render || !adapter.emitSvg) throw new Error('missing adapter');
+    const context = Object.freeze({ theme: resolveTheme('dark') });
+    const envelope = makeMarkerEnvelope();
+    adapter.render({} as CanvasRenderingContext2D, envelope, [envelope], undefined, context);
+    adapter.emitSvg(envelope, [envelope], { x: 0, y: 0, w: 1, h: 1 }, context);
+    expect(render.mock.calls[0]?.[4]).toBe(context);
+    expect(emitSvg.mock.calls[0]?.[3]).toBe(context);
+    const oldRender = vi.fn((_ctx, _el, _allElements, _bounds) => undefined);
+    const oldEmitSvg = vi.fn((_el, _allElements, _viewBox) => '<old/>');
+    const old = new ElementRegistry();
+    old.register({ ...markerDefinition, type: 'test:old', render: oldRender, emitSvg: oldEmitSvg });
+    const oldAdapter = old.getAdapter('test:old');
+    if (!oldAdapter?.render || !oldAdapter.emitSvg) throw new Error('missing old adapter');
+    oldAdapter.render({} as CanvasRenderingContext2D, envelope, [envelope]);
+    expect(oldAdapter.emitSvg(envelope, [envelope], { x: 0, y: 0, w: 1, h: 1 })).toBe('<old/>');
+    expect(oldRender).toHaveBeenCalledOnce();
+    expect(oldEmitSvg).toHaveBeenCalledOnce();
+  });
   it('grows the envelope passed to an erased bound-text layout', () => {
     const registry = new ElementRegistry();
     registry.register({

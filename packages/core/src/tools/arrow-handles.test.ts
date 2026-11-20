@@ -15,6 +15,7 @@ import { getArrowMidpoint } from '../elements/arrow-geometry';
 import { createNote, createArrow } from '../elements/element-factory';
 import type { ToolContext } from './types';
 import { Camera } from '../canvas/camera';
+import { resolveTheme } from '../canvas/theme';
 import { HistoryRecorder } from '../history/history-recorder';
 import { HistoryStack } from '../history/history-stack';
 
@@ -788,5 +789,16 @@ describe('renderArrowHandles', () => {
 
     expect(beginPathCalls.length).toBe(3);
     expect(fillCalls.length).toBe(3);
+  });
+
+  it('uses the dark handle token for arrow endpoints', () => {
+    const arrow = createArrow({ from: { x: 0, y: 0 }, to: { x: 200, y: 0 } });
+    const canvas = mockCanvasCtx();
+    const fills: string[] = [];
+    Object.defineProperty(canvas, 'fillStyle', { set: (value: string) => fills.push(value) });
+
+    renderArrowHandles(canvas, arrow, 1, undefined, undefined, resolveTheme('dark'));
+
+    expect(fills).toContain('#1e1f22');
   });
 });

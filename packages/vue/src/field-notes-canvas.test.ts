@@ -316,6 +316,69 @@ describe('FieldNotesCanvas', () => {
     expect(setSnapToGrid).not.toHaveBeenCalled();
   });
 
+  it('theme prop is reactive', async () => {
+    let themeAtReady: string | undefined;
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const wrapper = mount(FieldNotesCanvas, {
+      props: {
+        options: { theme: 'light' },
+        theme: 'dark',
+        onReady(viewport) {
+          themeAtReady = viewport.getTheme().base;
+          onReady(viewport);
+        },
+      },
+    });
+    const viewport = viewportAt(onReady, 0);
+    expect(themeAtReady).toBe('dark');
+
+    await wrapper.setProps({ theme: 'light' });
+    expect(viewport.getTheme().base).toBe('light');
+  });
+
+  it('forwards a runtime null theme prop to the viewport', async () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const wrapper = mount(FieldNotesCanvas, { props: { theme: 'dark', onReady } });
+    const viewport = viewportAt(onReady, 0);
+
+    await wrapper.setProps({ theme: null as never });
+
+    expect(viewport.getTheme().base).toBe('light');
+  });
+
+  it('normalizes invalid runtime theme strings at mount and update', async () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const wrapper = mount(FieldNotesCanvas, { props: { theme: 'Dark' as never, onReady } });
+    const viewport = viewportAt(onReady, 0);
+    expect(viewport.getTheme().base).toBe('light');
+
+    await wrapper.setProps({ theme: 'auto' as never });
+    expect(viewport.getTheme().base).toBe('light');
+  });
+
+  it('an absent theme leaves the viewport theme untouched', async () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const wrapper = mount(FieldNotesCanvas, {
+      props: { options: { theme: 'dark' }, snapToGrid: true, onReady },
+    });
+    const viewport = viewportAt(onReady, 0);
+
+    await wrapper.setProps({ snapToGrid: false });
+    expect(viewport.getTheme().base).toBe('dark');
+  });
+
+  it('an equal theme object does not fire onThemeChange', async () => {
+    const onReady = vi.fn<(viewport: Viewport) => void>();
+    const wrapper = mount(FieldNotesCanvas, { props: { theme: { base: 'dark' }, onReady } });
+    const viewport = viewportAt(onReady, 0);
+    const onThemeChange = vi.fn();
+    const dispose = viewport.onThemeChange(onThemeChange);
+
+    await wrapper.setProps({ theme: { base: 'dark' } });
+    expect(onThemeChange).not.toHaveBeenCalled();
+    dispose();
+  });
+
   it('under KeepAlive, deactivation keeps the viewport and unmount destroys it once', async () => {
     vi.useFakeTimers();
     const destroy = vi.spyOn(Viewport.prototype, 'destroy');

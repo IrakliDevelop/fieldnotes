@@ -248,6 +248,49 @@ describe('FieldNotesCanvas', () => {
     flushSync();
     expect(setSnapToGrid).not.toHaveBeenCalled();
   });
+
+  it('theme prop is reactive', async () => {
+    let themeAtReady: string | undefined;
+    const onready = vi.fn<(viewport: Viewport) => void>();
+    const { rerender } = render(FieldNotesCanvas, {
+      props: {
+        options: { theme: 'light' },
+        theme: 'dark',
+        onready(viewport) {
+          themeAtReady = viewport.getTheme().base;
+          onready(viewport);
+        },
+      },
+    });
+    const viewport = viewportAt(onready, 0);
+    expect(themeAtReady).toBe('dark');
+
+    await rerender({ theme: 'light' });
+    expect(viewport.getTheme().base).toBe('light');
+  });
+
+  it('an absent theme leaves the viewport theme untouched', async () => {
+    const onready = vi.fn<(viewport: Viewport) => void>();
+    const { rerender } = render(FieldNotesCanvas, {
+      props: { options: { theme: 'dark' }, snapToGrid: true, onready },
+    });
+    const viewport = viewportAt(onready, 0);
+
+    await rerender({ snapToGrid: false });
+    expect(viewport.getTheme().base).toBe('dark');
+  });
+
+  it('an equal theme object does not fire onThemeChange', async () => {
+    const onready = vi.fn<(viewport: Viewport) => void>();
+    const { rerender } = render(FieldNotesCanvas, { props: { theme: { base: 'dark' }, onready } });
+    const viewport = viewportAt(onready, 0);
+    const onThemeChange = vi.fn();
+    const dispose = viewport.onThemeChange(onThemeChange);
+
+    await rerender({ theme: { base: 'dark' } });
+    expect(onThemeChange).not.toHaveBeenCalled();
+    dispose();
+  });
 });
 
 describe('FieldNotesCanvas initialData and onchange', () => {

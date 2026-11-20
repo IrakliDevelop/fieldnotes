@@ -5,10 +5,14 @@ import {
   getHandlePositions,
   renderMarquee,
   renderSelectionBoxes,
+  renderGuideLines,
+  drawLockBadge,
+  drawLinkBadge,
 } from './select-overlay';
 import { createArrow, createNote, createShape } from '../elements/element-factory';
 import { ElementStore } from '../elements/element-store';
 import { recordingCanvas } from '../test-helpers/recording-canvas';
+import { resolveTheme } from '../canvas/theme';
 
 describe('select-overlay', () => {
   it('getOverlayLayout centers and rotates corners', () => {
@@ -73,6 +77,82 @@ describe('select-overlay', () => {
     renderSelectionBoxes(ctx, { ...selectionFixture(), zoom: 1 });
 
     expect(styles).toContain('#2196F3');
+  });
+
+  it('uses dark selection handles, badges, and guides while preserving explicit colours', () => {
+    const theme = resolveTheme('dark');
+    const { ctx, styles } = recordingCanvas();
+    renderSelectionBoxes(ctx, { ...selectionFixture(), zoom: 1, theme });
+    drawLockBadge(ctx, { x: 0, y: 0 }, 1, undefined, theme);
+    drawLinkBadge(ctx, { x: 0, y: 0 }, 1, undefined, theme);
+    renderGuideLines(ctx, {
+      guides: [{ axis: 'x', position: 1 }],
+      rect: null,
+      currentWorld: { x: 0, y: 0 },
+      zoom: 1,
+      theme,
+    });
+    expect(styles).toEqual(expect.arrayContaining(['#64b5f6', '#1e1f22', '#ff79a8']));
+    const explicit = recordingCanvas();
+    renderSelectionBoxes(explicit.ctx, { ...selectionFixture(), zoom: 1, theme, color: '#ff0000' });
+    expect(explicit.styles).toContain('#ff0000');
+  });
+
+  it('fills dark selection handles with the dark handle token', () => {
+    const { ctx, styles } = recordingCanvas();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    store.add(note);
+    renderSelectionBoxes(ctx, {
+      selectedIds: [note.id],
+      store,
+      zoom: 1,
+      theme: resolveTheme('dark'),
+    });
+    expect(styles).toContain('#1e1f22');
+  });
+
+  it('fills selection handles with #ffffff without a theme', () => {
+    const { ctx, styles } = recordingCanvas();
+    const store = new ElementStore();
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } });
+    store.add(note);
+    renderSelectionBoxes(ctx, { selectedIds: [note.id], store, zoom: 1 });
+
+    expect(styles).toContain('#ffffff');
+  });
+
+  it.each([
+    ['dark', resolveTheme('dark'), '#1e1f22'],
+    ['without theme', undefined, '#ffffff'],
+  ] as const)('fills the %s lock badge', (_name, theme, expected) => {
+    const { ctx, styles } = recordingCanvas();
+    drawLockBadge(ctx, { x: 0, y: 0 }, 1, undefined, theme);
+    expect(styles).toContain(expected);
+  });
+
+  it.each([
+    ['dark', resolveTheme('dark'), '#1e1f22'],
+    ['without theme', undefined, '#ffffff'],
+  ] as const)('strokes the %s link glyph', (_name, theme, expected) => {
+    const { ctx, styles } = recordingCanvas();
+    drawLinkBadge(ctx, { x: 0, y: 0 }, 1, undefined, theme);
+    expect(styles).toContain(expected);
+  });
+
+  it.each([
+    ['dark', resolveTheme('dark'), '#ff79a8'],
+    ['without theme', undefined, '#FF4081'],
+  ] as const)('draws %s guides with the token', (_name, theme, expected) => {
+    const { ctx, styles } = recordingCanvas();
+    renderGuideLines(ctx, {
+      guides: [{ axis: 'x', position: 1 }],
+      rect: null,
+      currentWorld: { x: 0, y: 0 },
+      zoom: 1,
+      theme,
+    });
+    expect(styles).toContain(expected);
   });
 
   it('renderMarquee strokes the colour and fills it at alpha 0.08', () => {

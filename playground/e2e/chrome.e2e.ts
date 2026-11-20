@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import type { ShapeTool } from '@fieldnotes/core';
 import { singleFingerDraw } from './helpers/touch';
-import { gotoBlank } from './helpers/board';
+import { captureExportedBlobs, gotoBlank } from './helpers/board';
 
 const zoom = (page: Page): Promise<number> =>
   page.evaluate(() => window.__playground.viewport.camera.zoom);
@@ -81,6 +81,61 @@ test('toast zone is present and empty at start', async ({ page }) => {
   const toast = page.locator('[data-chrome="toast"]');
   await expect(toast).toHaveCount(1);
   await expect(toast).toHaveText('');
+});
+
+test('board theme persists and PNG export follows it', async ({ page }, testInfo) => {
+  await captureExportedBlobs(page);
+  await gotoBlank(page);
+  const menu = page.locator('[data-chrome="menu"]');
+  await menu.getByRole('button', { name: 'Menu' }).click();
+  await menu.getByRole('button', { name: 'Dark board' }).click();
+  await expect(page.locator('#stage [data-fieldnotes-theme="dark"]')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Tabletop', exact: true }).click();
+  await page.waitForFunction(() => window.__playground?.sceneId === 'tabletop');
+  await expect(page.locator('#stage [data-fieldnotes-theme="dark"]')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Whiteboard', exact: true }).click();
+  await page.waitForFunction(() => window.__playground?.sceneId === 'whiteboard');
+  await expect(page.locator('#stage [data-fieldnotes-theme="dark"]')).toHaveCount(1);
+  await page.reload();
+  await page.waitForFunction(() => window.__playground?.sceneId === 'whiteboard');
+  await expect(page.locator('#stage [data-fieldnotes-theme="dark"]')).toHaveCount(1);
+
+  await page.keyboard.press('3');
+  const points = [0, 1, 2, 3].map((index) => ({ x: 300 + index * 30, y: 400 + index * 10 }));
+  if (testInfo.project.name === 'ipad') {
+    await singleFingerDraw(page, points);
+  } else {
+    const [first, ...rest] = points;
+    if (!first) throw new Error('no points');
+    await page.mouse.move(first.x, first.y);
+    await page.mouse.down();
+    for (const point of rest) await page.mouse.move(point.x, point.y, { steps: 3 });
+    await page.mouse.up();
+  }
+  await page.waitForFunction(() => window.__playground.viewport.store.count === 1);
+
+  const download = page.waitForEvent('download');
+  await menu.getByRole('button', { name: 'Menu' }).click();
+  await menu.locator('[data-menu-item="export-png"]').click();
+  await download;
+  const background = await page.evaluate(async () => {
+    const blob = (Reflect.get(window, 'exportedBlobs') as Blob[]).at(-1);
+    if (!blob) throw new Error('Missing downloaded PNG');
+    const bitmap = await createImageBitmap(blob);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Missing PNG context');
+    context.drawImage(bitmap, 0, 0);
+    return [...context.getImageData(5, 5, 1, 1).data];
+  });
+  expect(background.slice(0, 3)).toEqual([30, 31, 34]);
+
+  await menu.getByRole('button', { name: 'Menu' }).click();
+  await menu.getByRole('button', { name: 'Light board' }).click();
+  await expect(page.locator('#stage [data-fieldnotes-theme="dark"]')).toHaveCount(0);
 });
 
 test('flyout keyboard', async ({ page }) => {

@@ -44,9 +44,6 @@ describe('getFacts', () => {
       version: '9.9.9',
       source: 'npm',
     });
-    expect(facts.docs.notBuilt).toEqual([
-      'Theming with a dark board',
-      'Vector PDF with selectable text',
-    ]);
+    expect(facts.docs.notBuilt).toEqual(['Vector PDF with selectable text']);
   });
 });

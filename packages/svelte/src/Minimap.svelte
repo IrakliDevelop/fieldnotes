@@ -20,9 +20,6 @@
     'border: none; border-radius: 4px; background: rgba(0,0,0,0.35); color: #fff; ' +
     'font: 14px/1 system-ui, sans-serif; cursor: pointer;';
 
-  const collapsedStyle =
-    'min-width: 44px; min-height: 44px; border: 1px solid rgba(0,0,0,0.15); border-radius: 8px; ' +
-    'background: rgba(255,255,255,0.85); cursor: pointer; font: 18px/1 system-ui, sans-serif;';
 </script>
 
 <!--
@@ -50,6 +47,12 @@
   // svelte-ignore state_referenced_locally
   let collapsed = $state(defaultCollapsed);
   let canvas = $state<HTMLCanvasElement | null>(null);
+  let tokens = $state(viewport.getTheme().tokens);
+
+  $effect(() => {
+    tokens = viewport.getTheme().tokens;
+    return viewport.onThemeChange((theme) => (tokens = theme.tokens));
+  });
 
   $effect(() => {
     if (collapsed || !canvas) return;
@@ -69,7 +72,7 @@
     aria-label="Expand minimap"
     onclick={() => (collapsed = false)}
     class={className}
-    style="{collapsedStyle} {style}">▣</button
+    style="min-width: 44px; min-height: 44px; border: 1px solid {tokens.minimapBorder}; border-radius: 8px; background: {tokens.minimapBackground}; cursor: pointer; font: 18px/1 system-ui, sans-serif;{tokens.chromeText === '' ? '' : ` color: ${tokens.chromeText};`} {style}">▣</button
   >
 {:else}
   <div class={className} style="position: relative; {style}">

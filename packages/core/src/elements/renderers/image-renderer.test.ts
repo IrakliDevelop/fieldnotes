@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createImage } from '../element-factory';
-import { renderImage } from './image-renderer';
+import { renderImage, renderImagePlaceholder } from './image-renderer';
+import { resolveTheme } from '../../canvas/theme';
 
 function mockCtx(): CanvasRenderingContext2D {
-  return {
+  const strokeStyles: string[] = [];
+  const ctx = {
     drawImage: vi.fn(),
     fillRect: vi.fn(),
     strokeRect: vi.fn(),
@@ -16,9 +18,15 @@ function mockCtx(): CanvasRenderingContext2D {
     save: vi.fn(),
     restore: vi.fn(),
     fillStyle: '',
-    strokeStyle: '',
+    get strokeStyle() {
+      return strokeStyles.at(-1) ?? '';
+    },
+    set strokeStyle(value: string) {
+      strokeStyles.push(value);
+    },
     lineWidth: 0,
   } as unknown as CanvasRenderingContext2D;
+  return Object.assign(ctx, { strokeStyles });
 }
 
 function imageElement() {
@@ -158,5 +166,24 @@ describe('renderImage', () => {
 
     expect(stale.cache.size).toBe(0);
     expect(staleBitmap.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('renderImagePlaceholder theme', () => {
+  it('uses dark placeholder tokens and keeps light literals', () => {
+    const dark = mockCtx();
+    renderImagePlaceholder(dark, imageElement(), resolveTheme('dark'));
+    expect(dark.fillStyle).toBe('#2a2b30');
+    expect((dark as CanvasRenderingContext2D & { strokeStyles: string[] }).strokeStyles).toEqual([
+      '#4b4b4b',
+      '#9aa0a6',
+    ]);
+    const light = mockCtx();
+    renderImagePlaceholder(light, imageElement());
+    expect(light.fillStyle).toBe('#eeeeee');
+    expect((light as CanvasRenderingContext2D & { strokeStyles: string[] }).strokeStyles).toEqual([
+      '#bdbdbd',
+      '#9e9e9e',
+    ]);
   });
 });

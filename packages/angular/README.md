@@ -8,7 +8,7 @@ Angular bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnot
 npm install @fieldnotes/core @fieldnotes/angular
 ```
 
-Requires Angular 20 to 22 (`@angular/core >=20.0.0 <23.0.0`) and `@fieldnotes/core >=0.98.0`.
+Requires Angular 20 to 22 (`@angular/core >=20.0.0 <23.0.0`) and `@fieldnotes/core >=0.110.0 <1.0.0`.
 Every component is standalone; there is no NgModule.
 
 ## Quick start
@@ -121,6 +121,7 @@ afterwards has no effect:
 | Member             | Kind                        | Reactivity                                                                                     |
 | ------------------ | --------------------------- | ---------------------------------------------------------------------------------------------- |
 | `options`          | input `ViewportOptions`     | Mount-only. The canvas is stateful; construct it with the right options                        |
+| `theme`            | input `Theme`               | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object.                 |
 | `tools`            | input `Tool[] \| 'default'` | An array is append-only: a new array reference registers its new tools. `'default'` mount-only |
 | `initialData`      | input                       | Mount-only. Loaded once before `ready`                                                         |
 | `changeDebounceMs` | input, default `250`        | Read each time a change is scheduled                                                           |
@@ -319,7 +320,7 @@ helpers tolerate that order.
 
 `@fieldnotes/core` and `@fieldnotes/angular` are versioned independently. The package's
 `peerDependencies` declare the compatible ranges (`@angular/core >=20.0.0 <23.0.0`,
-`@fieldnotes/core >=0.98.0 <1.0.0`). Each new Angular major needs a peer-range check before the
+`@fieldnotes/core >=0.110.0 <1.0.0`). Each new Angular major needs a peer-range check before the
 upper bound moves. Pre-1.0, minor versions may contain breaking changes; if a core minor ever breaks
 the wrapper, a coordinated release raises the lower bound.
 

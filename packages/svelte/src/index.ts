@@ -30,3 +30,4 @@ export type {
   SelectionOpsState,
   SelectionStyleDetails,
 } from '@fieldnotes/core';
+export type { Theme } from '@fieldnotes/core';

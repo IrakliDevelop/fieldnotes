@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { getAllContexts } from 'svelte';
 import { render } from 'svelte/server';
-import { MinimapController, Viewport } from '@fieldnotes/core';
+import { DEFAULT_THEME, MinimapController, Viewport } from '@fieldnotes/core';
 import type { MinimapProps } from './index.js';
 import { Minimap } from './index.js';
 import HelperHost from './test-fixtures/HelperHost.svelte';
 
-// Never touched on the server: the controller is created in an effect, which SSR skips.
-const viewport: Viewport = Object.create(Viewport.prototype);
+// SSR reads the theme during render; controller effects do not run on the server.
+const viewport: Viewport = Object.assign(Object.create(Viewport.prototype), {
+  getTheme: () => DEFAULT_THEME,
+});
 
 // The context a provided Viewport sets up, captured so Minimap can render without a canvas.
 function viewportContext() {

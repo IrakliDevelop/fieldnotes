@@ -5,6 +5,7 @@ import { ElementStore } from '../elements/element-store';
 import { LayerManager } from '../layers/layer-manager';
 import { FrameTool } from './frame-tool';
 import type { PointerState, ToolContext } from './types';
+import { resolveTheme } from '../canvas/theme';
 
 function point(x: number, y: number, shiftKey = false): PointerState {
   return { x, y, pressure: 0.5, pointerType: 'mouse', shiftKey };
@@ -195,5 +196,45 @@ describe('FrameTool', () => {
     tool.renderOverlay(canvas);
 
     expect(strokeRect).toHaveBeenCalledWith(100, 150, 100, 50);
+  });
+
+  it('captures the dark frame preview colour at pointer down', () => {
+    const tool = new FrameTool();
+    const ctx = makeContext({ theme: resolveTheme('dark') });
+    const styles: string[] = [];
+    const canvas = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      setLineDash: vi.fn(),
+      strokeRect: vi.fn(),
+      lineWidth: 0,
+    } as unknown as CanvasRenderingContext2D;
+    Object.defineProperty(canvas, 'strokeStyle', { set: (value: string) => styles.push(value) });
+    tool.onPointerDown(point(0, 0), ctx);
+    ctx.theme = resolveTheme('light');
+    tool.onPointerMove(point(100, 100), ctx);
+    tool.renderOverlay(canvas);
+    expect(styles).toContain('#7b8ca4');
+  });
+
+  it.each([
+    ['light', resolveTheme('light')],
+    ['without theme', undefined],
+  ] as const)('keeps the stored frame colour %s', (_name, theme) => {
+    const tool = new FrameTool();
+    const ctx = makeContext({ theme });
+    const styles: string[] = [];
+    const canvas = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      setLineDash: vi.fn(),
+      strokeRect: vi.fn(),
+      lineWidth: 0,
+    } as unknown as CanvasRenderingContext2D;
+    Object.defineProperty(canvas, 'strokeStyle', { set: (value: string) => styles.push(value) });
+    tool.onPointerDown(point(0, 0), ctx);
+    tool.onPointerMove(point(100, 100), ctx);
+    tool.renderOverlay(canvas);
+    expect(styles).toContain('#64748b');
   });
 });

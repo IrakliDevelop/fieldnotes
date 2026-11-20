@@ -26,7 +26,7 @@ async function mountBoard(figure: Element): Promise<void> {
     viewport.shortcuts.disable('select.cycle');
     viewport.shortcuts.disable('select.cycle-reverse');
     viewport.setTool('pencil');
-    ruledPaper(viewport);
+    if (example.paper !== false) ruledPaper(viewport);
     engage.textContent = 'Draw on this board';
     // Core's own Escape disengages too, so the site adds no Escape handler.
     viewport.onEmbeddedEngagedChange((engaged) => {

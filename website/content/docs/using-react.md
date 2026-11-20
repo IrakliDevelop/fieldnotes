@@ -11,7 +11,7 @@ order: 2
 npm install @fieldnotes/core @fieldnotes/react
 ```
 
-`@fieldnotes/react` needs React 18 or 19 and `@fieldnotes/core` 0.105.0 or newer.
+`@fieldnotes/react` needs React 18 or 19 and `@fieldnotes/core >=0.110.0 <1.0.0`.
 
 ## Mount a board
 
@@ -26,6 +26,10 @@ npm install @fieldnotes/core @fieldnotes/react
 `initialData` takes a saved board as a `CanvasState` or a JSON string. `onChange` receives `viewport.exportState()` 250ms after the last change; set `changeDebounceMs` to change the wait. Loading `initialData` does not call `onChange`, and a pending call runs on unmount, so the last edit is not lost.
 
 Give `<FieldNotesCanvas>` a height through `style` or `className`. It renders one `div`, and the board fills it.
+
+The `theme` prop sets the [board theme](/docs/theming/) and applies later changes. Left `undefined`,
+it keeps whatever theme the viewport has, including one set with `setTheme`. Hoist a theme object
+out of the render.
 
 ## Use the viewport from a component
 

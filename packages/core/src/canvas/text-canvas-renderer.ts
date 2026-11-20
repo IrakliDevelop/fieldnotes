@@ -1,10 +1,18 @@
 import type { TextElement } from '../elements/types';
 import { TEXT_PADDING } from '../elements/text-measure';
 import { parseStyledRuns, renderStyledRuns } from './note-canvas-renderer';
+import { DEFAULT_THEME } from './theme';
+import type { ResolvedTheme } from './theme';
 
-export function renderTextOnCanvas(ctx: CanvasRenderingContext2D, text: TextElement): void {
+export function renderTextOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  text: TextElement,
+  theme: ResolvedTheme = DEFAULT_THEME,
+  containerFill: string | null = null,
+): void {
   ctx.save();
-  ctx.fillStyle = text.color;
+  ctx.fillStyle =
+    containerFill === null ? theme.adapt(text.color) : theme.adaptOn(text.color, containerFill);
   const runs = parseStyledRuns(text.text ?? '', text.fontSize);
   renderStyledRuns(
     ctx,

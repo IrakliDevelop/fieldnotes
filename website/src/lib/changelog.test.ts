@@ -179,7 +179,13 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('keeps the SVG/PDF, clipboard and fog-capability releases first, in package order, and unique', () => {
+  it('keeps the theming, SVG/PDF, clipboard and fog-capability releases first, in package order, and unique', () => {
+    const themingCore = release('@fieldnotes/core', '0.110.0');
+    const themingReact = release('@fieldnotes/react', '0.17.0');
+    const themingVue = release('@fieldnotes/vue', '0.2.0');
+    const themingSvelte = release('@fieldnotes/svelte', '0.2.0');
+    const themingAngular = release('@fieldnotes/angular', '0.2.0');
+    const themingVtt = release('@fieldnotes/vtt', '0.18.0');
     const svgCore = release('@fieldnotes/core', '0.109.0');
     const pdfReact = release('@fieldnotes/react', '0.16.0');
     const clipboardCore = release('@fieldnotes/core', '0.108.0');
@@ -200,25 +206,38 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     const frames = release('@fieldnotes/core', '0.102.0');
     const prior = release('@fieldnotes/core', '0.101.0');
 
-    expect(current.slice(0, 5)).toMatchObject([
+    expect(current.slice(0, 6)).toMatchObject([
+      { npmName: '@fieldnotes/core', version: '0.110.0' },
+      { npmName: '@fieldnotes/react', version: '0.17.0' },
+      { npmName: '@fieldnotes/vue', version: '0.2.0' },
+      { npmName: '@fieldnotes/svelte', version: '0.2.0' },
+      { npmName: '@fieldnotes/angular', version: '0.2.0' },
+      { npmName: '@fieldnotes/vtt', version: '0.18.0' },
+    ]);
+    expect(current.slice(6, 11)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.109.0' },
       { npmName: '@fieldnotes/react', version: '0.16.0' },
       { npmName: '@fieldnotes/core', version: '0.108.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.4' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.4' },
     ]);
-    expect(current[5]).toMatchObject({ npmName: '@fieldnotes/vtt', version: '0.17.2' });
-    expect(current.slice(6, 9)).toMatchObject([
+    expect(current[11]).toMatchObject({ npmName: '@fieldnotes/vtt', version: '0.17.2' });
+    expect(current.slice(12, 15)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.107.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.3' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.3' },
     ]);
-    expect(current[9]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
-    expect(current.slice(10, 13)).toMatchObject([
+    expect(current[15]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
+    expect(current.slice(16, 19)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.106.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.2' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.2' },
     ]);
+    expect(
+      current.filter(
+        (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.110.0',
+      ),
+    ).toHaveLength(1);
     expect(
       current.filter(
         (entry) => entry.npmName === '@fieldnotes/core' && entry.version === '0.106.0',
@@ -278,6 +297,12 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     expect(frames).toBeDefined();
     expect(prior).toBeDefined();
     if (
+      !themingCore ||
+      !themingReact ||
+      !themingVue ||
+      !themingSvelte ||
+      !themingAngular ||
+      !themingVtt ||
       !svgCore ||
       !pdfReact ||
       !clipboardCore ||
@@ -299,6 +324,12 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
       !prior
     )
       return;
+    expect(themingCore.date).toBeUndefined();
+    expect(themingReact.date).toBeUndefined();
+    expect(themingVue.date).toBeUndefined();
+    expect(themingSvelte.date).toBeUndefined();
+    expect(themingAngular.date).toBeUndefined();
+    expect(themingVtt.date).toBeUndefined();
     expect(svgCore.date).toBeUndefined();
     expect(pdfReact.date).toBeUndefined();
     expect(clipboardCore.date).toBeUndefined();

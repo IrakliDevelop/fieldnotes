@@ -1,6 +1,6 @@
 {
   "name": "@fieldnotes/angular",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Angular wrapper for Field Notes canvas SDK",
   "type": "module",
   "sideEffects": false,
@@ -34,7 +34,7 @@
   ],
   "peerDependencies": {
     "@angular/core": ">=20.0.0 <23.0.0",
-    "@fieldnotes/core": ">=0.98.0 <1.0.0"
+    "@fieldnotes/core": ">=0.110.0 <1.0.0"
   },
   "devDependencies": {
     "@analogjs/vite-plugin-angular": "^2.9.1",

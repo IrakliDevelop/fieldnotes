@@ -6,6 +6,76 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.110.0 — theming
+
+**Added**
+
+- `Theme`, `FixedTheme`, `ThemeBase`, `ThemeSpec`, `FixedThemeSpec`, `SystemThemeSpec`,
+  `ThemeTokens`, `ResolvedTheme`, `ElementRenderContext`, `resolveTheme`, `DEFAULT_THEME`,
+  `LIGHT_THEME_TOKENS`, `DARK_THEME_TOKENS`, `ViewportOptions.theme`, `Viewport.setTheme`,
+  `Viewport.getTheme` and `Viewport.onThemeChange`. The viewport wrapper has a
+  `data-fieldnotes-theme` hook.
+- Optional `ToolContext.theme` and optional `RemoteStrokeOverlayHost.getTheme`.
+- `ExportImageOptions.theme` and `ExportSvgOptions.theme`; `ExportPdfOptions` inherits the
+  option. `ElementTypeDefinition` and `ElementTypeAdapter` `render`, `emitSvg` and
+  `renderSelection` receive trailing theme/render context. The definition additions are optional
+  for compatibility.
+
+**Changed**
+
+- `Viewport.exportImage`, `exportSVG` and `exportPDF` follow the resolved theme by default;
+  `theme` overrides it and explicit `background` wins. Dark frame PNG and SVG exports remain
+  transparent with light ink, and dark PDFs fill each page. On a dark board, a layer holding a
+  highlighter stroke redraws from its layer cache instead of drawing the stroke live, so screen
+  blending stays correct while the highlighter or the ink above it is dragged.
+
+### React 0.17.0 — theme prop
+
+**Added**
+
+- Reactive `theme` prop and a themed collapsed minimap button.
+
+**Changed**
+
+- Peer floor: `@fieldnotes/core >=0.110.0 <1.0.0`.
+
+### Vue 0.2.0 — theme prop
+
+**Added**
+
+- Reactive `theme` prop and a themed collapsed minimap button.
+
+**Changed**
+
+- Peer floor: `@fieldnotes/core >=0.110.0 <1.0.0`.
+
+### Svelte 0.2.0 — theme prop
+
+**Added**
+
+- Reactive `theme` prop and a themed collapsed minimap button.
+
+**Changed**
+
+- Peer floor: `@fieldnotes/core >=0.110.0 <1.0.0`.
+
+### Angular 0.2.0 — theme input
+
+**Added**
+
+- Reactive `theme` input and a themed collapsed minimap button.
+
+**Changed**
+
+- Peer floor: `@fieldnotes/core >=0.110.0 <1.0.0`.
+
+### VTT 0.18.0 — themed grid and templates
+
+**Changed**
+
+- Grids and templates adapt through the extension render context. Peer floor:
+  `@fieldnotes/core >=0.110.0 <1.0.0`.
+
 ### Core 0.109.0 — SVG text, fonts and PDF export
 
 **Added**

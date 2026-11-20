@@ -8,6 +8,8 @@ import { rotatePoint } from '../core/geometry';
 import { lineEndpoints } from '../elements/shape-geometry';
 import { renderArrowHandles } from './arrow-handles';
 import { DEFAULT_SELECTION_COLOR } from './selection-color';
+import { DEFAULT_THEME } from '../canvas/theme';
+import type { ResolvedTheme } from '../canvas/theme';
 import type { ElementRegistry } from '../elements/element-registry';
 
 export type HandlePosition = 'nw' | 'ne' | 'sw' | 'se';
@@ -76,13 +78,14 @@ export function drawLockBadge(
   at: Point,
   zoom: number,
   color = DEFAULT_SELECTION_COLOR,
+  theme = DEFAULT_THEME,
 ): void {
   const r = 9 / zoom;
   ctx.save();
   ctx.setLineDash([]);
   ctx.beginPath();
   ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = theme.tokens.handleFill;
   ctx.fill();
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5 / zoom;
@@ -110,12 +113,13 @@ export function linkBadgeCenter(layout: OverlayLayout, zoom: number): Point {
   return rotatePoint({ x: ne.x + o, y: ne.y - o }, ne, layout.angle);
 }
 
-/** Draws the link badge: a filled disc with a white chain glyph. */
+/** Draws the link badge with a handle-fill chain glyph. */
 export function drawLinkBadge(
   ctx: CanvasRenderingContext2D,
   at: Point,
   zoom: number,
   color = DEFAULT_SELECTION_COLOR,
+  theme = DEFAULT_THEME,
 ): void {
   const offset = 2.5 / zoom;
   const half = 1.5 / zoom;
@@ -125,7 +129,7 @@ export function drawLinkBadge(
   ctx.arc(at.x, at.y, LINK_BADGE_RADIUS / zoom, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
-  ctx.strokeStyle = '#ffffff';
+  ctx.strokeStyle = theme.tokens.handleFill;
   ctx.lineWidth = 1.5 / zoom;
   ctx.lineCap = 'round';
   ctx.beginPath();
@@ -197,13 +201,15 @@ export function renderSelectionBoxes(
     isLayerLocked?: (layerId: string) => boolean;
     elementRegistry?: ElementRegistry;
     color?: string;
+    theme?: ResolvedTheme;
   },
 ): void {
   if (p.selectedIds.length === 0) return;
 
   const zoom = p.zoom;
   const handleWorldSize = HANDLE_SIZE / zoom;
-  const color = p.color ?? DEFAULT_SELECTION_COLOR;
+  const theme = p.theme ?? DEFAULT_THEME;
+  const color = p.color ?? theme.tokens.selection;
 
   ctx.save();
   ctx.strokeStyle = color;
@@ -216,7 +222,7 @@ export function renderSelectionBoxes(
     const locked = el.locked || (p.isLayerLocked?.(el.layerId) ?? false);
 
     if (el.type === 'arrow') {
-      if (!locked) renderArrowHandles(ctx, el, zoom, color, p.store);
+      if (!locked) renderArrowHandles(ctx, el, zoom, color, p.store, theme);
       renderBindingHighlights(ctx, el, zoom, p.store, color);
       continue;
     }
@@ -224,7 +230,7 @@ export function renderSelectionBoxes(
     if (el.type === 'shape' && el.shape === 'line') {
       if (!locked) {
         ctx.setLineDash([]);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = theme.tokens.handleFill;
         const r = handleWorldSize / 2;
         for (const pt of lineEndpoints(el)) {
           ctx.beginPath();
@@ -263,7 +269,7 @@ export function renderSelectionBoxes(
     if (!locked) {
       if (hasSize(el)) {
         ctx.setLineDash([]);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = theme.tokens.handleFill;
         const corners = layout.angle === 0 ? getHandlePositions(bounds) : layout.corners;
         for (const [, pos] of corners) {
           ctx.fillRect(
@@ -288,6 +294,7 @@ export function renderSelectionBoxes(
         p.elementRegistry?.getAdapter(el.extensionType)?.renderSelection?.(ctx, el, {
           zoom,
           selectedCount: p.selectedIds.length,
+          theme,
         });
       }
 
@@ -300,7 +307,7 @@ export function renderSelectionBoxes(
         ctx.stroke();
 
         ctx.setLineDash([]);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = theme.tokens.handleFill;
         ctx.beginPath();
         ctx.arc(stemEnd.x, stemEnd.y, handleWorldSize / 2, 0, Math.PI * 2);
         ctx.fill();
@@ -311,7 +318,7 @@ export function renderSelectionBoxes(
 
     if (locked) {
       const ne = layout.corners.find(([h]) => h === 'ne')?.[1];
-      if (ne) drawLockBadge(ctx, ne, zoom, color);
+      if (ne) drawLockBadge(ctx, ne, zoom, color, theme);
     }
   }
 
@@ -320,12 +327,18 @@ export function renderSelectionBoxes(
 
 export function renderGuideLines(
   ctx: CanvasRenderingContext2D,
-  p: { guides: SnapGuide[]; rect: Bounds | null; currentWorld: Point; zoom: number },
+  p: {
+    guides: SnapGuide[];
+    rect: Bounds | null;
+    currentWorld: Point;
+    zoom: number;
+    theme?: ResolvedTheme;
+  },
 ): void {
   const zoom = p.zoom;
   const rect = p.rect; // cached at drag start (same source as the candidate query)
   ctx.save();
-  ctx.strokeStyle = '#FF4081';
+  ctx.strokeStyle = (p.theme ?? DEFAULT_THEME).tokens.snapGuide;
   ctx.lineWidth = 1 / zoom;
   ctx.setLineDash([]);
   for (const g of p.guides) {

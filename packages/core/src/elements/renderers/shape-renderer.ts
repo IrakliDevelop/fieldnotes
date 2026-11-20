@@ -1,16 +1,22 @@
 import type { ShapeElement } from '../types';
 import { lineEndpoints } from '../shape-geometry';
+import { DEFAULT_THEME } from '../../canvas/theme';
+import type { ResolvedTheme } from '../../canvas/theme';
 
-export function renderShape(ctx: CanvasRenderingContext2D, shape: ShapeElement): void {
+export function renderShape(
+  ctx: CanvasRenderingContext2D,
+  shape: ShapeElement,
+  theme: ResolvedTheme = DEFAULT_THEME,
+): void {
   ctx.save();
 
   if (shape.fillColor !== 'none' && shape.shape !== 'line') {
-    ctx.fillStyle = shape.fillColor;
+    ctx.fillStyle = theme.adapt(shape.fillColor);
     fillShapePath(ctx, shape);
   }
 
   if (shape.strokeWidth > 0) {
-    ctx.strokeStyle = shape.strokeColor;
+    ctx.strokeStyle = theme.adapt(shape.strokeColor);
     ctx.lineWidth = shape.strokeWidth;
     strokeShapePath(ctx, shape);
   }

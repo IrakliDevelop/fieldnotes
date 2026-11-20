@@ -1,4 +1,10 @@
 import type { Bounds, Point, Size, StrokePoint } from '../core/types';
+import type { ResolvedTheme } from '../canvas/theme';
+
+/** Theme data supplied to extension renderers for a single surface. */
+export interface ElementRenderContext {
+  readonly theme: ResolvedTheme;
+}
 
 export interface BaseElement {
   id: string;
@@ -190,7 +196,11 @@ export interface ElementInteractionAdapter<T extends BaseElement> {
   renderSelection?(
     ctx: CanvasRenderingContext2D,
     el: T,
-    context: { readonly zoom: number; readonly selectedCount: number },
+    context: {
+      readonly zoom: number;
+      readonly selectedCount: number;
+      readonly theme: ResolvedTheme;
+    },
   ): void;
   rotate?(el: T, pivot: Point, delta: number): T;
 }
@@ -225,11 +235,13 @@ export interface ElementTypeDefinition<T extends BaseElement> {
     el: T,
     allElements: readonly CanvasElement[],
     worldBounds?: { minX: number; minY: number; maxX: number; maxY: number },
+    context?: ElementRenderContext,
   ): void;
   emitSvg?(
     el: T,
     allElements: readonly CanvasElement[],
     viewBox: { x: number; y: number; w: number; h: number },
+    context?: ElementRenderContext,
   ): string;
   /** Current version of `data` (positive integer, default 1); above 1 requires `migrate`. */
   dataVersion?: number;
@@ -271,7 +283,11 @@ export interface ElementTypeAdapter {
   renderSelection?(
     ctx: CanvasRenderingContext2D,
     el: ExtensionElementEnvelope,
-    context: { readonly zoom: number; readonly selectedCount: number },
+    context: {
+      readonly zoom: number;
+      readonly selectedCount: number;
+      readonly theme: ResolvedTheme;
+    },
   ): void;
   rotate?(el: ExtensionElementEnvelope, pivot: Point, delta: number): ExtensionElementEnvelope;
   render?(
@@ -279,11 +295,13 @@ export interface ElementTypeAdapter {
     el: ExtensionElementEnvelope,
     allElements: readonly CanvasElement[],
     worldBounds?: { minX: number; minY: number; maxX: number; maxY: number },
+    context?: ElementRenderContext,
   ): void;
   emitSvg?(
     el: ExtensionElementEnvelope,
     allElements: readonly CanvasElement[],
     viewBox: { x: number; y: number; w: number; h: number },
+    context?: ElementRenderContext,
   ): string;
   readonly dataVersion?: number;
   migrate?(data: Record<string, unknown>, fromVersion: number): Record<string, unknown>;

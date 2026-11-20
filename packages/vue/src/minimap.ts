@@ -1,4 +1,4 @@
-import { defineComponent, h, ref, shallowRef, watch, type StyleValue } from 'vue';
+import { defineComponent, h, onBeforeUnmount, ref, shallowRef, watch, type StyleValue } from 'vue';
 import { MinimapController } from '@fieldnotes/core';
 import { useViewport } from './composables/use-viewport';
 
@@ -63,6 +63,9 @@ export const Minimap = defineComponent({
     const viewport = useViewport();
     const collapsed = ref(props.defaultCollapsed);
     const canvas = shallowRef<HTMLCanvasElement | null>(null);
+    const tokens = shallowRef(viewport.getTheme().tokens);
+    const dispose = viewport.onThemeChange((theme) => (tokens.value = theme.tokens));
+    onBeforeUnmount(() => dispose());
 
     watch(
       [
@@ -94,7 +97,12 @@ export const Minimap = defineComponent({
             type: 'button',
             'aria-label': 'Expand minimap',
             onClick: () => (collapsed.value = false),
-            style: collapsedStyle,
+            style: {
+              ...collapsedStyle,
+              background: tokens.value.minimapBackground,
+              border: `1px solid ${tokens.value.minimapBorder}`,
+              ...(tokens.value.chromeText === '' ? {} : { color: tokens.value.chromeText }),
+            },
           },
           '▣',
         );

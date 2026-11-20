@@ -64,10 +64,7 @@ test.describe('landing without JavaScript', () => {
     ).toHaveAttribute('href', 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE');
 
     const notBuilt = page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem');
-    await expect(notBuilt).toHaveText([
-      'Theming with a dark board',
-      'Vector PDF with selectable text',
-    ]);
+    await expect(notBuilt).toHaveText(['Vector PDF with selectable text']);
 
     const packages = page.getByRole('contentinfo').getByRole('row');
     await expect(packages.getByRole('link')).toHaveText([
