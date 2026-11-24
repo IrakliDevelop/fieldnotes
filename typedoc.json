@@ -1,6 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "name": "Field Notes",
+  "name": "Field Notes API",
   "navigationLinks": {
     "Field Notes home": "https://fieldnotesjs.dev/",
     "Docs": "https://fieldnotesjs.dev/docs/",

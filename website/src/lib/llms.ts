@@ -8,7 +8,7 @@ import { orderDocs } from './docs-nav';
 import type { DocEntry } from './docs-nav';
 import { withBase } from './paths';
 
-interface SiteOptions {
+export interface SiteOptions {
   site: string;
   base: string;
 }
