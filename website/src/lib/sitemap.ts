@@ -17,10 +17,7 @@ export function sitePaths(docSlugs: readonly string[]): string[] {
 /** Sitemap XML with one absolute `<loc>` per path. */
 export function sitemapXml(paths: readonly string[], opts: SiteOptions): string {
   const urls = paths.map((path) => {
-    const loc = absoluteUrl(path, opts)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    const loc = absoluteUrl(path, opts).replace(/&/g, '&amp;');
     return `  <url><loc>${loc}</loc></url>\n`;
   });
   return (
