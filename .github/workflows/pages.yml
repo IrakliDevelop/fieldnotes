@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 20
 
     env:
-      FIELDNOTES_BASE: /${{ github.event.repository.name }}/
+      FIELDNOTES_BASE: /
       FIELDNOTES_STRICT_VERSIONS: '1'
 
     steps:
@@ -37,10 +37,10 @@ jobs:
       - run: pnpm build
 
       - name: Build playground under /playground/
-        run: pnpm --filter fieldnotes-playground exec vite build --base "/${{ github.event.repository.name }}/playground/" --outDir ../website/dist/playground --emptyOutDir
+        run: pnpm --filter fieldnotes-playground exec vite build --base "/playground/" --outDir ../website/dist/playground --emptyOutDir
 
       - name: Build dev playground under /dev/
-        run: pnpm --filter fieldnotes-demo exec vite build --base "/${{ github.event.repository.name }}/dev/" --outDir ../website/dist/dev --emptyOutDir
+        run: pnpm --filter fieldnotes-demo exec vite build --base "/dev/" --outDir ../website/dist/dev --emptyOutDir
 
       - name: Build API reference
         run: pnpm exec typedoc --out website/dist/api

@@ -93,7 +93,7 @@ test('llms.txt lists getting started with an absolute twin URL', async ({ reques
   const text = await (await request.get('/llms.txt')).text();
   expect(text.startsWith('# Field Notes\n')).toBe(true);
   expect(text).toMatch(
-    /^- \[Getting started\]\(https:\/\/iraklidevelop\.github\.io\/docs\/getting-started\.md\): /m,
+    /^- \[Getting started\]\(https:\/\/fieldnotesjs\.dev\/docs\/getting-started\.md\): /m,
   );
   const full = await (await request.get('/llms-full.txt')).text();
   expect(full).toContain(MOUNT_CODE);

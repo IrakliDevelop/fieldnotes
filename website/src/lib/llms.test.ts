@@ -10,7 +10,7 @@ const EXAMPLES: Examples = {
   view: { source: '// #region app\nconst app = <Board />;\n// #endregion app\n', lang: 'tsx' },
 };
 
-const OPTS = { examples: EXAMPLES, site: 'https://iraklidevelop.github.io', base: '/fieldnotes/' };
+const OPTS = { examples: EXAMPLES, site: 'https://fieldnotesjs.dev', base: '/fieldnotes/' };
 
 const BODY = `
 Read [layers](/docs/layers/) or [the site](https://example.com/).
@@ -43,7 +43,7 @@ describe('toMarkdownTwin', () => {
 
 A board that saves.
 
-Read [layers](https://iraklidevelop.github.io/fieldnotes/docs/layers/) or [the site](https://example.com/).
+Read [layers](https://fieldnotesjs.dev/fieldnotes/docs/layers/) or [the site](https://example.com/).
 
 \`\`\`ts
 const board = createBoard(el);
@@ -72,7 +72,7 @@ const app = <Board />;
         { ...OPTS, base: '/' },
       ),
     ).toBe(
-      '# T\n\nD.\n\n[a](https://iraklidevelop.github.io/docs/a/) ![b](https://iraklidevelop.github.io/img/b.png)\n',
+      '# T\n\nD.\n\n[a](https://fieldnotesjs.dev/docs/a/) ![b](https://fieldnotesjs.dev/img/b.png)\n',
     );
   });
 
@@ -148,14 +148,14 @@ describe('llmsTxt', () => {
 
 ## Docs
 
-- [Getting started](https://iraklidevelop.github.io/fieldnotes/docs/getting-started.md): A board that saves.
-- [Layers](https://iraklidevelop.github.io/fieldnotes/docs/layers.md): Layers keep drawings apart.
+- [Getting started](https://fieldnotesjs.dev/fieldnotes/docs/getting-started.md): A board that saves.
+- [Layers](https://fieldnotesjs.dev/fieldnotes/docs/layers.md): Layers keep drawings apart.
 
 ## Optional
 
-- [API reference](https://iraklidevelop.github.io/fieldnotes/api/): TypeDoc pages for every package except \`@fieldnotes/svelte\`.
-- [Changelog](https://iraklidevelop.github.io/fieldnotes/changelog/): Every release with its date.
-- [Roadmap](https://iraklidevelop.github.io/fieldnotes/roadmap/): What is built, what is next and what is not built yet.
+- [API reference](https://fieldnotesjs.dev/fieldnotes/api/): TypeDoc pages for every package except \`@fieldnotes/svelte\`.
+- [Changelog](https://fieldnotesjs.dev/fieldnotes/changelog/): Every release with its date.
+- [Roadmap](https://fieldnotesjs.dev/fieldnotes/roadmap/): What is built, what is next and what is not built yet.
 `);
   });
 });
@@ -176,7 +176,7 @@ const board = createBoard(el);
 
 Layers keep drawings apart.
 
-See [start](https://iraklidevelop.github.io/fieldnotes/docs/getting-started/).
+See [start](https://fieldnotesjs.dev/fieldnotes/docs/getting-started/).
 `);
   });
 });
