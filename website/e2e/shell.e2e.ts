@@ -35,7 +35,10 @@ test('home page has no axe violations', async ({ page }) => {
 
 test('home page links the SVG favicon', async ({ page, request }) => {
   await page.goto('/');
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg');
+  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute(
+    'href',
+    '/favicon.svg',
+  );
   const response = await request.get('/favicon.svg');
   expect(response.ok()).toBe(true);
   expect(response.headers()['content-type']).toContain('image/svg+xml');

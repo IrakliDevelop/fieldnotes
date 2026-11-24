@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Field Notes preview image</title>
+    <style>
+      @font-face {
+        font-family: 'Young Serif';
+        src: url('../../node_modules/@fontsource/young-serif/files/young-serif-latin-400-normal.woff2');
+      }
+      @font-face {
+        font-family: 'Kalam';
+        font-weight: 400;
+        src: url('../../node_modules/@fontsource/kalam/files/kalam-latin-400-normal.woff2');
+      }
+      @font-face {
+        font-family: 'Kalam';
+        font-weight: 700;
+        src: url('../../node_modules/@fontsource/kalam/files/kalam-latin-700-normal.woff2');
+      }
+      @font-face {
+        font-family: 'Public Sans';
+        src: url('../../node_modules/@fontsource/public-sans/files/public-sans-latin-400-normal.woff2');
+      }
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-weight: 500;
+        src: url('../../node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2');
+      }
+      :root {
+        --board: #f9f9f6;
+        --rule: rgba(70, 100, 150, 0.14);
+        --margin: rgba(184, 50, 42, 0.45);
+        --graphite: #2a2d31;
+        --graphite-2: #4a4f56;
+        --ballpoint: #2f55a4;
+        --note: #f2de8a;
+        --code-bg: #e8eae5;
+      }
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      body {
+        position: relative;
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background:
+          linear-gradient(var(--margin), var(--margin)) 120px 0 / 2px 100% no-repeat,
+          repeating-linear-gradient(transparent 0 59px, var(--rule) 59px 60px),
+          var(--board);
+      }
+      .brand {
+        position: absolute;
+        left: 160px;
+        top: 66px;
+        font: 700 40px/60px 'Kalam';
+        color: var(--ballpoint);
+      }
+      h1 {
+        position: absolute;
+        left: 160px;
+        top: 132px;
+        font: 400 84px/96px 'Young Serif';
+        color: var(--graphite);
+        letter-spacing: -0.01em;
+      }
+      .tagline {
+        position: absolute;
+        left: 160px;
+        top: 352px;
+        font: 400 28px/40px 'Public Sans';
+        color: var(--graphite-2);
+      }
+      .install {
+        position: absolute;
+        left: 160px;
+        top: 440px;
+        padding: 14px 28px;
+        border-radius: 999px;
+        background: var(--code-bg);
+        font: 500 32px/44px 'JetBrains Mono';
+        color: var(--graphite);
+      }
+      .note {
+        position: absolute;
+        right: 80px;
+        top: 380px;
+        width: 240px;
+        padding: 18px 22px;
+        background: var(--note);
+        box-shadow: 0 6px 14px rgba(42, 45, 49, 0.14);
+        transform: rotate(4deg);
+        font: 400 30px/36px 'Kalam';
+        color: var(--graphite);
+      }
+      svg {
+        position: absolute;
+        left: 656px;
+        top: 440px;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="brand">Field Notes</p>
+    <h1>Put an infinite canvas<br />in your app.</h1>
+    <p class="tagline">MIT licence · any framework · a sync server you host</p>
+    <p class="install">npm i @fieldnotes/core</p>
+    <svg
+      width="200"
+      height="80"
+      viewBox="0 0 200 80"
+      fill="none"
+      stroke="#2f55a4"
+      stroke-width="4"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M8 50 C 60 76, 130 66, 190 26" />
+      <path d="M168 22 L 192 25 L 186 48" />
+    </svg>
+    <p class="note">pens, shapes,<br />notes, arrows<br />and live HTML<br />on one board</p>
+  </body>
+</html>
