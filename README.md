@@ -2,7 +2,7 @@
 
 A lightweight, framework-agnostic infinite canvas SDK for the web — with first-class support for embedding interactive HTML elements.
 
-**[Site](https://iraklidevelop.github.io/fieldnotes/)** · [Playground](https://iraklidevelop.github.io/fieldnotes/playground/) · [Tabletop](https://iraklidevelop.github.io/fieldnotes/playground/?scene=tabletop) · [Embeds](https://iraklidevelop.github.io/fieldnotes/playground/?scene=embeds) · [Dev playground](https://iraklidevelop.github.io/fieldnotes/dev/) · [Bench](https://iraklidevelop.github.io/fieldnotes/dev/?bench=2000) · [API reference](https://iraklidevelop.github.io/fieldnotes/api/)
+**[Site](https://fieldnotesjs.dev/)** · [Playground](https://fieldnotesjs.dev/playground/) · [Tabletop](https://fieldnotesjs.dev/playground/?scene=tabletop) · [Embeds](https://fieldnotesjs.dev/playground/?scene=embeds) · [Dev playground](https://fieldnotesjs.dev/dev/) · [Bench](https://fieldnotesjs.dev/dev/?bench=2000) · [API reference](https://fieldnotesjs.dev/api/)
 
 ## Why Field Notes?
 
@@ -184,7 +184,7 @@ The model is authoritative op-broadcast with last-write-wins (not CRDT). Add [`@
 - Select, multi-select, move, resize, rotate, group / ungroup
 - Align, distribute, smart guides, and element-to-element snapping
 - Minimap overview, laser pointer, fit-to-content, zoom presets
-- [Command palette](https://iraklidevelop.github.io/fieldnotes/docs/tools-and-input/#command-palette-and-find-on-the-board) (Ctrl/⌘+K) that runs actions and finds text on the board, and a shortcuts help dialog (?)
+- [Command palette](https://fieldnotesjs.dev/docs/tools-and-input/#command-palette-and-find-on-the-board) (Ctrl/⌘+K) that runs actions and finds text on the board, and a shortcuts help dialog (?)
 - Runtime tool configuration (color, width, smoothing)
 - Undo / redo (one step per drag)
 - State serialization (versioned JSON export/import, CanvasState v4 with extension envelopes)

@@ -320,7 +320,7 @@ See [core README](../core/README.md#styling-the-selection) for the full `Element
 
 ## Save / Load
 
-The mount-only `autoSave` prop saves the board to localStorage under `key` (or to an `adapter`) and restores it on the next mount ([Saving and loading](https://iraklidevelop.github.io/fieldnotes/docs/saving-and-loading/)):
+The mount-only `autoSave` prop saves the board to localStorage under `key` (or to an `adapter`) and restores it on the next mount ([Saving and loading](https://fieldnotesjs.dev/docs/saving-and-loading/)):
 
 ```tsx
 <FieldNotesCanvas autoSave={{ key: 'my-board' }} style={{ width: '100%', height: '100%' }} />
@@ -352,7 +352,7 @@ export function SaveControls() {
 }
 ```
 
-`useExport` also returns [`exportPDF`](https://iraklidevelop.github.io/fieldnotes/docs/export/),
+`useExport` also returns [`exportPDF`](https://fieldnotesjs.dev/docs/export/),
 which resolves to a PDF `Blob` with one page per frame in `frameIds`, or one page for the board.
 
 ## Minimap

@@ -1,4 +1,4 @@
-> User guide: https://iraklidevelop.github.io/fieldnotes/docs/using-react/
+> User guide: https://fieldnotesjs.dev/docs/using-react/
 
 # @fieldnotes/react
 

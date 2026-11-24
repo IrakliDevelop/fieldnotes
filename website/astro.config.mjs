@@ -10,7 +10,7 @@ const base = process.env.FIELDNOTES_BASE ?? '/';
 const examples = readExamples(fileURLToPath(new URL('./src/examples/', import.meta.url)));
 
 export default defineConfig({
-  site: 'https://iraklidevelop.github.io',
+  site: 'https://fieldnotesjs.dev',
   base,
   trailingSlash: 'always',
   markdown: {

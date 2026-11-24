@@ -1,4 +1,4 @@
-> User guide: https://iraklidevelop.github.io/fieldnotes/docs/multiplayer/
+> User guide: https://fieldnotesjs.dev/docs/multiplayer/
 
 # @fieldnotes/sync
 

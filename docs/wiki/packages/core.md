@@ -1,4 +1,4 @@
-> User guide: https://iraklidevelop.github.io/fieldnotes/docs/getting-started/
+> User guide: https://fieldnotesjs.dev/docs/getting-started/
 
 # @fieldnotes/core
 

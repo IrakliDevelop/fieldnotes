@@ -18,8 +18,8 @@ A lightweight, framework-agnostic infinite canvas SDK for the web — with first
 - **Select & multi-select** — click, drag box, move, resize (layer-aware)
 - **Undo / redo** — history of the last 100 steps
 - **State serialization** — export/import JSON snapshots with automatic migration
-- [**Export**](https://iraklidevelop.github.io/fieldnotes/docs/export/): PNG, SVG and PDF export
-- [**Theming**](https://iraklidevelop.github.io/fieldnotes/docs/theming/): light, dark or system board themes, colour token overrides, and exports in the board's theme
+- [**Export**](https://fieldnotesjs.dev/docs/export/): PNG, SVG and PDF export
+- [**Theming**](https://fieldnotesjs.dev/docs/theming/): light, dark or system board themes, colour token overrides, and exports in the board's theme
 - **Performance instrumentation** — `getRenderStats()` and `logPerformance()` for frame timing
 - **Touch & tablet** — Pointer Events API, pinch-to-zoom, two-finger pan, stylus pressure
 - **Zero dependencies** — vanilla TypeScript, no framework required
@@ -156,7 +156,7 @@ output. `frameId` works with `exportImage()` and `exportSVG()`. For raster expor
 image diagnostics, registry capabilities, and render hooks still apply. Frame PNG export defaults to
 transparent; JPEG retains its opaque default.
 
-See the [export guide](https://iraklidevelop.github.io/fieldnotes/docs/export/). Remote images are
+See the [export guide](https://fieldnotesjs.dev/docs/export/). Remote images are
 requested with anonymous CORS using their original URLs. PNG and PDF exports draw a placeholder when
 an image fails; `onAssetError` reports `cors`, `load`, `timeout`, or `encode`, and without a callback
 each failed URL logs one `console.warn`. `exportSVG` writes text, notes and labels as SVG text and
@@ -650,7 +650,7 @@ viewport.setTool('highlighter');
 
 ### Bound text
 
-Double-click or double-tap a rectangle, ellipse, or arrow to edit its text. Select one and press Enter to run the `selection.edit-text` action. See [Tools and input](https://iraklidevelop.github.io/fieldnotes/docs/tools-and-input/#mouse-touch-and-pen) for the full interaction rules. Rectangles and ellipses grow for their text, do not shrink automatically, and cannot resize below the text's height. Arrow labels are text elements positioned at the curve midpoint. Arrows never grow.
+Double-click or double-tap a rectangle, ellipse, or arrow to edit its text. Select one and press Enter to run the `selection.edit-text` action. See [Tools and input](https://fieldnotesjs.dev/docs/tools-and-input/#mouse-touch-and-pen) for the full interaction rules. Rectangles and ellipses grow for their text, do not shrink automatically, and cannot resize below the text's height. Arrow labels are text elements positioned at the curve midpoint. Arrows never grow.
 
 `createBoundText(container, options)` creates the text child. `viewport.setBoundText(id, html)`
 creates, updates, or removes one and keeps the text change and any container growth in one undo
