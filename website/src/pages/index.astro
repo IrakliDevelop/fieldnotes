@@ -8,12 +8,14 @@ import NotBuilt from '../components/NotBuilt.astro';
 import gettingStarted from '../examples/getting-started.ts?raw';
 import htmlElements from '../examples/html-elements.ts?raw';
 import { link } from '../utils/base';
+import { canonicalUrl, softwareJsonLd } from '../lib/seo';
+
+const description =
+  'Freehand pens, shapes, sticky notes, arrows and live HTML elements on one zoomable board.';
+const url = canonicalUrl(Astro.url.pathname, import.meta.env.SITE);
 ---
 
-<Base
-  title="Field Notes"
-  description="Freehand pens, shapes, sticky notes, arrows and live HTML elements on one zoomable board."
->
+<Base title="Field Notes, an infinite-canvas SDK for the browser" description={description}>
   <script slot="head" is:inline define:vars={{ target: link('/playground/') }}>
     // Old playground links pointed at the site root; their query and hash still work there.
     const params = new URLSearchParams(location.search);
@@ -21,6 +23,12 @@ import { link } from '../utils/base';
       location.replace(target + location.search + location.hash);
     }
   </script>
+  <script
+    slot="head"
+    type="application/ld+json"
+    is:inline
+    set:html={softwareJsonLd({ url, description })}
+  />
 
   <main class="landing">
     <Hero />

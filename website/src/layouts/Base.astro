@@ -6,14 +6,19 @@ import '../styles/base.css';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { link } from '../utils/base';
+import { absoluteUrl, canonicalUrl } from '../lib/seo';
 
 interface Props {
   title: string;
   description: string;
   current?: ComponentProps<typeof Header>['current'];
+  noindex?: boolean;
 }
 
-const { title, description, current } = Astro.props;
+const { title, description, current, noindex } = Astro.props;
+const url = canonicalUrl(Astro.url.pathname, import.meta.env.SITE);
+const image = absoluteUrl('/og.png', { site: import.meta.env.SITE, base: import.meta.env.BASE_URL });
+const imageAlt = 'A ruled notebook page that reads: Put an infinite canvas in your app.';
 ---
 
 <!doctype html>
@@ -24,6 +29,29 @@ const { title, description, current } = Astro.props;
     <link rel="icon" type="image/svg+xml" href={link('/favicon.svg')} />
     <title>{title}</title>
     <meta name="description" content={description} />
+    {
+      noindex ? (
+        <meta name="robots" content="noindex" />
+      ) : (
+        <>
+          <link rel="canonical" href={url} />
+          <meta property="og:url" content={url} />
+        </>
+      )
+    }
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Field Notes" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={image} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={imageAlt} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={image} />
+    <meta name="theme-color" content="#F3F4F1" />
     <slot name="head" />
   </head>
   <body>
