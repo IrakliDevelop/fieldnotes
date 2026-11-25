@@ -31,7 +31,7 @@ const doc = (
 });
 
 describe('parseComparison', () => {
-  it('accepts content/comparison.json with the five rows in order', () => {
+  it('accepts content/comparison.json with its rows in order', () => {
     const json: unknown = JSON.parse(
       readFileSync(new URL('../../content/comparison.json', import.meta.url), 'utf8'),
     );
@@ -44,6 +44,22 @@ describe('parseComparison', () => {
       ['sync', '/docs/multiplayer/'],
       ['html', '/docs/html-elements/'],
       ['tabletop', '/docs/tabletop-maps/'],
+      ['bundle', 'https://bundlephobia.com/package/@fieldnotes/core'],
+      ['input', '/docs/tools-and-input/#mouse-touch-and-pen'],
+      ['interface', '/docs/tools-and-input/#switch-tools-from-your-toolbar'],
+      ['text', 'https://github.com/IrakliDevelop/fieldnotes/blob/master/packages/core/README.md'],
+      ['export', '/docs/export/'],
+      ['frames', '/docs/tools-and-input/#frames'],
+      ['layers', '/docs/layers/'],
+      ['presentation', '/docs/tools-and-input/#presentation'],
+      ['project', 'https://github.com/IrakliDevelop/fieldnotes'],
+    ]);
+    expect(comparison.rows.filter((row) => row.home).map((row) => row.id)).toEqual([
+      'licence',
+      'framework',
+      'sync',
+      'html',
+      'tabletop',
     ]);
   });
 

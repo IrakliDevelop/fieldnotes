@@ -1,5 +1,5 @@
 {
-  "checkedOn": "2026-10-20",
+  "checkedOn": "2026-11-25",
   "columns": ["Field Notes", "tldraw", "Excalidraw"],
   "rows": [
     {
@@ -12,14 +12,14 @@
           "href": "https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE"
         },
         "tldraw": {
-          "text": "The tldraw SDK is free in development and needs a licence key in production: a commercial licence, or a discretionary hobby licence for non-commercial projects that shows a \"made with tldraw\" watermark.",
+          "text": "The tldraw SDK is free in development and needs a licence key in production: a commercial licence, a 100-day trial, or a discretionary hobby licence for non-commercial projects that shows a \"made with tldraw\" watermark.",
           "source": "https://tldraw.dev/community/license",
-          "checkedOn": "2026-10-20"
+          "checkedOn": "2026-11-25"
         },
         "Excalidraw": {
           "text": "The Excalidraw repository is under the MIT licence.",
           "source": "https://github.com/excalidraw/excalidraw/blob/master/LICENSE",
-          "checkedOn": "2026-10-20"
+          "checkedOn": "2026-11-25"
         }
       }
     },
@@ -35,12 +35,12 @@
         "tldraw": {
           "text": "The tldraw SDK is a React library, used through the Tldraw component.",
           "source": "https://github.com/tldraw/tldraw/blob/main/README.md",
-          "checkedOn": "2026-10-20"
+          "checkedOn": "2026-11-25"
         },
         "Excalidraw": {
-          "text": "The @excalidraw/excalidraw package is installed together with react and react-dom.",
-          "source": "https://docs.excalidraw.com/docs/@excalidraw/excalidraw/installation",
-          "checkedOn": "2026-10-20"
+          "text": "@excalidraw/excalidraw is a React component, installed together with react and react-dom.",
+          "source": "https://plus.excalidraw.com/docs/sdk/excalidraw/installation",
+          "checkedOn": "2026-11-25"
         }
       }
     },
@@ -54,14 +54,14 @@
           "href": "/docs/multiplayer/"
         },
         "tldraw": {
-          "text": "tldraw sync is a multiplayer sync library that you host yourself, with a Cloudflare Durable Objects template and a Node.js option built on @tldraw/sync-core.",
+          "text": "tldraw sync is a multiplayer sync library that you host yourself, from a Cloudflare template or with @tldraw/sync-core on a JavaScript server that supports WebSockets.",
           "source": "https://tldraw.dev/docs/sync",
-          "checkedOn": "2026-10-20"
+          "checkedOn": "2026-11-25"
         },
         "Excalidraw": {
-          "text": "excalidraw-room is an example collaboration server for Excalidraw that you run yourself.",
-          "source": "https://github.com/excalidraw/excalidraw-room",
-          "checkedOn": "2026-10-20"
+          "text": "The @excalidraw/excalidraw package has no collaboration built in. Each host app implements its own.",
+          "source": "https://plus.excalidraw.com/docs/sdk/excalidraw/faq",
+          "checkedOn": "2026-11-25"
         }
       }
     },
@@ -75,14 +75,14 @@
           "href": "/docs/html-elements/"
         },
         "tldraw": {
-          "text": "Custom shapes can render HTML through the HTMLContainer component, and the SDK includes an embed shape.",
+          "text": "Custom shapes can render HTML through the HTMLContainer component.",
           "source": "https://tldraw.dev/docs/shapes",
-          "checkedOn": "2026-10-20"
+          "checkedOn": "2026-11-25"
         },
         "Excalidraw": {
           "text": "Embeddable elements render as iframes, and the renderEmbeddable prop can replace that renderer.",
-          "source": "https://docs.excalidraw.com/docs/@excalidraw/excalidraw/api/props/render-props",
-          "checkedOn": "2026-10-20"
+          "source": "https://plus.excalidraw.com/docs/sdk/excalidraw/api/props/render-props",
+          "checkedOn": "2026-11-25"
         }
       }
     },
@@ -94,6 +94,190 @@
         "Field Notes": {
           "text": "@fieldnotes/vtt adds square and hex grids, fog of war, a measuring tool and area templates.",
           "href": "/docs/tabletop-maps/"
+        }
+      }
+    },
+    {
+      "id": "bundle",
+      "label": "Bundle size, minified and gzipped (Bundlephobia)",
+      "home": false,
+      "cells": {
+        "Field Notes": {
+          "text": "@fieldnotes/core 0.109.0 is 122.1 kB, with no runtime dependencies.",
+          "href": "https://bundlephobia.com/package/@fieldnotes/core"
+        },
+        "tldraw": {
+          "text": "tldraw 5.6.2 is 555.1 kB.",
+          "source": "https://bundlephobia.com/package/tldraw",
+          "checkedOn": "2026-11-25"
+        },
+        "Excalidraw": {
+          "text": "@excalidraw/excalidraw 0.18.1 is 352.7 kB for the main chunk, and more code loads in separate chunks.",
+          "source": "https://bundlephobia.com/package/@excalidraw/excalidraw",
+          "checkedOn": "2026-11-25"
+        }
+      }
+    },
+    {
+      "id": "input",
+      "label": "Mouse, touch and pen",
+      "home": false,
+      "cells": {
+        "Field Notes": {
+          "text": "The board reads Pointer Events, so mouse, touch and pen drive the same tools. Pen pressure sets the stroke's width, and a resting palm is ignored while a pen is down.",
+          "href": "/docs/tools-and-input/#mouse-touch-and-pen"
+        },
+        "tldraw": {
+          "text": "The editor listens to Pointer Events, so mouse, touch and pen input use the same handlers.",
+          "source": "https://tldraw.dev/sdk-features/input-handling",
+          "checkedOn": "2026-11-25"
+        }
+      }
+    },
+    {
+      "id": "interface",
+      "label": "Built-in editor interface",
+      "home": false,
+      "cells": {
+        "Field Notes": {
+          "text": "No tool toolbar or style panel. Your app calls viewport.setTool from its own controls. The board has its own context menu and command palette.",
+          "href": "/docs/tools-and-input/#switch-tools-from-your-toolbar"
+        },
+        "tldraw": {
+          "text": "The tldraw package includes a complete interface with menus, toolbars, keyboard shortcuts and style panels.",
+          "source": "https://tldraw.dev/docs/user-interface",
+          "checkedOn": "2026-11-25"
+        },
+        "Excalidraw": {
+          "text": "The Excalidraw component renders its main menu with default options unless the app supplies its own.",
+          "source": "https://plus.excalidraw.com/docs/sdk/excalidraw/api/children-components/main-menu",
+          "checkedOn": "2026-11-25"
+        }
+      }
+    },
+    {
+      "id": "text",
+      "label": "Text formatting",
+      "home": false,
+      "cells": {
+        "Field Notes": {
+          "text": "Sticky notes have a formatting toolbar, on by default.",
+          "href": "https://github.com/IrakliDevelop/fieldnotes/blob/master/packages/core/README.md"
+        },
+        "tldraw": {
+          "text": "Text is rich text built on TipTap, with bold, italic, code, highlighting, lists and links.",
+          "source": "https://tldraw.dev/sdk-features/rich-text",
+          "checkedOn": "2026-11-25"
+        },
+        "Excalidraw": {
+          "text": "Rich text editing is an open feature request.",
+          "source": "https://github.com/excalidraw/excalidraw/issues/6678",
+          "checkedOn": "2026-11-25"
+        }
+      }
+    },
+    {
+      "id": "export",
+      "label": "Export formats",
+      "home": false,
+      "cells": {
+        "Field Notes": {
+          "text": "PNG, SVG and PDF. A PDF has one page per frame or one for the board.",
+          "href": "/docs/export/"
+        },
+        "tldraw": {
+          "text": "SVG, PNG, JPEG and WebP.",
+          "source": "https://tldraw.dev/sdk-features/image-export",
+          "checkedOn": "2026-11-25"
+        },
+        "Excalidraw": {
+          "text": "The export utilities produce a canvas, an image blob, an SVG or clipboard data.",
+          "source": "https://plus.excalidraw.com/docs/sdk/excalidraw/api/utils/export",
+          "checkedOn": "2026-11-25"
+        }
+      }
+    },
+    {
+      "id": "frames",
+      "label": "Frames",
+      "home": false,
+      "cells": {
+        "Field Notes": {
+          "text": "A frame groups and clips the elements added to it, and can be exported on its own.",
+          "href": "/docs/tools-and-input/#frames"
+        },
+        "tldraw": {
+          "text": "The frame shape is a container with a labelled header that holds other shapes.",
+          "source": "https://tldraw.dev/sdk-features/frame-shape",
+          "checkedOn": "2026-11-25"
+        },
+        "Excalidraw": {
+          "text": "Frames were introduced in pull request 6123.",
+          "source": "https://github.com/excalidraw/excalidraw/blob/master/packages/excalidraw/CHANGELOG.md",
+          "checkedOn": "2026-11-25"
+        }
+      }
+    },
+    {
+      "id": "layers",
+      "label": "Named layers",
+      "home": false,
+      "cells": {
+        "Field Notes": {
+          "text": "Named layers that can be hidden, locked, faded and reordered.",
+          "href": "/docs/layers/"
+        },
+        "tldraw": {
+          "text": "The docs include a layers panel as an example that lists, selects, renames and hides shapes.",
+          "source": "https://tldraw.dev/examples/layer-panel",
+          "checkedOn": "2026-11-25"
+        },
+        "Excalidraw": {
+          "text": "Layers are an open feature request.",
+          "source": "https://github.com/excalidraw/excalidraw/issues/7725",
+          "checkedOn": "2026-11-25"
+        }
+      }
+    },
+    {
+      "id": "presentation",
+      "label": "Presentation mode",
+      "home": false,
+      "cells": {
+        "Field Notes": {
+          "text": "viewport.presentation.start() steps through the frames with the arrow keys.",
+          "href": "/docs/tools-and-input/#presentation"
+        },
+        "tldraw": {
+          "text": "The docs include a slideshow example built from a custom slide shape.",
+          "source": "https://tldraw.dev/examples/slides",
+          "checkedOn": "2026-11-25"
+        },
+        "Excalidraw": {
+          "text": "The open-source app links to Excalidraw+ for presentations.",
+          "source": "https://github.com/excalidraw/excalidraw/blob/master/excalidraw-app/components/AppSidebar.tsx",
+          "checkedOn": "2026-11-25"
+        }
+      }
+    },
+    {
+      "id": "project",
+      "label": "Project age and size",
+      "home": false,
+      "cells": {
+        "Field Notes": {
+          "text": "The repository was created in March 2026. One maintainer, 8 GitHub stars.",
+          "href": "https://github.com/IrakliDevelop/fieldnotes"
+        },
+        "tldraw": {
+          "text": "The repository was created in May 2021 and has 51.6k GitHub stars.",
+          "source": "https://api.github.com/repos/tldraw/tldraw",
+          "checkedOn": "2026-11-25"
+        },
+        "Excalidraw": {
+          "text": "The repository was created in January 2020 and has 136.3k GitHub stars.",
+          "source": "https://api.github.com/repos/excalidraw/excalidraw",
+          "checkedOn": "2026-11-25"
         }
       }
     }
