@@ -68,6 +68,7 @@ import { MarginViewport } from './margin-viewport';
 import type { ElementStyle } from '../elements/element-style';
 import { ConstraintServiceProxy } from '../core/constraint-service';
 import { SelectionOps } from './selection-ops';
+import { FrameOps } from './frame-ops';
 import type { SelectionStyleDetails } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
 import { ViewportInteractions } from './viewport-interactions';
@@ -84,17 +85,10 @@ import type { ServiceKey } from '../core/service-key';
 import { reportFailure } from '../core/report-failure';
 import { ContextLossGuard } from './context-loss-guard';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
-import { createId } from '../elements/create-id';
 import { normalizeLink, parseElementLink } from '../elements/link';
 import { openLinkPrompt } from './link-prompt';
 import { getElementVisualBounds } from '../elements/element-bounds';
 import { CameraAnimator } from './camera-animator';
-import {
-  planAddToFrame,
-  planDissolveFrame,
-  planFrameSelection,
-  planRemoveFromFrame,
-} from '../elements/frame-commands';
 import {
   createPresentationActions,
   framePresentationSlides,
@@ -246,6 +240,7 @@ export class Viewport {
   private readonly inserter: ContentInserter;
   private transactionDepth = 0;
   private readonly selectionOps: SelectionOps;
+  private readonly frameOps: FrameOps;
   readonly toolContext: ToolContext;
   private readonly marginViewport: MarginViewport;
   private readonly layerCache: LayerCache;
@@ -395,6 +390,14 @@ export class Viewport {
       getSelectedIds: () => this.getSelectedIds(),
       requestRender: () => this.requestRender(),
       elementRegistry: this.elementRegistry,
+    });
+    this.frameOps = new FrameOps({
+      store: this.store,
+      elementRegistry: this.elementRegistry,
+      layerManager: this.layerManager,
+      transaction: (operation) => this.transaction(operation),
+      requestRender: () => this.requestRender(),
+      setSelection: (ids) => this.getSelectTool()?.setSelection(ids),
     });
 
     this.wrapper = createWrapper();
@@ -1289,17 +1292,7 @@ export class Viewport {
 
   /** Sets an element's direct parent, or clears its parent when passed null. */
   setParent(childId: string, parentId: string | null): void {
-    this.transaction(() => {
-      const child = this.store.getById(childId);
-      const nextParent = parentId ?? undefined;
-      const clearContainer = child?.type === 'text' && child.containerId !== nextParent;
-      if (!child || (child.parentId === nextParent && !clearContainer)) return;
-      this.store.update(childId, {
-        parentId: nextParent,
-        ...(clearContainer ? { containerId: undefined } : {}),
-      });
-      this.requestRender();
-    });
+    this.frameOps.setParent(childId, parentId);
   }
 
   /** Creates a frame around selected root subtrees and returns its id. */
@@ -1307,57 +1300,22 @@ export class Viewport {
     ids: readonly string[],
     options?: { readonly title?: string; readonly color?: string; readonly padding?: number },
   ): string {
-    const id = createId('frame');
-    const plan = planFrameSelection(
-      ids,
-      options ?? {},
-      id,
-      this.store,
-      this.elementRegistry,
-      this.layerManager,
-    );
-    this.transaction(() => {
-      if (!plan.add) throw new Error('Frame command plan has no frame');
-      this.store.add(plan.add);
-      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
-      this.getSelectTool()?.setSelection([id]);
-    });
-    this.requestRender();
-    return id;
+    return this.frameOps.frameSelection(ids, options);
   }
 
   /** Adds selected root subtrees as children of an existing frame. */
   addToFrame(frameId: string, ids: readonly string[]): void {
-    const plan = planAddToFrame(frameId, ids, this.store, this.elementRegistry, this.layerManager);
-    this.transaction(() => {
-      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
-    });
-    this.requestRender();
+    this.frameOps.addToFrame(frameId, ids);
   }
 
   /** Removes selected direct children from an existing frame. */
   removeFromFrame(frameId: string, ids: readonly string[]): void {
-    const plan = planRemoveFromFrame(
-      frameId,
-      ids,
-      this.store,
-      this.elementRegistry,
-      this.layerManager,
-    );
-    this.transaction(() => {
-      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
-    });
-    this.requestRender();
+    this.frameOps.removeFromFrame(frameId, ids);
   }
 
   /** Removes a frame while preserving its direct children as roots. */
   dissolveFrame(frameId: string): void {
-    const plan = planDissolveFrame(frameId, this.store, this.elementRegistry, this.layerManager);
-    this.transaction(() => {
-      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
-      if (plan.removeId) this.store.remove(plan.removeId);
-    });
-    this.requestRender();
+    this.frameOps.dissolveFrame(frameId);
   }
 
   undo(): boolean {
