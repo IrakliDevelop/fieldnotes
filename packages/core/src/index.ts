@@ -1,4 +1,4 @@
-export const VERSION = '0.110.1';
+export const VERSION = '0.110.2';
 
 export { resolveTheme, DEFAULT_THEME, LIGHT_THEME_TOKENS, DARK_THEME_TOKENS } from './canvas/theme';
 export type {
