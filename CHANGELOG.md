@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.110.2 — internal
+
+**Changed**
+
+- The `Viewport` constructor hands renderer configuration, the edit-text action, store
+  listeners and wrapper event binding to internal functions. No public API or behavior change.
+
 ### Core 0.110.1 — internal
 
 **Changed**

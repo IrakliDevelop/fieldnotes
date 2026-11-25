@@ -6,6 +6,7 @@ import { ActionRegistry } from '../actions/action-registry';
 import type { ActionContext, ActionsApi } from '../actions/types';
 import { createLinkActions, createToolAction } from '../actions/builtin-actions';
 import { buildContextMenuItems } from '../actions/context-menu-items';
+import { createEditTextAction } from '../actions/edit-text-action';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
 import { resolveTheme } from './theme';
@@ -21,7 +22,6 @@ import { ContextMenu } from './context-menu';
 import { Minimap } from './minimap';
 import { createWrapper, createCanvas, createDomLayer, createPaintStack } from './viewport-dom';
 import { HybridRenderSurface } from './hybrid-render-surface';
-import { unbindArrowsFrom } from '../elements/arrow-binding';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
@@ -52,7 +52,7 @@ import type { CanvasState, ImportableCanvasState } from '../core/state-serialize
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { EmbeddedMode } from './embedded-mode';
-import { LIVE_NODE_ATTR, isLiveControlTarget } from './live-control';
+import { bindWrapperEvents } from './wrapper-events';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
 import type { OverlayRenderer } from './render-loop';
@@ -78,6 +78,8 @@ import { ActivationController } from './activation-controller';
 import type { ActivationOptions, ElementActivationEvent } from './element-activation';
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
+import { configureRenderer } from './renderer-setup';
+import { bindStoreListeners } from './store-bindings';
 import { PluginStateManager } from '../core/plugin-state-manager';
 import type { NotificationController } from '../core/plugin-state-manager';
 import { PluginHost } from './plugin-host';
@@ -324,34 +326,17 @@ export class Viewport {
       this.selectionTracker.attach(existingSelect);
     }
     this.renderer = new ElementRenderer();
-    this.renderer.setTheme(this.theme);
     this.disposers.push(() => this.renderer.clearImageCache());
-    this.renderer.setStore(this.store);
-    this.renderer.setCamera(this.camera);
-    this.renderer.setElementRegistry(this.elementRegistry);
-    this.renderer.setOnImageLoad((src) => {
-      for (const el of this.store.getAll()) {
-        if (el.type === 'image' && el.src === src) this.renderLoop.markLayerDirty(el.layerId);
-      }
-      this.requestRender();
-    });
-    const reportImageError = (info: ImageErrorInfo): void => {
-      if (options.onImageError) options.onImageError(info);
-      else console.warn(`[fieldnotes] image failed to ${info.reason ?? 'load'}: ${info.src}`);
-    };
-    this.renderer.setOnImageError((src, cause) => {
-      const elementIds: string[] = [];
-      for (const el of this.store.getAll()) {
-        if (el.type === 'image' && el.src === src) elementIds.push(el.id);
-      }
-      reportImageError({ src, elementIds, cause, reason: 'load' });
-    });
-    this.renderer.setHtmlPainters(this.html.painters);
-    this.renderer.setDiagnosticSink((d) => {
-      this.html.diagnostics.emit(d, {
-        registryVersion: this.html.painters.version,
-        elementVersion: this.store.getVersion(d.elementId),
-      });
+    const reportImageError = configureRenderer({
+      renderer: this.renderer,
+      theme: this.theme,
+      store: this.store,
+      camera: this.camera,
+      elementRegistry: this.elementRegistry,
+      html: this.html,
+      onImageError: options.onImageError,
+      markLayerDirty: (id) => this.renderLoop.markLayerDirty(id),
+      requestRender: () => this.requestRender(),
     });
     this.noteEditor = new NoteEditor({
       fontSizePresets: options.fontSizePresets,
@@ -590,35 +575,15 @@ export class Viewport {
       openLink: (id) => this.links.open(id, null),
       promptLink: (ids, initial, label) => this.links.prompt(ids, initial, label),
     }).map((action) => this.actionRegistry.register(action));
-    const unregisterEditText = this.actionRegistry.register({
-      id: 'selection.edit-text',
-      label: 'Edit text',
-      keywords: ['text', 'label', 'edit'],
-      shortcut: ['enter'],
-      menu: { group: 'clipboard', order: 5 },
-      enabled: (ctx) => {
-        if (ctx.selectedIds.length !== 1) return false;
-        const id = ctx.selectedIds[0];
-        const element = id ? this.store.getById(id) : undefined;
-        return !!(
-          element &&
-          !element.locked &&
-          !this.layerManager.isLayerLocked(element.layerId) &&
-          (element.type === 'note' ||
-            element.type === 'text' ||
-            isBoundTextContainer(element, this.elementRegistry))
-        );
-      },
-      perform: (ctx) => {
-        const id = ctx.selectedIds[0];
-        if (!id) return false;
-        const element = this.store.getById(id);
-        if (!element) return false;
-        return isBoundTextContainer(element, this.elementRegistry)
-          ? this.interactions.editBoundText(id)
-          : (this.interactions.startEditingElement(id), true);
-      },
-    });
+    const unregisterEditText = this.actionRegistry.register(
+      createEditTextAction({
+        store: this.store,
+        layerManager: this.layerManager,
+        elementRegistry: this.elementRegistry,
+        editBoundText: (id) => this.interactions.editBoundText(id),
+        startEditingElement: (id) => this.interactions.startEditingElement(id),
+      }),
+    );
     this.disposers.push(
       ...unregisterPresentationActions,
       ...unregisterLinkActions,
@@ -798,62 +763,15 @@ export class Viewport {
       }),
     );
     unsubStore.push(
-      this.store.on('add', (el) => {
-        if (el.type === 'html') {
-          // Remote adds and undo re-adds arrive without DOM; rebuild it from the renderer.
-          if (!this.domNodeManager.hasContent(el.id)) {
-            try {
-              this.html.buildContent(el);
-            } catch (error) {
-              reportFailure(error, 'html renderer failed');
-            }
-          }
-          this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
-        }
-        this.renderLoop.markLayerDirty(el.layerId);
-        this.requestRender();
-      }),
-      this.store.on('remove', (el, meta) => {
-        unbindArrowsFrom(this.store, el, meta, this.elementRegistry);
-        this.domNodeManager.removeDomNode(el.id);
-        this.html.diagnostics.forget(el.id);
-        this.renderLoop.markLayerDirty(el.layerId);
-        this.renderLoop.forgetElement(el.id, el.layerId);
-        this.requestRender();
-        this.selectionTracker.handleRemoved(el.id);
-      }),
-      this.store.on('update', ({ previous, current }) => {
-        if (current.type === 'html') {
-          this.stopInteractingIfLive();
-          this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
-        }
-        if (
-          previous.type === 'shape' &&
-          current.type === 'shape' &&
-          previous.fillColor !== current.fillColor
-        ) {
-          const text = getBoundText(current, this.store);
-          if (text) this.domNodeManager.invalidateNode(text.id);
-        }
-        this.renderLoop.noteElementUpdate(previous, current);
-        this.requestRender();
-      }),
-      this.store.on('clear', () => {
-        this.domNodeManager.clearDomNodes();
-        this.html.diagnostics.reset();
-        this.renderLoop.clearLive();
-        this.renderLoop.markAllLayersDirty();
-        this.requestRender();
-        this.selectionTracker.prune();
-      }),
-      this.store.on('batch', () => {
-        this.stopInteractingIfLive();
-        this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
-        this.html.diagnostics.reset();
-        this.renderLoop.clearLive();
-        this.renderLoop.markAllLayersDirty();
-        this.requestRender();
-        this.selectionTracker.prune();
+      ...bindStoreListeners({
+        store: this.store,
+        elementRegistry: this.elementRegistry,
+        domNodeManager: this.domNodeManager,
+        html: this.html,
+        renderLoop: this.renderLoop,
+        selectionTracker: this.selectionTracker,
+        requestRender: () => this.requestRender(),
+        stopInteractingIfLive: () => this.stopInteractingIfLive(),
       }),
     );
 
@@ -933,38 +851,13 @@ export class Viewport {
       this.toolManager.setTool('select', this.toolContext);
     }
 
-    const { onTapDown, onDoubleTap, onDragOver, onDrop } = this.interactions;
-    this.wrapper.addEventListener('pointerdown', onTapDown);
-    this.wrapper.addEventListener('pointerup', onDoubleTap);
-    this.wrapper.addEventListener('dragover', onDragOver);
-    this.wrapper.addEventListener('drop', onDrop);
-    // Native drag from live padding would fight the board's own drag; live controls keep theirs.
-    const onDragStart = (e: DragEvent): void => {
-      if (
-        e.target instanceof Element &&
-        e.target.closest('[data-element-id]')?.hasAttribute(LIVE_NODE_ATTR) &&
-        !isLiveControlTarget(e.target, this.wrapper)
-      ) {
-        e.preventDefault();
-      }
-    };
-    // Focusing a control can scroll the overflow:hidden wrapper and misalign DOM and canvas.
-    const onWrapperScroll = (): void => {
-      if (options.embedded || this.wrapper.querySelector(`[data-element-id][${LIVE_NODE_ATTR}]`)) {
-        this.wrapper.scrollTop = 0;
-        this.wrapper.scrollLeft = 0;
-      }
-    };
-    this.wrapper.addEventListener('dragstart', onDragStart);
-    this.wrapper.addEventListener('scroll', onWrapperScroll);
-    this.disposers.push(() => {
-      this.wrapper.removeEventListener('dragstart', onDragStart);
-      this.wrapper.removeEventListener('scroll', onWrapperScroll);
-      this.wrapper.removeEventListener('pointerdown', onTapDown);
-      this.wrapper.removeEventListener('pointerup', onDoubleTap);
-      this.wrapper.removeEventListener('dragover', onDragOver);
-      this.wrapper.removeEventListener('drop', onDrop);
-    });
+    this.disposers.push(
+      bindWrapperEvents({
+        wrapper: this.wrapper,
+        handlers: this.interactions,
+        embedded: Boolean(options.embedded),
+      }),
+    );
     this.observeResize();
     this.syncCanvasSize();
     this.renderLoop.start();
