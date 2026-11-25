@@ -86,10 +86,8 @@ import type { ServiceKey } from '../core/service-key';
 import { reportFailure } from '../core/report-failure';
 import { ContextLossGuard } from './context-loss-guard';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
-import { normalizeLink, parseElementLink } from '../elements/link';
-import { openLinkPrompt } from './link-prompt';
-import { getElementVisualBounds } from '../elements/element-bounds';
-import { CameraAnimator } from './camera-animator';
+import { normalizeLink } from '../elements/link';
+import { LinkController } from './link-controller';
 import {
   createPresentationActions,
   framePresentationSlides,
@@ -100,7 +98,7 @@ import { CommandPalette, createPaletteActions } from './command-palette';
 import type { PaletteApi } from './command-palette';
 import { ShortcutsHelp } from './shortcuts-help';
 import type { ShortcutsHelpApi } from './shortcuts-help';
-import { resolvePaletteStrings, revealView } from './palette-model';
+import { resolvePaletteStrings } from './palette-model';
 import type { PaletteOptions } from './palette-model';
 export type {
   PluginConfigureContext,
@@ -263,8 +261,7 @@ export class Viewport {
   ) => void;
   private readonly dropHandler: ViewportOptions['onDrop'];
   private readonly onOpenLink: ViewportOptions['onOpenLink'];
-  private linkAnimator: CameraAnimator | null = null;
-  private linkPromptClose: (() => void) | null = null;
+  private readonly links: LinkController;
   readonly constraintProxy = new ConstraintServiceProxy();
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
@@ -570,10 +567,28 @@ export class Viewport {
     const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
       (action) => this.actionRegistry.register(action),
     );
+    this.links = new LinkController({
+      store: this.store,
+      layerManager: this.layerManager,
+      elementRegistry: this.elementRegistry,
+      camera: this.camera,
+      container: this.container,
+      wrapper: this.wrapper,
+      onOpenLink: this.onOpenLink,
+      getTheme: () => this.theme,
+      getCanvasSize: () => this.getCanvasSize(),
+      stopCameraMotion: () => this.inputHandler.stopPanInertia(),
+      closeContextMenu: () => this.contextMenu?.close(),
+      selectElement: (id) => {
+        if (this.toolManager.activeTool?.name !== 'select') this.toolContext.switchTool?.('select');
+        this.getSelectTool()?.setSelection([id]);
+      },
+      setLink: (ids, link) => this.setLink(ids, link),
+    });
     const unregisterLinkActions = createLinkActions({
       setLink: (ids, link) => this.setLink(ids, link),
-      openLink: (id) => this.openElementLink(id, null),
-      promptLink: (ids, initial, label) => this.promptLink(ids, initial, label),
+      openLink: (id) => this.links.open(id, null),
+      promptLink: (ids, initial, label) => this.links.prompt(ids, initial, label),
     }).map((action) => this.actionRegistry.register(action));
     const unregisterEditText = this.actionRegistry.register({
       id: 'selection.edit-text',
@@ -607,7 +622,7 @@ export class Viewport {
     this.disposers.push(
       ...unregisterPresentationActions,
       ...unregisterLinkActions,
-      () => this.linkPromptClose?.(),
+      () => this.links.closePrompt(),
       unregisterEditText,
       () => this.presentationMode.destroy(),
     );
@@ -872,7 +887,7 @@ export class Viewport {
       acceptsPointer,
       isMac,
       activeToolName: () => this.toolManager.activeTool?.name ?? null,
-      openLink: (id, e) => this.openElementLink(id, e),
+      openLink: (id, e) => this.links.open(id, e),
     });
     // Editing commits while the recorder and store listeners are still attached.
     this.disposers.push(
@@ -885,6 +900,7 @@ export class Viewport {
         this.resizeListeners.clear();
       },
     );
+    this.disposers.push(() => this.links.disposeAnimator());
 
     try {
       this.pluginHost.startPlugins();
@@ -1542,64 +1558,6 @@ export class Viewport {
   private stopInteractingIfLive(): void {
     const id = this.interactMode.interactingId;
     if (id !== null && this.isLiveHtml(id)) this.interactMode.stopInteracting();
-  }
-
-  private openElementLink(id: string, event: PointerEvent | null): void {
-    const link = this.store.getById(id)?.link;
-    if (link === undefined) return;
-    if (this.onOpenLink?.(link, event) === true) return;
-    const target = parseElementLink(link);
-    if (target !== null) {
-      this.revealElement(target);
-      return;
-    }
-    window.open(link, '_blank', 'noopener,noreferrer');
-  }
-
-  private promptLink(ids: readonly string[], initial: string, label: string): void {
-    this.contextMenu?.close();
-    this.linkPromptClose?.();
-    const frozen = [...ids];
-    this.linkPromptClose = openLinkPrompt({
-      container: this.container,
-      wrapper: this.wrapper,
-      getTheme: () => this.theme,
-      initialValue: initial,
-      label,
-      // A peer may delete or lock an id while the prompt is open.
-      onSubmit: (link) => {
-        const ids = frozen.filter((id) => {
-          const el = this.store.getById(id);
-          return el !== undefined && !el.locked && !this.layerManager.isLayerLocked(el.layerId);
-        });
-        if (ids.length > 0) this.setLink(ids, link);
-      },
-      onClose: () => {
-        this.linkPromptClose = null;
-      },
-    });
-  }
-
-  private revealElement(id: string): void {
-    const el = this.store.getById(id);
-    if (!el || !this.layerManager.isLayerVisible(el.layerId)) return;
-    const bounds = getElementVisualBounds(el, this.elementRegistry);
-    if (!bounds) return;
-    this.inputHandler.stopPanInertia();
-    const { w, h } = this.getCanvasSize();
-    const view = revealView(bounds, this.camera.getVisibleRect(w, h));
-    if (this.linkAnimator === null) {
-      this.linkAnimator = new CameraAnimator(this.wrapper, this.camera, {
-        getCanvasSize: () => this.getCanvasSize(),
-        interactive: true,
-      });
-      this.disposers.push(() => this.linkAnimator?.dispose());
-    }
-    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
-      this.linkAnimator.jumpTo(view);
-    else this.linkAnimator.animateTo(view);
-    if (this.toolManager.activeTool?.name !== 'select') this.toolContext.switchTool?.('select');
-    this.getSelectTool()?.setSelection([id]);
   }
 
   private getSelectTool(): SelectTool | undefined {
