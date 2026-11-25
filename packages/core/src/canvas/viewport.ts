@@ -41,11 +41,7 @@ import {
   isBoundTextContainer,
 } from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
-import {
-  exportState as exportCanvasState,
-  parseState,
-  migrateState,
-} from '../core/state-serializer';
+import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
 import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
 import { exportSvg } from './export-svg';
@@ -60,10 +56,10 @@ import { LIVE_NODE_ATTR, isLiveControlTarget } from './live-control';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
 import type { OverlayRenderer } from './render-loop';
-import { HtmlPainterRegistry, resolveHtmlRouting } from './html-painter-registry';
-import type { HtmlPainter, HtmlRouting } from './html-painter-registry';
-import { HtmlPaintDiagnosticDeduper } from '../canvas/html-paint-diagnostics';
+import type { HtmlPainter, HtmlPainterRegistry } from './html-painter-registry';
 import type { HtmlPaintDiagnostic } from '../canvas/html-paint-diagnostics';
+import { HtmlElements } from './html-elements';
+import { loadViewportState } from './state-loader';
 import { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { RenderStatsSnapshot } from './render-stats';
@@ -72,33 +68,26 @@ import { MarginViewport } from './margin-viewport';
 import type { ElementStyle } from '../elements/element-style';
 import { ConstraintServiceProxy } from '../core/constraint-service';
 import { SelectionOps } from './selection-ops';
+import { SelectionTracker, isSelectionSource } from './selection-tracker';
 import type { SelectionStyleDetails } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
+import { FrameOps } from './frame-ops';
 import { ViewportInteractions } from './viewport-interactions';
 import type { RotateDirection } from './selection-rotate';
-import { ElementActivation } from './element-activation';
+import { ActivationController } from './activation-controller';
 import type { ActivationOptions, ElementActivationEvent } from './element-activation';
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
 import { PluginStateManager } from '../core/plugin-state-manager';
-import type { NotificationController, PersistedPluginState } from '../core/plugin-state-manager';
+import type { NotificationController } from '../core/plugin-state-manager';
 import { PluginHost } from './plugin-host';
 import type { RequiredCapabilities, ViewportPlugin } from './viewport-plugin';
 import type { ServiceKey } from '../core/service-key';
 import { reportFailure } from '../core/report-failure';
 import { ContextLossGuard } from './context-loss-guard';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
-import { createId } from '../elements/create-id';
-import { normalizeLink, parseElementLink } from '../elements/link';
-import { openLinkPrompt } from './link-prompt';
-import { getElementVisualBounds } from '../elements/element-bounds';
-import { CameraAnimator } from './camera-animator';
-import {
-  planAddToFrame,
-  planDissolveFrame,
-  planFrameSelection,
-  planRemoveFromFrame,
-} from '../elements/frame-commands';
+import { normalizeLink } from '../elements/link';
+import { LinkController } from './link-controller';
 import {
   createPresentationActions,
   framePresentationSlides,
@@ -109,7 +98,7 @@ import { CommandPalette, createPaletteActions } from './command-palette';
 import type { PaletteApi } from './command-palette';
 import { ShortcutsHelp } from './shortcuts-help';
 import type { ShortcutsHelpApi } from './shortcuts-help';
-import { resolvePaletteStrings, revealView } from './palette-model';
+import { resolvePaletteStrings } from './palette-model';
 import type { PaletteOptions } from './palette-model';
 export type {
   PluginConfigureContext,
@@ -250,6 +239,7 @@ export class Viewport {
   private readonly inserter: ContentInserter;
   private transactionDepth = 0;
   private readonly selectionOps: SelectionOps;
+  private readonly frameOps: FrameOps;
   readonly toolContext: ToolContext;
   private readonly marginViewport: MarginViewport;
   private readonly layerCache: LayerCache;
@@ -271,34 +261,16 @@ export class Viewport {
   ) => void;
   private readonly dropHandler: ViewportOptions['onDrop'];
   private readonly onOpenLink: ViewportOptions['onOpenLink'];
-  private linkAnimator: CameraAnimator | null = null;
-  private linkPromptClose: (() => void) | null = null;
+  private readonly links: LinkController;
   readonly constraintProxy = new ConstraintServiceProxy();
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
   private minimap: Minimap | null = null;
-  private readonly htmlRenderers = new Map<string, (el: HtmlElement) => HTMLElement>();
-  private readonly htmlPainters = new HtmlPainterRegistry();
-  private readonly htmlDiagnosticListeners = new Set<(d: HtmlPaintDiagnostic) => void>();
-  private readonly htmlDiagnostics = new HtmlPaintDiagnosticDeduper((d) => {
-    for (const listener of [...this.htmlDiagnosticListeners]) {
-      try {
-        listener(d);
-      } catch {
-        /* isolated: one listener's fault must not break its siblings */
-      }
-    }
-  });
-  private readonly resolveRouting = (el: HtmlElement): HtmlRouting =>
-    resolveHtmlRouting(el, this.htmlPainters);
-  private activation: ElementActivation | null = null;
-  private activationGeneration = 0;
-  private readonly activationListeners = new Set<(e: ElementActivationEvent) => void>();
+  private readonly html: HtmlElements;
+  private readonly activationController: ActivationController;
   private readonly resizeListeners = new Set<() => void>();
-  private readonly selectionListeners = new Set<() => void>();
+  private readonly selectionTracker: SelectionTracker;
   private readonly stateChangeListeners = new Set<() => void>();
-  private detachSelectionSource: (() => void) | null = null;
-  private pendingSelectionPrune = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -319,11 +291,23 @@ export class Viewport {
       options.elementRegistry ?? new ElementRegistry(getDefaultElementRegistry());
     this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
+    this.html = new HtmlElements({
+      store: this.store,
+      getDomNodeManager: () => this.domNodeManager,
+      markAllLayersDirty: () => this.renderLoop.markAllLayersDirty(),
+      requestRender: () => this.requestRender(),
+    });
     setElbowVisibleLayers(this.store, (id) => this.layerManager.isLayerVisible(id));
     this.toolManager = new ToolManager();
+    this.selectionTracker = new SelectionTracker({
+      store: this.store,
+      getSelectTool: () => this.getSelectTool(),
+      getSelectedIds: () => this.getSelectedIds(),
+      getCurrentTransactionId: () => this.historyRecorder.currentTransactionId,
+    });
     this.actionRegistry = new ActionRegistry(() => this.currentActionContext());
     const unsubToolRegister = this.toolManager.onRegister((tool) => {
-      if (Viewport.isSelectionSource(tool)) this.attachSelectionSource(tool);
+      if (isSelectionSource(tool)) this.selectionTracker.attach(tool);
       if (!this.actionRegistry.get('tool.' + tool.name)) {
         this.actionRegistry.register(
           createToolAction(tool.name, {
@@ -334,14 +318,10 @@ export class Viewport {
         );
       }
     });
-    this.disposers.push(unsubToolRegister, () => {
-      this.detachSelectionSource?.();
-      this.detachSelectionSource = null;
-      this.selectionListeners.clear();
-    });
+    this.disposers.push(unsubToolRegister, () => this.selectionTracker.dispose());
     const existingSelect = this.getSelectTool();
-    if (existingSelect && Viewport.isSelectionSource(existingSelect)) {
-      this.attachSelectionSource(existingSelect);
+    if (existingSelect && isSelectionSource(existingSelect)) {
+      this.selectionTracker.attach(existingSelect);
     }
     this.renderer = new ElementRenderer();
     this.renderer.setTheme(this.theme);
@@ -366,10 +346,10 @@ export class Viewport {
       }
       reportImageError({ src, elementIds, cause, reason: 'load' });
     });
-    this.renderer.setHtmlPainters(this.htmlPainters);
+    this.renderer.setHtmlPainters(this.html.painters);
     this.renderer.setDiagnosticSink((d) => {
-      this.htmlDiagnostics.emit(d, {
-        registryVersion: this.htmlPainters.version,
+      this.html.diagnostics.emit(d, {
+        registryVersion: this.html.painters.version,
         elementVersion: this.store.getVersion(d.elementId),
       });
     });
@@ -397,17 +377,23 @@ export class Viewport {
       flushPendingHistory: () => this.inputHandler.flushPendingHistory(),
       transaction: (run) => this.transaction(run),
     });
-    const unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() => {
-      if (!this.pendingSelectionPrune) return;
-      this.pendingSelectionPrune = false;
-      this.pruneSelection();
-    });
+    const unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() =>
+      this.selectionTracker.flushPendingPrune(),
+    );
     this.selectionOps = new SelectionOps({
       store: this.store,
       recorder: this.historyRecorder,
       getSelectedIds: () => this.getSelectedIds(),
       requestRender: () => this.requestRender(),
       elementRegistry: this.elementRegistry,
+    });
+    this.frameOps = new FrameOps({
+      store: this.store,
+      elementRegistry: this.elementRegistry,
+      layerManager: this.layerManager,
+      transaction: (operation) => this.transaction(operation),
+      requestRender: () => this.requestRender(),
+      setSelection: (ids) => this.getSelectTool()?.setSelection(ids),
     });
 
     this.wrapper = createWrapper();
@@ -429,6 +415,18 @@ export class Viewport {
       this.renderLoop.requestRender();
     });
     this.background.setCanvasWatcher(this.contextLossGuard.watch);
+    this.activationController = new ActivationController({
+      element: this.wrapper,
+      camera: this.camera,
+      store: this.store,
+      resolveHtmlRouting: this.html.resolveRouting,
+      isLayerVisible: (layerId: string) => this.layerManager.isLayerVisible(layerId),
+      // Owner-side busy signal: the camera is gliding under pan inertia, or
+      // this very gesture is the one that stopped the glide. Suppressing
+      // both is what keeps "tap to stop a flick" from activating whatever
+      // sits under the finger.
+      isCameraBusy: () => this.inputHandler.isCameraCoasting(),
+    });
 
     this._renderHooks = createRenderHooks();
     this.pluginStateManager = new PluginStateManager(() => this.suspendNotifications());
@@ -569,10 +567,28 @@ export class Viewport {
     const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
       (action) => this.actionRegistry.register(action),
     );
+    this.links = new LinkController({
+      store: this.store,
+      layerManager: this.layerManager,
+      elementRegistry: this.elementRegistry,
+      camera: this.camera,
+      container: this.container,
+      wrapper: this.wrapper,
+      onOpenLink: this.onOpenLink,
+      getTheme: () => this.theme,
+      getCanvasSize: () => this.getCanvasSize(),
+      stopCameraMotion: () => this.inputHandler.stopPanInertia(),
+      closeContextMenu: () => this.contextMenu?.close(),
+      selectElement: (id) => {
+        if (this.toolManager.activeTool?.name !== 'select') this.toolContext.switchTool?.('select');
+        this.getSelectTool()?.setSelection([id]);
+      },
+      setLink: (ids, link) => this.setLink(ids, link),
+    });
     const unregisterLinkActions = createLinkActions({
       setLink: (ids, link) => this.setLink(ids, link),
-      openLink: (id) => this.openElementLink(id, null),
-      promptLink: (ids, initial, label) => this.promptLink(ids, initial, label),
+      openLink: (id) => this.links.open(id, null),
+      promptLink: (ids, initial, label) => this.links.prompt(ids, initial, label),
     }).map((action) => this.actionRegistry.register(action));
     const unregisterEditText = this.actionRegistry.register({
       id: 'selection.edit-text',
@@ -606,7 +622,7 @@ export class Viewport {
     this.disposers.push(
       ...unregisterPresentationActions,
       ...unregisterLinkActions,
-      () => this.linkPromptClose?.(),
+      () => this.links.closePrompt(),
       unregisterEditText,
       () => this.presentationMode.destroy(),
     );
@@ -770,7 +786,7 @@ export class Viewport {
     this.disposers.push(() => this.contextLossGuard.dispose());
     this.disposers.push(
       () => this.renderLoop.stop(),
-      this.htmlPainters.onChange(() => this.onHtmlRegistryChanged()),
+      this.html.painters.onChange(() => this.html.onRegistryChanged()),
     );
 
     this.disposers.push(
@@ -787,12 +803,12 @@ export class Viewport {
           // Remote adds and undo re-adds arrive without DOM; rebuild it from the renderer.
           if (!this.domNodeManager.hasContent(el.id)) {
             try {
-              this.buildHtmlContent(el);
+              this.html.buildContent(el);
             } catch (error) {
               reportFailure(error, 'html renderer failed');
             }
           }
-          this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+          this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
         }
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
@@ -800,16 +816,16 @@ export class Viewport {
       this.store.on('remove', (el, meta) => {
         unbindArrowsFrom(this.store, el, meta, this.elementRegistry);
         this.domNodeManager.removeDomNode(el.id);
-        this.htmlDiagnostics.forget(el.id);
+        this.html.diagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
         this.renderLoop.forgetElement(el.id, el.layerId);
         this.requestRender();
-        this.handleRemovedElement(el.id);
+        this.selectionTracker.handleRemoved(el.id);
       }),
       this.store.on('update', ({ previous, current }) => {
         if (current.type === 'html') {
           this.stopInteractingIfLive();
-          this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+          this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
         }
         if (
           previous.type === 'shape' &&
@@ -824,20 +840,20 @@ export class Viewport {
       }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
-        this.htmlDiagnostics.reset();
+        this.html.diagnostics.reset();
         this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
-        this.pruneSelection();
+        this.selectionTracker.prune();
       }),
       this.store.on('batch', () => {
         this.stopInteractingIfLive();
-        this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
-        this.htmlDiagnostics.reset();
+        this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
+        this.html.diagnostics.reset();
         this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
-        this.pruneSelection();
+        this.selectionTracker.prune();
       }),
     );
 
@@ -871,7 +887,7 @@ export class Viewport {
       acceptsPointer,
       isMac,
       activeToolName: () => this.toolManager.activeTool?.name ?? null,
-      openLink: (id, e) => this.openElementLink(id, e),
+      openLink: (id, e) => this.links.open(id, e),
     });
     // Editing commits while the recorder and store listeners are still attached.
     this.disposers.push(
@@ -879,13 +895,12 @@ export class Viewport {
         this.noteEditor.destroy(this.store);
       },
       () => {
-        this.activation?.dispose();
-        this.activation = null;
-        this.activationListeners.clear();
-        this.htmlDiagnosticListeners.clear();
+        this.activationController.dispose();
+        this.html.clearDiagnosticListeners();
         this.resizeListeners.clear();
       },
     );
+    this.disposers.push(() => this.links.disposeAnimator());
 
     try {
       this.pluginHost.startPlugins();
@@ -1171,7 +1186,7 @@ export class Viewport {
     T extends { htmlPainters?: HtmlPainterRegistry; expectedCanvasTypes?: ReadonlySet<string> },
   >(options?: T): T {
     const base = (options ?? {}) as T;
-    const registry = base.htmlPainters ?? this.htmlPainters;
+    const registry = base.htmlPainters ?? this.html.painters;
     const declared = registry.canvasTypes;
     const expected = base.expectedCanvasTypes
       ? new Set([...declared, ...base.expectedCanvasTypes]) // union only; never shrink
@@ -1203,109 +1218,21 @@ export class Viewport {
   }
 
   loadState(state: ImportableCanvasState): void {
-    const incoming = migrateState(
-      structuredClone(state) as ImportableCanvasState,
-      this.elementRegistry,
-    );
-    new ElementStore(this.elementRegistry).loadSnapshot(incoming.elements);
-    const preparedPlugins = this.pluginStateManager.prepareState(
-      (incoming.extensions ?? {}) as Record<string, PersistedPluginState>,
-    );
-    if (!preparedPlugins.success) throw new Error(preparedPlugins.error);
-
-    this.inputHandler.flushPendingHistory();
-    const previous = {
-      elements: this.store.snapshot(),
-      layers: this.layerManager.snapshot(),
-      activeLayerId: this.layerManager.activeLayerId,
-      camera: { position: this.camera.position, zoom: this.camera.zoom },
-      history: this.history.snapshot(),
-    };
-    const notifications = this.suspendNotifications();
-    this.historyRecorder.pause();
-    let pluginsCommitted = false;
-    try {
-      this.noteEditor.destroy(this.store);
-      this.domNodeManager.clearDomNodes();
-      this.applyCoreState(incoming);
-      this.history.clear();
-      this.camera.moveTo(incoming.camera.position.x, incoming.camera.position.y);
-      this.camera.setZoom(incoming.camera.zoom);
-      this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
-      const pluginResult = this.pluginStateManager.commitPrepared(preparedPlugins.prepared);
-      if (!pluginResult.success) throw new Error(pluginResult.error);
-      pluginsCommitted = true;
-      notifications.resume();
-      this.historyRecorder.resume();
-      for (const name of pluginResult.droppedPlugins ?? []) {
-        console.warn(
-          `[fieldnotes] dropped saved state of plugin "${name}": version could not be migrated`,
-        );
-      }
-    } catch (error) {
-      const rollbackErrors: string[] = [];
-      if (pluginsCommitted) {
-        rollbackErrors.push(...this.pluginStateManager.rollbackPrepared(preparedPlugins.prepared));
-      }
-      try {
-        this.store.loadSnapshot(previous.elements);
-        this.layerManager.loadSnapshot(previous.layers);
-        this.layerManager.setActiveLayer(previous.activeLayerId);
-        this.camera.moveTo(previous.camera.position.x, previous.camera.position.y);
-        this.camera.setZoom(previous.camera.zoom);
-        this.history.loadSnapshot(previous.history);
-        this.domNodeManager.clearDomNodes();
-        this.domNodeManager.reattachHtmlContent(this.store);
-        this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
-      } catch (rollbackError) {
-        rollbackErrors.push(
-          rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
-        );
-      } finally {
-        this.historyRecorder.resume();
-        notifications.discard();
-      }
-      if (rollbackErrors.length > 0) {
-        throw new AggregateError(
-          [error, ...rollbackErrors.map((message) => new Error(message))],
-          'Viewport state load and rollback failed',
-          { cause: error },
-        );
-      }
-      throw error;
-    }
-  }
-
-  private applyCoreState(state: CanvasState): void {
-    this.store.loadSnapshot(state.elements);
-    if (state.layers && state.layers.length > 0) this.layerManager.loadSnapshot(state.layers);
-    if (state.activeLayerId) this.layerManager.setActiveLayer(state.activeLayerId);
-    this.domNodeManager.reattachHtmlContent(this.store);
-    for (const el of this.store.getElementsByType('html')) {
-      if (this.domNodeManager.hasContent(el.id)) continue;
-      const rebuilt = this.buildHtmlContent(el);
-      if (rebuilt) this.domNodeManager.syncDomNode(el);
-      if (!this.onHtmlElementMount) continue;
-      if (!rebuilt) this.domNodeManager.syncDomNode(el);
-      const node = this.domNodeManager.getNode(el.id);
-      if (!node) continue;
-      this.onHtmlElementMount(el.id, el.domId, node);
-      this.domNodeManager.markHostOwnedContent(el.id);
-      node.dataset['initialized'] = 'true';
-      node.toggleAttribute(LIVE_NODE_ATTR, el.interactive === true);
-      Object.assign(node.style, {
-        overflow: 'hidden',
-        pointerEvents: el.interactive ? 'auto' : 'none',
-      });
-    }
-  }
-
-  private buildHtmlContent(el: HtmlElement): HTMLElement | null {
-    const factory = el.htmlType ? this.htmlRenderers.get(el.htmlType) : undefined;
-    if (!factory) return null;
-    const content = factory(el);
-    this.domNodeManager.storeHtmlContent(el.id, content);
-    return content;
+    loadViewportState(state, {
+      elementRegistry: this.elementRegistry,
+      store: this.store,
+      layerManager: this.layerManager,
+      camera: this.camera,
+      history: this.history,
+      historyRecorder: this.historyRecorder,
+      pluginStateManager: this.pluginStateManager,
+      noteEditor: this.noteEditor,
+      domNodeManager: this.domNodeManager,
+      html: this.html,
+      flushPendingHistory: () => this.inputHandler.flushPendingHistory(),
+      suspendNotifications: () => this.suspendNotifications(),
+      onHtmlElementMount: this.onHtmlElementMount,
+    });
   }
 
   loadJSON(json: string): void {
@@ -1380,17 +1307,7 @@ export class Viewport {
 
   /** Sets an element's direct parent, or clears its parent when passed null. */
   setParent(childId: string, parentId: string | null): void {
-    this.transaction(() => {
-      const child = this.store.getById(childId);
-      const nextParent = parentId ?? undefined;
-      const clearContainer = child?.type === 'text' && child.containerId !== nextParent;
-      if (!child || (child.parentId === nextParent && !clearContainer)) return;
-      this.store.update(childId, {
-        parentId: nextParent,
-        ...(clearContainer ? { containerId: undefined } : {}),
-      });
-      this.requestRender();
-    });
+    this.frameOps.setParent(childId, parentId);
   }
 
   /** Creates a frame around selected root subtrees and returns its id. */
@@ -1398,57 +1315,22 @@ export class Viewport {
     ids: readonly string[],
     options?: { readonly title?: string; readonly color?: string; readonly padding?: number },
   ): string {
-    const id = createId('frame');
-    const plan = planFrameSelection(
-      ids,
-      options ?? {},
-      id,
-      this.store,
-      this.elementRegistry,
-      this.layerManager,
-    );
-    this.transaction(() => {
-      if (!plan.add) throw new Error('Frame command plan has no frame');
-      this.store.add(plan.add);
-      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
-      this.getSelectTool()?.setSelection([id]);
-    });
-    this.requestRender();
-    return id;
+    return this.frameOps.frameSelection(ids, options);
   }
 
   /** Adds selected root subtrees as children of an existing frame. */
   addToFrame(frameId: string, ids: readonly string[]): void {
-    const plan = planAddToFrame(frameId, ids, this.store, this.elementRegistry, this.layerManager);
-    this.transaction(() => {
-      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
-    });
-    this.requestRender();
+    this.frameOps.addToFrame(frameId, ids);
   }
 
   /** Removes selected direct children from an existing frame. */
   removeFromFrame(frameId: string, ids: readonly string[]): void {
-    const plan = planRemoveFromFrame(
-      frameId,
-      ids,
-      this.store,
-      this.elementRegistry,
-      this.layerManager,
-    );
-    this.transaction(() => {
-      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
-    });
-    this.requestRender();
+    this.frameOps.removeFromFrame(frameId, ids);
   }
 
   /** Removes a frame while preserving its direct children as roots. */
   dissolveFrame(frameId: string): void {
-    const plan = planDissolveFrame(frameId, this.store, this.elementRegistry, this.layerManager);
-    this.transaction(() => {
-      if (plan.updates.length > 0) this.store.updateMany(plan.updates);
-      if (plan.removeId) this.store.remove(plan.removeId);
-    });
-    this.requestRender();
+    this.frameOps.dissolveFrame(frameId);
   }
 
   undo(): boolean {
@@ -1586,21 +1468,11 @@ export class Viewport {
   }
 
   registerHtmlRenderer(htmlType: string, factory: (el: HtmlElement) => HTMLElement): void {
-    this.htmlRenderers.set(htmlType, factory);
+    this.html.registerRenderer(htmlType, factory);
   }
 
   updateHtmlElement(id: string, newContent: HTMLElement): void {
-    const el = this.store.getById(id);
-    if (!el) throw new Error(`Element not found: ${id}`);
-    if (el.type !== 'html') throw new Error(`Element ${id} is not an HTML element`);
-    this.domNodeManager.resetHtmlContent(id);
-    this.domNodeManager.storeHtmlContent(id, newContent);
-    // Content changes need the same synchronous reconciliation as registry changes: newly
-    // available content for a dom-routed element must mount immediately rather than waiting
-    // for the next render pass (and this method never calls store.update, so the store's own
-    // 'update' listener never fires for it).
-    this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
-    this.requestRender();
+    this.html.updateContent(id, newContent);
   }
 
   /**
@@ -1611,7 +1483,7 @@ export class Viewport {
    * counted by the registry.
    */
   expectCanvasHtmlTypes(htmlTypes: Iterable<string>): () => void {
-    return this.htmlPainters.expect(htmlTypes);
+    return this.html.painters.expect(htmlTypes);
   }
 
   /**
@@ -1624,7 +1496,7 @@ export class Viewport {
    * proxying each capability individually.
    */
   getHtmlPainters(): HtmlPainterRegistry {
-    return this.htmlPainters;
+    return this.html.painters;
   }
 
   /**
@@ -1634,7 +1506,7 @@ export class Viewport {
    * detach and the render loop repaints on the next frame.
    */
   registerHtmlPainter(htmlType: string, painter: HtmlPainter): () => void {
-    return this.htmlPainters.register(htmlType, painter);
+    return this.html.painters.register(htmlType, painter);
   }
 
   /**
@@ -1645,8 +1517,7 @@ export class Viewport {
    * suppressed forever. Returns an idempotent unsubscribe.
    */
   onHtmlPaintDiagnostic(listener: (d: HtmlPaintDiagnostic) => void): () => void {
-    this.htmlDiagnosticListeners.add(listener);
-    return () => this.htmlDiagnosticListeners.delete(listener);
+    return this.html.onDiagnostic(listener);
   }
 
   /**
@@ -1665,34 +1536,7 @@ export class Viewport {
    * Strict-Mode cleanup cannot tear down a newer registration.
    */
   setActivation(options: ActivationOptions | null): () => void {
-    // Construct before tearing down: a RangeError must leave the current
-    // controller — and every outstanding disposer's generation — intact.
-    const next = options
-      ? new ElementActivation(
-          {
-            element: this.wrapper,
-            camera: this.camera,
-            store: this.store,
-            resolveHtmlRouting: this.resolveRouting,
-            isLayerVisible: (layerId: string) => this.layerManager.isLayerVisible(layerId),
-            // Owner-side busy signal: the camera is gliding under pan inertia, or
-            // this very gesture is the one that stopped the glide. Suppressing
-            // both is what keeps "tap to stop a flick" from activating whatever
-            // sits under the finger.
-            isCameraBusy: () => this.inputHandler.isCameraCoasting(),
-          },
-          options,
-        )
-      : null;
-    this.activation?.dispose();
-    this.activation = next;
-    next?.onActivate((e) => this.emitActivation(e));
-    const generation = ++this.activationGeneration;
-    return () => {
-      if (this.activationGeneration !== generation) return;
-      this.activation?.dispose();
-      this.activation = null;
-    };
+    return this.activationController.set(options);
   }
 
   /**
@@ -1702,36 +1546,7 @@ export class Viewport {
    * try/catch. Returns an idempotent unsubscribe.
    */
   onElementActivate(listener: (e: ElementActivationEvent) => void): () => void {
-    this.activationListeners.add(listener);
-    return () => {
-      this.activationListeners.delete(listener);
-    };
-  }
-
-  private emitActivation(event: ElementActivationEvent): void {
-    for (const listener of [...this.activationListeners]) {
-      try {
-        listener(event);
-      } catch {
-        // One host listener's fault must not break its siblings.
-      }
-    }
-  }
-
-  /**
-   * Fires whenever the html painter registry's active-painter set changes
-   * (declare, register, or their release). Reconciliation is synchronous —
-   * routing flips (and any DOM detach/remount) happen before this returns —
-   * while the actual repaint of newly canvas-routed elements is deferred to
-   * the next render frame via markAllLayersDirty + requestRender. Does NOT
-   * touch a minimap: Viewport does not own a MinimapController, and the
-   * built-in wrapper / React <Minimap /> each subscribe to the registry
-   * directly.
-   */
-  private onHtmlRegistryChanged(): void {
-    this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
-    this.renderLoop.markAllLayersDirty();
-    this.requestRender();
+    return this.activationController.onActivate(listener);
   }
 
   private isLiveHtml(id: string): boolean {
@@ -1745,107 +1560,8 @@ export class Viewport {
     if (id !== null && this.isLiveHtml(id)) this.interactMode.stopInteracting();
   }
 
-  private openElementLink(id: string, event: PointerEvent | null): void {
-    const link = this.store.getById(id)?.link;
-    if (link === undefined) return;
-    if (this.onOpenLink?.(link, event) === true) return;
-    const target = parseElementLink(link);
-    if (target !== null) {
-      this.revealElement(target);
-      return;
-    }
-    window.open(link, '_blank', 'noopener,noreferrer');
-  }
-
-  private promptLink(ids: readonly string[], initial: string, label: string): void {
-    this.contextMenu?.close();
-    this.linkPromptClose?.();
-    const frozen = [...ids];
-    this.linkPromptClose = openLinkPrompt({
-      container: this.container,
-      wrapper: this.wrapper,
-      getTheme: () => this.theme,
-      initialValue: initial,
-      label,
-      // A peer may delete or lock an id while the prompt is open.
-      onSubmit: (link) => {
-        const ids = frozen.filter((id) => {
-          const el = this.store.getById(id);
-          return el !== undefined && !el.locked && !this.layerManager.isLayerLocked(el.layerId);
-        });
-        if (ids.length > 0) this.setLink(ids, link);
-      },
-      onClose: () => {
-        this.linkPromptClose = null;
-      },
-    });
-  }
-
-  private revealElement(id: string): void {
-    const el = this.store.getById(id);
-    if (!el || !this.layerManager.isLayerVisible(el.layerId)) return;
-    const bounds = getElementVisualBounds(el, this.elementRegistry);
-    if (!bounds) return;
-    this.inputHandler.stopPanInertia();
-    const { w, h } = this.getCanvasSize();
-    const view = revealView(bounds, this.camera.getVisibleRect(w, h));
-    if (this.linkAnimator === null) {
-      this.linkAnimator = new CameraAnimator(this.wrapper, this.camera, {
-        getCanvasSize: () => this.getCanvasSize(),
-        interactive: true,
-      });
-      this.disposers.push(() => this.linkAnimator?.dispose());
-    }
-    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches)
-      this.linkAnimator.jumpTo(view);
-    else this.linkAnimator.animateTo(view);
-    if (this.toolManager.activeTool?.name !== 'select') this.toolContext.switchTool?.('select');
-    this.getSelectTool()?.setSelection([id]);
-  }
-
   private getSelectTool(): SelectTool | undefined {
     return this.toolManager.getTool<SelectTool>('select');
-  }
-
-  private pruneSelection(): void {
-    const tool = this.getSelectTool();
-    if (!tool) return;
-    const ids = tool.selectedIds;
-    const filtered = ids.filter((id) => this.store.getById(id) !== undefined);
-    if (filtered.length !== ids.length) tool.setSelection(filtered);
-  }
-
-  private handleRemovedElement(id: string): void {
-    if (!this.getSelectedIds().includes(id)) return;
-    if (this.historyRecorder.currentTransactionId !== null) {
-      this.pendingSelectionPrune = true;
-      return;
-    }
-    this.pruneSelection();
-  }
-
-  private static isSelectionSource(tool: Tool): tool is SelectTool {
-    const candidate = tool as Partial<SelectTool>;
-    return (
-      tool.name === 'select' &&
-      typeof candidate.onSelectionChange === 'function' &&
-      typeof candidate.setSelection === 'function'
-    );
-  }
-
-  private emitSelectionChange(): void {
-    for (const listener of this.selectionListeners) {
-      try {
-        listener();
-      } catch {
-        // Selection listeners must not break each other or the caller.
-      }
-    }
-  }
-
-  private attachSelectionSource(tool: SelectTool): void {
-    this.detachSelectionSource?.();
-    this.detachSelectionSource = tool.onSelectionChange(() => this.emitSelectionChange());
   }
 
   /**
@@ -1881,10 +1597,7 @@ export class Viewport {
    * history transaction completes.
    */
   onSelectionChange(listener: () => void): () => void {
-    this.selectionListeners.add(listener);
-    return () => {
-      this.selectionListeners.delete(listener);
-    };
+    return this.selectionTracker.onChange(listener);
   }
 
   getSelectionStyle(): ElementStyle | null {
