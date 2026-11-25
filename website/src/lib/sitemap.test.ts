@@ -11,6 +11,7 @@ describe('sitePaths', () => {
       '/docs/',
       '/docs/getting-started/',
       '/docs/layers/',
+      '/compare/',
       '/roadmap/',
       '/changelog/',
       '/playground/',

@@ -7,6 +7,7 @@ export function sitePaths(docSlugs: readonly string[]): string[] {
     '/',
     '/docs/',
     ...docSlugs.map((slug) => `/docs/${slug}/`),
+    '/compare/',
     '/roadmap/',
     '/changelog/',
     '/playground/',
