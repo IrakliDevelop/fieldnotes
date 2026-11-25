@@ -29,7 +29,9 @@ codecs only for the negotiated mixed-peer window. Do not introduce reverse depen
 
 `Viewport` in `packages/core/src/canvas/viewport.ts` is the composition root. It coordinates camera,
 render loop, input, element store, layers, history, DOM elements, editing, and focused controllers.
-Keep orchestration there and behavior in the narrowest collaborator.
+Keep orchestration there and behavior in the narrowest collaborator. `pnpm size:check` fails when
+`viewport.ts` grows past the line limit in `scripts/size-limits.json`; the limit is lowered after a
+file shrinks and raised only with the owner's say.
 
 - `canvas/`: viewport/camera, input/keyboard routing, rendering, export, interactions,
   canvas-routed html painting (`html-painter-registry.ts`), element activation (`element-activation.ts`).
