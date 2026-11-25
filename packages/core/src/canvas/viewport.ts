@@ -60,10 +60,9 @@ import { LIVE_NODE_ATTR, isLiveControlTarget } from './live-control';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
 import type { OverlayRenderer } from './render-loop';
-import { HtmlPainterRegistry, resolveHtmlRouting } from './html-painter-registry';
-import type { HtmlPainter, HtmlRouting } from './html-painter-registry';
-import { HtmlPaintDiagnosticDeduper } from '../canvas/html-paint-diagnostics';
+import type { HtmlPainter, HtmlPainterRegistry } from './html-painter-registry';
 import type { HtmlPaintDiagnostic } from '../canvas/html-paint-diagnostics';
+import { HtmlElements } from './html-elements';
 import { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { RenderStatsSnapshot } from './render-stats';
@@ -277,20 +276,7 @@ export class Viewport {
   private readonly interactions: ViewportInteractions;
   private contextMenu: ContextMenu | null = null;
   private minimap: Minimap | null = null;
-  private readonly htmlRenderers = new Map<string, (el: HtmlElement) => HTMLElement>();
-  private readonly htmlPainters = new HtmlPainterRegistry();
-  private readonly htmlDiagnosticListeners = new Set<(d: HtmlPaintDiagnostic) => void>();
-  private readonly htmlDiagnostics = new HtmlPaintDiagnosticDeduper((d) => {
-    for (const listener of [...this.htmlDiagnosticListeners]) {
-      try {
-        listener(d);
-      } catch {
-        /* isolated: one listener's fault must not break its siblings */
-      }
-    }
-  });
-  private readonly resolveRouting = (el: HtmlElement): HtmlRouting =>
-    resolveHtmlRouting(el, this.htmlPainters);
+  private readonly html: HtmlElements;
   private activation: ElementActivation | null = null;
   private activationGeneration = 0;
   private readonly activationListeners = new Set<(e: ElementActivationEvent) => void>();
@@ -319,6 +305,12 @@ export class Viewport {
       options.elementRegistry ?? new ElementRegistry(getDefaultElementRegistry());
     this.store = new ElementStore(this.elementRegistry);
     this.layerManager = new LayerManager(this.store);
+    this.html = new HtmlElements({
+      store: this.store,
+      getDomNodeManager: () => this.domNodeManager,
+      markAllLayersDirty: () => this.renderLoop.markAllLayersDirty(),
+      requestRender: () => this.requestRender(),
+    });
     setElbowVisibleLayers(this.store, (id) => this.layerManager.isLayerVisible(id));
     this.toolManager = new ToolManager();
     this.actionRegistry = new ActionRegistry(() => this.currentActionContext());
@@ -366,10 +358,10 @@ export class Viewport {
       }
       reportImageError({ src, elementIds, cause, reason: 'load' });
     });
-    this.renderer.setHtmlPainters(this.htmlPainters);
+    this.renderer.setHtmlPainters(this.html.painters);
     this.renderer.setDiagnosticSink((d) => {
-      this.htmlDiagnostics.emit(d, {
-        registryVersion: this.htmlPainters.version,
+      this.html.diagnostics.emit(d, {
+        registryVersion: this.html.painters.version,
         elementVersion: this.store.getVersion(d.elementId),
       });
     });
@@ -770,7 +762,7 @@ export class Viewport {
     this.disposers.push(() => this.contextLossGuard.dispose());
     this.disposers.push(
       () => this.renderLoop.stop(),
-      this.htmlPainters.onChange(() => this.onHtmlRegistryChanged()),
+      this.html.painters.onChange(() => this.html.onRegistryChanged()),
     );
 
     this.disposers.push(
@@ -787,12 +779,12 @@ export class Viewport {
           // Remote adds and undo re-adds arrive without DOM; rebuild it from the renderer.
           if (!this.domNodeManager.hasContent(el.id)) {
             try {
-              this.buildHtmlContent(el);
+              this.html.buildContent(el);
             } catch (error) {
               reportFailure(error, 'html renderer failed');
             }
           }
-          this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+          this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
         }
         this.renderLoop.markLayerDirty(el.layerId);
         this.requestRender();
@@ -800,7 +792,7 @@ export class Viewport {
       this.store.on('remove', (el, meta) => {
         unbindArrowsFrom(this.store, el, meta, this.elementRegistry);
         this.domNodeManager.removeDomNode(el.id);
-        this.htmlDiagnostics.forget(el.id);
+        this.html.diagnostics.forget(el.id);
         this.renderLoop.markLayerDirty(el.layerId);
         this.renderLoop.forgetElement(el.id, el.layerId);
         this.requestRender();
@@ -809,7 +801,7 @@ export class Viewport {
       this.store.on('update', ({ previous, current }) => {
         if (current.type === 'html') {
           this.stopInteractingIfLive();
-          this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+          this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
         }
         if (
           previous.type === 'shape' &&
@@ -824,7 +816,7 @@ export class Viewport {
       }),
       this.store.on('clear', () => {
         this.domNodeManager.clearDomNodes();
-        this.htmlDiagnostics.reset();
+        this.html.diagnostics.reset();
         this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
@@ -832,8 +824,8 @@ export class Viewport {
       }),
       this.store.on('batch', () => {
         this.stopInteractingIfLive();
-        this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
-        this.htmlDiagnostics.reset();
+        this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
+        this.html.diagnostics.reset();
         this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
@@ -882,7 +874,7 @@ export class Viewport {
         this.activation?.dispose();
         this.activation = null;
         this.activationListeners.clear();
-        this.htmlDiagnosticListeners.clear();
+        this.html.clearDiagnosticListeners();
         this.resizeListeners.clear();
       },
     );
@@ -1171,7 +1163,7 @@ export class Viewport {
     T extends { htmlPainters?: HtmlPainterRegistry; expectedCanvasTypes?: ReadonlySet<string> },
   >(options?: T): T {
     const base = (options ?? {}) as T;
-    const registry = base.htmlPainters ?? this.htmlPainters;
+    const registry = base.htmlPainters ?? this.html.painters;
     const declared = registry.canvasTypes;
     const expected = base.expectedCanvasTypes
       ? new Set([...declared, ...base.expectedCanvasTypes]) // union only; never shrink
@@ -1231,7 +1223,7 @@ export class Viewport {
       this.history.clear();
       this.camera.moveTo(incoming.camera.position.x, incoming.camera.position.y);
       this.camera.setZoom(incoming.camera.zoom);
-      this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+      this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
       const pluginResult = this.pluginStateManager.commitPrepared(preparedPlugins.prepared);
       if (!pluginResult.success) throw new Error(pluginResult.error);
       pluginsCommitted = true;
@@ -1256,7 +1248,7 @@ export class Viewport {
         this.history.loadSnapshot(previous.history);
         this.domNodeManager.clearDomNodes();
         this.domNodeManager.reattachHtmlContent(this.store);
-        this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
+        this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
       } catch (rollbackError) {
         rollbackErrors.push(
           rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
@@ -1283,7 +1275,7 @@ export class Viewport {
     this.domNodeManager.reattachHtmlContent(this.store);
     for (const el of this.store.getElementsByType('html')) {
       if (this.domNodeManager.hasContent(el.id)) continue;
-      const rebuilt = this.buildHtmlContent(el);
+      const rebuilt = this.html.buildContent(el);
       if (rebuilt) this.domNodeManager.syncDomNode(el);
       if (!this.onHtmlElementMount) continue;
       if (!rebuilt) this.domNodeManager.syncDomNode(el);
@@ -1298,14 +1290,6 @@ export class Viewport {
         pointerEvents: el.interactive ? 'auto' : 'none',
       });
     }
-  }
-
-  private buildHtmlContent(el: HtmlElement): HTMLElement | null {
-    const factory = el.htmlType ? this.htmlRenderers.get(el.htmlType) : undefined;
-    if (!factory) return null;
-    const content = factory(el);
-    this.domNodeManager.storeHtmlContent(el.id, content);
-    return content;
   }
 
   loadJSON(json: string): void {
@@ -1586,21 +1570,11 @@ export class Viewport {
   }
 
   registerHtmlRenderer(htmlType: string, factory: (el: HtmlElement) => HTMLElement): void {
-    this.htmlRenderers.set(htmlType, factory);
+    this.html.registerRenderer(htmlType, factory);
   }
 
   updateHtmlElement(id: string, newContent: HTMLElement): void {
-    const el = this.store.getById(id);
-    if (!el) throw new Error(`Element not found: ${id}`);
-    if (el.type !== 'html') throw new Error(`Element ${id} is not an HTML element`);
-    this.domNodeManager.resetHtmlContent(id);
-    this.domNodeManager.storeHtmlContent(id, newContent);
-    // Content changes need the same synchronous reconciliation as registry changes: newly
-    // available content for a dom-routed element must mount immediately rather than waiting
-    // for the next render pass (and this method never calls store.update, so the store's own
-    // 'update' listener never fires for it).
-    this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
-    this.requestRender();
+    this.html.updateContent(id, newContent);
   }
 
   /**
@@ -1611,7 +1585,7 @@ export class Viewport {
    * counted by the registry.
    */
   expectCanvasHtmlTypes(htmlTypes: Iterable<string>): () => void {
-    return this.htmlPainters.expect(htmlTypes);
+    return this.html.painters.expect(htmlTypes);
   }
 
   /**
@@ -1624,7 +1598,7 @@ export class Viewport {
    * proxying each capability individually.
    */
   getHtmlPainters(): HtmlPainterRegistry {
-    return this.htmlPainters;
+    return this.html.painters;
   }
 
   /**
@@ -1634,7 +1608,7 @@ export class Viewport {
    * detach and the render loop repaints on the next frame.
    */
   registerHtmlPainter(htmlType: string, painter: HtmlPainter): () => void {
-    return this.htmlPainters.register(htmlType, painter);
+    return this.html.painters.register(htmlType, painter);
   }
 
   /**
@@ -1645,8 +1619,7 @@ export class Viewport {
    * suppressed forever. Returns an idempotent unsubscribe.
    */
   onHtmlPaintDiagnostic(listener: (d: HtmlPaintDiagnostic) => void): () => void {
-    this.htmlDiagnosticListeners.add(listener);
-    return () => this.htmlDiagnosticListeners.delete(listener);
+    return this.html.onDiagnostic(listener);
   }
 
   /**
@@ -1673,7 +1646,7 @@ export class Viewport {
             element: this.wrapper,
             camera: this.camera,
             store: this.store,
-            resolveHtmlRouting: this.resolveRouting,
+            resolveHtmlRouting: this.html.resolveRouting,
             isLayerVisible: (layerId: string) => this.layerManager.isLayerVisible(layerId),
             // Owner-side busy signal: the camera is gliding under pan inertia, or
             // this very gesture is the one that stopped the glide. Suppressing
@@ -1716,22 +1689,6 @@ export class Viewport {
         // One host listener's fault must not break its siblings.
       }
     }
-  }
-
-  /**
-   * Fires whenever the html painter registry's active-painter set changes
-   * (declare, register, or their release). Reconciliation is synchronous —
-   * routing flips (and any DOM detach/remount) happen before this returns —
-   * while the actual repaint of newly canvas-routed elements is deferred to
-   * the next render frame via markAllLayersDirty + requestRender. Does NOT
-   * touch a minimap: Viewport does not own a MinimapController, and the
-   * built-in wrapper / React <Minimap /> each subscribe to the registry
-   * directly.
-   */
-  private onHtmlRegistryChanged(): void {
-    this.domNodeManager.reconcileHtmlRouting(this.store, this.resolveRouting);
-    this.renderLoop.markAllLayersDirty();
-    this.requestRender();
   }
 
   private isLiveHtml(id: string): boolean {
