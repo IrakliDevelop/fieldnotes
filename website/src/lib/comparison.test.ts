@@ -135,6 +135,7 @@ describe('parseComparison', () => {
       '/playground/',
       'https://example.com/',
       'https://github.com/tldraw/tldraw',
+      'https://github.com/IrakliDevelop/fieldnotes-other',
       'docs/layers/',
       '',
     ]) {

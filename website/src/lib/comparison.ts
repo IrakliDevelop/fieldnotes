@@ -62,7 +62,8 @@ function parseRow(row: unknown): ComparisonRow {
     !(
       ours.href.startsWith('/docs/') ||
       ours.href === '/roadmap/' ||
-      ours.href.startsWith(REPOSITORY) ||
+      ours.href === REPOSITORY ||
+      ours.href.startsWith(`${REPOSITORY}/`) ||
       ours.href === BUNDLEPHOBIA
     )
   ) {

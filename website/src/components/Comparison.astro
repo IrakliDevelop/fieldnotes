@@ -27,7 +27,7 @@ const table = rows.filter((row) => set === 'all' || row.home).map(({ label, cell
 
 <section class="wrap" aria-labelledby={set === 'home' ? 'compares' : 'compare-title'}>
   {set === 'home' && <h2 id="compares">How it compares</h2>}
-  <div class="scroll" tabindex="0">
+  <div class="scroll" tabindex="0" aria-label="Comparison table">
     <table>
       <thead>
         <tr>
@@ -115,16 +115,11 @@ const table = rows.filter((row) => set === 'all' || row.home).map(({ label, cell
   }
 
   .sources {
-    margin: 24px 0 0;
+    margin: 24px 0 16px;
     padding-left: 24px;
     color: var(--graphite-2);
     font-size: 14px;
     overflow-wrap: anywhere;
-  }
-
-  .standalone {
-    display: inline-block;
-    margin-top: 16px;
   }
 
   .visually-hidden {
