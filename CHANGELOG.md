@@ -10,8 +10,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 **Changed**
 
-- `Viewport` hands state loading, html element registration, activation, frame operations,
-  selection tracking and link opening to internal collaborators. No public API or behaviour
+- `Viewport` hands state loading, HTML element registration, activation, frame operations,
+  selection tracking and link opening to internal collaborators. No public API or behavior
   change.
 
 ### Core 0.110.0 — theming
