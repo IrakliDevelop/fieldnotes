@@ -41,11 +41,7 @@ import {
   isBoundTextContainer,
 } from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
-import {
-  exportState as exportCanvasState,
-  parseState,
-  migrateState,
-} from '../core/state-serializer';
+import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
 import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
 import { exportSvg } from './export-svg';
@@ -63,6 +59,7 @@ import type { OverlayRenderer } from './render-loop';
 import type { HtmlPainter, HtmlPainterRegistry } from './html-painter-registry';
 import type { HtmlPaintDiagnostic } from '../canvas/html-paint-diagnostics';
 import { HtmlElements } from './html-elements';
+import { loadViewportState } from './state-loader';
 import { ElementRegistry } from '../elements/element-registry';
 import { getDefaultElementRegistry } from '../elements/default-registry';
 import type { RenderStatsSnapshot } from './render-stats';
@@ -80,7 +77,7 @@ import type { ActivationOptions, ElementActivationEvent } from './element-activa
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
 import { PluginStateManager } from '../core/plugin-state-manager';
-import type { NotificationController, PersistedPluginState } from '../core/plugin-state-manager';
+import type { NotificationController } from '../core/plugin-state-manager';
 import { PluginHost } from './plugin-host';
 import type { RequiredCapabilities, ViewportPlugin } from './viewport-plugin';
 import type { ServiceKey } from '../core/service-key';
@@ -1195,101 +1192,21 @@ export class Viewport {
   }
 
   loadState(state: ImportableCanvasState): void {
-    const incoming = migrateState(
-      structuredClone(state) as ImportableCanvasState,
-      this.elementRegistry,
-    );
-    new ElementStore(this.elementRegistry).loadSnapshot(incoming.elements);
-    const preparedPlugins = this.pluginStateManager.prepareState(
-      (incoming.extensions ?? {}) as Record<string, PersistedPluginState>,
-    );
-    if (!preparedPlugins.success) throw new Error(preparedPlugins.error);
-
-    this.inputHandler.flushPendingHistory();
-    const previous = {
-      elements: this.store.snapshot(),
-      layers: this.layerManager.snapshot(),
-      activeLayerId: this.layerManager.activeLayerId,
-      camera: { position: this.camera.position, zoom: this.camera.zoom },
-      history: this.history.snapshot(),
-    };
-    const notifications = this.suspendNotifications();
-    this.historyRecorder.pause();
-    let pluginsCommitted = false;
-    try {
-      this.noteEditor.destroy(this.store);
-      this.domNodeManager.clearDomNodes();
-      this.applyCoreState(incoming);
-      this.history.clear();
-      this.camera.moveTo(incoming.camera.position.x, incoming.camera.position.y);
-      this.camera.setZoom(incoming.camera.zoom);
-      this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
-      const pluginResult = this.pluginStateManager.commitPrepared(preparedPlugins.prepared);
-      if (!pluginResult.success) throw new Error(pluginResult.error);
-      pluginsCommitted = true;
-      notifications.resume();
-      this.historyRecorder.resume();
-      for (const name of pluginResult.droppedPlugins ?? []) {
-        console.warn(
-          `[fieldnotes] dropped saved state of plugin "${name}": version could not be migrated`,
-        );
-      }
-    } catch (error) {
-      const rollbackErrors: string[] = [];
-      if (pluginsCommitted) {
-        rollbackErrors.push(...this.pluginStateManager.rollbackPrepared(preparedPlugins.prepared));
-      }
-      try {
-        this.store.loadSnapshot(previous.elements);
-        this.layerManager.loadSnapshot(previous.layers);
-        this.layerManager.setActiveLayer(previous.activeLayerId);
-        this.camera.moveTo(previous.camera.position.x, previous.camera.position.y);
-        this.camera.setZoom(previous.camera.zoom);
-        this.history.loadSnapshot(previous.history);
-        this.domNodeManager.clearDomNodes();
-        this.domNodeManager.reattachHtmlContent(this.store);
-        this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
-      } catch (rollbackError) {
-        rollbackErrors.push(
-          rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
-        );
-      } finally {
-        this.historyRecorder.resume();
-        notifications.discard();
-      }
-      if (rollbackErrors.length > 0) {
-        throw new AggregateError(
-          [error, ...rollbackErrors.map((message) => new Error(message))],
-          'Viewport state load and rollback failed',
-          { cause: error },
-        );
-      }
-      throw error;
-    }
-  }
-
-  private applyCoreState(state: CanvasState): void {
-    this.store.loadSnapshot(state.elements);
-    if (state.layers && state.layers.length > 0) this.layerManager.loadSnapshot(state.layers);
-    if (state.activeLayerId) this.layerManager.setActiveLayer(state.activeLayerId);
-    this.domNodeManager.reattachHtmlContent(this.store);
-    for (const el of this.store.getElementsByType('html')) {
-      if (this.domNodeManager.hasContent(el.id)) continue;
-      const rebuilt = this.html.buildContent(el);
-      if (rebuilt) this.domNodeManager.syncDomNode(el);
-      if (!this.onHtmlElementMount) continue;
-      if (!rebuilt) this.domNodeManager.syncDomNode(el);
-      const node = this.domNodeManager.getNode(el.id);
-      if (!node) continue;
-      this.onHtmlElementMount(el.id, el.domId, node);
-      this.domNodeManager.markHostOwnedContent(el.id);
-      node.dataset['initialized'] = 'true';
-      node.toggleAttribute(LIVE_NODE_ATTR, el.interactive === true);
-      Object.assign(node.style, {
-        overflow: 'hidden',
-        pointerEvents: el.interactive ? 'auto' : 'none',
-      });
-    }
+    loadViewportState(state, {
+      elementRegistry: this.elementRegistry,
+      store: this.store,
+      layerManager: this.layerManager,
+      camera: this.camera,
+      history: this.history,
+      historyRecorder: this.historyRecorder,
+      pluginStateManager: this.pluginStateManager,
+      noteEditor: this.noteEditor,
+      domNodeManager: this.domNodeManager,
+      html: this.html,
+      flushPendingHistory: () => this.inputHandler.flushPendingHistory(),
+      suspendNotifications: () => this.suspendNotifications(),
+      onHtmlElementMount: this.onHtmlElementMount,
+    });
   }
 
   loadJSON(json: string): void {
