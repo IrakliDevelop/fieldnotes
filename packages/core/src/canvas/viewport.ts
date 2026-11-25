@@ -52,7 +52,7 @@ import type { CanvasState, ImportableCanvasState } from '../core/state-serialize
 import { LayerManager } from '../layers/layer-manager';
 import { InteractMode } from './interact-mode';
 import { EmbeddedMode } from './embedded-mode';
-import { LIVE_NODE_ATTR, isLiveControlTarget } from './live-control';
+import { bindWrapperEvents } from './wrapper-events';
 import { DomNodeManager } from './dom-node-manager';
 import { RenderLoop } from './render-loop';
 import type { OverlayRenderer } from './render-loop';
@@ -851,38 +851,13 @@ export class Viewport {
       this.toolManager.setTool('select', this.toolContext);
     }
 
-    const { onTapDown, onDoubleTap, onDragOver, onDrop } = this.interactions;
-    this.wrapper.addEventListener('pointerdown', onTapDown);
-    this.wrapper.addEventListener('pointerup', onDoubleTap);
-    this.wrapper.addEventListener('dragover', onDragOver);
-    this.wrapper.addEventListener('drop', onDrop);
-    // Native drag from live padding would fight the board's own drag; live controls keep theirs.
-    const onDragStart = (e: DragEvent): void => {
-      if (
-        e.target instanceof Element &&
-        e.target.closest('[data-element-id]')?.hasAttribute(LIVE_NODE_ATTR) &&
-        !isLiveControlTarget(e.target, this.wrapper)
-      ) {
-        e.preventDefault();
-      }
-    };
-    // Focusing a control can scroll the overflow:hidden wrapper and misalign DOM and canvas.
-    const onWrapperScroll = (): void => {
-      if (options.embedded || this.wrapper.querySelector(`[data-element-id][${LIVE_NODE_ATTR}]`)) {
-        this.wrapper.scrollTop = 0;
-        this.wrapper.scrollLeft = 0;
-      }
-    };
-    this.wrapper.addEventListener('dragstart', onDragStart);
-    this.wrapper.addEventListener('scroll', onWrapperScroll);
-    this.disposers.push(() => {
-      this.wrapper.removeEventListener('dragstart', onDragStart);
-      this.wrapper.removeEventListener('scroll', onWrapperScroll);
-      this.wrapper.removeEventListener('pointerdown', onTapDown);
-      this.wrapper.removeEventListener('pointerup', onDoubleTap);
-      this.wrapper.removeEventListener('dragover', onDragOver);
-      this.wrapper.removeEventListener('drop', onDrop);
-    });
+    this.disposers.push(
+      bindWrapperEvents({
+        wrapper: this.wrapper,
+        handlers: this.interactions,
+        embedded: Boolean(options.embedded),
+      }),
+    );
     this.observeResize();
     this.syncCanvasSize();
     this.renderLoop.start();
