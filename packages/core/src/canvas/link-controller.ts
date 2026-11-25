@@ -52,7 +52,7 @@ export class LinkController {
     this.linkPromptClose = openLinkPrompt({
       container: this.deps.container,
       wrapper: this.deps.wrapper,
-      getTheme: () => this.deps.getTheme(),
+      getTheme: this.deps.getTheme,
       initialValue: initial,
       label,
       // A peer may delete or lock an id while the prompt is open.
@@ -89,7 +89,7 @@ export class LinkController {
     const view = revealView(bounds, this.deps.camera.getVisibleRect(w, h));
     if (this.linkAnimator === null) {
       this.linkAnimator = new CameraAnimator(this.deps.wrapper, this.deps.camera, {
-        getCanvasSize: () => this.deps.getCanvasSize(),
+        getCanvasSize: this.deps.getCanvasSize,
         interactive: true,
       });
     }

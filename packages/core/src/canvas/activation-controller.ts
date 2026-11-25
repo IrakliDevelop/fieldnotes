@@ -34,7 +34,6 @@ export class ActivationController {
     };
   }
 
-  /** Disposes the current activation and drops every listener. */
   dispose(): void {
     this.activation?.dispose();
     this.activation = null;

@@ -62,7 +62,6 @@ export class SelectionTracker {
     this.prune();
   }
 
-  /** Detaches from the select tool and drops every listener. */
   dispose(): void {
     this.detachSelectionSource?.();
     this.detachSelectionSource = null;
