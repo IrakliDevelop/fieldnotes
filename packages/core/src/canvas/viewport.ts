@@ -22,7 +22,6 @@ import { ContextMenu } from './context-menu';
 import { Minimap } from './minimap';
 import { createWrapper, createCanvas, createDomLayer, createPaintStack } from './viewport-dom';
 import { HybridRenderSurface } from './hybrid-render-surface';
-import { unbindArrowsFrom } from '../elements/arrow-binding';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
@@ -80,6 +79,7 @@ import type { ActivationOptions, ElementActivationEvent } from './element-activa
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
 import { configureRenderer } from './renderer-setup';
+import { bindStoreListeners } from './store-bindings';
 import { PluginStateManager } from '../core/plugin-state-manager';
 import type { NotificationController } from '../core/plugin-state-manager';
 import { PluginHost } from './plugin-host';
@@ -763,62 +763,15 @@ export class Viewport {
       }),
     );
     unsubStore.push(
-      this.store.on('add', (el) => {
-        if (el.type === 'html') {
-          // Remote adds and undo re-adds arrive without DOM; rebuild it from the renderer.
-          if (!this.domNodeManager.hasContent(el.id)) {
-            try {
-              this.html.buildContent(el);
-            } catch (error) {
-              reportFailure(error, 'html renderer failed');
-            }
-          }
-          this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
-        }
-        this.renderLoop.markLayerDirty(el.layerId);
-        this.requestRender();
-      }),
-      this.store.on('remove', (el, meta) => {
-        unbindArrowsFrom(this.store, el, meta, this.elementRegistry);
-        this.domNodeManager.removeDomNode(el.id);
-        this.html.diagnostics.forget(el.id);
-        this.renderLoop.markLayerDirty(el.layerId);
-        this.renderLoop.forgetElement(el.id, el.layerId);
-        this.requestRender();
-        this.selectionTracker.handleRemoved(el.id);
-      }),
-      this.store.on('update', ({ previous, current }) => {
-        if (current.type === 'html') {
-          this.stopInteractingIfLive();
-          this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
-        }
-        if (
-          previous.type === 'shape' &&
-          current.type === 'shape' &&
-          previous.fillColor !== current.fillColor
-        ) {
-          const text = getBoundText(current, this.store);
-          if (text) this.domNodeManager.invalidateNode(text.id);
-        }
-        this.renderLoop.noteElementUpdate(previous, current);
-        this.requestRender();
-      }),
-      this.store.on('clear', () => {
-        this.domNodeManager.clearDomNodes();
-        this.html.diagnostics.reset();
-        this.renderLoop.clearLive();
-        this.renderLoop.markAllLayersDirty();
-        this.requestRender();
-        this.selectionTracker.prune();
-      }),
-      this.store.on('batch', () => {
-        this.stopInteractingIfLive();
-        this.domNodeManager.reconcileHtmlRouting(this.store, this.html.resolveRouting);
-        this.html.diagnostics.reset();
-        this.renderLoop.clearLive();
-        this.renderLoop.markAllLayersDirty();
-        this.requestRender();
-        this.selectionTracker.prune();
+      ...bindStoreListeners({
+        store: this.store,
+        elementRegistry: this.elementRegistry,
+        domNodeManager: this.domNodeManager,
+        html: this.html,
+        renderLoop: this.renderLoop,
+        selectionTracker: this.selectionTracker,
+        requestRender: () => this.requestRender(),
+        stopInteractingIfLive: () => this.stopInteractingIfLive(),
       }),
     );
 
