@@ -6,6 +6,7 @@ import { ActionRegistry } from '../actions/action-registry';
 import type { ActionContext, ActionsApi } from '../actions/types';
 import { createLinkActions, createToolAction } from '../actions/builtin-actions';
 import { buildContextMenuItems } from '../actions/context-menu-items';
+import { createEditTextAction } from '../actions/edit-text-action';
 import { Background } from './background';
 import type { BackgroundOptions } from './background';
 import { resolveTheme } from './theme';
@@ -574,35 +575,15 @@ export class Viewport {
       openLink: (id) => this.links.open(id, null),
       promptLink: (ids, initial, label) => this.links.prompt(ids, initial, label),
     }).map((action) => this.actionRegistry.register(action));
-    const unregisterEditText = this.actionRegistry.register({
-      id: 'selection.edit-text',
-      label: 'Edit text',
-      keywords: ['text', 'label', 'edit'],
-      shortcut: ['enter'],
-      menu: { group: 'clipboard', order: 5 },
-      enabled: (ctx) => {
-        if (ctx.selectedIds.length !== 1) return false;
-        const id = ctx.selectedIds[0];
-        const element = id ? this.store.getById(id) : undefined;
-        return !!(
-          element &&
-          !element.locked &&
-          !this.layerManager.isLayerLocked(element.layerId) &&
-          (element.type === 'note' ||
-            element.type === 'text' ||
-            isBoundTextContainer(element, this.elementRegistry))
-        );
-      },
-      perform: (ctx) => {
-        const id = ctx.selectedIds[0];
-        if (!id) return false;
-        const element = this.store.getById(id);
-        if (!element) return false;
-        return isBoundTextContainer(element, this.elementRegistry)
-          ? this.interactions.editBoundText(id)
-          : (this.interactions.startEditingElement(id), true);
-      },
-    });
+    const unregisterEditText = this.actionRegistry.register(
+      createEditTextAction({
+        store: this.store,
+        layerManager: this.layerManager,
+        elementRegistry: this.elementRegistry,
+        editBoundText: (id) => this.interactions.editBoundText(id),
+        startEditingElement: (id) => this.interactions.startEditingElement(id),
+      }),
+    );
     this.disposers.push(
       ...unregisterPresentationActions,
       ...unregisterLinkActions,
