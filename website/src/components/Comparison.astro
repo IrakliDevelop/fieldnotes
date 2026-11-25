@@ -1,14 +1,19 @@
 ---
 import json from '../../content/comparison.json';
-import { OTHER_COLUMNS, parseComparison } from '../lib/comparison';
+import { isExternal, OTHER_COLUMNS, parseComparison } from '../lib/comparison';
 import type { SourcedCell } from '../lib/comparison';
 import { link } from '../utils/base';
 
+interface Props {
+  rows: 'home' | 'all';
+}
+
+const { rows: set } = Astro.props;
 const { columns, rows } = parseComparison(json);
 
-// Footnotes are numbered in row order, left to right.
+// Footnotes are numbered over the rendered rows only, in row order, left to right.
 const notes: SourcedCell[] = [];
-const table = rows.map(({ label, cells }) => ({
+const table = rows.filter((row) => set === 'all' || row.home).map(({ label, cells }) => ({
   label,
   ours: cells['Field Notes'],
   others: OTHER_COLUMNS.map((column) => {
@@ -20,8 +25,8 @@ const table = rows.map(({ label, cells }) => ({
 }));
 ---
 
-<section class="wrap" aria-labelledby="compares">
-  <h2 id="compares">How it compares</h2>
+<section class="wrap" aria-labelledby={set === 'home' ? 'compares' : 'compare-title'}>
+  {set === 'home' && <h2 id="compares">How it compares</h2>}
   <div class="scroll" tabindex="0">
     <table>
       <thead>
@@ -36,7 +41,7 @@ const table = rows.map(({ label, cells }) => ({
             <tr>
               <th scope="row">{label}</th>
               <td>
-                <a href={link(ours.href)}>{ours.text}</a>
+                <a href={isExternal(ours.href) ? ours.href : link(ours.href)}>{ours.text}</a>
               </td>
               {others.map((cell) =>
                 cell === undefined ? (

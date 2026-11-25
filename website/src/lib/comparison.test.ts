@@ -1,16 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseComparison } from './comparison';
+import { isExternal, parseComparison } from './comparison';
 
 type Overrides = Record<string, string | undefined>;
 
-const doc = (tldraw: Overrides = {}, fieldNotes: Overrides = {}) => ({
+const doc = (
+  tldraw: Overrides = {},
+  fieldNotes: Overrides = {},
+  row: Record<string, unknown> = {},
+) => ({
   checkedOn: '2026-10-20',
   columns: ['Field Notes', 'tldraw', 'Excalidraw'],
   rows: [
     {
       id: 'licence',
       label: 'Licence and cost',
+      home: true,
       cells: {
         'Field Notes': { text: 'MIT.', href: '/docs/getting-started/', ...fieldNotes },
         tldraw: {
@@ -20,6 +25,7 @@ const doc = (tldraw: Overrides = {}, fieldNotes: Overrides = {}) => ({
           ...tldraw,
         },
       },
+      ...row,
     },
   ],
 });
@@ -84,12 +90,46 @@ describe('parseComparison', () => {
     expect(parseComparison(doc({}, { href })).rows[0]?.cells['Field Notes'].href).toBe(href);
   });
 
-  it.each(['/playground/', 'https://github.com/IrakliDevelop/fieldnotes/blob/master/README.md'])(
-    'throws on the Field Notes href %s',
-    (href) => {
+  it('keeps the home flag of a row', () => {
+    expect(parseComparison(doc()).rows[0]?.home).toBe(true);
+  });
+
+  it('throws on a row without a boolean home flag', () => {
+    expect(() => parseComparison(doc({}, {}, { home: undefined }))).toThrow(
+      /licence: home must be true or false/,
+    );
+    expect(() => parseComparison(doc({}, {}, { home: 'yes' }))).toThrow(
+      /home must be true or false/,
+    );
+  });
+
+  it('accepts the roadmap, the repository and the Bundlephobia page as a Field Notes href', () => {
+    for (const href of [
+      '/roadmap/',
+      'https://github.com/IrakliDevelop/fieldnotes',
+      'https://github.com/IrakliDevelop/fieldnotes/blob/master/packages/core/README.md',
+      'https://bundlephobia.com/package/@fieldnotes/core',
+    ]) {
+      expect(() => parseComparison(doc({}, { href }))).not.toThrow();
+    }
+  });
+
+  it('throws on any other Field Notes href', () => {
+    for (const href of [
+      '/playground/',
+      'https://example.com/',
+      'https://github.com/tldraw/tldraw',
+      'docs/layers/',
+      '',
+    ]) {
       expect(() => parseComparison(doc({}, { href }))).toThrow(
-        'licence/Field Notes: href must start with /docs/ or be the repository LICENSE',
+        /href must be a docs page, \/roadmap\/, the repository or the Bundlephobia page/,
       );
-    },
-  );
+    }
+  });
+
+  it('tells external hrefs from site paths', () => {
+    expect(isExternal('https://github.com/IrakliDevelop/fieldnotes')).toBe(true);
+    expect(isExternal('/docs/layers/')).toBe(false);
+  });
 });

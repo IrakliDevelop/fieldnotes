@@ -3,7 +3,8 @@ const COLUMNS = ['Field Notes', 'tldraw', 'Excalidraw'] as const;
 export const OTHER_COLUMNS = ['tldraw', 'Excalidraw'] as const;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const GLYPHS = /[✓✔✕✗✘]/;
-const LICENSE = 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE';
+const REPOSITORY = 'https://github.com/IrakliDevelop/fieldnotes';
+const BUNDLEPHOBIA = 'https://bundlephobia.com/package/@fieldnotes/core';
 
 /** A claim about another project, with where and when it was checked. */
 export interface SourcedCell {
@@ -16,6 +17,7 @@ export interface SourcedCell {
 export interface ComparisonRow {
   id: string;
   label: string;
+  home: boolean;
   cells: {
     'Field Notes': { text: string; href: string };
     tldraw?: SourcedCell;
@@ -29,6 +31,9 @@ export interface Comparison {
   columns: typeof COLUMNS;
   rows: ComparisonRow[];
 }
+
+/** Whether a Field Notes href leaves the site, so it skips the base path. */
+export const isExternal = (href: string): boolean => href.startsWith('https://');
 
 function fail(message: string): never {
   throw new Error(`comparison.json: ${message}`);
@@ -48,18 +53,27 @@ function parseRow(row: unknown): ComparisonRow {
   if (!isRecord(row) || typeof row.id !== 'string' || typeof row.label !== 'string') {
     fail('each row needs an id and a label');
   }
-  const { id, label, cells } = row;
+  const { id, label, home, cells } = row;
+  if (typeof home !== 'boolean') fail(`${id}: home must be true or false`);
   const ours = isRecord(cells) ? cells['Field Notes'] : undefined;
   if (
     !isRecord(ours) ||
     typeof ours.href !== 'string' ||
-    !(ours.href.startsWith('/docs/') || ours.href === LICENSE)
+    !(
+      ours.href.startsWith('/docs/') ||
+      ours.href === '/roadmap/' ||
+      ours.href.startsWith(REPOSITORY) ||
+      ours.href === BUNDLEPHOBIA
+    )
   ) {
-    fail(`${id}/Field Notes: href must start with /docs/ or be the repository LICENSE`);
+    fail(
+      `${id}/Field Notes: href must be a docs page, /roadmap/, the repository or the Bundlephobia page`,
+    );
   }
   const parsed: ComparisonRow = {
     id,
     label,
+    home,
     cells: { 'Field Notes': { text: cellText(ours, `${id}/Field Notes`), href: ours.href } },
   };
   for (const column of OTHER_COLUMNS) {
