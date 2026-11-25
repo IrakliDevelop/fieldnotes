@@ -68,6 +68,7 @@ import { MarginViewport } from './margin-viewport';
 import type { ElementStyle } from '../elements/element-style';
 import { ConstraintServiceProxy } from '../core/constraint-service';
 import { SelectionOps } from './selection-ops';
+import { SelectionTracker, isSelectionSource } from './selection-tracker';
 import { FrameOps } from './frame-ops';
 import type { SelectionStyleDetails } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
@@ -271,10 +272,8 @@ export class Viewport {
   private readonly html: HtmlElements;
   private readonly activationController: ActivationController;
   private readonly resizeListeners = new Set<() => void>();
-  private readonly selectionListeners = new Set<() => void>();
+  private readonly selectionTracker: SelectionTracker;
   private readonly stateChangeListeners = new Set<() => void>();
-  private detachSelectionSource: (() => void) | null = null;
-  private pendingSelectionPrune = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -303,9 +302,15 @@ export class Viewport {
     });
     setElbowVisibleLayers(this.store, (id) => this.layerManager.isLayerVisible(id));
     this.toolManager = new ToolManager();
+    this.selectionTracker = new SelectionTracker({
+      store: this.store,
+      getSelectTool: () => this.getSelectTool(),
+      getSelectedIds: () => this.getSelectedIds(),
+      getCurrentTransactionId: () => this.historyRecorder.currentTransactionId,
+    });
     this.actionRegistry = new ActionRegistry(() => this.currentActionContext());
     const unsubToolRegister = this.toolManager.onRegister((tool) => {
-      if (Viewport.isSelectionSource(tool)) this.attachSelectionSource(tool);
+      if (isSelectionSource(tool)) this.selectionTracker.attach(tool);
       if (!this.actionRegistry.get('tool.' + tool.name)) {
         this.actionRegistry.register(
           createToolAction(tool.name, {
@@ -316,14 +321,10 @@ export class Viewport {
         );
       }
     });
-    this.disposers.push(unsubToolRegister, () => {
-      this.detachSelectionSource?.();
-      this.detachSelectionSource = null;
-      this.selectionListeners.clear();
-    });
+    this.disposers.push(unsubToolRegister, () => this.selectionTracker.dispose());
     const existingSelect = this.getSelectTool();
-    if (existingSelect && Viewport.isSelectionSource(existingSelect)) {
-      this.attachSelectionSource(existingSelect);
+    if (existingSelect && isSelectionSource(existingSelect)) {
+      this.selectionTracker.attach(existingSelect);
     }
     this.renderer = new ElementRenderer();
     this.renderer.setTheme(this.theme);
@@ -379,11 +380,9 @@ export class Viewport {
       flushPendingHistory: () => this.inputHandler.flushPendingHistory(),
       transaction: (run) => this.transaction(run),
     });
-    const unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() => {
-      if (!this.pendingSelectionPrune) return;
-      this.pendingSelectionPrune = false;
-      this.pruneSelection();
-    });
+    const unsubRecorderEnd = this.historyRecorder.onTransactionEnd(() =>
+      this.selectionTracker.flushPendingPrune(),
+    );
     this.selectionOps = new SelectionOps({
       store: this.store,
       recorder: this.historyRecorder,
@@ -806,7 +805,7 @@ export class Viewport {
         this.renderLoop.markLayerDirty(el.layerId);
         this.renderLoop.forgetElement(el.id, el.layerId);
         this.requestRender();
-        this.handleRemovedElement(el.id);
+        this.selectionTracker.handleRemoved(el.id);
       }),
       this.store.on('update', ({ previous, current }) => {
         if (current.type === 'html') {
@@ -830,7 +829,7 @@ export class Viewport {
         this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
-        this.pruneSelection();
+        this.selectionTracker.prune();
       }),
       this.store.on('batch', () => {
         this.stopInteractingIfLive();
@@ -839,7 +838,7 @@ export class Viewport {
         this.renderLoop.clearLive();
         this.renderLoop.markAllLayersDirty();
         this.requestRender();
-        this.pruneSelection();
+        this.selectionTracker.prune();
       }),
     );
 
@@ -1607,47 +1606,6 @@ export class Viewport {
     return this.toolManager.getTool<SelectTool>('select');
   }
 
-  private pruneSelection(): void {
-    const tool = this.getSelectTool();
-    if (!tool) return;
-    const ids = tool.selectedIds;
-    const filtered = ids.filter((id) => this.store.getById(id) !== undefined);
-    if (filtered.length !== ids.length) tool.setSelection(filtered);
-  }
-
-  private handleRemovedElement(id: string): void {
-    if (!this.getSelectedIds().includes(id)) return;
-    if (this.historyRecorder.currentTransactionId !== null) {
-      this.pendingSelectionPrune = true;
-      return;
-    }
-    this.pruneSelection();
-  }
-
-  private static isSelectionSource(tool: Tool): tool is SelectTool {
-    const candidate = tool as Partial<SelectTool>;
-    return (
-      tool.name === 'select' &&
-      typeof candidate.onSelectionChange === 'function' &&
-      typeof candidate.setSelection === 'function'
-    );
-  }
-
-  private emitSelectionChange(): void {
-    for (const listener of this.selectionListeners) {
-      try {
-        listener();
-      } catch {
-        // Selection listeners must not break each other or the caller.
-      }
-    }
-  }
-
-  private attachSelectionSource(tool: SelectTool): void {
-    this.detachSelectionSource?.();
-    this.detachSelectionSource = tool.onSelectionChange(() => this.emitSelectionChange());
-  }
-
   /**
    * getSelectedIds() and the onSelectionChange emitter never surface stale ids:
    * once the enclosing history transaction completes, both reflect
@@ -1681,10 +1639,7 @@ export class Viewport {
    * history transaction completes.
    */
   onSelectionChange(listener: () => void): () => void {
-    this.selectionListeners.add(listener);
-    return () => {
-      this.selectionListeners.delete(listener);
-    };
+    return this.selectionTracker.onChange(listener);
   }
 
   getSelectionStyle(): ElementStyle | null {
