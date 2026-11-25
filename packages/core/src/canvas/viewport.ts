@@ -78,6 +78,7 @@ import { ActivationController } from './activation-controller';
 import type { ActivationOptions, ElementActivationEvent } from './element-activation';
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
+import { configureRenderer } from './renderer-setup';
 import { PluginStateManager } from '../core/plugin-state-manager';
 import type { NotificationController } from '../core/plugin-state-manager';
 import { PluginHost } from './plugin-host';
@@ -324,34 +325,17 @@ export class Viewport {
       this.selectionTracker.attach(existingSelect);
     }
     this.renderer = new ElementRenderer();
-    this.renderer.setTheme(this.theme);
     this.disposers.push(() => this.renderer.clearImageCache());
-    this.renderer.setStore(this.store);
-    this.renderer.setCamera(this.camera);
-    this.renderer.setElementRegistry(this.elementRegistry);
-    this.renderer.setOnImageLoad((src) => {
-      for (const el of this.store.getAll()) {
-        if (el.type === 'image' && el.src === src) this.renderLoop.markLayerDirty(el.layerId);
-      }
-      this.requestRender();
-    });
-    const reportImageError = (info: ImageErrorInfo): void => {
-      if (options.onImageError) options.onImageError(info);
-      else console.warn(`[fieldnotes] image failed to ${info.reason ?? 'load'}: ${info.src}`);
-    };
-    this.renderer.setOnImageError((src, cause) => {
-      const elementIds: string[] = [];
-      for (const el of this.store.getAll()) {
-        if (el.type === 'image' && el.src === src) elementIds.push(el.id);
-      }
-      reportImageError({ src, elementIds, cause, reason: 'load' });
-    });
-    this.renderer.setHtmlPainters(this.html.painters);
-    this.renderer.setDiagnosticSink((d) => {
-      this.html.diagnostics.emit(d, {
-        registryVersion: this.html.painters.version,
-        elementVersion: this.store.getVersion(d.elementId),
-      });
+    const reportImageError = configureRenderer({
+      renderer: this.renderer,
+      theme: this.theme,
+      store: this.store,
+      camera: this.camera,
+      elementRegistry: this.elementRegistry,
+      html: this.html,
+      onImageError: options.onImageError,
+      markLayerDirty: (id) => this.renderLoop.markLayerDirty(id),
+      requestRender: () => this.requestRender(),
     });
     this.noteEditor = new NoteEditor({
       fontSizePresets: options.fontSizePresets,
