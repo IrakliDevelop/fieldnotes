@@ -72,7 +72,7 @@ import type { SelectionStyleDetails } from './selection-ops';
 import type { AlignEdge, DistributeAxis } from './selection-ops';
 import { ViewportInteractions } from './viewport-interactions';
 import type { RotateDirection } from './selection-rotate';
-import { ElementActivation } from './element-activation';
+import { ActivationController } from './activation-controller';
 import type { ActivationOptions, ElementActivationEvent } from './element-activation';
 import { createRenderHooks } from './render-hooks';
 import type { RenderHooks } from './render-hooks';
@@ -274,9 +274,7 @@ export class Viewport {
   private contextMenu: ContextMenu | null = null;
   private minimap: Minimap | null = null;
   private readonly html: HtmlElements;
-  private activation: ElementActivation | null = null;
-  private activationGeneration = 0;
-  private readonly activationListeners = new Set<(e: ElementActivationEvent) => void>();
+  private readonly activationController: ActivationController;
   private readonly resizeListeners = new Set<() => void>();
   private readonly selectionListeners = new Set<() => void>();
   private readonly stateChangeListeners = new Set<() => void>();
@@ -418,6 +416,18 @@ export class Viewport {
       this.renderLoop.requestRender();
     });
     this.background.setCanvasWatcher(this.contextLossGuard.watch);
+    this.activationController = new ActivationController({
+      element: this.wrapper,
+      camera: this.camera,
+      store: this.store,
+      resolveHtmlRouting: this.html.resolveRouting,
+      isLayerVisible: (layerId: string) => this.layerManager.isLayerVisible(layerId),
+      // Owner-side busy signal: the camera is gliding under pan inertia, or
+      // this very gesture is the one that stopped the glide. Suppressing
+      // both is what keeps "tap to stop a flick" from activating whatever
+      // sits under the finger.
+      isCameraBusy: () => this.inputHandler.isCameraCoasting(),
+    });
 
     this._renderHooks = createRenderHooks();
     this.pluginStateManager = new PluginStateManager(() => this.suspendNotifications());
@@ -868,9 +878,7 @@ export class Viewport {
         this.noteEditor.destroy(this.store);
       },
       () => {
-        this.activation?.dispose();
-        this.activation = null;
-        this.activationListeners.clear();
+        this.activationController.dispose();
         this.html.clearDiagnosticListeners();
         this.resizeListeners.clear();
       },
@@ -1555,34 +1563,7 @@ export class Viewport {
    * Strict-Mode cleanup cannot tear down a newer registration.
    */
   setActivation(options: ActivationOptions | null): () => void {
-    // Construct before tearing down: a RangeError must leave the current
-    // controller — and every outstanding disposer's generation — intact.
-    const next = options
-      ? new ElementActivation(
-          {
-            element: this.wrapper,
-            camera: this.camera,
-            store: this.store,
-            resolveHtmlRouting: this.html.resolveRouting,
-            isLayerVisible: (layerId: string) => this.layerManager.isLayerVisible(layerId),
-            // Owner-side busy signal: the camera is gliding under pan inertia, or
-            // this very gesture is the one that stopped the glide. Suppressing
-            // both is what keeps "tap to stop a flick" from activating whatever
-            // sits under the finger.
-            isCameraBusy: () => this.inputHandler.isCameraCoasting(),
-          },
-          options,
-        )
-      : null;
-    this.activation?.dispose();
-    this.activation = next;
-    next?.onActivate((e) => this.emitActivation(e));
-    const generation = ++this.activationGeneration;
-    return () => {
-      if (this.activationGeneration !== generation) return;
-      this.activation?.dispose();
-      this.activation = null;
-    };
+    return this.activationController.set(options);
   }
 
   /**
@@ -1592,20 +1573,7 @@ export class Viewport {
    * try/catch. Returns an idempotent unsubscribe.
    */
   onElementActivate(listener: (e: ElementActivationEvent) => void): () => void {
-    this.activationListeners.add(listener);
-    return () => {
-      this.activationListeners.delete(listener);
-    };
-  }
-
-  private emitActivation(event: ElementActivationEvent): void {
-    for (const listener of [...this.activationListeners]) {
-      try {
-        listener(event);
-      } catch {
-        // One host listener's fault must not break its siblings.
-      }
-    }
+    return this.activationController.onActivate(listener);
   }
 
   private isLiveHtml(id: string): boolean {
