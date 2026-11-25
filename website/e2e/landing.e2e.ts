@@ -57,11 +57,15 @@ test.describe('landing without JavaScript', () => {
       'Why this exists',
     ]);
 
+    const compares = page.getByRole('region', { name: 'How it compares' });
     await expect(
-      page.getByRole('region', { name: 'How it compares' }).getByRole('link', {
-        name: 'MIT. No licence key, no watermark.',
-      }),
+      compares.getByRole('link', { name: 'MIT. No licence key, no watermark.' }),
     ).toHaveAttribute('href', 'https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE');
+    await expect(compares.getByRole('rowheader')).toHaveCount(5);
+    await expect(compares.getByRole('link', { name: 'Read the full comparison' })).toHaveAttribute(
+      'href',
+      '/compare/',
+    );
 
     const notBuilt = page.getByRole('region', { name: 'Not built yet' }).getByRole('listitem');
     await expect(notBuilt).toHaveText(['Vector PDF with selectable text']);

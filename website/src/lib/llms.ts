@@ -25,6 +25,11 @@ const SUMMARY =
 
 const OPTIONAL = [
   ['API reference', '/api/', 'TypeDoc pages for every package except `@fieldnotes/svelte`.'],
+  [
+    'Comparison',
+    '/compare/',
+    'Field Notes beside tldraw and Excalidraw, with a source and a date for each claim.',
+  ],
   ['Changelog', '/changelog/', 'Every release with its date.'],
   ['Roadmap', '/roadmap/', 'What is built, what is next and what is not built yet.'],
 ] as const;
@@ -69,7 +74,7 @@ export function toMarkdownTwin(
   return `# ${page.title}\n\n${page.description}\n\n${markdown.stringify(tree)}`;
 }
 
-/** `/llms.txt`: a summary, every docs twin in nav order, then the API reference, changelog and roadmap. */
+/** `/llms.txt`: a summary, every docs twin in nav order, then the API reference, comparison, changelog and roadmap. */
 export function llmsTxt(entries: readonly LlmsEntry[], site: SiteOptions): string {
   const root = siteRoot(site);
   const docs = orderDocs(entries).map(

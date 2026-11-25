@@ -1,0 +1,119 @@
+---
+import Comparison from '../../components/Comparison.astro';
+import Base from '../../layouts/Base.astro';
+import { link } from '../../utils/base';
+---
+
+<Base
+  title="Field Notes compared with tldraw and Excalidraw"
+  description="Licence, framework, bundle size, sync, export, layers and frames in Field Notes, tldraw and Excalidraw, each claim with a source and the date it was checked."
+>
+  <main class="compare">
+    <div class="wrap head">
+      <h1 id="compare-title">Field Notes compared with tldraw and Excalidraw</h1>
+      <p class="intro">
+        Each claim about tldraw or Excalidraw has a numbered source and the date it was checked. A
+        blank cell means no first-party source was found for it.
+      </p>
+    </div>
+
+    <Comparison rows="all" />
+
+    <div class="wrap choices">
+      <section aria-labelledby="tldraw">
+        <h2 id="tldraw">When tldraw is the better choice</h2>
+        <p>
+          tldraw ships a <a href="https://tldraw.dev/docs/user-interface">complete editor interface</a
+          >: toolbars, menus and style panels. Field Notes has no tool toolbar or style panel, so an
+          app that needs that interface on day one, and can take the <a
+            href="https://tldraw.dev/community/license">production licence</a
+          >, gets there sooner with tldraw. Its text editor is <a
+            href="https://tldraw.dev/sdk-features/rich-text">built on TipTap</a
+          >, with lists and links. Its repository was <a
+            href="https://api.github.com/repos/tldraw/tldraw">created in 2021</a
+          >.
+        </p>
+      </section>
+
+      <section aria-labelledby="excalidraw">
+        <h2 id="excalidraw">When Excalidraw is the better choice</h2>
+        <p>
+          Excalidraw is under the <a
+            href="https://github.com/excalidraw/excalidraw/blob/master/LICENSE">MIT licence</a
+          > too, and its React component <a
+            href="https://plus.excalidraw.com/docs/sdk/excalidraw/api/children-components/main-menu"
+            >renders its own menus</a
+          >. For a React app that wants that whiteboard as it is, one component does it. Its
+          repository is the <a href="https://api.github.com/repos/excalidraw/excalidraw"
+            >oldest and most starred</a
+          > of the three.
+        </p>
+      </section>
+
+      <section aria-labelledby="fits">
+        <h2 id="fits">When Field Notes fits</h2>
+        <p>
+          The app isn't a React app, or it wants the board without an editor interface on top: <a
+            href={link('/docs/getting-started/')}><code>@fieldnotes/core</code></a
+          > is vanilla TypeScript with no runtime dependencies. The licence is MIT, with no key and no
+          watermark. The board holds <a href={link('/docs/html-elements/')}>live HTML elements</a>, <a
+            href={link('/docs/layers/')}>named layers</a
+          > and <a
+            href={link('/docs/tools-and-input/#frames')}>frames</a
+          >, <a href={link('/docs/export/')}>exports to PDF</a>, and has a <a
+            href={link('/docs/tabletop-maps/')}>tabletop package</a
+          > with grids and fog of war. The <a href={link('/docs/multiplayer/')}>sync server</a> is a
+          WebSocket relay you run yourself.
+        </p>
+      </section>
+
+      <p class="closing">
+        What Field Notes doesn't do yet is on <a href={link('/roadmap/#not-built')}>the roadmap</a>.
+      </p>
+    </div>
+  </main>
+</Base>
+
+<style>
+  .compare {
+    padding-top: 48px;
+    padding-bottom: 96px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 44px;
+    line-height: 1.1;
+  }
+
+  .intro {
+    max-width: 36em;
+    margin: 16px 0 0;
+    color: var(--graphite-2);
+    font-size: 19px;
+  }
+
+  .choices {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    margin-top: 64px;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 28px;
+    line-height: 1.2;
+  }
+
+  section p,
+  .closing {
+    max-width: 40em;
+    margin: 12px 0 0;
+    line-height: 1.6;
+  }
+
+  code {
+    font-size: 15px;
+  }
+</style>

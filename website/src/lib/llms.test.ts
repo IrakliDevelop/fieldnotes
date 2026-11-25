@@ -154,6 +154,7 @@ describe('llmsTxt', () => {
 ## Optional
 
 - [API reference](https://fieldnotesjs.dev/fieldnotes/api/): TypeDoc pages for every package except \`@fieldnotes/svelte\`.
+- [Comparison](https://fieldnotesjs.dev/fieldnotes/compare/): Field Notes beside tldraw and Excalidraw, with a source and a date for each claim.
 - [Changelog](https://fieldnotesjs.dev/fieldnotes/changelog/): Every release with its date.
 - [Roadmap](https://fieldnotesjs.dev/fieldnotes/roadmap/): What is built, what is next and what is not built yet.
 `);

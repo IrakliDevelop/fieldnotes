@@ -72,6 +72,7 @@ const table = rows.filter((row) => set === 'all' || row.home).map(({ label, cell
       ))
     }
   </ol>
+  {set === 'home' && <a class="standalone" href={link('/compare/')}>Read the full comparison</a>}
 </section>
 
 <style>
@@ -119,6 +120,11 @@ const table = rows.filter((row) => set === 'all' || row.home).map(({ label, cell
     color: var(--graphite-2);
     font-size: 14px;
     overflow-wrap: anywhere;
+  }
+
+  .standalone {
+    display: inline-block;
+    margin-top: 16px;
   }
 
   .visually-hidden {

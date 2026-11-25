@@ -1,5 +1,6 @@
 ---
 import { getInstallableVersions, PUBLIC_PACKAGES } from '../lib/versions';
+import { link } from '../utils/base';
 
 const versions = await getInstallableVersions();
 ---
@@ -10,6 +11,7 @@ const versions = await getInstallableVersions();
       <span class="wordmark">Field Notes</span>
       <a href="https://github.com/IrakliDevelop/fieldnotes/blob/master/LICENSE">MIT licence</a>
       <a href="https://github.com/IrakliDevelop/fieldnotes">GitHub</a>
+      <a href={link('/compare/')}>Compare with tldraw and Excalidraw</a>
     </div>
     <table>
       <caption>Packages</caption>
