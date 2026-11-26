@@ -1,4 +1,4 @@
-import { WebSocketServer, type RawData } from 'ws';
+import { WebSocketServer, type RawData, type VerifyClientCallbackAsync } from 'ws';
 import type { IncomingMessage, Server } from 'http';
 import { SyncHub, type Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
@@ -65,6 +65,8 @@ export interface CreateSyncServerOptions {
   authenticate?: Authenticate;
   /** Admits unauthenticated sockets; required when `authenticate` is not set. */
   allowAnonymous?: boolean;
+  /** Browser origins allowed to upgrade; others get HTTP 403. Requests without `Origin` pass. */
+  allowedOrigins?: readonly string[] | ((origin: string, req: IncomingMessage) => boolean);
   /** Opts admitted sockets into bounded frame transport and optional per-frame authorization. */
   framePolicy?: FramePolicy;
   authorize?: Authorize;
@@ -252,12 +254,37 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     }
     return false;
   };
+  const { allowedOrigins } = options;
+  // Two-argument form: ws answers a one-argument refusal with 401, not 403.
+  const verifyClient: VerifyClientCallbackAsync | undefined = allowedOrigins
+    ? ({ origin, req }, cb) => {
+        if (!origin) return cb(true);
+        let ok = false;
+        try {
+          ok =
+            typeof allowedOrigins === 'function'
+              ? allowedOrigins(origin, req)
+              : allowedOrigins.includes(origin);
+        } catch {
+          // A throw inside the upgrade handler escapes ws, so a failing host check refuses.
+        }
+        if (ok) cb(true);
+        else cb(false, 403);
+      }
+    : undefined;
+  const verify = verifyClient ? { verifyClient } : {};
   const wss = options.server
-    ? new WebSocketServer({ server: options.server, maxPayload: maxMessageBytes, handleProtocols })
+    ? new WebSocketServer({
+        server: options.server,
+        maxPayload: maxMessageBytes,
+        handleProtocols,
+        ...verify,
+      })
     : new WebSocketServer({
         port: options.port ?? 0,
         maxPayload: maxMessageBytes,
         handleProtocols,
+        ...verify,
       });
   const heartbeat = startHeartbeat(wss, options.heartbeatIntervalMs ?? 30000);
   let shuttingDown = false;

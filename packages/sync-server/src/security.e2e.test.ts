@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
+import { createServer, type IncomingMessage } from 'http';
 import { createImage } from '@fieldnotes/core';
 import { createCurrentCapabilities } from '@fieldnotes/sync';
 import { createSyncServer, type CreateSyncServerOptions } from './create-sync-server';
@@ -304,6 +305,84 @@ describe('sync-server connection hardening (end-to-end)', () => {
       await waitFor(() => server.hub.roomCount() === 1);
 
       expect(authenticate).toHaveBeenCalledWith(expect.objectContaining({ room }));
+    });
+  });
+
+  describe('allowed origins', () => {
+    // Resolves 'open', or the HTTP status of a refused upgrade.
+    function connect(port: number, origin?: string): Promise<'open' | number> {
+      const socket = new WsClient(`ws://127.0.0.1:${port}?room=r`, origin ? { origin } : {});
+      rawSockets.push(socket);
+      return new Promise((resolve) => {
+        socket.once('open', () => resolve('open'));
+        socket.once('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+        socket.on('error', () => undefined);
+      });
+    }
+
+    it('refuses an unlisted origin with 403 before authenticate runs', async () => {
+      const authenticate = vi.fn(() => ({ userId: 'u1' }));
+      const { port } = startServer({ authenticate, allowedOrigins: ['https://app.example'] });
+
+      expect(await connect(port, 'https://evil.example')).toBe(403);
+      expect(authenticate).not.toHaveBeenCalled();
+    });
+
+    it('admits the listed origin and a request without an Origin header', async () => {
+      const { port } = startServer({ allowedOrigins: ['https://app.example'] });
+
+      expect(await connect(port, 'https://app.example')).toBe('open');
+      expect(await connect(port)).toBe('open');
+    });
+
+    it('lets the function form decide from the origin and the request', async () => {
+      const allowedOrigins = vi.fn(
+        (origin: string, _req: IncomingMessage) => origin === 'https://app.example',
+      );
+      const { port } = startServer({ allowedOrigins });
+
+      expect(await connect(port, 'https://app.example')).toBe('open');
+      expect(await connect(port, 'https://evil.example')).toBe(403);
+      expect(allowedOrigins).toHaveBeenCalledWith(
+        'https://evil.example',
+        expect.objectContaining({ url: '/?room=r' }),
+      );
+    });
+
+    it('refuses with 403 when the function throws', async () => {
+      const { port } = startServer({
+        allowedOrigins: () => {
+          throw new Error('boom');
+        },
+      });
+
+      expect(await connect(port, 'https://app.example')).toBe(403);
+    });
+
+    it('admits any origin when the option is unset', async () => {
+      const { port } = startServer();
+
+      expect(await connect(port, 'https://evil.example')).toBe('open');
+    });
+
+    it('checks origins on a host-supplied HTTP server too', async () => {
+      const http = createServer();
+      await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', () => resolve()));
+      const server = createSyncServer({
+        server: http,
+        allowAnonymous: true,
+        allowedOrigins: ['https://app.example'],
+      });
+      servers.push(server);
+      const { port } = http.address() as AddressInfo;
+
+      try {
+        expect(await connect(port, 'https://evil.example')).toBe(403);
+        expect(await connect(port, 'https://app.example')).toBe('open');
+      } finally {
+        for (const c of rawSockets) c.close();
+        await new Promise((resolve) => http.close(resolve));
+      }
     });
   });
 });
