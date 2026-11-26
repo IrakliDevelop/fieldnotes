@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
-import type { CanvasElement, Layer } from '@fieldnotes/core';
+import { createImage, type CanvasElement, type Layer } from '@fieldnotes/core';
 import {
   createAuthorityCapabilities,
   createCurrentCapabilities,
@@ -5039,6 +5039,212 @@ describe('element link sanitization', () => {
       expect(relayedElements(conn.sent)[0]).not.toHaveProperty('link');
       expect(JSON.stringify(conn.sent)).not.toContain('javascript:');
       hub.close();
+    });
+  });
+});
+
+describe('image source schemes', () => {
+  const image = (id: string, src: string, version = 1): SyncElement => ({
+    ...createImage({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, src }),
+    id,
+    version,
+  });
+  const shape = (id: string): SyncElement => ({ ...sampleEl(), id, version: 1 });
+  const frames = (conn: FakeConn): unknown[] => conn.sent.map((m) => JSON.parse(m) as unknown);
+  const join = (hub: SyncHub, id: string, role?: string): FakeConn =>
+    admit(hub, { ...makeConn(id, 'R'), userId: id, role });
+  const refusal = (id: string, version = 1) => ({
+    from: 'hub',
+    op: { kind: 'remove', id, version, editor: 'hub' },
+  });
+
+  async function upsertImage(options: ConstructorParameters<typeof SyncHub>[0], src: string) {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ ...options, backend });
+    const a = join(hub, 'A', 'dm');
+    const b = join(hub, 'B');
+    const element = image('i', src);
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element }));
+    return { a, b, element, stored: await storedElement(backend, 'R', 'i') };
+  }
+
+  async function seeded(...elements: SyncElement[]): Promise<MemoryHubBackend> {
+    const backend = new MemoryHubBackend();
+    for (const element of elements) {
+      await backend.applyElement('R', { kind: 'upsert', element }, null);
+    }
+    return backend;
+  }
+
+  it('refuses a javascript: image: not stored, not relayed, sender gets the denied-edit remove', async () => {
+    const { a, b, stored } = await upsertImage({}, 'javascript:alert(1)');
+
+    expect(stored).toBeUndefined();
+    expect(JSON.stringify(b.sent)).not.toContain('javascript:alert(1)');
+    expect(frames(a)).toEqual([refusal('i')]);
+  });
+
+  it('refuses an image the allowImageSrc hook rejects', async () => {
+    const allowImageSrc = ({ src }: { src: string }) => src.startsWith('data:image/');
+    const { a, b, stored } = await upsertImage({ allowImageSrc }, 'https://cdn.example/a.png');
+
+    expect(stored).toBeUndefined();
+    expect(JSON.stringify(b.sent)).not.toContain('https://cdn.example/a.png');
+    expect(frames(a)).toEqual([refusal('i')]);
+  });
+
+  it('relays an image the allowImageSrc hook accepts', async () => {
+    const allowImageSrc = ({ src }: { src: string }) => src.startsWith('data:image/');
+    const { b, element } = await upsertImage({ allowImageSrc }, 'data:image/png;base64,AAAA');
+
+    expect(frames(b)).toEqual([{ from: 'A', op: { kind: 'upsert', element } }]);
+  });
+
+  it('refuses an image when allowImageSrc throws', async () => {
+    const allowImageSrc = () => {
+      throw new Error('policy down');
+    };
+    const { a, b, stored } = await upsertImage({ allowImageSrc }, 'https://cdn.example/t.png');
+
+    expect(stored).toBeUndefined();
+    expect(JSON.stringify(b.sent)).not.toContain('https://cdn.example/t.png');
+    expect(frames(a)).toEqual([refusal('i')]);
+  });
+
+  it('passes the connection identity and room to allowImageSrc', async () => {
+    const allowImageSrc = vi.fn(() => true);
+    await upsertImage({ allowImageSrc }, 'https://cdn.example/a.png');
+
+    expect(allowImageSrc).toHaveBeenCalledWith({
+      src: 'https://cdn.example/a.png',
+      userId: 'A',
+      role: 'dm',
+      room: 'R',
+    });
+  });
+
+  it('relays a good-scheme image and a non-image element unchanged without a hook', async () => {
+    const hub = new SyncHub();
+    join(hub, 'A');
+    const b = join(hub, 'B');
+    const good = image('i', 'https://cdn.example/a.png');
+
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: good }));
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: shape('s') }));
+
+    expect(b.sent).toEqual([
+      JSON.stringify({ from: 'A', op: { kind: 'upsert', element: good } }),
+      JSON.stringify({ from: 'A', op: { kind: 'upsert', element: shape('s') } }),
+    ]);
+  });
+
+  it('does not call allowImageSrc for a non-image element', async () => {
+    const allowImageSrc = vi.fn(() => false);
+    const hub = new SyncHub({ allowImageSrc });
+    join(hub, 'A');
+    const b = join(hub, 'B');
+
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: shape('s') }));
+
+    expect(allowImageSrc).not.toHaveBeenCalled();
+    expect(frames(b)).toEqual([{ from: 'A', op: { kind: 'upsert', element: shape('s') } }]);
+  });
+
+  describe('a stored blob: image never leaves the hub', () => {
+    it('is absent from a joiner snapshot', async () => {
+      const hub = new SyncHub({ backend: await seeded(image('b', 'blob:x'), shape('s')) });
+      const conn = join(hub, 'J');
+
+      await hub.handleMessage('J', envelope('J', { kind: 'request-snapshot' }));
+
+      expect(frames(conn)).toEqual([
+        { from: 'hub', op: { kind: 'snapshot', to: 'J', elements: [shape('s')] } },
+      ]);
+      expect(JSON.stringify(conn.sent)).not.toContain('blob:x');
+    });
+
+    it('yields no frame from an injected fan-out upsert', async () => {
+      const bus = new InMemoryHubFanout();
+      const hub = new SyncHub({ instanceId: 'B', fanout: bus });
+      const conn = join(hub, 'b');
+
+      bus.publish(
+        JSON.stringify({
+          o: 'A',
+          room: 'R',
+          from: 'a',
+          op: { kind: 'upsert', element: image('b', 'blob:x') },
+        }),
+      );
+      await Promise.resolve();
+
+      expect(conn.sent).toEqual([]);
+      hub.close();
+    });
+
+    it.each([
+      ['loses the image from a batch', [shape('s'), image('b', 'blob:x')], [shape('s')]],
+      ['sends no frame for a batch holding only the image', [image('b', 'blob:x')], []],
+    ])('%s a plugin relays from a foreign fan-out', async (_name, elements, expected) => {
+      const bus = new InMemoryHubFanout();
+      const kind = createExtensionKind<true>({
+        extensionKind: 'test:batch',
+        codec: { validate: (payload): payload is true => payload === true },
+      });
+      // The second relay is a fence: the plugin queue is serial, so the first has run by then.
+      const relays = [elements, [shape('fence')]];
+      const hub = new SyncHub({
+        instanceId: 'B',
+        fanout: bus,
+        plugins: [
+          {
+            name: 'batcher',
+            registerExtensionKinds(registry) {
+              registry.register(kind, async () => ({ accepted: null, corrections: [] }));
+            },
+            async applyFanout() {
+              const ops = (relays.shift() ?? []).map((element): BatchOp => ({
+                kind: 'upsert',
+                element,
+              }));
+              return { kind: 'batch', ops };
+            },
+          },
+        ],
+      });
+      const conn = join(hub, 'b');
+      const extension = JSON.stringify({
+        o: 'A',
+        room: 'R',
+        from: 'a',
+        op: { kind: 'extension', extensionKind: 'test:batch', payload: true },
+      });
+
+      bus.publish(extension);
+      bus.publish(extension);
+
+      await vi.waitFor(() => expect(JSON.stringify(conn.sent)).toContain('fence'));
+      const batchOf = (els: SyncElement[]) => ({
+        from: 'a',
+        op: { kind: 'batch', ops: els.map((element) => ({ kind: 'upsert', element })) },
+      });
+      const relayed = expected.length > 0 ? [batchOf(expected)] : [];
+      expect(frames(conn)).toEqual([...relayed, batchOf([shape('fence')])]);
+      expect(JSON.stringify(conn.sent)).not.toContain('blob:x');
+      hub.close();
+    });
+
+    it.each([
+      ['a stale edit', image('b', 'https://cdn.example/a.png', 1)],
+      ['a refused-scheme edit', image('b', 'javascript:alert(1)', 2)],
+    ])('answers %s with a remove at the stored version', async (_name, edit) => {
+      const hub = new SyncHub({ backend: await seeded(image('b', 'blob:x', 1)) });
+      const conn = join(hub, 'A');
+
+      await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: edit }));
+
+      expect(frames(conn)).toEqual([refusal('b', 1)]);
+      expect(JSON.stringify(conn.sent)).not.toContain('blob:x');
     });
   });
 });

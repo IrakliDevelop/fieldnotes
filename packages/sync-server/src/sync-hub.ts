@@ -3,6 +3,7 @@ import {
   LEGACY_SYNC_PROTOCOL_VERSION,
   supportsLegacyHierarchy,
   parseLegacyEnvelope,
+  isAllowedImageSrcScheme,
   isValidElement,
   sanitizeElementLink,
   isNewerLayerRecord,
@@ -23,6 +24,7 @@ import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { ElementWrite, HubBackend, HubRecord, StoredTombstone } from './hub-backend';
 import type {
+  AllowImageSrc,
   Authorize,
   AuthorizeLayer,
   CanRead,
@@ -84,6 +86,7 @@ export interface SyncHubOptions {
   canRead?: CanRead;
   canReadOwnerId?: CanReadOwnerId;
   resolveAudience?: ResolveAudience;
+  allowImageSrc?: AllowImageSrc;
   /** Largest inbound frame the transport accepts; opBatching is advertised only if a full batch fits. */
   maxMessageBytes?: number;
   maxJsonDepth?: number;
@@ -219,15 +222,34 @@ function stripOwnerId(op: SyncOp): SyncOp {
   return op;
 }
 
-/** Removes a disallowed `link` from every element an op carries, so stored ones never leave the hub. */
-function sanitizeOpLinks(op: SyncOp): SyncOp {
-  if (op.kind === 'upsert') return { ...op, element: sanitizeElementLink(op.element) };
-  if (op.kind === 'snapshot') return { ...op, elements: op.elements.map(sanitizeElementLink) };
+function hasRefusedImageSrc(element: SyncElement): boolean {
+  return element.type === 'image' && !isAllowedImageSrcScheme(element.src);
+}
+
+/**
+ * Removes a disallowed `link` and drops images with a refused `src` scheme, so stored ones never
+ * leave the hub. Null when nothing is left to send.
+ */
+function sanitizeOutboundElements(op: SyncOp): SyncOp | null {
+  if (op.kind === 'upsert') {
+    return hasRefusedImageSrc(op.element)
+      ? null
+      : { ...op, element: sanitizeElementLink(op.element) };
+  }
+  if (op.kind === 'snapshot') {
+    const elements = op.elements.filter((element) => !hasRefusedImageSrc(element));
+    return { ...op, elements: elements.map(sanitizeElementLink) };
+  }
   if (op.kind === 'batch') {
-    const ops = op.ops.map((inner): BatchOp =>
-      inner.kind === 'upsert' ? { ...inner, element: sanitizeElementLink(inner.element) } : inner,
-    );
-    return { ...op, ops };
+    const ops: BatchOp[] = [];
+    for (const inner of op.ops) {
+      if (inner.kind !== 'upsert') ops.push(inner);
+      else if (!hasRefusedImageSrc(inner.element)) {
+        ops.push({ ...inner, element: sanitizeElementLink(inner.element) });
+      }
+    }
+    // An empty batch is an invalid frame.
+    return ops.length > 0 ? { ...op, ops } : null;
   }
   return op;
 }
@@ -258,6 +280,7 @@ export class SyncHub {
   private readonly canRead?: CanRead;
   private readonly canReadOwnerId?: CanReadOwnerId;
   private readonly resolveAudience?: ResolveAudience;
+  private readonly allowImageSrc?: AllowImageSrc;
   private readonly memoryLayers = new Map<string, Map<string, LayerRecord>>();
   private readonly maxJsonDepth: number;
   private readonly presenceThrottleMs: number;
@@ -294,6 +317,7 @@ export class SyncHub {
     this.canRead = options.canRead;
     this.canReadOwnerId = options.canReadOwnerId;
     this.resolveAudience = options.resolveAudience;
+    this.allowImageSrc = options.allowImageSrc;
     this.maxJsonDepth = options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH;
     this.presenceThrottleMs = options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS;
     const maxPresenceLanes = options.maxPresenceLanes ?? DEFAULT_MAX_PRESENCE_LANES;
@@ -705,6 +729,26 @@ export class SyncHub {
         if (audience === undefined) delete element.audience;
         else element.audience = audience;
         candidate = { kind: 'upsert', element };
+      }
+      if (candidate.kind === 'upsert' && candidate.element.type === 'image') {
+        const { src } = candidate.element;
+        let allowed = isAllowedImageSrcScheme(src);
+        if (allowed && this.allowImageSrc) {
+          try {
+            allowed = this.allowImageSrc({
+              src,
+              userId: conn.userId,
+              role: conn.role,
+              room: conn.room,
+            });
+          } catch {
+            allowed = false; // a throwing host hook fails closed
+          }
+        }
+        if (!allowed) {
+          await this.sendCorrection(conn, from, candidate, record);
+          return;
+        }
       }
       const userId = conn.userId;
       const mayRecreate =
@@ -1161,11 +1205,9 @@ export class SyncHub {
     revealOwner: boolean,
   ): string | null {
     try {
-      const translated = translateOpForPeer(
-        sanitizeOpLinks(revealOwner ? op : stripOwnerId(op)),
-        capabilities,
-      );
-      return JSON.stringify({ from, op: translated });
+      const sanitized = sanitizeOutboundElements(revealOwner ? op : stripOwnerId(op));
+      if (!sanitized) return null;
+      return JSON.stringify({ from, op: translateOpForPeer(sanitized, capabilities) });
     } catch {
       return null;
     }
@@ -1369,9 +1411,11 @@ export class SyncHub {
     let correction: SyncOp | undefined;
     if (record?.kind === 'element') {
       const current = record.element;
-      correction = this.mayRead(conn, current.audience)
-        ? { kind: 'upsert', element: current }
-        : { kind: 'remove', id: current.id, version: current.version, editor: HUB_FROM };
+      // A refused image would be dropped outbound, leaving the sender's copy in place.
+      correction =
+        this.mayRead(conn, current.audience) && !hasRefusedImageSrc(current)
+          ? { kind: 'upsert', element: current }
+          : { kind: 'remove', id: current.id, version: current.version, editor: HUB_FROM };
     } else if (record) {
       const { id, version } = record.tombstone;
       correction = { kind: 'remove', id, version, editor: HUB_FROM };

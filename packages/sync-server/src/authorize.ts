@@ -38,6 +38,14 @@ export interface ReadContext {
 
 export type CanRead = (ctx: ReadContext) => boolean;
 
+/** Decides whether an image `src` that passed the built-in scheme check may be stored; a throw refuses it. */
+export type AllowImageSrc = (ctx: {
+  src: string;
+  userId: string | undefined;
+  role: string | undefined;
+  room: string;
+}) => boolean;
+
 export interface OwnerReadContext {
   userId?: string;
   role?: string;

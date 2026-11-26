@@ -6,6 +6,7 @@ import { MemoryHubBackend } from './memory-hub-backend';
 import type { HubFanout } from './hub-fanout';
 import { readBearerToken, type Authenticate } from './authenticate';
 import type {
+  AllowImageSrc,
   Authorize,
   AuthorizeLayer,
   CanRead,
@@ -68,6 +69,7 @@ export interface CreateSyncServerOptions {
   canRead?: CanRead;
   canReadOwnerId?: CanReadOwnerId;
   resolveAudience?: ResolveAudience;
+  allowImageSrc?: AllowImageSrc;
   heartbeatIntervalMs?: number;
   maxMessageBytes?: number;
   maxJsonDepth?: number;
@@ -214,6 +216,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     canRead: options.canRead,
     canReadOwnerId: options.canReadOwnerId,
     resolveAudience: options.resolveAudience,
+    allowImageSrc: options.allowImageSrc,
     maxMessageBytes,
     maxJsonDepth: options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH,
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,

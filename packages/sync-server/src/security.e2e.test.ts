@@ -1,6 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WebSocket as WsClient } from 'ws';
 import type { AddressInfo } from 'net';
+import { createImage } from '@fieldnotes/core';
+import { createCurrentCapabilities } from '@fieldnotes/sync';
 import { createSyncServer, type CreateSyncServerOptions } from './create-sync-server';
 
 type Server = ReturnType<typeof createSyncServer>;
@@ -184,6 +186,46 @@ describe('sync-server connection hardening (end-to-end)', () => {
       const { server } = startServer({ maxMessageBytes: Infinity });
 
       expect(server.hub).toBeDefined();
+    });
+  });
+
+  describe('image sources', () => {
+    async function joinRoom(port: number, frames: string[]): Promise<WsClient> {
+      const socket = new WsClient(`ws://127.0.0.1:${port}?room=R`);
+      rawSockets.push(socket);
+      socket.on('message', (data) => frames.push(String(data)));
+      await new Promise<void>((resolve) => socket.once('open', () => resolve()));
+      const capabilities = createCurrentCapabilities([]);
+      socket.send(JSON.stringify({ from: 'c', op: { kind: 'capabilities', capabilities } }));
+      await waitFor(() => frames.length > 0);
+      frames.length = 0;
+      return socket;
+    }
+
+    it('passes allowImageSrc through createSyncServer and refuses what it rejects', async () => {
+      const allowImageSrc = vi.fn(({ src }: { src: string }) => src.startsWith('data:image/'));
+      const { port } = startServer({
+        authenticate: () => ({ userId: 'u1', role: 'dm' }),
+        allowImageSrc,
+      });
+      const senderFrames: string[] = [];
+      const peerFrames: string[] = [];
+      const sender = await joinRoom(port, senderFrames);
+      await joinRoom(port, peerFrames);
+      const src = 'https://cdn.example/refused.png';
+      const element = {
+        ...createImage({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 1, h: 1 }, src }),
+        id: 'img',
+      };
+
+      sender.send(JSON.stringify({ from: 'c', op: { kind: 'upsert', element } }));
+      await waitFor(() => senderFrames.length > 0);
+
+      expect(allowImageSrc).toHaveBeenCalledWith({ src, userId: 'u1', role: 'dm', room: 'R' });
+      expect(senderFrames.map((frame) => JSON.parse(frame) as unknown)).toEqual([
+        { from: 'hub', op: { kind: 'remove', id: 'img', version: 1, editor: 'hub' } },
+      ]);
+      expect(peerFrames.join('')).not.toContain(src);
     });
   });
 
