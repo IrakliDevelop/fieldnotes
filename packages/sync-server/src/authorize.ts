@@ -38,6 +38,15 @@ export interface ReadContext {
 
 export type CanRead = (ctx: ReadContext) => boolean;
 
+/** Resolves the audience of one client presence frame on the origin instance; `undefined` means everyone, a throw drops the frame. */
+export type ResolvePresenceAudience = (ctx: {
+  userId: string | undefined;
+  role: string | undefined;
+  room: string;
+  lane: string;
+  data: unknown;
+}) => string | undefined;
+
 /** Decides whether an image `src` that passed the built-in scheme check may be stored; a throw refuses it. */
 export type AllowImageSrc = (ctx: {
   src: string;

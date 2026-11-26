@@ -31,6 +31,7 @@ import type {
   CanReadOwnerId,
   OwnedElement,
   ResolveAudience,
+  ResolvePresenceAudience,
 } from './authorize';
 import { ServerPluginRegistry } from './sync-plugin';
 import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
@@ -86,6 +87,7 @@ export interface SyncHubOptions {
   canRead?: CanRead;
   canReadOwnerId?: CanReadOwnerId;
   resolveAudience?: ResolveAudience;
+  resolvePresenceAudience?: ResolvePresenceAudience;
   allowImageSrc?: AllowImageSrc;
   /** Largest inbound frame the transport accepts; opBatching is advertised only if a full batch fits. */
   maxMessageBytes?: number;
@@ -280,6 +282,7 @@ export class SyncHub {
   private readonly canRead?: CanRead;
   private readonly canReadOwnerId?: CanReadOwnerId;
   private readonly resolveAudience?: ResolveAudience;
+  private readonly resolvePresenceAudience?: ResolvePresenceAudience;
   private readonly allowImageSrc?: AllowImageSrc;
   private readonly memoryLayers = new Map<string, Map<string, LayerRecord>>();
   private readonly maxJsonDepth: number;
@@ -317,6 +320,7 @@ export class SyncHub {
     this.canRead = options.canRead;
     this.canReadOwnerId = options.canReadOwnerId;
     this.resolveAudience = options.resolveAudience;
+    this.resolvePresenceAudience = options.resolvePresenceAudience;
     this.allowImageSrc = options.allowImageSrc;
     this.maxJsonDepth = options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH;
     this.presenceThrottleMs = options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS;
@@ -477,16 +481,27 @@ export class SyncHub {
   }
 
   /**
-   * Broadcasts ephemeral server-owned presence data to every connection in a room.
+   * Broadcasts ephemeral server-owned presence data to every connection in a room, or with
+   * `audience` only to those `canRead` admits on every instance.
    * The returned count covers accepted synchronous send admission on this hub instance,
    * not completed physical delivery. Async frame policy can subsequently deny a frame.
    */
-  broadcastPresence<T>(room: string, data: T): number {
+  broadcastPresence<T>(room: string, data: T, options?: { audience?: string }): number {
     if (this.isAuthorityRoom(room)) return 0;
     if (!this.isPresenceWithinLimit(data)) return 0;
+    const audience = options?.audience;
     const op = { kind: 'presence' as const, data };
-    const sent = this.relayToRoom(room, undefined, JSON.stringify({ from: HUB_FROM, op }));
-    this.safePublish(JSON.stringify({ o: this.instanceId, room, from: HUB_FROM, op }));
+    const message = JSON.stringify({ from: HUB_FROM, op });
+    const sent = this.relayPresenceToRoom(room, undefined, message, audience);
+    this.safePublish(
+      JSON.stringify({
+        o: this.instanceId,
+        room,
+        from: HUB_FROM,
+        op,
+        ...(audience === undefined ? {} : { audience }),
+      }),
+    );
     return sent;
   }
 
@@ -1233,16 +1248,57 @@ export class SyncHub {
     return sent;
   }
 
+  /** Relays presence to members `canRead` admits; a throwing `canRead` skips only that member. */
+  private relayPresenceToRoom(
+    room: string,
+    excludeId: string | undefined,
+    message: string,
+    audience: string | undefined,
+  ): number {
+    if (!this.canRead) return this.relayToRoom(room, excludeId, message);
+    const members = this.rooms.get(room);
+    if (!members) return 0;
+    let sent = 0;
+    for (const cid of members) {
+      if (cid === excludeId) continue;
+      const conn = this.conns.get(cid);
+      if (!conn || !this.peerCapabilities.has(conn.id)) continue;
+      try {
+        if (!this.mayRead(conn, audience)) continue;
+        conn.send(message);
+        sent += 1;
+      } catch {
+        /* fail closed for this member without breaking the relay loop */
+      }
+    }
+    return sent;
+  }
+
   private broadcastClientPresence(conn: Connection, data: unknown): void {
+    let audience: string | undefined;
+    if (this.resolvePresenceAudience) {
+      try {
+        audience = this.resolvePresenceAudience({
+          userId: conn.userId,
+          role: conn.role,
+          room: conn.room,
+          lane: presenceLaneOf(data),
+          data,
+        });
+      } catch {
+        return; // fail closed; this also runs from the throttle timer, where a throw would crash
+      }
+    }
     this.presenceConnections.add(conn.id);
     const message = JSON.stringify({ from: conn.id, op: { kind: 'presence', data } });
-    this.relayToRoom(conn.room, conn.id, message);
+    this.relayPresenceToRoom(conn.room, conn.id, message, audience);
     this.safePublish(
       JSON.stringify({
         o: this.instanceId,
         room: conn.room,
         from: conn.id,
         op: { kind: 'presence', data },
+        ...(audience === undefined ? {} : { audience }),
       }),
     );
   }
@@ -1490,6 +1546,7 @@ export class SyncHub {
       prev?: unknown;
       existed?: unknown;
       audiences?: unknown;
+      audience?: unknown;
     } = parsed;
     if (typeof env.o !== 'string' || typeof env.room !== 'string') return;
     if (this.isAuthorityRoom(env.room)) return;
@@ -1497,9 +1554,15 @@ export class SyncHub {
     const op = env.op;
     if (isPresenceOp(op)) {
       if (op.kind === 'presence' && !this.isPresenceWithinLimit(op.data)) return;
-      // presence/leave: raw forward to all local members (the sender lives on the origin instance),
-      // no backend, no canRead filter.
-      this.relayToRoom(env.room, undefined, JSON.stringify({ from: env.from, op }));
+      // No backend: the sender lives on the origin, which resolved the audience; canRead filters
+      // presence here. presence-leave carries no data and goes to every local member.
+      const message = JSON.stringify({ from: env.from, op });
+      if (op.kind === 'presence-leave') {
+        this.relayToRoom(env.room, undefined, message);
+        return;
+      }
+      if (env.audience !== undefined && typeof env.audience !== 'string') return;
+      this.relayPresenceToRoom(env.room, undefined, message, env.audience);
       return;
     }
     if (isLayerOp(op)) {

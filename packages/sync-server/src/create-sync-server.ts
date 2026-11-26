@@ -12,6 +12,7 @@ import type {
   CanRead,
   CanReadOwnerId,
   ResolveAudience,
+  ResolvePresenceAudience,
 } from './authorize';
 import type { ServerSyncPlugin } from './sync-plugin';
 import { startHeartbeat } from './heartbeat';
@@ -69,6 +70,7 @@ export interface CreateSyncServerOptions {
   canRead?: CanRead;
   canReadOwnerId?: CanReadOwnerId;
   resolveAudience?: ResolveAudience;
+  resolvePresenceAudience?: ResolvePresenceAudience;
   allowImageSrc?: AllowImageSrc;
   heartbeatIntervalMs?: number;
   maxMessageBytes?: number;
@@ -216,6 +218,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     canRead: options.canRead,
     canReadOwnerId: options.canReadOwnerId,
     resolveAudience: options.resolveAudience,
+    resolvePresenceAudience: options.resolvePresenceAudience,
     allowImageSrc: options.allowImageSrc,
     maxMessageBytes,
     maxJsonDepth: options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH,

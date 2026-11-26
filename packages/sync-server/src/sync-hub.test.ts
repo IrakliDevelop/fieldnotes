@@ -14,10 +14,15 @@ import {
   type SyncOp,
 } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
-import type { Connection } from './sync-hub';
+import type { Connection, SyncHubOptions } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import { MemoryHubBackend } from './memory-hub-backend';
-import type { Authorize, OwnedElement, ResolveAudience } from './authorize';
+import type {
+  Authorize,
+  OwnedElement,
+  ResolveAudience,
+  ResolvePresenceAudience,
+} from './authorize';
 import { InMemoryHubFanout } from './hub-fanout';
 import type { ServerExtensionRegistry, ServerOpContext } from './sync-plugin';
 import { registerAuthorityConnection } from './authority-connection';
@@ -5246,5 +5251,236 @@ describe('image source schemes', () => {
       expect(frames(conn)).toEqual([refusal('b', 1)]);
       expect(JSON.stringify(conn.sent)).not.toContain('blob:x');
     });
+  });
+});
+
+describe('presence audience (resolvePresenceAudience)', () => {
+  const canRead = ({ role, audience }: { role?: string; audience: string | undefined }): boolean =>
+    audience !== 'dm' || role === 'dm';
+  const resolvePresenceAudience: ResolvePresenceAudience = ({ role }) =>
+    role === 'dm' ? 'dm' : undefined;
+  const presenceMsg = (from: string, data: unknown): string =>
+    JSON.stringify({ from, op: { kind: 'presence', data } });
+  const has = (c: FakeConn, marker: string): boolean => c.sent.some((m) => m.includes(marker));
+
+  function conn(id: string, role: string, userId?: string): FakeConn {
+    return { ...makeConn(id, 'R'), role, userId };
+  }
+
+  function dmRoom(options: SyncHubOptions = {}) {
+    const hub = new SyncHub({
+      presenceThrottleMs: 0,
+      canRead,
+      resolvePresenceAudience,
+      ...options,
+    });
+    const dm = admit(hub, conn('dm', 'dm'));
+    const dm2 = admit(hub, conn('dm2', 'dm'));
+    const pl = admit(hub, conn('pl', 'player'));
+    return { hub, dm, dm2, pl };
+  }
+
+  it('relays DM presence to another DM but never to a player; player presence reaches both', async () => {
+    const { hub, dm, dm2, pl } = dmRoom();
+
+    await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'dm-secret' }));
+    await hub.handleMessage('pl', presenceMsg('pl', { kind: 'cursor', note: 'player-open' }));
+
+    expect(has(dm2, 'dm-secret')).toBe(true);
+    expect(has(pl, 'dm-secret')).toBe(false);
+    expect(has(dm, 'player-open')).toBe(true);
+    expect(has(dm2, 'player-open')).toBe(true);
+  });
+
+  it('filters the frame the throttle timer sends later the same way', async () => {
+    vi.useFakeTimers();
+    try {
+      const { hub, dm, dm2, pl } = dmRoom({ presenceThrottleMs: 50 });
+
+      await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'dm-first' }));
+      await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'dm-late' }));
+      await hub.handleMessage('pl', presenceMsg('pl', { kind: 'cursor', note: 'pl-first' }));
+      await hub.handleMessage('pl', presenceMsg('pl', { kind: 'cursor', note: 'pl-late' }));
+      expect(has(dm2, 'dm-late')).toBe(false);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(has(dm2, 'dm-late')).toBe(true);
+      expect(has(pl, 'dm-late')).toBe(false);
+      expect(has(pl, 'dm-first')).toBe(false);
+      expect(has(dm, 'pl-late')).toBe(true);
+      expect(has(dm2, 'pl-late')).toBe(true);
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('passes the presence lane and the connection identity to the hook', async () => {
+    const hook = vi.fn(resolvePresenceAudience);
+    const hub = new SyncHub({ presenceThrottleMs: 0, resolvePresenceAudience: hook });
+    admit(hub, conn('dm', 'dm', 'u-dm'));
+    admit(hub, conn('pl', 'player'));
+
+    await hub.handleMessage('dm', presenceMsg('dm', { kind: 'ping', x: 1 }));
+    await hub.handleMessage('dm', presenceMsg('dm', 'plain'));
+
+    expect(hook.mock.calls).toEqual([
+      [{ userId: 'u-dm', role: 'dm', room: 'R', lane: 'ping', data: { kind: 'ping', x: 1 } }],
+      [{ userId: 'u-dm', role: 'dm', room: 'R', lane: '', data: 'plain' }],
+    ]);
+  });
+
+  it('drops a fan-out envelope with a non-string audience and relays one without audience to everyone', async () => {
+    const bus = new InMemoryHubFanout();
+    const hub = new SyncHub({ instanceId: 'local', fanout: bus, canRead });
+    const dm = admit(hub, conn('dm', 'dm'));
+    const pl = admit(hub, conn('pl', 'player'));
+    const publish = (note: string, extra: Record<string, unknown>): void =>
+      bus.publish(
+        JSON.stringify({
+          o: 'remote',
+          room: 'R',
+          from: 'x',
+          op: { kind: 'presence', data: { note } },
+          ...extra,
+        }),
+      );
+
+    publish('bad-audience', { audience: 42 });
+    publish('null-audience', { audience: null });
+    publish('dm-remote', { audience: 'dm' });
+    publish('open-remote', {});
+
+    await vi.waitFor(() => expect(has(pl, 'open-remote')).toBe(true));
+    expect(has(dm, 'open-remote')).toBe(true);
+    expect(has(dm, 'dm-remote')).toBe(true);
+    expect(has(pl, 'dm-remote')).toBe(false);
+    expect(has(dm, 'bad-audience') || has(pl, 'bad-audience')).toBe(false);
+    expect(has(dm, 'null-audience') || has(pl, 'null-audience')).toBe(false);
+  });
+
+  it('drops the frame for everyone when the hook throws, also from the throttle timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const published: string[] = [];
+      const { hub, dm2, pl } = dmRoom({
+        presenceThrottleMs: 50,
+        fanout: { publish: (p) => void published.push(p), subscribe: () => () => undefined },
+        resolvePresenceAudience: () => {
+          throw new Error('hook failed');
+        },
+      });
+
+      await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'boom-now' }));
+      await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'boom-late' }));
+      await vi.advanceTimersByTimeAsync(50);
+
+      for (const marker of ['boom-now', 'boom-late']) {
+        expect(has(dm2, marker)).toBe(false);
+        expect(has(pl, marker)).toBe(false);
+        expect(published.some((p) => p.includes(marker))).toBe(false);
+      }
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps delivering to the other viewers when canRead throws for one', async () => {
+    const hub = new SyncHub({
+      presenceThrottleMs: 0,
+      resolvePresenceAudience,
+      canRead: (ctx) => {
+        if (ctx.userId === 'bad') throw new Error('policy failed');
+        return canRead(ctx);
+      },
+    });
+    admit(hub, conn('sender', 'dm'));
+    const v1 = admit(hub, conn('v1', 'dm'));
+    const bad = admit(hub, conn('bad', 'dm', 'bad'));
+    const v3 = admit(hub, conn('v3', 'dm'));
+
+    await hub.handleMessage('sender', presenceMsg('sender', { kind: 'cursor', note: 'dm-mark' }));
+
+    expect(has(v1, 'dm-mark')).toBe(true);
+    expect(has(bad, 'dm-mark')).toBe(false);
+    expect(has(v3, 'dm-mark')).toBe(true);
+  });
+
+  it('sends hub-authored presence with an audience only to readers, counts real sends, skips the hook', () => {
+    const hook = vi.fn(resolvePresenceAudience);
+    const { hub, dm, dm2, pl } = dmRoom({ resolvePresenceAudience: hook });
+
+    expect(hub.broadcastPresence('R', { note: 'hub-dm' }, { audience: 'dm' })).toBe(2);
+    expect(hub.broadcastPresence('R', { note: 'hub-all' })).toBe(3);
+
+    expect(has(dm, 'hub-dm')).toBe(true);
+    expect(has(dm2, 'hub-dm')).toBe(true);
+    expect(has(pl, 'hub-dm')).toBe(false);
+    expect(has(pl, 'hub-all')).toBe(true);
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it('passes untagged presence through canRead, locally and from the fan-out', async () => {
+    const bus = new InMemoryHubFanout();
+    const strict: SyncHubOptions['canRead'] = ({ role, audience }) =>
+      role !== 'banned' && (audience !== 'dm' || role === 'dm');
+    const hub = new SyncHub({
+      instanceId: 'local',
+      fanout: bus,
+      canRead: strict,
+      resolvePresenceAudience,
+      presenceThrottleMs: 0,
+    });
+    const pl = admit(hub, conn('pl', 'player'));
+    const banned = admit(hub, conn('banned', 'banned'));
+
+    await hub.handleMessage('pl', presenceMsg('pl', { kind: 'cursor', note: 'untagged-local' }));
+    bus.publish(
+      JSON.stringify({
+        o: 'remote',
+        room: 'R',
+        from: 'x',
+        op: { kind: 'presence', data: { note: 'untagged-remote' } },
+      }),
+    );
+
+    await vi.waitFor(() => expect(has(pl, 'untagged-remote')).toBe(true));
+    expect(has(banned, 'untagged-local')).toBe(false);
+    expect(has(banned, 'untagged-remote')).toBe(false);
+  });
+
+  it('never writes the audience into a client frame', async () => {
+    const { hub, dm2 } = dmRoom();
+
+    await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', x: 1 }));
+    hub.broadcastPresence('R', { kind: 'poke' }, { audience: 'dm' });
+
+    expect(dm2.sent).toEqual([
+      JSON.stringify({ from: 'dm', op: { kind: 'presence', data: { kind: 'cursor', x: 1 } } }),
+      JSON.stringify({ from: 'hub', op: { kind: 'presence', data: { kind: 'poke' } } }),
+    ]);
+  });
+
+  it('adds audience to the fan-out payload only when one is resolved', async () => {
+    const published: string[] = [];
+    const fanout = {
+      publish: (p: string) => void published.push(p),
+      subscribe: () => () => undefined,
+    };
+    const { hub } = dmRoom({ instanceId: 'A', fanout });
+
+    await hub.handleMessage('pl', presenceMsg('pl', { x: 1 }));
+    await hub.handleMessage('dm', presenceMsg('dm', { x: 2 }));
+    hub.broadcastPresence('R', { x: 3 });
+    hub.broadcastPresence('R', { x: 4 }, { audience: 'dm' });
+
+    const op = (x: number) => ({ kind: 'presence', data: { x } });
+    expect(published).toEqual([
+      JSON.stringify({ o: 'A', room: 'R', from: 'pl', op: op(1) }),
+      JSON.stringify({ o: 'A', room: 'R', from: 'dm', op: op(2), audience: 'dm' }),
+      JSON.stringify({ o: 'A', room: 'R', from: 'hub', op: op(3) }),
+      JSON.stringify({ o: 'A', room: 'R', from: 'hub', op: op(4), audience: 'dm' }),
+    ]);
   });
 });
