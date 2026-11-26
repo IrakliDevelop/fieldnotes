@@ -2677,6 +2677,28 @@ describe('SyncClient layer sync', () => {
     expect(a.updates.map((u) => u.record.definition)).toEqual([undefined]);
   });
 
+  it('applies a relayed layer-remove for a layer it holds without sending a layer op back', () => {
+    const bus = makeBus();
+    const p = layerPeer(bus, 'P');
+    p.client.start();
+    const hub = bus.endpoint();
+    hub.send(
+      envelope('dm-conn', { kind: 'layer-upsert', layer: layerDef(), version: 1, editor: 'dm' }),
+    );
+    p.transport.sent.length = 0;
+
+    hub.send(
+      envelope('dm-conn', { kind: 'layer-remove', id: 'layer-x', version: 2, editor: 'dm' }),
+    );
+
+    expect(p.updates.map((u) => u.record)).toEqual([
+      { id: 'layer-x', version: 1, editor: 'dm', definition: layerDef() },
+      { id: 'layer-x', version: 2, editor: 'dm' },
+    ]);
+    const sentKinds = p.transport.sent.map((m) => (JSON.parse(m) as { op: SyncOp }).op.kind);
+    expect(sentKinds.filter((k) => k.startsWith('layer-'))).toEqual([]);
+  });
+
   it('a client without the layers option ignores layer traffic and answers snapshots without layers', () => {
     const bus = makeBus();
     const store = new ElementStore();

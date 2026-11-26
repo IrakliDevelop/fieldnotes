@@ -10,6 +10,7 @@ import type {
   Authorize,
   AuthorizeLayer,
   CanRead,
+  CanReadLayer,
   CanReadOwnerId,
   ResolveAudience,
   ResolvePresenceAudience,
@@ -68,6 +69,7 @@ export interface CreateSyncServerOptions {
   authorizeLayer?: AuthorizeLayer;
   plugins?: readonly ServerSyncPlugin[];
   canRead?: CanRead;
+  canReadLayer?: CanReadLayer;
   canReadOwnerId?: CanReadOwnerId;
   resolveAudience?: ResolveAudience;
   resolvePresenceAudience?: ResolvePresenceAudience;
@@ -216,6 +218,7 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     authorizeLayer: options.authorizeLayer,
     plugins: options.plugins,
     canRead: options.canRead,
+    canReadLayer: options.canReadLayer,
     canReadOwnerId: options.canReadOwnerId,
     resolveAudience: options.resolveAudience,
     resolvePresenceAudience: options.resolvePresenceAudience,

@@ -19,11 +19,12 @@ import type { HubBackend } from './hub-backend';
 import { MemoryHubBackend } from './memory-hub-backend';
 import type {
   Authorize,
+  CanReadLayer,
   OwnedElement,
   ResolveAudience,
   ResolvePresenceAudience,
 } from './authorize';
-import { InMemoryHubFanout } from './hub-fanout';
+import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { ServerExtensionRegistry, ServerOpContext } from './sync-plugin';
 import { registerAuthorityConnection } from './authority-connection';
 import { v2Remove, v2Shape } from './test-support/v2-ops';
@@ -5482,5 +5483,220 @@ describe('presence audience (resolvePresenceAudience)', () => {
       JSON.stringify({ o: 'A', room: 'R', from: 'hub', op: op(3) }),
       JSON.stringify({ o: 'A', room: 'R', from: 'hub', op: op(4), audience: 'dm' }),
     ]);
+  });
+});
+
+describe('layer read filter (canReadLayer)', () => {
+  const canReadLayer: CanReadLayer = ({ role, layer }) =>
+    role === 'dm' || layer.name !== 'DM Secret';
+  const def = (name: string, id = 'L1'): Layer => ({
+    id,
+    name,
+    visible: true,
+    locked: false,
+    order: 0,
+    opacity: 1,
+  });
+  const upsert = (version: number, editor: string, name: string, id = 'L1'): SyncOp => ({
+    kind: 'layer-upsert',
+    layer: def(name, id),
+    version,
+    editor,
+  });
+  const has = (c: FakeConn, marker: string): boolean => c.sent.some((m) => m.includes(marker));
+  const frames = (c: FakeConn): { from: string; op: SyncOp }[] =>
+    c.sent.map((m) => JSON.parse(m) as { from: string; op: SyncOp });
+
+  function conn(id: string, role: string, userId?: string): FakeConn {
+    return { ...makeConn(id, 'R'), role, userId };
+  }
+
+  function dmRoom(options: SyncHubOptions = {}) {
+    const hub = new SyncHub({ canReadLayer, ...options });
+    const dm = admit(hub, conn('dm', 'dm'));
+    const dm2 = admit(hub, conn('dm2', 'dm'));
+    const pl = admit(hub, conn('pl', 'player'));
+    return { hub, dm, dm2, pl };
+  }
+
+  async function snapshot(hub: SyncHub, c: FakeConn): Promise<string> {
+    c.sent.length = 0;
+    await hub.handleMessage(c.id, envelope(c.id, { kind: 'request-snapshot' }));
+    return c.sent.join('\n');
+  }
+
+  it('keeps a hidden layer from a player live and in the snapshot; a second DM gets both', async () => {
+    const { hub, dm2, pl } = dmRoom();
+
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+
+    expect(has(dm2, 'DM Secret')).toBe(true);
+    expect(pl.sent).toEqual([]);
+    const late = admit(hub, conn('late', 'player'));
+    expect(await snapshot(hub, late)).not.toContain('DM Secret');
+    expect(await snapshot(hub, dm2)).toContain('DM Secret');
+    hub.close();
+  });
+
+  it('sends a player who loses access a layer-remove with the upsert version and editor, then nothing until access returns', async () => {
+    const { hub, dm2, pl } = dmRoom();
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'Open')));
+    pl.sent.length = 0;
+
+    await hub.handleMessage('dm', envelope('dm', upsert(2, 'dm', 'DM Secret')));
+    expect(frames(pl)).toEqual([
+      { from: 'dm', op: { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' } },
+    ]);
+
+    pl.sent.length = 0;
+    await hub.handleMessage('dm', envelope('dm', upsert(3, 'dm', 'DM Secret')));
+    expect(pl.sent).toEqual([]);
+    expect(has(dm2, 'DM Secret')).toBe(true);
+
+    await hub.handleMessage('dm', envelope('dm', upsert(4, 'dm', 'Open again')));
+    expect(frames(pl)).toEqual([{ from: 'dm', op: upsert(4, 'dm', 'Open again') }]);
+    hub.close();
+  });
+
+  it('sends a hidden layer remove to nobody who could not read it', async () => {
+    const { hub, dm2, pl } = dmRoom();
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+    dm2.sent.length = 0;
+
+    await hub.handleMessage(
+      'dm',
+      envelope('dm', { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' }),
+    );
+
+    expect(pl.sent).toEqual([]);
+    expect(frames(dm2)).toEqual([
+      { from: 'dm', op: { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' } },
+    ]);
+    hub.close();
+  });
+
+  it('answers a denied player edit of a hidden layer exactly as for an unknown id', async () => {
+    const authorizeLayer = ({ role }: { role?: string }): boolean => role === 'dm';
+    const { hub, pl } = dmRoom({ authorizeLayer });
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+    const fresh = new SyncHub({ canReadLayer, authorizeLayer });
+    const freshPl = admit(fresh, conn('pl', 'player'));
+
+    await hub.handleMessage('pl', envelope('pl', upsert(5, 'pl', 'Mine')));
+    await fresh.handleMessage('pl', envelope('pl', upsert(5, 'pl', 'Mine')));
+
+    expect(pl.sent).toEqual(freshPl.sent);
+    expect(frames(pl)).toEqual([
+      { from: 'hub', op: { kind: 'layer-remove', id: 'L1', version: 5, editor: 'hub' } },
+    ]);
+    hub.close();
+    fresh.close();
+  });
+
+  it('answers a failed publish of a player edit to a hidden layer exactly as for an unknown id', async () => {
+    let fail = false;
+    const failing = (): HubFanout => ({
+      publish: () => (fail ? Promise.reject(new Error('down')) : undefined),
+      subscribe: () => () => undefined,
+    });
+    const { hub, pl } = dmRoom({ fanout: failing() });
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+    const fresh = new SyncHub({ canReadLayer, fanout: failing() });
+    const freshPl = admit(fresh, conn('pl', 'player'));
+    fail = true;
+
+    await expect(hub.handleMessage('pl', envelope('pl', upsert(5, 'pl', 'Mine')))).rejects.toThrow(
+      'down',
+    );
+    await expect(
+      fresh.handleMessage('pl', envelope('pl', upsert(5, 'pl', 'Mine'))),
+    ).rejects.toThrow('down');
+
+    expect(pl.sent).toEqual(freshPl.sent);
+    expect(pl.sent).toHaveLength(1);
+    hub.close();
+    fresh.close();
+  });
+
+  it('answers a stale player edit of a hidden layer without its definition', async () => {
+    const { hub, pl } = dmRoom();
+    await hub.handleMessage('dm', envelope('dm', upsert(3, 'dm', 'DM Secret')));
+
+    await hub.handleMessage('pl', envelope('pl', upsert(2, 'pl', 'Mine')));
+
+    expect(frames(pl)).toEqual([
+      { from: 'hub', op: { kind: 'layer-remove', id: 'L1', version: 2, editor: 'hub' } },
+    ]);
+    expect(has(pl, 'DM Secret')).toBe(false);
+    hub.close();
+  });
+
+  it('stores and relays nothing when a player re-pushes the synthetic remove after reconnecting', async () => {
+    const backend = new MemoryHubBackend();
+    const { hub, dm, dm2, pl } = dmRoom({ backend });
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'Open')));
+    await hub.handleMessage('dm', envelope('dm', upsert(2, 'dm', 'DM Secret')));
+    hub.removeConnection('pl');
+    const back = admit(hub, conn('pl2', 'player'));
+
+    expect(await snapshot(hub, back)).not.toContain('DM Secret');
+    dm.sent.length = 0;
+    dm2.sent.length = 0;
+    back.sent.length = 0;
+    await hub.handleMessage(
+      'pl2',
+      envelope('pl2', { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' }),
+    );
+
+    expect(await backend.getLayerRecord('R', 'L1')).toEqual({
+      id: 'L1',
+      version: 2,
+      editor: 'dm',
+      definition: def('DM Secret'),
+    });
+    expect(dm.sent).toEqual([]);
+    expect(dm2.sent).toEqual([]);
+    expect(has(back, 'DM Secret')).toBe(false);
+    expect(pl.sent.some((m) => m.includes('DM Secret'))).toBe(false);
+    hub.close();
+  });
+
+  it('keeps layer tombstones in every viewer snapshot', async () => {
+    const { hub, dm2, pl } = dmRoom();
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'Gone', 'L0')));
+    await hub.handleMessage(
+      'dm',
+      envelope('dm', { kind: 'layer-remove', id: 'L0', version: 2, editor: 'dm' }),
+    );
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+
+    const layersOf = async (c: FakeConn): Promise<unknown> =>
+      (JSON.parse(await snapshot(hub, c)) as { op: { layers?: unknown } }).op.layers;
+    expect(await layersOf(pl)).toEqual([{ id: 'L0', version: 2, editor: 'dm' }]);
+    expect(await layersOf(dm2)).toEqual([
+      { id: 'L0', version: 2, editor: 'dm' },
+      { id: 'L1', version: 1, editor: 'dm', definition: def('DM Secret') },
+    ]);
+    hub.close();
+  });
+
+  it('keeps delivering to the other viewers when canReadLayer throws for one', async () => {
+    const hub = new SyncHub({
+      canReadLayer: (ctx) => {
+        if (ctx.userId === 'bad') throw new Error('policy failed');
+        return canReadLayer(ctx);
+      },
+    });
+    admit(hub, conn('sender', 'dm'));
+    const v1 = admit(hub, conn('v1', 'dm'));
+    const bad = admit(hub, conn('bad', 'dm', 'bad'));
+    const v3 = admit(hub, conn('v3', 'dm'));
+
+    await hub.handleMessage('sender', envelope('sender', upsert(1, 'sender', 'Open')));
+
+    expect(has(v1, 'Open')).toBe(true);
+    expect(bad.sent).toEqual([]);
+    expect(has(v3, 'Open')).toBe(true);
+    hub.close();
   });
 });

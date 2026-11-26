@@ -49,6 +49,7 @@ export type {
   OwnedElement,
   ReadContext,
   CanRead,
+  CanReadLayer,
   ResolvePresenceAudience,
   AllowImageSrc,
   OwnerReadContext,

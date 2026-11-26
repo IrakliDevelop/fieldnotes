@@ -5,6 +5,7 @@ import {
   parseLegacyEnvelope,
   isAllowedImageSrcScheme,
   isValidElement,
+  isValidLayerDefinition,
   sanitizeElementLink,
   isNewerLayerRecord,
   isNewerVersion,
@@ -19,6 +20,7 @@ import {
   type PluginSnapshot,
   type Tombstone,
 } from '@fieldnotes/sync';
+import type { Layer } from '@fieldnotes/core';
 import { hashAuthorityJson } from './authority-json';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
@@ -28,6 +30,7 @@ import type {
   Authorize,
   AuthorizeLayer,
   CanRead,
+  CanReadLayer,
   CanReadOwnerId,
   OwnedElement,
   ResolveAudience,
@@ -85,6 +88,7 @@ export interface SyncHubOptions {
   authorizeLayer?: AuthorizeLayer;
   plugins?: readonly ServerSyncPlugin[];
   canRead?: CanRead;
+  canReadLayer?: CanReadLayer;
   canReadOwnerId?: CanReadOwnerId;
   resolveAudience?: ResolveAudience;
   resolvePresenceAudience?: ResolvePresenceAudience;
@@ -280,6 +284,7 @@ export class SyncHub {
   >();
   private readonly legacyAdmissionPoisoned = new Set<string>();
   private readonly canRead?: CanRead;
+  private readonly canReadLayer?: CanReadLayer;
   private readonly canReadOwnerId?: CanReadOwnerId;
   private readonly resolveAudience?: ResolveAudience;
   private readonly resolvePresenceAudience?: ResolvePresenceAudience;
@@ -318,6 +323,7 @@ export class SyncHub {
     this.authorize = options.authorize;
     this.authorizeLayer = options.authorizeLayer;
     this.canRead = options.canRead;
+    this.canReadLayer = options.canReadLayer;
     this.canReadOwnerId = options.canReadOwnerId;
     this.resolveAudience = options.resolveAudience;
     this.resolvePresenceAudience = options.resolvePresenceAudience;
@@ -1045,6 +1051,14 @@ export class SyncHub {
     if (op.editor === HUB_FROM) return;
     const record = layerOpToRecord(op);
     const current = await this.getLayerRecord(conn.room, record.id);
+    // A sender who may not read the stored record gets the answer an unknown id gets.
+    const correction = (): LayerOp =>
+      layerRecordToOp(
+        this.layerCorrectionFor(
+          current?.definition && !this.mayReadLayer(conn, current.definition) ? undefined : current,
+          record,
+        ),
+      );
     if (this.authorizeLayer) {
       const allowed = await this.authorizeLayer({
         userId: conn.userId,
@@ -1056,17 +1070,13 @@ export class SyncHub {
       if (!allowed) {
         // Revert the sender to the room's record; a tombstone when there is
         // none, so the denied local edit disappears everywhere consistently.
-        this.sendToConnection(
-          conn,
-          HUB_FROM,
-          layerRecordToOp(this.layerCorrectionFor(current, record)),
-        );
+        this.sendToConnection(conn, HUB_FROM, correction());
         return;
       }
     }
     if (current && !isNewerLayerRecord(record, current)) {
       // Stale under (version, editor): converge the sender, do not broadcast.
-      this.sendToConnection(conn, HUB_FROM, layerRecordToOp(current));
+      this.sendToConnection(conn, HUB_FROM, correction());
       return;
     }
     // Publish-then-apply (S7): nothing is stored until fanout has taken the op, so a failed
@@ -1074,22 +1084,25 @@ export class SyncHub {
     // is one-sided: a publish that succeeded before `applyLayerRecord` failed has already
     // reached the other instances, which keep relaying a record this instance did not store.
     // That divergence converges on the next authoritative read (resync or snapshot request).
+    const prev = current?.definition ?? null;
     try {
       await this.fanout.publish(
-        JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op }),
+        JSON.stringify({
+          o: this.instanceId,
+          room: conn.room,
+          from: conn.id,
+          op,
+          ...(this.canReadLayer ? { prevLayer: prev } : {}),
+        }),
       );
       await this.applyLayerRecord(conn.room, record);
     } catch (error) {
       // Same correction the denied path sends: the room's record, or a tombstone when there
       // is none, so the sender's optimistic edit disappears instead of lingering unshared.
-      this.sendToConnection(
-        conn,
-        HUB_FROM,
-        layerRecordToOp(this.layerCorrectionFor(current, record)),
-      );
+      this.sendToConnection(conn, HUB_FROM, correction());
       throw error;
     }
-    this.relayOpToRoom(conn.room, conn.id, conn.id, op);
+    this.relayLayerOpToRoom(conn.room, conn.id, conn.id, op, prev ?? undefined);
   }
 
   /**
@@ -1144,6 +1157,15 @@ export class SyncHub {
   private mayReadOwnerId(conn: Connection): boolean {
     if (!this.canReadOwnerId) return false;
     return this.canReadOwnerId({ userId: conn.userId, role: conn.role, room: conn.room });
+  }
+
+  private mayReadLayer(conn: Connection, layer: Layer): boolean {
+    if (!this.canReadLayer) return true;
+    try {
+      return this.canReadLayer({ userId: conn.userId, role: conn.role, room: conn.room, layer });
+    } catch {
+      return false;
+    }
   }
 
   private mayRead(conn: Connection, audience: string | undefined): boolean {
@@ -1246,6 +1268,40 @@ export class SyncHub {
       if (this.sendToConnection(conn, from, op, encoded)) sent += 1;
     }
     return sent;
+  }
+
+  /**
+   * Relays a layer op per `canReadLayer`: a reader of the new record gets the op, a reader of
+   * only `prev` (undefined when none or unknown) gets a remove, everyone else nothing.
+   */
+  private relayLayerOpToRoom(
+    room: string,
+    excludeId: string | undefined,
+    from: string,
+    op: LayerOp,
+    prev: Layer | undefined,
+  ): void {
+    if (!this.canReadLayer) {
+      this.relayOpToRoom(room, excludeId, from, op);
+      return;
+    }
+    const removal: LayerOp =
+      op.kind === 'layer-remove'
+        ? op
+        : { kind: 'layer-remove', id: op.layer.id, version: op.version, editor: op.editor };
+    // The synthetic remove has its own cache so no profile ever gets it in place of the op.
+    const encoded: EncodedFrames = new Map();
+    const removals: EncodedFrames = new Map();
+    for (const cid of this.rooms.get(room) ?? []) {
+      if (cid === excludeId) continue;
+      const conn = this.conns.get(cid);
+      if (!conn) continue;
+      if (op.kind === 'layer-upsert' && this.mayReadLayer(conn, op.layer)) {
+        this.sendToConnection(conn, from, op, encoded);
+      } else if (prev && this.mayReadLayer(conn, prev)) {
+        this.sendToConnection(conn, from, removal, removals);
+      }
+    }
   }
 
   /** Relays presence to members `canRead` admits; a throwing `canRead` skips only that member. */
@@ -1505,10 +1561,12 @@ export class SyncHub {
     const tombstones = stored
       .filter((tombstone) => this.mayRead(conn, tombstone.audience))
       .map(({ id, version, editor }) => ({ id, version, editor }));
-    // Layer records are presentation-only and carry no element bytes, so no
-    // audience filter applies; the field is omitted while a room has never
-    // used layer sync, keeping snapshot frames byte-identical to before.
-    const layers = await this.getLayerRecords(conn.room);
+    // Layer records pass `canReadLayer`; tombstones carry only an id and version and reach every
+    // viewer so one who saw the layer converges. The field is omitted while the room has none.
+    const allLayers = await this.getLayerRecords(conn.room);
+    const layers = this.canReadLayer
+      ? allLayers.filter((r) => !r.definition || this.mayReadLayer(conn, r.definition))
+      : allLayers;
     const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to, elements };
     if (layers.length > 0) snapshotOp['layers'] = layers;
     if (tombstones.length > 0) snapshotOp['tombstones'] = tombstones;
@@ -1547,6 +1605,7 @@ export class SyncHub {
       existed?: unknown;
       audiences?: unknown;
       audience?: unknown;
+      prevLayer?: unknown;
     } = parsed;
     if (typeof env.o !== 'string' || typeof env.room !== 'string') return;
     if (this.isAuthorityRoom(env.room)) return;
@@ -1570,7 +1629,13 @@ export class SyncHub {
         /* a broken backend must not break the fanout relay */
       });
       if (!this.rooms.has(env.room)) this.scheduleIdleEviction(env.room);
-      this.relayOpToRoom(env.room, undefined, env.from, op);
+      // Absent or null `prevLayer` means no readable previous record; a malformed one drops the frame.
+      let prev: Layer | undefined;
+      if (this.canReadLayer && env.prevLayer !== undefined && env.prevLayer !== null) {
+        if (!isValidLayerDefinition(env.prevLayer)) return;
+        prev = env.prevLayer;
+      }
+      this.relayLayerOpToRoom(env.room, undefined, env.from, op, prev);
       return;
     }
     let plugin: ServerSyncPlugin | undefined;

@@ -60,11 +60,12 @@ describe('layer-definition sync (end-to-end)', () => {
   function connectPeer(
     port: number,
     userId: string,
-    options: { layers?: boolean; token?: string } = {},
+    options: { layers?: boolean; token?: string; role?: string } = {},
   ) {
     const token = options.token ? `&token=${encodeURIComponent(options.token)}` : '';
+    const role = options.role ? `&role=${options.role}` : '';
     const transport = new WebSocketTransport(
-      `ws://127.0.0.1:${port}?room=R&user=${userId}${token}`,
+      `ws://127.0.0.1:${port}?room=R&user=${userId}${token}${role}`,
       {
         WebSocket: WsClient as unknown as typeof WebSocket,
         reconnectInitialDelayMs: 20,
@@ -72,6 +73,8 @@ describe('layer-definition sync (end-to-end)', () => {
       },
     );
     transports.push(transport);
+    const received: string[] = [];
+    transport.onMessage((m) => received.push(m));
     const store = new ElementStore();
     const events: string[] = [];
     const applied = new Map<string, RemoteLayerUpdate>();
@@ -93,7 +96,7 @@ describe('layer-definition sync (end-to-end)', () => {
     });
     client.start();
     clients.push(client);
-    return { store, client, transport, events, applied };
+    return { store, client, transport, events, applied, received };
   }
 
   afterEach(async () => {
@@ -237,5 +240,55 @@ describe('layer-definition sync (end-to-end)', () => {
     // The reconnecting DM and the surviving peer hold identical records.
     const hubRecord = await backend.getLayerRecord('R', 'layer-x');
     expect(peer.applied.get('layer-x')?.record).toEqual(hubRecord);
+  }, 10000);
+
+  it('never sends a hidden layer to a player, and its reconnect re-push changes nothing', async () => {
+    const backend = new MemoryHubBackend();
+    const authenticate: Authenticate = ({ req }) => {
+      const url = new URL(req.url ?? '', 'http://x');
+      return {
+        userId: url.searchParams.get('user') ?? '',
+        role: url.searchParams.get('role') ?? '',
+      };
+    };
+    const { server, port } = startServer({
+      backend,
+      authenticate,
+      canReadLayer: ({ role, layer }) => role === 'dm' || layer.name !== 'DM Secret',
+    });
+    const dm = connectPeer(port, 'dm', { role: 'dm' });
+    const dm2 = connectPeer(port, 'dm2', { role: 'dm' });
+    const player = connectPeer(port, 'pl', { role: 'player' });
+
+    dm.client.publishLayerUpsert(layerDef('layer-s', { name: 'Open' }));
+    await waitFor(() => player.applied.has('layer-s') && dm2.applied.has('layer-s'));
+    dm.client.publishLayerUpsert(layerDef('layer-s', { name: 'DM Secret' }));
+    dm.client.publishLayerUpsert(layerDef('layer-h', { name: 'DM Secret' }));
+    await waitFor(() => dm2.applied.has('layer-h'));
+    await waitFor(() => player.applied.get('layer-s')?.record.version === 2);
+    expect(player.applied.get('layer-s')?.record).toEqual({
+      id: 'layer-s',
+      version: 2,
+      editor: 'dm',
+    });
+
+    const late = connectPeer(port, 'late', { role: 'player' });
+    await waitFor(() => late.received.some((m) => m.includes('"kind":"snapshot"')));
+    const dmFramesBefore = dm.received.length;
+    for (const ws of server.wss.clients) ws.terminate();
+    // The player's ledger tombstone is newer than its snapshot, so it re-pushes the remove.
+    await waitFor(() =>
+      player.received.some((m) => m.includes('"from":"hub","op":{"kind":"layer-remove"')),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+
+    for (const peer of [player, late]) {
+      expect(peer.received.some((m) => m.includes('DM Secret'))).toBe(false);
+    }
+    expect(dm2.received.some((m) => m.includes('DM Secret'))).toBe(true);
+    expect((await backend.getLayerRecord('R', 'layer-s'))?.definition?.name).toBe('DM Secret');
+    expect(dm.received.slice(dmFramesBefore).some((m) => m.includes('"kind":"layer-remove"'))).toBe(
+      false,
+    );
   }, 10000);
 });
