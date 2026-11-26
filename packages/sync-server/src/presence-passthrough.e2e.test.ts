@@ -144,6 +144,7 @@ describe('managed presence passthrough (end-to-end)', () => {
     const { server, port } = startServer(authenticate, {
       presenceThrottleMs: 0,
       canRead: ({ role, audience }) => audience !== 'dm' || role === 'dm',
+      canReadLayer: () => true,
       resolvePresenceAudience: ({ role }) => (role === 'dm' ? 'dm' : undefined),
     });
     const dm = startManaged({ port, userId: 'dm', mint: () => 't' });

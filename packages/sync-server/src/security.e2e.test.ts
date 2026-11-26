@@ -27,7 +27,7 @@ describe('sync-server connection hardening (end-to-end)', () => {
   const rawSockets: WsClient[] = [];
 
   function startServer(options: Omit<CreateSyncServerOptions, 'port'> = {}) {
-    const server = createSyncServer({ port: 0, ...options });
+    const server = createSyncServer({ port: 0, allowAnonymous: !options.authenticate, ...options });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     return { server, port };
@@ -71,8 +71,50 @@ describe('sync-server connection hardening (end-to-end)', () => {
 
     it('still starts with only authenticate or only canRead (no authorize)', async () => {
       startServer({ authenticate: () => ({ userId: 'u1' }) });
-      startServer({ canRead: () => true });
+      startServer({
+        canRead: () => true,
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+      });
       expect(servers).toHaveLength(2);
+    });
+  });
+
+  describe('identity startup guards', () => {
+    it('refuses to start without authenticate or allowAnonymous', () => {
+      expect(() => createSyncServer({ port: 0 })).toThrow(
+        new Error(
+          'createSyncServer: pass `authenticate`, or `allowAnonymous: true` to let anyone join any room',
+        ),
+      );
+    });
+
+    it('refuses allowAnonymous combined with authenticate', () => {
+      expect(() =>
+        createSyncServer({
+          port: 0,
+          authenticate: () => ({ userId: 'u1' }),
+          allowAnonymous: true,
+        }),
+      ).toThrow(
+        new Error('createSyncServer: `allowAnonymous` cannot be combined with `authenticate`'),
+      );
+    });
+
+    it('starts with authenticate only', () => {
+      const { server } = startServer({ authenticate: () => ({ userId: 'u1' }) });
+      expect(server.hub).toBeDefined();
+    });
+
+    it('starts with allowAnonymous only', () => {
+      const { server } = startServer({ allowAnonymous: true });
+      expect(server.hub).toBeDefined();
+    });
+
+    it('refuses canRead without the presence and layer read hooks', () => {
+      expect(() =>
+        createSyncServer({ port: 0, allowAnonymous: true, canRead: () => true }),
+      ).toThrow(/`canRead` requires `resolvePresenceAudience`/);
     });
   });
 
@@ -170,7 +212,9 @@ describe('sync-server connection hardening (end-to-end)', () => {
       ['maxMessageBytes', { maxMessageBytes: 0 }],
       ['maxMessageBytes', { maxMessageBytes: Number.NaN }],
     ] as const)('refuses to start with an invalid %s limit', (_name, options) => {
-      expect(() => createSyncServer({ port: 0, ...options })).toThrow(RangeError);
+      expect(() => createSyncServer({ allowAnonymous: true, port: 0, ...options })).toThrow(
+        RangeError,
+      );
     });
 
     it('accepts Infinity as the documented way to disable connection caps', () => {

@@ -61,7 +61,15 @@ describe('element versioning (end-to-end)', () => {
   const sockets: WsClient[] = [];
 
   function startServer(options: Omit<CreateSyncServerOptions, 'port'>): number {
-    const server = createSyncServer({ port: 0, authenticate, authorize, canRead, ...options });
+    const server = createSyncServer({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      port: 0,
+      authenticate,
+      authorize,
+      canRead,
+      ...options,
+    });
     servers.push(server);
     return (server.wss.address() as AddressInfo).port;
   }

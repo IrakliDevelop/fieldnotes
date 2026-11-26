@@ -520,6 +520,8 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
           fanout,
           authenticate,
           authorize,
+          resolvePresenceAudience: () => undefined,
+          canReadLayer: () => true,
           ...options,
         });
         cleanup.push(() => server.close());

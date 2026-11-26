@@ -719,6 +719,8 @@ describe('SyncHub', () => {
         }
       }
       const h = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
         backend: new ClearWriteFailsBackend(),
         instanceId: 'A',
         canRead: ({ role, audience }) => audience === undefined || role === 'dm',
@@ -774,8 +776,20 @@ describe('SyncHub', () => {
         audience: string | undefined;
       }): boolean => audience !== 'dm' || role === 'dm';
       const bus = new InMemoryHubFanout();
-      const hubA = new SyncHub({ instanceId: 'A', fanout: bus, canRead });
-      const hubB = new SyncHub({ instanceId: 'B', fanout: bus, canRead });
+      const hubA = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        instanceId: 'A',
+        fanout: bus,
+        canRead,
+      });
+      const hubB = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        instanceId: 'B',
+        fanout: bus,
+        canRead,
+      });
       const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
       const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
       admit(hubA, dm);
@@ -804,8 +818,20 @@ describe('SyncHub', () => {
         audience: string | undefined;
       }): boolean => audience !== 'dm' || role === 'dm';
       const bus = new InMemoryHubFanout();
-      const hubA = new SyncHub({ instanceId: 'A', fanout: bus, canRead });
-      const hubB = new SyncHub({ instanceId: 'B', fanout: bus, canRead });
+      const hubA = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        instanceId: 'A',
+        fanout: bus,
+        canRead,
+      });
+      const hubB = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        instanceId: 'B',
+        fanout: bus,
+        canRead,
+      });
       const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
       const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
       admit(hubA, dm);
@@ -1928,6 +1954,40 @@ describe('SyncHub fog authority', () => {
   });
 });
 
+describe('read hook startup guards', () => {
+  const canRead = (): boolean => true;
+
+  it('refuses canRead without resolvePresenceAudience', () => {
+    expect(() => new SyncHub({ canRead, canReadLayer: () => true })).toThrow(
+      new Error(
+        'SyncHub: `canRead` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)',
+      ),
+    );
+  });
+
+  it('refuses canRead without canReadLayer', () => {
+    expect(() => new SyncHub({ canRead, resolvePresenceAudience: () => undefined })).toThrow(
+      new Error(
+        'SyncHub: `canRead` requires `canReadLayer` (pass `() => true` to send every layer to everyone)',
+      ),
+    );
+  });
+
+  it('reports the missing presence hook before the missing layer hook', () => {
+    expect(() => new SyncHub({ canRead })).toThrow(/resolvePresenceAudience/);
+  });
+
+  it('constructs with canRead and both read hooks', () => {
+    const hub = new SyncHub({
+      canRead,
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+    });
+    expect(hub).toBeInstanceOf(SyncHub);
+    hub.close();
+  });
+});
+
 describe('read filtering (canRead)', () => {
   const canRead = ({ role, audience }: { role?: string; audience: string | undefined }): boolean =>
     audience !== 'dm' || role === 'dm';
@@ -1946,7 +2006,11 @@ describe('read filtering (canRead)', () => {
   }
 
   it('filters a dm element out of a player snapshot but keeps it for a dm', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -1969,7 +2033,13 @@ describe('read filtering (canRead)', () => {
 
   it('filters hidden bytes from every denied-operation correction path', async () => {
     const backend = new MemoryHubBackend();
-    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      authorize: () => false,
+      canRead,
+      backend,
+    });
     const player = conn('pl', 'R', 'player');
     admit(hub, player);
 
@@ -2002,7 +2072,13 @@ describe('read filtering (canRead)', () => {
 
   it('keeps canonical correction behavior for viewers allowed to read the element', async () => {
     const backend = new MemoryHubBackend();
-    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      authorize: () => false,
+      canRead,
+      backend,
+    });
     const dm = conn('dm', 'R', 'dm');
     admit(hub, dm);
     const secret = { ...sampleEl(), id: 'secret', audience: 'dm', ownerId: 'dm1' };
@@ -2018,7 +2094,13 @@ describe('read filtering (canRead)', () => {
 
   it('keeps an allowed child parentId in a correction while withholding its private parent', async () => {
     const backend = new MemoryHubBackend();
-    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      authorize: () => false,
+      canRead,
+      backend,
+    });
     const player = conn('player', 'R', 'player');
     admit(hub, player);
     const parent = {
@@ -2041,7 +2123,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('broadcasts a shared upsert to a player', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2052,7 +2138,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('relays an allowed child with a hidden parent reference without sending the parent bytes', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2084,7 +2174,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('never sends a newly-created dm element to a player — and no spurious remove (P2)', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2094,7 +2188,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('sends a synthetic remove when an element goes shared → dm', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2112,7 +2210,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('sends a normal add when an element goes dm → shared', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2125,7 +2227,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('filters removes: dm-element remove is hidden, shared-element remove is sent, nonexistent sends nothing', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2161,7 +2267,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('relays a clear to a player with the tombstones of the elements it could read', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2181,7 +2291,13 @@ describe('read filtering (canRead)', () => {
 
     it('overrides a client-asserted audience so a player cannot hide or reveal content', async () => {
       const backend = new MemoryHubBackend();
-      const hub = new SyncHub({ canRead, backend, resolveAudience: byRole });
+      const hub = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        canRead,
+        backend,
+        resolveAudience: byRole,
+      });
       const player = conn('pl', 'R', 'player');
       const other = conn('other', 'R', 'player');
       const dm = conn('dm', 'R', 'dm');
@@ -2209,7 +2325,13 @@ describe('read filtering (canRead)', () => {
 
     it('clears the audience when the resolver returns undefined', async () => {
       const backend = new MemoryHubBackend();
-      const hub = new SyncHub({ canRead, backend, resolveAudience: () => undefined });
+      const hub = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        canRead,
+        backend,
+        resolveAudience: () => undefined,
+      });
       const player = conn('pl', 'R', 'player');
       admit(hub, player);
 
@@ -2782,7 +2904,11 @@ describe('presence (ephemeral)', () => {
       role?: string;
       audience: string | undefined;
     }): boolean => audience !== 'dm' || role === 'dm';
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -3111,6 +3237,8 @@ describe('layer-definition sync', () => {
 
   it('never carries element bytes on the layer path, even with canRead configured', async () => {
     const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       canRead: ({ role, audience }) => audience === undefined || role === 'dm',
     });
     const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
@@ -3585,6 +3713,8 @@ describe('legacy hierarchy admission', () => {
     });
     const fanout = new InMemoryHubFanout();
     const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       canRead: ({ audience }) => audience !== 'private',
       fanout,
       plugins: [
@@ -4030,7 +4160,13 @@ describe('versioned element pipeline (D5)', () => {
 
   beforeEach(() => {
     backend = new MemoryHubBackend();
-    hub = new SyncHub({ backend, authorize: gmOrOwner, canRead });
+    hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend,
+      authorize: gmOrOwner,
+      canRead,
+    });
     gm = user('gm', 'gm');
     p1 = user('p1', 'player');
     p2 = user('p2', 'player');
@@ -4266,8 +4402,22 @@ describe('versioned element pipeline (D5)', () => {
   it('filters a fanned-out clear per member on the receiving instance', async () => {
     const bus = new InMemoryHubFanout();
     const shared = new MemoryHubBackend();
-    const origin = new SyncHub({ backend: shared, fanout: bus, instanceId: 'A', canRead });
-    const remote = new SyncHub({ backend: shared, fanout: bus, instanceId: 'B', canRead });
+    const origin = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend: shared,
+      fanout: bus,
+      instanceId: 'A',
+      canRead,
+    });
+    const remote = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend: shared,
+      fanout: bus,
+      instanceId: 'B',
+      canRead,
+    });
     const host = user('gm', 'gm');
     const player = user('p1', 'player');
     const remoteGm = user('gm2', 'gm');
@@ -4300,8 +4450,22 @@ describe('versioned element pipeline (D5)', () => {
   it('re-filters an allowed orphan on the receiving hub without hierarchy authorization', async () => {
     const bus = new InMemoryHubFanout();
     const shared = new MemoryHubBackend();
-    const origin = new SyncHub({ backend: shared, fanout: bus, instanceId: 'A', canRead });
-    const remote = new SyncHub({ backend: shared, fanout: bus, instanceId: 'B', canRead });
+    const origin = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend: shared,
+      fanout: bus,
+      instanceId: 'A',
+      canRead,
+    });
+    const remote = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend: shared,
+      fanout: bus,
+      instanceId: 'B',
+      canRead,
+    });
     const host = user('gm', 'gm');
     const player = user('player', 'player');
     admit(origin, host);
@@ -4327,7 +4491,13 @@ describe('versioned element pipeline (D5)', () => {
     ['with a non-string audience', [7]],
   ])('drops a fanout clear %s', async (_name, audiences) => {
     const bus = new InMemoryHubFanout();
-    const remote = new SyncHub({ fanout: bus, instanceId: 'B', canRead });
+    const remote = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      fanout: bus,
+      instanceId: 'B',
+      canRead,
+    });
     const player = user('p1', 'player');
     admit(remote, player);
 
@@ -4638,6 +4808,8 @@ describe('element op batches', () => {
 
   it('filters every batch per recipient: audience, ownerId and hide-on-retag removes', async () => {
     const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       authorize: () => true,
       canRead: ({ role, userId, audience }) =>
         audience === undefined || role === 'gm' || audience === userId,
@@ -4688,6 +4860,8 @@ describe('element op batches', () => {
 
   it('omits a forbidden child payload from a batched relay', async () => {
     const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       canRead: ({ role, audience }) => audience !== 'private' || role === 'gm',
     });
     await join(hub, 'gm', batching, 'gm');
@@ -5270,6 +5444,7 @@ describe('presence audience (resolvePresenceAudience)', () => {
 
   function dmRoom(options: SyncHubOptions = {}) {
     const hub = new SyncHub({
+      canReadLayer: () => true,
       presenceThrottleMs: 0,
       canRead,
       resolvePresenceAudience,
@@ -5333,7 +5508,13 @@ describe('presence audience (resolvePresenceAudience)', () => {
 
   it('drops a fan-out envelope with a non-string audience and relays one without audience to everyone', async () => {
     const bus = new InMemoryHubFanout();
-    const hub = new SyncHub({ instanceId: 'local', fanout: bus, canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      instanceId: 'local',
+      fanout: bus,
+      canRead,
+    });
     const dm = admit(hub, conn('dm', 'dm'));
     const pl = admit(hub, conn('pl', 'player'));
     const publish = (note: string, extra: Record<string, unknown>): void =>
@@ -5389,6 +5570,7 @@ describe('presence audience (resolvePresenceAudience)', () => {
 
   it('keeps delivering to the other viewers when canRead throws for one', async () => {
     const hub = new SyncHub({
+      canReadLayer: () => true,
       presenceThrottleMs: 0,
       resolvePresenceAudience,
       canRead: (ctx) => {
@@ -5427,6 +5609,7 @@ describe('presence audience (resolvePresenceAudience)', () => {
     const strict: SyncHubOptions['canRead'] = ({ role, audience }) =>
       role !== 'banned' && (audience !== 'dm' || role === 'dm');
     const hub = new SyncHub({
+      canReadLayer: () => true,
       instanceId: 'local',
       fanout: bus,
       canRead: strict,

@@ -39,7 +39,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
 
   function startServer() {
     const backend = new MemoryHubBackend();
-    const server = createSyncServer({ port: 0, backend });
+    const server = createSyncServer({ allowAnonymous: true, port: 0, backend });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     return { server, hub: server.hub, port, backend };
@@ -90,7 +90,12 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
   });
 
   it('closes clients that exceed the configured message rate', async () => {
-    const server = createSyncServer({ port: 0, messagesPerSecond: 1, messageBurst: 1 });
+    const server = createSyncServer({
+      allowAnonymous: true,
+      port: 0,
+      messagesPerSecond: 1,
+      messageBurst: 1,
+    });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     const c = new WsClient(`ws://127.0.0.1:${port}?room=R`);
@@ -109,7 +114,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
   });
 
   it('closes clients whose message exceeds the configured byte limit', async () => {
-    const server = createSyncServer({ port: 0, maxMessageBytes: 128 });
+    const server = createSyncServer({ allowAnonymous: true, port: 0, maxMessageBytes: 128 });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     const c = new WsClient(`ws://127.0.0.1:${port}?room=R`);
@@ -127,7 +132,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
   });
 
   it('gracefully closes active clients and makes shutdown idempotent', async () => {
-    const server = createSyncServer({ port: 0, shutdownGraceMs: 100 });
+    const server = createSyncServer({ allowAnonymous: true, port: 0, shutdownGraceMs: 100 });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     const client = new WsClient(`ws://127.0.0.1:${port}?room=R`);
@@ -385,6 +390,8 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     await backend.applyElement('R', { kind: 'upsert', element: shared }, null);
 
     const server = createSyncServer({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       port: 0,
       backend,
       authenticate: () => ({ userId: 'player1', role: 'player' }),
@@ -435,6 +442,8 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
     const canRead: CanRead = ({ role, audience }) => audience !== 'dm' || role === 'dm';
     const backend = new MemoryHubBackend();
     const server = createSyncServer({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       port: 0,
       backend,
       canRead,
@@ -493,7 +502,7 @@ describe('sync-server WebSocket relay (end-to-end)', () => {
 
   it('relays presence between clients and emits leave on disconnect (D-presence)', async () => {
     const backend = new MemoryHubBackend();
-    const server = createSyncServer({ port: 0, backend });
+    const server = createSyncServer({ allowAnonymous: true, port: 0, backend });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
 

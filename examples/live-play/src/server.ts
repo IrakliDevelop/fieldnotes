@@ -8,6 +8,8 @@ const PORT = 8787;
 const backend = new MemoryHubBackend();
 // Movement records are judged by their token, so the wrapper reads targets from the same backend.
 const { close } = createSyncServer({
+  resolvePresenceAudience: () => undefined,
+  canReadLayer: () => true,
   port: PORT,
   backend,
   authenticate,

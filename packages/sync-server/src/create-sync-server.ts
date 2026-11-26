@@ -63,6 +63,8 @@ export interface CreateSyncServerOptions {
   fanout?: HubFanout;
   instanceId?: string;
   authenticate?: Authenticate;
+  /** Admits unauthenticated sockets; required when `authenticate` is not set. */
+  allowAnonymous?: boolean;
   /** Opts admitted sockets into bounded frame transport and optional per-frame authorization. */
   framePolicy?: FramePolicy;
   authorize?: Authorize;
@@ -205,6 +207,14 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     // Ownership authorization needs a stable userId; the anonymous default is
     // the per-socket connId, which changes on every reconnect.
     throw new Error('createSyncServer: `authorize` requires an `authenticate` hook');
+  }
+  if (options.authenticate && options.allowAnonymous) {
+    throw new Error('createSyncServer: `allowAnonymous` cannot be combined with `authenticate`');
+  }
+  if (!options.authenticate && options.allowAnonymous !== true) {
+    throw new Error(
+      'createSyncServer: pass `authenticate`, or `allowAnonymous: true` to let anyone join any room',
+    );
   }
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   const hub = new SyncHub({

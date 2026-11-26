@@ -67,6 +67,7 @@ describe('presence audience across instances', () => {
     const bus = new InMemoryHubFanout();
     const remoteHook = vi.fn(resolvePresenceAudience);
     const origin = new SyncHub({
+      canReadLayer: () => true,
       instanceId: 'A',
       fanout: bus,
       canRead,
@@ -74,6 +75,7 @@ describe('presence audience across instances', () => {
       presenceThrottleMs: 0,
     });
     const remote = new SyncHub({
+      canReadLayer: () => true,
       instanceId: 'B',
       fanout: bus,
       canRead,

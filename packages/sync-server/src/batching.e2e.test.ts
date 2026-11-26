@@ -38,7 +38,7 @@ afterEach(async () => {
 });
 
 function startServer(options: Omit<CreateSyncServerOptions, 'port'> = {}): number {
-  const server = createSyncServer({ port: 0, ...options });
+  const server = createSyncServer({ allowAnonymous: true, port: 0, ...options });
   servers.push(server);
   return (server.wss.address() as AddressInfo).port;
 }

@@ -169,6 +169,8 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
       audience !== 'private' || role === 'gm';
     const mk = (id: string): SyncHub =>
       new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
         instanceId: id,
         canRead,
         fanout: new RedisHubFanout(pub, sub),

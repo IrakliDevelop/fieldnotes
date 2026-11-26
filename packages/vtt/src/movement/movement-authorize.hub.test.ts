@@ -79,6 +79,8 @@ describe('withMovementAuthorize in a SyncHub', () => {
   beforeEach(async () => {
     backend = new MemoryHubBackend();
     hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       backend,
       canRead,
       resolveAudience,

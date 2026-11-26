@@ -369,6 +369,16 @@ export class SyncHub {
     ) {
       throw new RangeError('roomIdleTimeoutMs must be a positive number up to 2147483647');
     }
+    if (options.canRead && !options.resolvePresenceAudience) {
+      throw new Error(
+        'SyncHub: `canRead` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)',
+      );
+    }
+    if (options.canRead && !options.canReadLayer) {
+      throw new Error(
+        'SyncHub: `canRead` requires `canReadLayer` (pass `() => true` to send every layer to everyone)',
+      );
+    }
     this.roomIdleTimeoutMs = roomIdleTimeoutMs;
     this.fanoutUnsub = this.fanout.subscribe((payload) => this.onFanout(payload));
     this.authorityOptions = options.authority;

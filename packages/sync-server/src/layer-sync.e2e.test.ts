@@ -51,7 +51,7 @@ describe('layer-definition sync (end-to-end)', () => {
   const clients: SyncClient[] = [];
 
   function startServer(options: Omit<CreateSyncServerOptions, 'port'> = {}) {
-    const server = createSyncServer({ port: 0, ...options });
+    const server = createSyncServer({ port: 0, allowAnonymous: !options.authenticate, ...options });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     return { server, port };

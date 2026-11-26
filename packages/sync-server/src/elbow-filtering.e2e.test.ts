@@ -134,6 +134,8 @@ describe('filtered elbow documents (end-to-end)', () => {
   function startServer(): { server: Server; port: number; backend: MemoryHubBackend } {
     const backend = new MemoryHubBackend();
     const server = createSyncServer({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       port: 0,
       backend,
       authenticate: ({ req }) => {

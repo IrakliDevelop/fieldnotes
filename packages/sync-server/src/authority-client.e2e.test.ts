@@ -356,7 +356,7 @@ describe('managed authority client over real createSyncServer sockets', () => {
   });
 
   it('keeps the public legacy client and transport synchronized in a non-authority room', async () => {
-    const server = createSyncServer({ port: 0 });
+    const server = createSyncServer({ allowAnonymous: true, port: 0 });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     const sourceStore = new ElementStore();
