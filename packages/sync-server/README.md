@@ -319,9 +319,9 @@ audience, on every instance:
 hub.broadcastPresence('my-room', { kind: 'poke', feature: 'initiative' }, { audience: 'dm' });
 ```
 
-With `canRead` configured, every server presence frame passes it, and one without `audience` is
-checked with `audience: undefined`, like an untagged element. Without `canRead` it reaches every
-room member.
+With `canRead` configured, every server presence frame is checked by it. A frame without
+`audience` is checked with `audience: undefined`, the same as an untagged element. Without
+`canRead` it reaches every room member.
 
 Server presence is best-effort, is not persisted, does not enter a room's durable operation queue,
 and is not checked by `authorize`. Validate and authorize application requests before
@@ -717,16 +717,16 @@ SyncHub: `canRead` requires `resolvePresenceAudience` (pass `() => undefined` to
 SyncHub: `canRead` requires `canReadLayer` (pass `() => true` to send every layer to everyone)
 ```
 
-The pass-through values in the messages keep the old behavior for that path.
+Passing those values keeps the 0.30 behavior: presence and every layer reach every viewer.
 
 **Preconditions:**
 
 - **Stable identity.** Meaningful policy needs a stable `userId`/`role` from `authenticate`; an
   anonymous connection (`allowAnonymous: true`) has `userId = connId`, which changes on reconnect.
-- **Same `canRead` on every instance.** Unlike `authorize` (which runs on the write's origin
-  instance only), `canRead` and `canReadLayer` run on **every** instance — each re-filters
-  fanned-out ops for its own local members — so all relay instances must inject the **same**
-  read hooks, alongside the existing shared-backend + shared-fanout requirement.
+- **Same read hooks on every instance.** Unlike `authorize`, which runs only on the instance that
+  received the write, `canRead` and `canReadLayer` run on every instance, and each instance filters
+  fanned-out ops for its own connections. Every relay instance needs the same read hooks, as well
+  as the shared backend and shared fanout.
   `resolvePresenceAudience` runs on the origin instance only.
 - **Labeling integrity.** `audience` arrives client-asserted. Without a `resolveAudience` hook a
   player can tag an upsert `dm` to hide it from the table, or retag a hidden element `shared` to
@@ -748,9 +748,9 @@ resolvePresenceAudience({ userId, role, room, lane, data }) => string | undefine
 
 The origin instance resolves one audience per client presence frame, then sends the frame to the
 viewers whose `canRead` admits it, locally and on every instance through the fanout. `lane` is the
-frame's `data.kind` (`''` when it has none). `undefined` means an untagged frame, and with `canRead`
-set every presence frame passes `canRead`, an untagged one with `audience: undefined`, like an
-untagged element. A throwing hook drops the frame. Server presence takes its audience from
+frame's `data.kind` (`''` when it has none). `undefined` leaves the frame untagged. With
+`canRead` set, every presence frame is checked by `canRead`, and an untagged frame is checked with
+`audience: undefined`, the same as an untagged element. A throwing hook drops the frame. Server presence takes its audience from
 `broadcastPresence(room, data, { audience })` (see
 [Server-originated presence](#server-originated-presence)).
 

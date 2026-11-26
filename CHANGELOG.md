@@ -26,8 +26,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   with a sender correction, and stored images with another scheme are no longer sent. Fix: a host
   whose upload returns a custom scheme such as `blob:` must store the image and sync an `https:`
   URL.
-- With `canRead` set, presence now passes `canRead`, untagged frames with `audience: undefined`, so
-  a role your `canRead` denies untagged data stops receiving presence. Fix: admit
+- With `canRead` set, presence is now checked by `canRead`, and untagged frames are checked with
+  `audience: undefined`, so a role your `canRead` denies for untagged data stops receiving presence. Fix: admit
   `audience: undefined` for that role, or have `resolvePresenceAudience` return an audience it can
   read.
 
