@@ -1,4 +1,4 @@
-import { WebSocketServer, type RawData } from 'ws';
+import { WebSocketServer, type RawData, type VerifyClientCallbackAsync } from 'ws';
 import type { IncomingMessage, Server } from 'http';
 import { SyncHub, type Connection } from './sync-hub';
 import type { HubBackend } from './hub-backend';
@@ -6,11 +6,14 @@ import { MemoryHubBackend } from './memory-hub-backend';
 import type { HubFanout } from './hub-fanout';
 import { readBearerToken, type Authenticate } from './authenticate';
 import type {
+  AllowImageSrc,
   Authorize,
   AuthorizeLayer,
   CanRead,
+  CanReadLayer,
   CanReadOwnerId,
   ResolveAudience,
+  ResolvePresenceAudience,
 } from './authorize';
 import type { ServerSyncPlugin } from './sync-plugin';
 import { startHeartbeat } from './heartbeat';
@@ -60,14 +63,21 @@ export interface CreateSyncServerOptions {
   fanout?: HubFanout;
   instanceId?: string;
   authenticate?: Authenticate;
+  /** Admits unauthenticated sockets; required when `authenticate` is not set. */
+  allowAnonymous?: boolean;
+  /** Browser origins allowed to upgrade; others get HTTP 403. Requests without `Origin` pass. */
+  allowedOrigins?: readonly string[] | ((origin: string, req: IncomingMessage) => boolean);
   /** Opts admitted sockets into bounded frame transport and optional per-frame authorization. */
   framePolicy?: FramePolicy;
   authorize?: Authorize;
   authorizeLayer?: AuthorizeLayer;
   plugins?: readonly ServerSyncPlugin[];
   canRead?: CanRead;
+  canReadLayer?: CanReadLayer;
   canReadOwnerId?: CanReadOwnerId;
   resolveAudience?: ResolveAudience;
+  resolvePresenceAudience?: ResolvePresenceAudience;
+  allowImageSrc?: AllowImageSrc;
   heartbeatIntervalMs?: number;
   maxMessageBytes?: number;
   maxJsonDepth?: number;
@@ -200,6 +210,14 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     // the per-socket connId, which changes on every reconnect.
     throw new Error('createSyncServer: `authorize` requires an `authenticate` hook');
   }
+  if (options.authenticate && options.allowAnonymous) {
+    throw new Error('createSyncServer: `allowAnonymous` cannot be combined with `authenticate`');
+  }
+  if (!options.authenticate && options.allowAnonymous !== true) {
+    throw new Error(
+      'createSyncServer: pass `authenticate`, or `allowAnonymous: true` to let anyone join any room',
+    );
+  }
   const maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
   const hub = new SyncHub({
     authority: options.authority,
@@ -212,8 +230,11 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     authorizeLayer: options.authorizeLayer,
     plugins: options.plugins,
     canRead: options.canRead,
+    canReadLayer: options.canReadLayer,
     canReadOwnerId: options.canReadOwnerId,
     resolveAudience: options.resolveAudience,
+    resolvePresenceAudience: options.resolvePresenceAudience,
+    allowImageSrc: options.allowImageSrc,
     maxMessageBytes,
     maxJsonDepth: options.maxJsonDepth ?? DEFAULT_MAX_JSON_DEPTH,
     presenceThrottleMs: options.presenceThrottleMs ?? DEFAULT_PRESENCE_THROTTLE_MS,
@@ -233,12 +254,36 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
     }
     return false;
   };
+  const { allowedOrigins } = options;
+  // Two-argument form: ws answers a one-argument refusal with 401, not 403.
+  const verifyClient: VerifyClientCallbackAsync | undefined = allowedOrigins
+    ? ({ origin, req }, cb) => {
+        if (!origin) return cb(true);
+        let ok = false;
+        try {
+          ok =
+            typeof allowedOrigins === 'function'
+              ? allowedOrigins(origin, req)
+              : allowedOrigins.includes(origin);
+        } catch {
+          // a throw would escape ws; refuse instead
+        }
+        if (ok) cb(true);
+        else cb(false, 403);
+      }
+    : undefined;
   const wss = options.server
-    ? new WebSocketServer({ server: options.server, maxPayload: maxMessageBytes, handleProtocols })
+    ? new WebSocketServer({
+        server: options.server,
+        maxPayload: maxMessageBytes,
+        handleProtocols,
+        verifyClient,
+      })
     : new WebSocketServer({
         port: options.port ?? 0,
         maxPayload: maxMessageBytes,
         handleProtocols,
+        verifyClient,
       });
   const heartbeat = startHeartbeat(wss, options.heartbeatIntervalMs ?? 30000);
   let shuttingDown = false;

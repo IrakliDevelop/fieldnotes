@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { fogEncodeBase64 } from '@fieldnotes/vtt';
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
-import type { CanvasElement, Layer } from '@fieldnotes/core';
+import { createImage, type CanvasElement, type Layer } from '@fieldnotes/core';
 import {
   createAuthorityCapabilities,
   createCurrentCapabilities,
@@ -14,11 +14,18 @@ import {
   type SyncOp,
 } from '@fieldnotes/sync';
 import { SyncHub } from './sync-hub';
-import type { Connection } from './sync-hub';
+import type { Connection, SyncHubOptions } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import { MemoryHubBackend } from './memory-hub-backend';
-import type { Authorize, OwnedElement, ResolveAudience } from './authorize';
-import { InMemoryHubFanout } from './hub-fanout';
+import type {
+  AllowImageSrc,
+  Authorize,
+  CanReadLayer,
+  OwnedElement,
+  ResolveAudience,
+  ResolvePresenceAudience,
+} from './authorize';
+import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
 import type { ServerExtensionRegistry, ServerOpContext } from './sync-plugin';
 import { registerAuthorityConnection } from './authority-connection';
 import { v2Remove, v2Shape } from './test-support/v2-ops';
@@ -713,6 +720,8 @@ describe('SyncHub', () => {
         }
       }
       const h = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
         backend: new ClearWriteFailsBackend(),
         instanceId: 'A',
         canRead: ({ role, audience }) => audience === undefined || role === 'dm',
@@ -768,8 +777,20 @@ describe('SyncHub', () => {
         audience: string | undefined;
       }): boolean => audience !== 'dm' || role === 'dm';
       const bus = new InMemoryHubFanout();
-      const hubA = new SyncHub({ instanceId: 'A', fanout: bus, canRead });
-      const hubB = new SyncHub({ instanceId: 'B', fanout: bus, canRead });
+      const hubA = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        instanceId: 'A',
+        fanout: bus,
+        canRead,
+      });
+      const hubB = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        instanceId: 'B',
+        fanout: bus,
+        canRead,
+      });
       const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
       const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
       admit(hubA, dm);
@@ -798,8 +819,20 @@ describe('SyncHub', () => {
         audience: string | undefined;
       }): boolean => audience !== 'dm' || role === 'dm';
       const bus = new InMemoryHubFanout();
-      const hubA = new SyncHub({ instanceId: 'A', fanout: bus, canRead });
-      const hubB = new SyncHub({ instanceId: 'B', fanout: bus, canRead });
+      const hubA = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        instanceId: 'A',
+        fanout: bus,
+        canRead,
+      });
+      const hubB = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        instanceId: 'B',
+        fanout: bus,
+        canRead,
+      });
       const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
       const player: FakeConn = { ...makeConn('pl', 'R'), role: 'player' };
       admit(hubA, dm);
@@ -1922,6 +1955,40 @@ describe('SyncHub fog authority', () => {
   });
 });
 
+describe('read hook startup guards', () => {
+  const canRead = (): boolean => true;
+
+  it('refuses canRead without resolvePresenceAudience', () => {
+    expect(() => new SyncHub({ canRead, canReadLayer: () => true })).toThrow(
+      new Error(
+        'SyncHub: `canRead` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)',
+      ),
+    );
+  });
+
+  it('refuses canRead without canReadLayer', () => {
+    expect(() => new SyncHub({ canRead, resolvePresenceAudience: () => undefined })).toThrow(
+      new Error(
+        'SyncHub: `canRead` requires `canReadLayer` (pass `() => true` to send every layer to everyone)',
+      ),
+    );
+  });
+
+  it('reports the missing presence hook before the missing layer hook', () => {
+    expect(() => new SyncHub({ canRead })).toThrow(/resolvePresenceAudience/);
+  });
+
+  it('constructs with canRead and both read hooks', () => {
+    const hub = new SyncHub({
+      canRead,
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+    });
+    expect(hub).toBeInstanceOf(SyncHub);
+    hub.close();
+  });
+});
+
 describe('read filtering (canRead)', () => {
   const canRead = ({ role, audience }: { role?: string; audience: string | undefined }): boolean =>
     audience !== 'dm' || role === 'dm';
@@ -1940,7 +2007,11 @@ describe('read filtering (canRead)', () => {
   }
 
   it('filters a dm element out of a player snapshot but keeps it for a dm', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -1963,7 +2034,13 @@ describe('read filtering (canRead)', () => {
 
   it('filters hidden bytes from every denied-operation correction path', async () => {
     const backend = new MemoryHubBackend();
-    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      authorize: () => false,
+      canRead,
+      backend,
+    });
     const player = conn('pl', 'R', 'player');
     admit(hub, player);
 
@@ -1996,7 +2073,13 @@ describe('read filtering (canRead)', () => {
 
   it('keeps canonical correction behavior for viewers allowed to read the element', async () => {
     const backend = new MemoryHubBackend();
-    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      authorize: () => false,
+      canRead,
+      backend,
+    });
     const dm = conn('dm', 'R', 'dm');
     admit(hub, dm);
     const secret = { ...sampleEl(), id: 'secret', audience: 'dm', ownerId: 'dm1' };
@@ -2012,7 +2095,13 @@ describe('read filtering (canRead)', () => {
 
   it('keeps an allowed child parentId in a correction while withholding its private parent', async () => {
     const backend = new MemoryHubBackend();
-    const hub = new SyncHub({ authorize: () => false, canRead, backend });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      authorize: () => false,
+      canRead,
+      backend,
+    });
     const player = conn('player', 'R', 'player');
     admit(hub, player);
     const parent = {
@@ -2035,7 +2124,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('broadcasts a shared upsert to a player', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2046,7 +2139,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('relays an allowed child with a hidden parent reference without sending the parent bytes', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2078,7 +2175,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('never sends a newly-created dm element to a player — and no spurious remove (P2)', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2088,7 +2189,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('sends a synthetic remove when an element goes shared → dm', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2106,7 +2211,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('sends a normal add when an element goes dm → shared', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2119,7 +2228,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('filters removes: dm-element remove is hidden, shared-element remove is sent, nonexistent sends nothing', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2155,7 +2268,11 @@ describe('read filtering (canRead)', () => {
   });
 
   it('relays a clear to a player with the tombstones of the elements it could read', async () => {
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -2175,7 +2292,13 @@ describe('read filtering (canRead)', () => {
 
     it('overrides a client-asserted audience so a player cannot hide or reveal content', async () => {
       const backend = new MemoryHubBackend();
-      const hub = new SyncHub({ canRead, backend, resolveAudience: byRole });
+      const hub = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        canRead,
+        backend,
+        resolveAudience: byRole,
+      });
       const player = conn('pl', 'R', 'player');
       const other = conn('other', 'R', 'player');
       const dm = conn('dm', 'R', 'dm');
@@ -2203,7 +2326,13 @@ describe('read filtering (canRead)', () => {
 
     it('clears the audience when the resolver returns undefined', async () => {
       const backend = new MemoryHubBackend();
-      const hub = new SyncHub({ canRead, backend, resolveAudience: () => undefined });
+      const hub = new SyncHub({
+        resolvePresenceAudience: () => undefined,
+        canReadLayer: () => true,
+        canRead,
+        backend,
+        resolveAudience: () => undefined,
+      });
       const player = conn('pl', 'R', 'player');
       admit(hub, player);
 
@@ -2776,7 +2905,11 @@ describe('presence (ephemeral)', () => {
       role?: string;
       audience: string | undefined;
     }): boolean => audience !== 'dm' || role === 'dm';
-    const hub = new SyncHub({ canRead });
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      canRead,
+    });
     const dm = conn('dm', 'R', 'dm');
     const player = conn('pl', 'R', 'player');
     admit(hub, dm);
@@ -3105,6 +3238,8 @@ describe('layer-definition sync', () => {
 
   it('never carries element bytes on the layer path, even with canRead configured', async () => {
     const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       canRead: ({ role, audience }) => audience === undefined || role === 'dm',
     });
     const dm: FakeConn = { ...makeConn('dm', 'R'), role: 'dm' };
@@ -3579,6 +3714,8 @@ describe('legacy hierarchy admission', () => {
     });
     const fanout = new InMemoryHubFanout();
     const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       canRead: ({ audience }) => audience !== 'private',
       fanout,
       plugins: [
@@ -4024,7 +4161,13 @@ describe('versioned element pipeline (D5)', () => {
 
   beforeEach(() => {
     backend = new MemoryHubBackend();
-    hub = new SyncHub({ backend, authorize: gmOrOwner, canRead });
+    hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend,
+      authorize: gmOrOwner,
+      canRead,
+    });
     gm = user('gm', 'gm');
     p1 = user('p1', 'player');
     p2 = user('p2', 'player');
@@ -4260,8 +4403,22 @@ describe('versioned element pipeline (D5)', () => {
   it('filters a fanned-out clear per member on the receiving instance', async () => {
     const bus = new InMemoryHubFanout();
     const shared = new MemoryHubBackend();
-    const origin = new SyncHub({ backend: shared, fanout: bus, instanceId: 'A', canRead });
-    const remote = new SyncHub({ backend: shared, fanout: bus, instanceId: 'B', canRead });
+    const origin = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend: shared,
+      fanout: bus,
+      instanceId: 'A',
+      canRead,
+    });
+    const remote = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend: shared,
+      fanout: bus,
+      instanceId: 'B',
+      canRead,
+    });
     const host = user('gm', 'gm');
     const player = user('p1', 'player');
     const remoteGm = user('gm2', 'gm');
@@ -4294,8 +4451,22 @@ describe('versioned element pipeline (D5)', () => {
   it('re-filters an allowed orphan on the receiving hub without hierarchy authorization', async () => {
     const bus = new InMemoryHubFanout();
     const shared = new MemoryHubBackend();
-    const origin = new SyncHub({ backend: shared, fanout: bus, instanceId: 'A', canRead });
-    const remote = new SyncHub({ backend: shared, fanout: bus, instanceId: 'B', canRead });
+    const origin = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend: shared,
+      fanout: bus,
+      instanceId: 'A',
+      canRead,
+    });
+    const remote = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      backend: shared,
+      fanout: bus,
+      instanceId: 'B',
+      canRead,
+    });
     const host = user('gm', 'gm');
     const player = user('player', 'player');
     admit(origin, host);
@@ -4321,7 +4492,13 @@ describe('versioned element pipeline (D5)', () => {
     ['with a non-string audience', [7]],
   ])('drops a fanout clear %s', async (_name, audiences) => {
     const bus = new InMemoryHubFanout();
-    const remote = new SyncHub({ fanout: bus, instanceId: 'B', canRead });
+    const remote = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      fanout: bus,
+      instanceId: 'B',
+      canRead,
+    });
     const player = user('p1', 'player');
     admit(remote, player);
 
@@ -4632,6 +4809,8 @@ describe('element op batches', () => {
 
   it('filters every batch per recipient: audience, ownerId and hide-on-retag removes', async () => {
     const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       authorize: () => true,
       canRead: ({ role, userId, audience }) =>
         audience === undefined || role === 'gm' || audience === userId,
@@ -4682,6 +4861,8 @@ describe('element op batches', () => {
 
   it('omits a forbidden child payload from a batched relay', async () => {
     const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
       canRead: ({ role, audience }) => audience !== 'private' || role === 'gm',
     });
     await join(hub, 'gm', batching, 'gm');
@@ -5040,5 +5221,743 @@ describe('element link sanitization', () => {
       expect(JSON.stringify(conn.sent)).not.toContain('javascript:');
       hub.close();
     });
+  });
+});
+
+describe('image source schemes', () => {
+  const image = (id: string, src: string, version = 1): SyncElement => ({
+    ...createImage({ index: 'a0', position: { x: 0, y: 0 }, size: { w: 10, h: 10 }, src }),
+    id,
+    version,
+  });
+  const shape = (id: string): SyncElement => ({ ...sampleEl(), id, version: 1 });
+  const frames = (conn: FakeConn): unknown[] => conn.sent.map((m) => JSON.parse(m) as unknown);
+  const join = (hub: SyncHub, id: string, role?: string): FakeConn =>
+    admit(hub, { ...makeConn(id, 'R'), userId: id, role });
+  const refusal = (id: string, version = 1) => ({
+    from: 'hub',
+    op: { kind: 'remove', id, version, editor: 'hub' },
+  });
+
+  async function upsertImage(options: ConstructorParameters<typeof SyncHub>[0], src: string) {
+    const backend = new MemoryHubBackend();
+    const hub = new SyncHub({ ...options, backend });
+    const a = join(hub, 'A', 'dm');
+    const b = join(hub, 'B');
+    const element = image('i', src);
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element }));
+    return { a, b, element, stored: await storedElement(backend, 'R', 'i') };
+  }
+
+  async function seeded(...elements: SyncElement[]): Promise<MemoryHubBackend> {
+    const backend = new MemoryHubBackend();
+    for (const element of elements) {
+      await backend.applyElement('R', { kind: 'upsert', element }, null);
+    }
+    return backend;
+  }
+
+  it('refuses a javascript: image: not stored, not relayed, sender gets the denied-edit remove', async () => {
+    const { a, b, stored } = await upsertImage({}, 'javascript:alert(1)');
+
+    expect(stored).toBeUndefined();
+    expect(JSON.stringify(b.sent)).not.toContain('javascript:alert(1)');
+    expect(frames(a)).toEqual([refusal('i')]);
+  });
+
+  it('refuses an image the allowImageSrc hook rejects', async () => {
+    const allowImageSrc = ({ src }: { src: string }) => src.startsWith('data:image/');
+    const { a, b, stored } = await upsertImage({ allowImageSrc }, 'https://cdn.example/a.png');
+
+    expect(stored).toBeUndefined();
+    expect(JSON.stringify(b.sent)).not.toContain('https://cdn.example/a.png');
+    expect(frames(a)).toEqual([refusal('i')]);
+  });
+
+  it('relays an image the allowImageSrc hook accepts', async () => {
+    const allowImageSrc = ({ src }: { src: string }) => src.startsWith('data:image/');
+    const { b, element } = await upsertImage({ allowImageSrc }, 'data:image/png;base64,AAAA');
+
+    expect(frames(b)).toEqual([{ from: 'A', op: { kind: 'upsert', element } }]);
+  });
+
+  it('refuses an image when allowImageSrc throws', async () => {
+    const allowImageSrc = () => {
+      throw new Error('policy down');
+    };
+    const { a, b, stored } = await upsertImage({ allowImageSrc }, 'https://cdn.example/t.png');
+
+    expect(stored).toBeUndefined();
+    expect(JSON.stringify(b.sent)).not.toContain('https://cdn.example/t.png');
+    expect(frames(a)).toEqual([refusal('i')]);
+  });
+
+  it('refuses an image when allowImageSrc returns a Promise', async () => {
+    const allowImageSrc = (() => Promise.resolve(true)) as unknown as AllowImageSrc;
+    const { a, b, stored } = await upsertImage({ allowImageSrc }, 'https://cdn.example/p.png');
+
+    expect(stored).toBeUndefined();
+    expect(JSON.stringify(b.sent)).not.toContain('https://cdn.example/p.png');
+    expect(frames(a)).toEqual([refusal('i')]);
+  });
+
+  it('passes the connection identity and room to allowImageSrc', async () => {
+    const allowImageSrc = vi.fn(() => true);
+    await upsertImage({ allowImageSrc }, 'https://cdn.example/a.png');
+
+    expect(allowImageSrc).toHaveBeenCalledWith({
+      src: 'https://cdn.example/a.png',
+      userId: 'A',
+      role: 'dm',
+      room: 'R',
+    });
+  });
+
+  it('relays a good-scheme image and a non-image element unchanged without a hook', async () => {
+    const hub = new SyncHub();
+    join(hub, 'A');
+    const b = join(hub, 'B');
+    const good = image('i', 'https://cdn.example/a.png');
+
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: good }));
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: shape('s') }));
+
+    expect(b.sent).toEqual([
+      JSON.stringify({ from: 'A', op: { kind: 'upsert', element: good } }),
+      JSON.stringify({ from: 'A', op: { kind: 'upsert', element: shape('s') } }),
+    ]);
+  });
+
+  it('does not call allowImageSrc for a non-image element', async () => {
+    const allowImageSrc = vi.fn(() => false);
+    const hub = new SyncHub({ allowImageSrc });
+    join(hub, 'A');
+    const b = join(hub, 'B');
+
+    await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: shape('s') }));
+
+    expect(allowImageSrc).not.toHaveBeenCalled();
+    expect(frames(b)).toEqual([{ from: 'A', op: { kind: 'upsert', element: shape('s') } }]);
+  });
+
+  it('does not call allowImageSrc outbound: a stored good-src image reaches a joiner snapshot', async () => {
+    const good = image('i', 'https://cdn.example/a.png');
+    const allowImageSrc = vi.fn(() => false);
+    const hub = new SyncHub({ allowImageSrc, backend: await seeded(good) });
+    const conn = join(hub, 'J');
+
+    await hub.handleMessage('J', envelope('J', { kind: 'request-snapshot' }));
+
+    expect(frames(conn)).toEqual([
+      { from: 'hub', op: { kind: 'snapshot', to: 'J', elements: [good] } },
+    ]);
+    expect(allowImageSrc).not.toHaveBeenCalled();
+  });
+
+  describe('a stored blob: image never leaves the hub', () => {
+    it('is absent from a joiner snapshot', async () => {
+      const hub = new SyncHub({ backend: await seeded(image('b', 'blob:x'), shape('s')) });
+      const conn = join(hub, 'J');
+
+      await hub.handleMessage('J', envelope('J', { kind: 'request-snapshot' }));
+
+      expect(frames(conn)).toEqual([
+        { from: 'hub', op: { kind: 'snapshot', to: 'J', elements: [shape('s')] } },
+      ]);
+      expect(JSON.stringify(conn.sent)).not.toContain('blob:x');
+    });
+
+    it('yields no frame from an injected fan-out upsert', async () => {
+      const bus = new InMemoryHubFanout();
+      const hub = new SyncHub({ instanceId: 'B', fanout: bus });
+      const conn = join(hub, 'b');
+
+      bus.publish(
+        JSON.stringify({
+          o: 'A',
+          room: 'R',
+          from: 'a',
+          op: { kind: 'upsert', element: image('b', 'blob:x') },
+        }),
+      );
+      await Promise.resolve();
+
+      expect(conn.sent).toEqual([]);
+      hub.close();
+    });
+
+    it.each([
+      ['loses the image from a batch', [shape('s'), image('b', 'blob:x')], [shape('s')]],
+      ['sends no frame for a batch holding only the image', [image('b', 'blob:x')], []],
+    ])('%s a plugin relays from a foreign fan-out', async (_name, elements, expected) => {
+      const bus = new InMemoryHubFanout();
+      const kind = createExtensionKind<true>({
+        extensionKind: 'test:batch',
+        codec: { validate: (payload): payload is true => payload === true },
+      });
+      // The second relay is a fence: the plugin queue is serial, so the first has run by then.
+      const relays = [elements, [shape('fence')]];
+      const hub = new SyncHub({
+        instanceId: 'B',
+        fanout: bus,
+        plugins: [
+          {
+            name: 'batcher',
+            registerExtensionKinds(registry) {
+              registry.register(kind, async () => ({ accepted: null, corrections: [] }));
+            },
+            async applyFanout() {
+              const ops = (relays.shift() ?? []).map((element): BatchOp => ({
+                kind: 'upsert',
+                element,
+              }));
+              return { kind: 'batch', ops };
+            },
+          },
+        ],
+      });
+      const conn = join(hub, 'b');
+      const extension = JSON.stringify({
+        o: 'A',
+        room: 'R',
+        from: 'a',
+        op: { kind: 'extension', extensionKind: 'test:batch', payload: true },
+      });
+
+      bus.publish(extension);
+      bus.publish(extension);
+
+      await vi.waitFor(() => expect(JSON.stringify(conn.sent)).toContain('fence'));
+      const batchOf = (els: SyncElement[]) => ({
+        from: 'a',
+        op: { kind: 'batch', ops: els.map((element) => ({ kind: 'upsert', element })) },
+      });
+      const relayed = expected.length > 0 ? [batchOf(expected)] : [];
+      expect(frames(conn)).toEqual([...relayed, batchOf([shape('fence')])]);
+      expect(JSON.stringify(conn.sent)).not.toContain('blob:x');
+      hub.close();
+    });
+
+    it.each([
+      ['a stale edit', image('b', 'https://cdn.example/a.png', 1)],
+      ['a refused-scheme edit', image('b', 'javascript:alert(1)', 2)],
+    ])('answers %s with a remove at the stored version', async (_name, edit) => {
+      const hub = new SyncHub({ backend: await seeded(image('b', 'blob:x', 1)) });
+      const conn = join(hub, 'A');
+
+      await hub.handleMessage('A', envelope('A', { kind: 'upsert', element: edit }));
+
+      expect(frames(conn)).toEqual([refusal('b', 1)]);
+      expect(JSON.stringify(conn.sent)).not.toContain('blob:x');
+    });
+  });
+});
+
+describe('presence audience (resolvePresenceAudience)', () => {
+  const canRead = ({ role, audience }: { role?: string; audience: string | undefined }): boolean =>
+    audience !== 'dm' || role === 'dm';
+  const resolvePresenceAudience: ResolvePresenceAudience = ({ role }) =>
+    role === 'dm' ? 'dm' : undefined;
+  const presenceMsg = (from: string, data: unknown): string =>
+    JSON.stringify({ from, op: { kind: 'presence', data } });
+  const has = (c: FakeConn, marker: string): boolean => c.sent.some((m) => m.includes(marker));
+
+  function conn(id: string, role: string, userId?: string): FakeConn {
+    return { ...makeConn(id, 'R'), role, userId };
+  }
+
+  function dmRoom(options: SyncHubOptions = {}) {
+    const hub = new SyncHub({
+      canReadLayer: () => true,
+      presenceThrottleMs: 0,
+      canRead,
+      resolvePresenceAudience,
+      ...options,
+    });
+    const dm = admit(hub, conn('dm', 'dm'));
+    const dm2 = admit(hub, conn('dm2', 'dm'));
+    const pl = admit(hub, conn('pl', 'player'));
+    return { hub, dm, dm2, pl };
+  }
+
+  it('relays DM presence to another DM but never to a player; player presence reaches both', async () => {
+    const { hub, dm, dm2, pl } = dmRoom();
+
+    await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'dm-secret' }));
+    await hub.handleMessage('pl', presenceMsg('pl', { kind: 'cursor', note: 'player-open' }));
+
+    expect(has(dm2, 'dm-secret')).toBe(true);
+    expect(has(pl, 'dm-secret')).toBe(false);
+    expect(has(dm, 'player-open')).toBe(true);
+    expect(has(dm2, 'player-open')).toBe(true);
+  });
+
+  it('filters the frame the throttle timer sends later the same way', async () => {
+    vi.useFakeTimers();
+    try {
+      const { hub, dm, dm2, pl } = dmRoom({ presenceThrottleMs: 50 });
+
+      await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'dm-first' }));
+      await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'dm-late' }));
+      await hub.handleMessage('pl', presenceMsg('pl', { kind: 'cursor', note: 'pl-first' }));
+      await hub.handleMessage('pl', presenceMsg('pl', { kind: 'cursor', note: 'pl-late' }));
+      expect(has(dm2, 'dm-late')).toBe(false);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(has(dm2, 'dm-late')).toBe(true);
+      expect(has(pl, 'dm-late')).toBe(false);
+      expect(has(pl, 'dm-first')).toBe(false);
+      expect(has(dm, 'pl-late')).toBe(true);
+      expect(has(dm2, 'pl-late')).toBe(true);
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('passes the presence lane and the connection identity to the hook', async () => {
+    const hook = vi.fn(resolvePresenceAudience);
+    const hub = new SyncHub({ presenceThrottleMs: 0, resolvePresenceAudience: hook });
+    admit(hub, conn('dm', 'dm', 'u-dm'));
+    admit(hub, conn('pl', 'player'));
+
+    await hub.handleMessage('dm', presenceMsg('dm', { kind: 'ping', x: 1 }));
+    await hub.handleMessage('dm', presenceMsg('dm', 'plain'));
+
+    expect(hook.mock.calls).toEqual([
+      [{ userId: 'u-dm', role: 'dm', room: 'R', lane: 'ping', data: { kind: 'ping', x: 1 } }],
+      [{ userId: 'u-dm', role: 'dm', room: 'R', lane: '', data: 'plain' }],
+    ]);
+  });
+
+  it('drops a fan-out envelope with a non-string audience and relays one without audience to everyone', async () => {
+    const bus = new InMemoryHubFanout();
+    const hub = new SyncHub({
+      resolvePresenceAudience: () => undefined,
+      canReadLayer: () => true,
+      instanceId: 'local',
+      fanout: bus,
+      canRead,
+    });
+    const dm = admit(hub, conn('dm', 'dm'));
+    const pl = admit(hub, conn('pl', 'player'));
+    const publish = (note: string, extra: Record<string, unknown>): void =>
+      bus.publish(
+        JSON.stringify({
+          o: 'remote',
+          room: 'R',
+          from: 'x',
+          op: { kind: 'presence', data: { note } },
+          ...extra,
+        }),
+      );
+
+    publish('bad-audience', { audience: 42 });
+    publish('null-audience', { audience: null });
+    publish('dm-remote', { audience: 'dm' });
+    publish('open-remote', {});
+
+    await vi.waitFor(() => expect(has(pl, 'open-remote')).toBe(true));
+    expect(has(dm, 'open-remote')).toBe(true);
+    expect(has(dm, 'dm-remote')).toBe(true);
+    expect(has(pl, 'dm-remote')).toBe(false);
+    expect(has(dm, 'bad-audience') || has(pl, 'bad-audience')).toBe(false);
+    expect(has(dm, 'null-audience') || has(pl, 'null-audience')).toBe(false);
+  });
+
+  it('drops the frame for everyone when the hook throws, also from the throttle timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const published: string[] = [];
+      const { hub, dm2, pl } = dmRoom({
+        presenceThrottleMs: 50,
+        fanout: { publish: (p) => void published.push(p), subscribe: () => () => undefined },
+        resolvePresenceAudience: () => {
+          throw new Error('hook failed');
+        },
+      });
+
+      await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'boom-now' }));
+      await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'boom-late' }));
+      await vi.advanceTimersByTimeAsync(50);
+
+      for (const marker of ['boom-now', 'boom-late']) {
+        expect(has(dm2, marker)).toBe(false);
+        expect(has(pl, marker)).toBe(false);
+        expect(published.some((p) => p.includes(marker))).toBe(false);
+      }
+      hub.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops the frame for everyone when a JS host hook returns a non-string audience', async () => {
+    const published: string[] = [];
+    const hook = (): string | undefined => JSON.parse('42');
+    const { hub, dm2, pl } = dmRoom({
+      fanout: { publish: (p) => void published.push(p), subscribe: () => () => undefined },
+      resolvePresenceAudience: hook,
+    });
+
+    await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'bad-return' }));
+
+    expect(has(dm2, 'bad-return')).toBe(false);
+    expect(has(pl, 'bad-return')).toBe(false);
+    expect(published.some((p) => p.includes('bad-return'))).toBe(false);
+  });
+
+  it('keeps delivering to the other viewers when canRead throws for one', async () => {
+    const hub = new SyncHub({
+      canReadLayer: () => true,
+      presenceThrottleMs: 0,
+      resolvePresenceAudience,
+      canRead: (ctx) => {
+        if (ctx.userId === 'bad') throw new Error('policy failed');
+        return canRead(ctx);
+      },
+    });
+    admit(hub, conn('sender', 'dm'));
+    const v1 = admit(hub, conn('v1', 'dm'));
+    const bad = admit(hub, conn('bad', 'dm', 'bad'));
+    const v3 = admit(hub, conn('v3', 'dm'));
+
+    await hub.handleMessage('sender', presenceMsg('sender', { kind: 'cursor', note: 'dm-mark' }));
+
+    expect(has(v1, 'dm-mark')).toBe(true);
+    expect(has(bad, 'dm-mark')).toBe(false);
+    expect(has(v3, 'dm-mark')).toBe(true);
+  });
+
+  it('sends hub-authored presence with an audience only to readers, counts real sends, skips the hook', () => {
+    const hook = vi.fn(resolvePresenceAudience);
+    const { hub, dm, dm2, pl } = dmRoom({ resolvePresenceAudience: hook });
+
+    expect(hub.broadcastPresence('R', { note: 'hub-dm' }, { audience: 'dm' })).toBe(2);
+    expect(hub.broadcastPresence('R', { note: 'hub-all' })).toBe(3);
+
+    expect(has(dm, 'hub-dm')).toBe(true);
+    expect(has(dm2, 'hub-dm')).toBe(true);
+    expect(has(pl, 'hub-dm')).toBe(false);
+    expect(has(pl, 'hub-all')).toBe(true);
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it('passes untagged presence through canRead, locally and from the fan-out', async () => {
+    const bus = new InMemoryHubFanout();
+    const strict: SyncHubOptions['canRead'] = ({ role, audience }) =>
+      role !== 'banned' && (audience !== 'dm' || role === 'dm');
+    const hub = new SyncHub({
+      canReadLayer: () => true,
+      instanceId: 'local',
+      fanout: bus,
+      canRead: strict,
+      resolvePresenceAudience,
+      presenceThrottleMs: 0,
+    });
+    const pl = admit(hub, conn('pl', 'player'));
+    const banned = admit(hub, conn('banned', 'banned'));
+
+    await hub.handleMessage('pl', presenceMsg('pl', { kind: 'cursor', note: 'untagged-local' }));
+    bus.publish(
+      JSON.stringify({
+        o: 'remote',
+        room: 'R',
+        from: 'x',
+        op: { kind: 'presence', data: { note: 'untagged-remote' } },
+      }),
+    );
+
+    await vi.waitFor(() => expect(has(pl, 'untagged-remote')).toBe(true));
+    expect(has(banned, 'untagged-local')).toBe(false);
+    expect(has(banned, 'untagged-remote')).toBe(false);
+  });
+
+  it('never writes the audience into a client frame', async () => {
+    const { hub, dm2 } = dmRoom();
+
+    await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', x: 1 }));
+    hub.broadcastPresence('R', { kind: 'poke' }, { audience: 'dm' });
+
+    expect(dm2.sent).toEqual([
+      JSON.stringify({ from: 'dm', op: { kind: 'presence', data: { kind: 'cursor', x: 1 } } }),
+      JSON.stringify({ from: 'hub', op: { kind: 'presence', data: { kind: 'poke' } } }),
+    ]);
+  });
+
+  it('adds audience to the fan-out payload only when one is resolved', async () => {
+    const published: string[] = [];
+    const fanout = {
+      publish: (p: string) => void published.push(p),
+      subscribe: () => () => undefined,
+    };
+    const { hub } = dmRoom({ instanceId: 'A', fanout });
+
+    await hub.handleMessage('pl', presenceMsg('pl', { x: 1 }));
+    await hub.handleMessage('dm', presenceMsg('dm', { x: 2 }));
+    hub.broadcastPresence('R', { x: 3 });
+    hub.broadcastPresence('R', { x: 4 }, { audience: 'dm' });
+
+    const op = (x: number) => ({ kind: 'presence', data: { x } });
+    expect(published).toEqual([
+      JSON.stringify({ o: 'A', room: 'R', from: 'pl', op: op(1) }),
+      JSON.stringify({ o: 'A', room: 'R', from: 'dm', op: op(2), audience: 'dm' }),
+      JSON.stringify({ o: 'A', room: 'R', from: 'hub', op: op(3) }),
+      JSON.stringify({ o: 'A', room: 'R', from: 'hub', op: op(4), audience: 'dm' }),
+    ]);
+  });
+});
+
+describe('layer read filter (canReadLayer)', () => {
+  const canReadLayer: CanReadLayer = ({ role, layer }) =>
+    role === 'dm' || layer.name !== 'DM Secret';
+  const def = (name: string, id = 'L1'): Layer => ({
+    id,
+    name,
+    visible: true,
+    locked: false,
+    order: 0,
+    opacity: 1,
+  });
+  const upsert = (version: number, editor: string, name: string, id = 'L1'): SyncOp => ({
+    kind: 'layer-upsert',
+    layer: def(name, id),
+    version,
+    editor,
+  });
+  const has = (c: FakeConn, marker: string): boolean => c.sent.some((m) => m.includes(marker));
+  const frames = (c: FakeConn): { from: string; op: SyncOp }[] =>
+    c.sent.map((m) => JSON.parse(m) as { from: string; op: SyncOp });
+
+  function conn(id: string, role: string, userId?: string): FakeConn {
+    return { ...makeConn(id, 'R'), role, userId };
+  }
+
+  function dmRoom(options: SyncHubOptions = {}) {
+    const hub = new SyncHub({ canReadLayer, ...options });
+    const dm = admit(hub, conn('dm', 'dm'));
+    const dm2 = admit(hub, conn('dm2', 'dm'));
+    const pl = admit(hub, conn('pl', 'player'));
+    return { hub, dm, dm2, pl };
+  }
+
+  async function snapshot(hub: SyncHub, c: FakeConn): Promise<string> {
+    c.sent.length = 0;
+    await hub.handleMessage(c.id, envelope(c.id, { kind: 'request-snapshot' }));
+    return c.sent.join('\n');
+  }
+
+  it('keeps a hidden layer from a player live and in the snapshot; a second DM gets both', async () => {
+    const { hub, dm2, pl } = dmRoom();
+
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+
+    expect(has(dm2, 'DM Secret')).toBe(true);
+    expect(pl.sent).toEqual([]);
+    const late = admit(hub, conn('late', 'player'));
+    expect(await snapshot(hub, late)).not.toContain('DM Secret');
+    expect(await snapshot(hub, dm2)).toContain('DM Secret');
+    hub.close();
+  });
+
+  it('sends a player who loses access a layer-remove with the upsert version and editor, then nothing until access returns', async () => {
+    const { hub, dm2, pl } = dmRoom();
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'Open')));
+    pl.sent.length = 0;
+
+    await hub.handleMessage('dm', envelope('dm', upsert(2, 'dm', 'DM Secret')));
+    expect(frames(pl)).toEqual([
+      { from: 'dm', op: { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' } },
+    ]);
+
+    pl.sent.length = 0;
+    await hub.handleMessage('dm', envelope('dm', upsert(3, 'dm', 'DM Secret')));
+    expect(pl.sent).toEqual([]);
+    expect(has(dm2, 'DM Secret')).toBe(true);
+
+    await hub.handleMessage('dm', envelope('dm', upsert(4, 'dm', 'Open again')));
+    expect(frames(pl)).toEqual([{ from: 'dm', op: upsert(4, 'dm', 'Open again') }]);
+    hub.close();
+  });
+
+  it('sends a hidden layer remove to nobody who could not read it', async () => {
+    const { hub, dm2, pl } = dmRoom();
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+    dm2.sent.length = 0;
+
+    await hub.handleMessage(
+      'dm',
+      envelope('dm', { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' }),
+    );
+
+    expect(pl.sent).toEqual([]);
+    expect(frames(dm2)).toEqual([
+      { from: 'dm', op: { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' } },
+    ]);
+    hub.close();
+  });
+
+  it('answers a denied player edit of a hidden layer exactly as for an unknown id', async () => {
+    const authorizeLayer = ({ role }: { role?: string }): boolean => role === 'dm';
+    const { hub, pl } = dmRoom({ authorizeLayer });
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+    const fresh = new SyncHub({ canReadLayer, authorizeLayer });
+    const freshPl = admit(fresh, conn('pl', 'player'));
+
+    await hub.handleMessage('pl', envelope('pl', upsert(5, 'pl', 'Mine')));
+    await fresh.handleMessage('pl', envelope('pl', upsert(5, 'pl', 'Mine')));
+
+    expect(pl.sent).toEqual(freshPl.sent);
+    expect(frames(pl)).toEqual([
+      { from: 'hub', op: { kind: 'layer-remove', id: 'L1', version: 5, editor: 'hub' } },
+    ]);
+    hub.close();
+    fresh.close();
+  });
+
+  it('answers a failed publish of a player edit to a hidden layer exactly as for an unknown id', async () => {
+    let fail = false;
+    const failing = (): HubFanout => ({
+      publish: () => (fail ? Promise.reject(new Error('down')) : undefined),
+      subscribe: () => () => undefined,
+    });
+    const { hub, pl } = dmRoom({ fanout: failing() });
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+    const fresh = new SyncHub({ canReadLayer, fanout: failing() });
+    const freshPl = admit(fresh, conn('pl', 'player'));
+    fail = true;
+
+    await expect(hub.handleMessage('pl', envelope('pl', upsert(5, 'pl', 'Mine')))).rejects.toThrow(
+      'down',
+    );
+    await expect(
+      fresh.handleMessage('pl', envelope('pl', upsert(5, 'pl', 'Mine'))),
+    ).rejects.toThrow('down');
+
+    expect(pl.sent).toEqual(freshPl.sent);
+    expect(pl.sent).toHaveLength(1);
+    hub.close();
+    fresh.close();
+  });
+
+  it('answers a stale player edit of a hidden layer without its definition', async () => {
+    const { hub, pl } = dmRoom();
+    await hub.handleMessage('dm', envelope('dm', upsert(3, 'dm', 'DM Secret')));
+
+    await hub.handleMessage('pl', envelope('pl', upsert(2, 'pl', 'Mine')));
+
+    expect(frames(pl)).toEqual([
+      { from: 'hub', op: { kind: 'layer-remove', id: 'L1', version: 2, editor: 'hub' } },
+    ]);
+    expect(has(pl, 'DM Secret')).toBe(false);
+    hub.close();
+  });
+
+  it('stores and relays nothing when a player re-pushes the synthetic remove after reconnecting', async () => {
+    const backend = new MemoryHubBackend();
+    const { hub, dm, dm2, pl } = dmRoom({ backend });
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'Open')));
+    await hub.handleMessage('dm', envelope('dm', upsert(2, 'dm', 'DM Secret')));
+    hub.removeConnection('pl');
+    const back = admit(hub, conn('pl2', 'player'));
+
+    expect(await snapshot(hub, back)).not.toContain('DM Secret');
+    dm.sent.length = 0;
+    dm2.sent.length = 0;
+    back.sent.length = 0;
+    await hub.handleMessage(
+      'pl2',
+      envelope('pl2', { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' }),
+    );
+
+    expect(await backend.getLayerRecord('R', 'L1')).toEqual({
+      id: 'L1',
+      version: 2,
+      editor: 'dm',
+      definition: def('DM Secret'),
+    });
+    expect(dm.sent).toEqual([]);
+    expect(dm2.sent).toEqual([]);
+    expect(has(back, 'DM Secret')).toBe(false);
+    expect(pl.sent.some((m) => m.includes('DM Secret'))).toBe(false);
+    hub.close();
+  });
+
+  it('keeps layer tombstones in every viewer snapshot', async () => {
+    const { hub, dm2, pl } = dmRoom();
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'Gone', 'L0')));
+    await hub.handleMessage(
+      'dm',
+      envelope('dm', { kind: 'layer-remove', id: 'L0', version: 2, editor: 'dm' }),
+    );
+    await hub.handleMessage('dm', envelope('dm', upsert(1, 'dm', 'DM Secret')));
+
+    const layersOf = async (c: FakeConn): Promise<unknown> =>
+      (JSON.parse(await snapshot(hub, c)) as { op: { layers?: unknown } }).op.layers;
+    expect(await layersOf(pl)).toEqual([{ id: 'L0', version: 2, editor: 'dm' }]);
+    expect(await layersOf(dm2)).toEqual([
+      { id: 'L0', version: 2, editor: 'dm' },
+      { id: 'L1', version: 1, editor: 'dm', definition: def('DM Secret') },
+    ]);
+    hub.close();
+  });
+
+  it('keeps delivering to the other viewers when canReadLayer throws for one', async () => {
+    const hub = new SyncHub({
+      canReadLayer: (ctx) => {
+        if (ctx.userId === 'bad') throw new Error('policy failed');
+        return canReadLayer(ctx);
+      },
+    });
+    admit(hub, conn('sender', 'dm'));
+    const v1 = admit(hub, conn('v1', 'dm'));
+    const bad = admit(hub, conn('bad', 'dm', 'bad'));
+    const v3 = admit(hub, conn('v3', 'dm'));
+
+    await hub.handleMessage('sender', envelope('sender', upsert(1, 'sender', 'Open')));
+
+    expect(has(v1, 'Open')).toBe(true);
+    expect(bad.sent).toEqual([]);
+    expect(has(v3, 'Open')).toBe(true);
+    hub.close();
+  });
+
+  it('hides a layer from a viewer whose canReadLayer returns a Promise', async () => {
+    const hub = new SyncHub({
+      canReadLayer: ((ctx: Parameters<CanReadLayer>[0]) =>
+        ctx.userId === 'async' ? Promise.resolve(true) : true) as unknown as CanReadLayer,
+    });
+    admit(hub, conn('sender', 'dm'));
+    const v1 = admit(hub, conn('v1', 'dm'));
+    const asyncViewer = admit(hub, conn('async', 'dm', 'async'));
+
+    await hub.handleMessage('sender', envelope('sender', upsert(1, 'sender', 'Open')));
+
+    expect(has(v1, 'Open')).toBe(true);
+    expect(has(asyncViewer, 'Open')).toBe(false);
+    expect(await snapshot(hub, asyncViewer)).not.toContain('Open');
+    hub.close();
+  });
+
+  it('sends a layer-remove, never the new definition, to a viewer whose hook throws on a rename', async () => {
+    const hub = new SyncHub({
+      canReadLayer: (ctx) => {
+        if (ctx.userId === 'bad' && ctx.layer.name === 'Renamed') throw new Error('policy failed');
+        return canReadLayer(ctx);
+      },
+    });
+    admit(hub, conn('sender', 'dm'));
+    const v1 = admit(hub, conn('v1', 'dm'));
+    const bad = admit(hub, conn('bad', 'dm', 'bad'));
+    await hub.handleMessage('sender', envelope('sender', upsert(1, 'sender', 'Open')));
+    bad.sent.length = 0;
+
+    await hub.handleMessage('sender', envelope('sender', upsert(2, 'sender', 'Renamed')));
+
+    expect(has(v1, 'Renamed')).toBe(true);
+    expect(frames(bad)).toEqual([
+      { from: 'sender', op: { kind: 'layer-remove', id: 'L1', version: 2, editor: 'sender' } },
+    ]);
+    hub.close();
   });
 });

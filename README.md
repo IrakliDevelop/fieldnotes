@@ -168,7 +168,7 @@ sync.start(); // observe local edits, apply remote ones, resync on reconnect
 // the relay (its own process)
 import { createSyncServer } from '@fieldnotes/sync-server';
 
-createSyncServer({ port: 8080 });
+createSyncServer({ port: 8080, allowAnonymous: true }); // pass `authenticate` in production
 ```
 
 The model is authoritative op-broadcast with last-write-wins (not CRDT). Add [`@fieldnotes/sync-redis`](packages/sync-redis) for restart-survival and cross-instance fan-out. See the [`@fieldnotes/sync-server` README](packages/sync-server/README.md) for auth, write-authorization, and heartbeat/reconnection.

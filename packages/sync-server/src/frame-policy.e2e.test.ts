@@ -63,6 +63,7 @@ describe('frame policy over real WebSockets', () => {
     let allow: ((value: boolean) => void) | undefined;
     let admitted: Connection | undefined;
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       framePolicy: {
         authorize: ({ direction, message }) =>
@@ -97,7 +98,7 @@ describe('frame policy over real WebSockets', () => {
 
   it('keeps the capability absent by default and rejects denied guarded output', async () => {
     let plain: Connection | undefined;
-    const unguarded = createSyncServer({ port: 0 });
+    const unguarded = createSyncServer({ allowAnonymous: true, port: 0 });
     servers.push(unguarded);
     const addPlain = unguarded.hub.addConnection.bind(unguarded.hub);
     unguarded.hub.addConnection = (conn) => {
@@ -110,6 +111,7 @@ describe('frame policy over real WebSockets', () => {
 
     let guarded: Connection | undefined;
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       framePolicy: { authorize: (context) => isCapabilityFrame(context.message) },
     });
@@ -164,7 +166,7 @@ describe('frame policy over real WebSockets', () => {
         ? true
         : new Promise<boolean>((resolve) => (decide = resolve)),
     );
-    const server = createSyncServer({ port: 0, framePolicy: { authorize } });
+    const server = createSyncServer({ allowAnonymous: true, port: 0, framePolicy: { authorize } });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     const sender = await connect(port);
@@ -187,7 +189,7 @@ describe('frame policy over real WebSockets', () => {
           ? new Promise<boolean>((resolve) => (decide = resolve))
           : true,
     );
-    const server = createSyncServer({ port: 0, framePolicy: { authorize } });
+    const server = createSyncServer({ allowAnonymous: true, port: 0, framePolicy: { authorize } });
     servers.push(server);
     const port = (server.wss.address() as AddressInfo).port;
     const recipient = await connect(port);
@@ -268,6 +270,7 @@ describe('frame policy over real WebSockets', () => {
     { label: 'nonboolean', result: 'yes', code: 1013, reason: 'resync required' },
   ])('closes on $label policy results without delivering', async ({ result, code, reason }) => {
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       framePolicy: {
         authorize: (context) => isCapabilityFrame(context.message) || (result as boolean),
@@ -288,6 +291,7 @@ describe('frame policy over real WebSockets', () => {
     'closes generically on policy %s without leaking error details',
     async (mode) => {
       const server = createSyncServer({
+        allowAnonymous: true,
         port: 0,
         framePolicy: {
           authorize: (context) => {
@@ -344,6 +348,7 @@ describe('frame policy over real WebSockets', () => {
     let release: (() => void) | undefined;
     let blockedId: string | undefined;
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       framePolicy: {
         authorize: (context) => {
@@ -382,6 +387,7 @@ describe('frame policy over real WebSockets', () => {
     const timer = vi.spyOn(globalThis, 'setTimeout');
     try {
       const server = createSyncServer({
+        allowAnonymous: true,
         port: 0,
         framePolicy: {
           authorize: (value) => {
@@ -428,6 +434,7 @@ describe('frame policy over real WebSockets', () => {
     const timer = vi.spyOn(globalThis, 'setTimeout');
     try {
       const server = createSyncServer({
+        allowAnonymous: true,
         port: 0,
         framePolicy: {
           authorize: (value) => {
@@ -474,6 +481,7 @@ describe('frame policy over real WebSockets', () => {
     let first = true;
     const backend = new MemoryHubBackend();
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       backend,
       framePolicy: {},
@@ -516,6 +524,7 @@ describe('frame policy over real WebSockets', () => {
     const timer = vi.spyOn(globalThis, 'setTimeout');
     try {
       const server = createSyncServer({
+        allowAnonymous: true,
         port: 0,
         framePolicy: {
           authorize: (context) => {
@@ -587,6 +596,7 @@ describe('frame policy over real WebSockets', () => {
 
   it('enforces the fixed 64-frame connection limit including active and queued inbound work', async () => {
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       framePolicy: {
         authorize: (context) =>
@@ -610,6 +620,7 @@ describe('frame policy over real WebSockets', () => {
 
   it('enforces the fixed 256-frame room limit across connections', async () => {
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       framePolicy: {
         authorize: (context) =>
@@ -642,6 +653,7 @@ describe('frame policy over real WebSockets', () => {
   it("releases a rejected peer's queued capacity before leave fanout to healthy peers", async () => {
     let block = false;
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       framePolicy: {
         authorize: (context) =>
@@ -685,6 +697,7 @@ describe('frame policy over real WebSockets', () => {
 
   it('enforces exact 4 MiB per-connection bytes for multiframe input', async () => {
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       maxMessageBytes: 2 * 1024 * 1024,
       framePolicy: {
@@ -717,6 +730,7 @@ describe('frame policy over real WebSockets', () => {
 
   it('rejects an oversized final encoded outbound snapshot before ws.send', async () => {
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       framePolicy: {},
       plugins: [
@@ -745,6 +759,7 @@ describe('frame policy over real WebSockets', () => {
 
   it('enforces exact 16 MiB room bytes across four connections', async () => {
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       maxMessageBytes: 2 * 1024 * 1024,
       framePolicy: {
@@ -782,6 +797,7 @@ describe('frame policy over real WebSockets', () => {
 
   it('shares the 64-frame connection budget across inbound and outbound work', async () => {
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       framePolicy: {
         authorize: (context) =>
@@ -806,7 +822,7 @@ describe('frame policy over real WebSockets', () => {
   });
 
   it('holds outbound capacity until the actual ws.send callback settles', async () => {
-    const server = createSyncServer({ port: 0, framePolicy: {} });
+    const server = createSyncServer({ allowAnonymous: true, port: 0, framePolicy: {} });
     servers.push(server);
     const { socket, frames } = await connect((server.wss.address() as AddressInfo).port);
     await waitFor(() => server.hub.roomCount() === 1);
@@ -837,7 +853,7 @@ describe('frame policy over real WebSockets', () => {
   });
 
   it('closes with a generic reason on ws.send callback error', async () => {
-    const server = createSyncServer({ port: 0, framePolicy: {} });
+    const server = createSyncServer({ allowAnonymous: true, port: 0, framePolicy: {} });
     servers.push(server);
     const { socket, frames } = await connect((server.wss.address() as AddressInfo).port);
     await waitFor(() => server.hub.roomCount() === 1);
@@ -858,6 +874,7 @@ describe('frame policy over real WebSockets', () => {
   it('aborts guarded work at server.close entry and respects shutdown grace', async () => {
     let context: FrameAuthorizationContext | undefined;
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       shutdownGraceMs: 20,
       framePolicy: {
@@ -884,6 +901,7 @@ describe('frame policy over real WebSockets', () => {
   it('disposes guarded jobs immediately on rate rejection even if close is delayed', async () => {
     let context: FrameAuthorizationContext | undefined;
     const server = createSyncServer({
+      allowAnonymous: true,
       port: 0,
       messagesPerSecond: 0.1,
       messageBurst: 2,

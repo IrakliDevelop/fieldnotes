@@ -1,3 +1,4 @@
+import type { Layer as LayerDefinition } from '@fieldnotes/core';
 import type { LayerRecord, SyncElement, SyncOp } from '@fieldnotes/sync';
 
 export type OwnedElement = SyncElement;
@@ -37,6 +38,31 @@ export interface ReadContext {
 }
 
 export type CanRead = (ctx: ReadContext) => boolean;
+
+/** Decides whether a viewer may receive a layer definition, live, in snapshots and in corrections; a throw denies. */
+export type CanReadLayer = (ctx: {
+  userId: string | undefined;
+  role: string | undefined;
+  room: string;
+  layer: LayerDefinition;
+}) => boolean;
+
+/** Resolves the audience of one client presence frame on the origin instance; `undefined` means everyone, a throw drops the frame. */
+export type ResolvePresenceAudience = (ctx: {
+  userId: string | undefined;
+  role: string | undefined;
+  room: string;
+  lane: string;
+  data: unknown;
+}) => string | undefined;
+
+/** Decides whether an image `src` that passed the built-in scheme check may be stored; a throw refuses it. */
+export type AllowImageSrc = (ctx: {
+  src: string;
+  userId: string | undefined;
+  role: string | undefined;
+  room: string;
+}) => boolean;
 
 export interface OwnerReadContext {
   userId?: string;

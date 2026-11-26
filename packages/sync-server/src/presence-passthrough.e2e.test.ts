@@ -136,6 +136,35 @@ describe('managed presence passthrough (end-to-end)', () => {
     expect(leaves[0]).toBe(frame?.from);
   }, 10000);
 
+  it('a player never receives DM presence when the server resolves a dm audience', async () => {
+    const authenticate: Authenticate = ({ req }) => {
+      const userId = new URL(req.url ?? '', 'http://x').searchParams.get('user') ?? 'anon';
+      return { userId, role: userId.startsWith('dm') ? 'dm' : 'player' };
+    };
+    const { server, port } = startServer(authenticate, {
+      presenceThrottleMs: 0,
+      canRead: ({ role, audience }) => audience !== 'dm' || role === 'dm',
+      canReadLayer: () => true,
+      resolvePresenceAudience: ({ role }) => (role === 'dm' ? 'dm' : undefined),
+    });
+    const dm = startManaged({ port, userId: 'dm', mint: () => 't' });
+    const dm2 = startManaged({ port, userId: 'dm2', mint: () => 't' });
+    const player = startManaged({ port, userId: 'player', mint: () => 't' });
+    const dm2Got: unknown[] = [];
+    const playerGot: unknown[] = [];
+    dm2.onPresence((_from, data) => dm2Got.push(data));
+    player.onPresence((_from, data) => playerGot.push(data));
+    await waitFor(() => [dm, dm2, player].every((c) => c.getStatus() === 'live'));
+
+    dm.sendPresence({ kind: 'cursor', note: 'dm-secret' });
+    await waitFor(() => JSON.stringify(dm2Got).includes('dm-secret'));
+    // Frames reach a socket in send order, so the barrier arrives after anything the relay sent before it.
+    server.hub.broadcastPresence('R', { kind: 'barrier' });
+    await waitFor(() => JSON.stringify(playerGot).includes('barrier'));
+
+    expect(JSON.stringify(playerGot)).not.toContain('dm-secret');
+  }, 10000);
+
   it('presence handlers survive a 4401 credential rebuild without re-subscribing', async () => {
     const valid = new Set(['peer-token']);
     let mints = 0;

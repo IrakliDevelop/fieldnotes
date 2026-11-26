@@ -6,6 +6,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync 0.31.0 — image source check
+
+**Added**
+
+- `isAllowedImageSrcScheme(src)`: true for `https:`, `http:`, `data:image/` and relative URLs.
+
+### Sync server 0.31.0 — read filtering for presence and layers
+
+**Breaking**
+
+- `createSyncServer` without `authenticate` throws. Fix: pass `authenticate`, or
+  `allowAnonymous: true` for an open relay. Passing both also throws.
+- `canRead` without `resolvePresenceAudience` throws (`createSyncServer` and `SyncHub`). Fix: pass
+  the hook, or `() => undefined` to keep sending presence to everyone.
+- `canRead` without `canReadLayer` throws (`createSyncServer` and `SyncHub`). Fix: pass the hook, or
+  `() => true` to keep sending every layer to everyone.
+- An image upsert whose `src` is not `https:`, `http:`, `data:image/` or a relative URL is refused
+  with a sender correction, and stored images with another scheme are no longer sent. Fix: a host
+  whose upload returns a custom scheme such as `blob:` must store the image and sync an `https:`
+  URL.
+- With `canRead` set, presence is now checked by `canRead`, and untagged frames are checked with
+  `audience: undefined`, so a role your `canRead` denies for untagged data stops receiving presence. Fix: admit
+  `audience: undefined` for that role, or have `resolvePresenceAudience` return an audience it can
+  read.
+
+**Added**
+
+- `resolvePresenceAudience` resolves the audience of each client presence frame on the origin
+  instance; the audience travels on fanout.
+- `broadcastPresence(room, data, { audience })`.
+- `canReadLayer` filters layer definitions per viewer in live ops, snapshots, corrections and
+  fanout, which carries the previous definition as `prevLayer`.
+- `allowedOrigins` refuses a browser upgrade from an unlisted origin with HTTP 403.
+- `allowImageSrc` narrows the built-in image `src` scheme check.
+- `allowAnonymous` admits unauthenticated sockets explicitly.
+- Types `CanReadLayer`, `ResolvePresenceAudience` and `AllowImageSrc`.
+
+**Changed**
+
+- Depends on `@fieldnotes/sync` 0.31.0. Upgrade every relay instance together: an older instance
+  ignores the presence `audience` and `prevLayer` on fanout. `@fieldnotes/sync-redis` is not
+  released in this cycle; its `@fieldnotes/sync-server` peer range already admits 0.31.0.
+
 ### Core 0.110.2 — internal
 
 **Changed**

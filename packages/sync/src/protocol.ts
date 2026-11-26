@@ -550,6 +550,21 @@ export function sanitizeElementLink<T extends SyncElement>(el: T): T {
   return rest;
 }
 
+/** True for https:, http:, data:image/ and relative URLs; false for every other scheme. */
+export function isAllowedImageSrcScheme(src: string): boolean {
+  // Browsers strip tabs and newlines inside a scheme, so `java\tscript:` would still run.
+  for (let i = 0; i < src.length; i++) {
+    const code = src.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return false;
+  }
+  const url = src.replace(/^ +/, '');
+  const colon = url.indexOf(':');
+  const end = url.search(/[/?#]/);
+  if (colon === -1 || (end !== -1 && end < colon)) return true;
+  // Case-insensitive match instead of lowercasing: data URLs can be megabytes long.
+  return /^(?:https?:|data:image\/)/i.test(url);
+}
+
 /** Whether an already-valid legacy envelope stays within `SYNC_LIMITS`; authority:1 does not use it. */
 export function isWithinSyncLimits(env: SyncEnvelope): boolean {
   if (!isAtMost(env.from, maxIdLength)) return false;

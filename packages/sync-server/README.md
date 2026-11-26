@@ -43,9 +43,13 @@ presence is ephemeral.
 ```ts
 import { createSyncServer } from '@fieldnotes/sync-server';
 
-const { close } = createSyncServer({ port: 8080 });
+const { close } = createSyncServer({ port: 8080, allowAnonymous: true });
 // ws://localhost:8080?room=my-room
 ```
+
+`createSyncServer` throws unless you pass `authenticate` or `allowAnonymous: true`, so a relay
+never opens every room to anyone by accident. The samples below pass `authenticate`; see
+[Authentication](#authentication) and [Before production](#before-production).
 
 ## Capability admission
 
@@ -82,7 +86,7 @@ Tombstones are kept for 7 days by default. Set `tombstoneRetentionMs` on `create
 the default backend) or on your backend's constructor; passing it together with `backend` throws.
 
 ```ts
-createSyncServer({ port: 8080, tombstoneRetentionMs: 24 * 60 * 60 * 1000 });
+createSyncServer({ port: 8080, authenticate, tombstoneRetentionMs: 24 * 60 * 60 * 1000 });
 ```
 
 ### `HubBackend` contract
@@ -168,6 +172,9 @@ the existing legacy path. A non-null definition enables only `authority:1` for t
 incapable peers receive `upgrade-required` and close. The factory requires both `authenticate`
 and `framePolicy`. Direct `SyncHub.addConnection` adapters cannot enable authority because the
 runtime requires the factory's guarded, tracked send binding and lifetime signal.
+The image `src` check, `allowImageSrc` and the read hooks (`canRead`, `canReadLayer`,
+`resolvePresenceAudience`) do not run in an authority room; its definition's `project` and the
+driver decide what each reader gets.
 
 The following is the host configuration shape. `provisionedDriver` must be a real implementation
 of `AuthorityDriver`; the SDK deliberately does not provide production room storage. The
@@ -290,7 +297,7 @@ Trusted server integrations can broadcast ephemeral data without accessing the h
 registries:
 
 ```ts
-const { hub } = createSyncServer({ port: 8080, fanout });
+const { hub } = createSyncServer({ port: 8080, authenticate, fanout });
 
 const localDeliveries = hub.broadcastPresence('my-room', {
   kind: 'poke',
@@ -305,8 +312,19 @@ local members too. The return value counts frames accepted for sending on the or
 it is neither a completed physical delivery count nor a cluster-wide acknowledgement. An async
 `framePolicy` can subsequently deny an accepted frame.
 
+Pass `{ audience }` as the third argument to limit the event to viewers whose `canRead` admits that
+audience, on every instance:
+
+```ts
+hub.broadcastPresence('my-room', { kind: 'poke', feature: 'initiative' }, { audience: 'dm' });
+```
+
+With `canRead` configured, every server presence frame is checked by it. A frame without
+`audience` is checked with `audience: undefined`, the same as an untagged element. Without
+`canRead` it reaches every room member.
+
 Server presence is best-effort, is not persisted, does not enter a room's durable operation queue,
-and is not filtered by `authorize` or `canRead`. Validate and authorize application requests before
+and is not checked by `authorize`. Validate and authorize application requests before
 calling this trusted-host API. Data must be JSON-serializable; invalid data throws before delivery.
 The method constructs the presence operation itself and does not accept a raw sync operation or
 caller-controlled sender identity.
@@ -319,7 +337,7 @@ leaking room membership. Configure via `heartbeatIntervalMs` (default `30000`; `
 disables):
 
 ```ts
-createSyncServer({ port: 8080, heartbeatIntervalMs: 30000 });
+createSyncServer({ port: 8080, authenticate, heartbeatIntervalMs: 30000 });
 ```
 
 Browsers auto-pong at the protocol level, so **no client change** is needed.
@@ -331,7 +349,7 @@ Browsers auto-pong at the protocol level, so **no client change** is needed.
 handshake. Repeated calls return the same promise, so shutdown hooks can safely converge on it.
 
 ```ts
-const server = createSyncServer({ port: 8080, shutdownGraceMs: 5000 });
+const server = createSyncServer({ port: 8080, authenticate, shutdownGraceMs: 5000 });
 await server.close();
 ```
 
@@ -347,6 +365,7 @@ once per throttle interval.
 ```ts
 createSyncServer({
   port: 8080,
+  authenticate,
   maxMessageBytes: 1024 * 1024,
   maxJsonDepth: 32,
   maxPendingAuthMessages: 100,
@@ -406,6 +425,7 @@ acknowledgment.
 ```ts
 createSyncServer({
   port: 8080,
+  authenticate,
   framePolicy: {
     authorize: async ({ room, role, direction, message, signal }) => {
       return myPolicy.canSendOrReceive({ room, role, direction, message, signal });
@@ -443,7 +463,7 @@ larger values throw. Backends without layer methods keep layers in the hub's mem
 forgets them too.
 
 ```ts
-createSyncServer({ port: 8080, roomIdleTimeoutMs: 30 * 60 * 1000 });
+createSyncServer({ port: 8080, authenticate, roomIdleTimeoutMs: 30 * 60 * 1000 });
 ```
 
 The wire caps in `SYNC_LIMITS` (`@fieldnotes/sync`) apply to every frame the hub parses.
@@ -493,10 +513,37 @@ deadline enforcement at commit.
 must enforce `expiresAt` themselves. Received cross-instance fanout has no authenticated claims:
 its payload and `from` field do not create a `ServerOpContext.authContext`.
 
-With **no hook**, rooms stay open: every connection is admitted anonymously with
-`userId = connId`. `role` is captured and passed to the `authorize` and
-`canRead` hooks (see [Read filtering](#read-filtering)). Nothing enforces it unless a hook is
-configured.
+Without `authenticate`, `createSyncServer` throws:
+
+```
+createSyncServer: pass `authenticate`, or `allowAnonymous: true` to let anyone join any room
+```
+
+`allowAnonymous: true` keeps rooms open: every connection is admitted anonymously with
+`userId = connId` and no `role`, and anyone who can reach the port joins any room. Use it for local
+development and demos. Passing both throws
+``createSyncServer: `allowAnonymous` cannot be combined with `authenticate` ``. A direct `SyncHub`
+has no `authenticate` of its own, so the adapter that admits connections owns this check.
+
+### Origin check
+
+`allowedOrigins` refuses a WebSocket upgrade from a browser page on another site with HTTP 403,
+before `authenticate` runs:
+
+```ts
+createSyncServer({
+  port: 8080,
+  authenticate,
+  allowedOrigins: ['https://app.example'],
+  // or: allowedOrigins: (origin, req) => origin.endsWith('.app.example'),
+});
+```
+
+A list matches the `Origin` header exactly, so write each origin as a browser sends it: scheme,
+lowercase host and any port, with no trailing slash (`https://app.example`, not
+`https://app.example/`). A function that returns `false` or throws refuses. A request
+without an `Origin` header passes, because only browsers send it; non-browser clients still need
+`authenticate`. Without `allowedOrigins` every origin may upgrade.
 
 Messages that arrive during an async auth (notably the client's initial
 `request-snapshot`) are queued and replayed once the connection is admitted, so the
@@ -614,7 +661,7 @@ createSyncServer({
 **Important:**
 
 - Ownership-based authz **requires `authenticate` to supply a STABLE `userId`**. The
-  no-hook anonymous default is `userId = connId`, which changes on every reconnect — a
+  anonymous default is `userId = connId`, which changes on every reconnect — a
   user would lose access to their own elements after reconnecting. `createSyncServer`
   therefore **throws** when `authorize` is configured without `authenticate`.
 - Every element op reads the stored record (`backend.getRecord`, one or two Redis `HGET`s) once per
@@ -651,6 +698,8 @@ createSyncServer({
   port: 8080,
   authenticate: /* … supplies userId + role … */,
   canRead: ({ role, audience }) => audience !== 'dm' || role === 'dm',
+  canReadLayer: ({ role, layer }) => role === 'dm' || layer.id !== DM_LAYER_ID,
+  resolvePresenceAudience: ({ role }) => (role === 'dm' ? 'dm' : undefined),
 });
 
 // client (@fieldnotes/sync)
@@ -660,14 +709,25 @@ new SyncClient({ store, transport, resolveAudience: (el) => layerOf(el) }); // �
 Moving an element between audiences re-evaluates visibility per viewer: a viewer who loses access
 gets a synthetic **remove**, one who gains it gets an **add**.
 
+`canRead` requires `canReadLayer` and `resolvePresenceAudience`; `createSyncServer` and `SyncHub`
+throw without them:
+
+```
+SyncHub: `canRead` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)
+SyncHub: `canRead` requires `canReadLayer` (pass `() => true` to send every layer to everyone)
+```
+
+Passing those values keeps the 0.30 behavior: presence and every layer reach every viewer.
+
 **Preconditions:**
 
-- **Stable identity.** Meaningful policy needs a stable `userId`/`role` from `authenticate`; the
-  no-hook anonymous default is per-connection (`userId = connId`) and changes on reconnect.
-- **Same `canRead` on every instance.** Unlike `authorize` (which runs on the write's origin
-  instance only), `canRead` runs on **every** instance — each re-filters fanned-out ops for its own
-  local members — so all relay instances must inject the **same** `canRead`, alongside the existing
-  shared-backend + shared-fanout requirement.
+- **Stable identity.** Meaningful policy needs a stable `userId`/`role` from `authenticate`; an
+  anonymous connection (`allowAnonymous: true`) has `userId = connId`, which changes on reconnect.
+- **Same read hooks on every instance.** Unlike `authorize`, which runs only on the instance that
+  received the write, `canRead` and `canReadLayer` run on every instance, and each instance filters
+  fanned-out ops for its own connections. Every relay instance needs the same read hooks, as well
+  as the shared backend and shared fanout.
+  `resolvePresenceAudience` runs on the origin instance only.
 - **Labeling integrity.** `audience` arrives client-asserted. Without a `resolveAudience` hook a
   player can tag an upsert `dm` to hide it from the table, or retag a hidden element `shared` to
   reveal it, so **one of the two following hooks is required** for read secrecy:
@@ -680,6 +740,73 @@ gets a synthetic **remove**, one who gains it gets an **add**.
     `op.element.audience` the sender may not write to, and reject one whose audience differs from
     `currentElement.audience` unless the sender may move it.
 
+### Presence
+
+```ts
+resolvePresenceAudience({ userId, role, room, lane, data }) => string | undefined
+```
+
+The origin instance resolves one audience per client presence frame, then sends the frame to the
+viewers whose `canRead` admits it, locally and on every instance through the fanout. `lane` is the
+frame's `data.kind` (`''` when it has none). `undefined` leaves the frame untagged. With
+`canRead` set, every presence frame is checked by `canRead`, and an untagged frame is checked with
+`audience: undefined`, the same as an untagged element. A throwing hook drops the frame. Server presence takes its audience from
+`broadcastPresence(room, data, { audience })` (see
+[Server-originated presence](#server-originated-presence)).
+
+Return one audience per lane and role. Presence has no remove: a viewer that stops receiving a lane
+keeps the last frame it saw, so a cursor that switches from `'shared'` to `'dm'` mid-session leaves a
+stale overlay on the players' boards.
+
+### Layers
+
+```ts
+canReadLayer({ userId, role, room, layer }) => boolean
+```
+
+The hub checks each layer definition per viewer before it leaves: in live ops, in snapshots and in
+the corrections a sender gets. A viewer that could read a layer and no longer can receives a
+`layer-remove`, one that gains it receives the definition, and one that never could receives
+nothing, so the layer's name never reaches it. A throwing hook denies. Layer tombstones in
+snapshots carry only an id and a version and reach every viewer; a live layer remove goes only to
+viewers who could read the layer.
+
+- **Consistency with `canRead`.** Keep the two hooks in step: an element on a layer a viewer cannot
+  read must have an audience that viewer cannot read, or the viewer receives the element without
+  its layer.
+- **Pair it with `authorizeLayer`.** Deny a write to a layer the writer cannot read. Without that, a
+  player who guesses a hidden layer's id can learn whether it exists from the hub's answer to a
+  stale upsert.
+- **Client side.** A viewer that loses a layer gets a `layer-remove`. The client's `applyLayer`
+  should call `removeLayerDirect` for it; `removeLayer` moves that layer's elements to another layer
+  and emits local edits that sync back to the room.
+
+### Image sources
+
+The hub refuses an image upsert whose `src` is not `https:`, `http:`, `data:image/` or a relative
+URL, and answers the sender with a correction. An image already stored with another scheme is not
+sent, in live ops, snapshots or corrections. `isAllowedImageSrcScheme` from `@fieldnotes/sync` is
+the same check.
+
+```ts
+allowImageSrc({ src, userId, role, room }) => boolean
+```
+
+`allowImageSrc` runs after the scheme check and can narrow it further; returning `false` or throwing
+refuses the upsert. The scheme check alone does not stop a player from making every viewer's
+browser load an image from a host the player runs, which reveals viewers' IP addresses. Only an
+`allowImageSrc` that limits hosts, or one that admits `data:` only, stops that:
+
+```ts
+allowImageSrc: ({ src }) => src.startsWith('https://assets.app.example/') || src.startsWith('data:'),
+```
+
+### Upgrading a cluster
+
+Upgrade every relay instance together. An older instance ignores the `audience` a newer one puts on
+fanned-out presence and the `prevLayer` it puts on layer ops, so its viewers receive presence and
+layers the newer instances would hide.
+
 A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).
 
 ### Authority legacy-kind ownership
@@ -689,6 +816,16 @@ Ownership is opt-in, immutable after room admission, included in exact capabilit
 cannot overlap another extension or a generic kind. Unowned, malformed, oversized, throwing, or
 foreign fog proposals fail before driver invocation; projected changes are accepted only from the
 extension that owns that exact legacy kind. This does not activate a legacy VTT plugin or backend.
+
+## Before production
+
+- `authenticate`, with a stable `userId` and `role`. `allowAnonymous: true` is for development.
+- `allowedOrigins`, listing the origins your app is served from.
+- `resolveAudience`, so the hub, not the client, decides each element's audience.
+- `resolvePresenceAudience`, so cursors and drags on hidden content reach only viewers who may see it.
+- `canReadLayer`, so viewers do not receive hidden layers or their names.
+- `allowImageSrc`, limited to your asset hosts (or `data:` only). The built-in scheme check alone does
+  not stop an image from exposing viewers' IP addresses to a host a player runs.
 
 ## Domain plugins
 
