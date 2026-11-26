@@ -29,6 +29,7 @@ import {
   isValidFogMetaRecord,
   isValidFogSnapshot,
   sanitizeElementLink,
+  isAllowedImageSrcScheme,
   type SyncElement,
 } from './protocol';
 import { SYNC_LIMITS } from './limits';
@@ -1167,5 +1168,39 @@ describe('batch and unsupported ops', () => {
       reason: 'r',
     });
     expect(map.get(b.id)).toBe(b);
+  });
+});
+
+describe('isAllowedImageSrcScheme', () => {
+  it.each([
+    'https://a/b.png',
+    'HTTP://a/b.png',
+    '  https://a/b.png',
+    'data:image/png;base64,AAAA',
+    '/uploads/a.png',
+    'a.png',
+    '//cdn.example/a.png',
+  ])('allows %s', (src) => {
+    expect(isAllowedImageSrcScheme(src)).toBe(true);
+  });
+
+  it.each([
+    'javascript:alert(1)',
+    'JaVaScRiPt:alert(1)',
+    'blob:https://a/uuid',
+    'file:///etc/passwd',
+    'data:text/html,<b>',
+    'vbscript:x',
+    'ws://a',
+    '\tjavascript:x',
+  ])('rejects %s', (src) => {
+    expect(isAllowedImageSrcScheme(src)).toBe(false);
+  });
+
+  it('rejects every control character from 0x00 to 0x1f and 0x7f', () => {
+    const codes = [...Array(0x20).keys(), 0x7f];
+    for (const code of codes) {
+      expect(isAllowedImageSrcScheme(`/a${String.fromCharCode(code)}.png`)).toBe(false);
+    }
   });
 });
