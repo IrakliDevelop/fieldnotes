@@ -266,25 +266,24 @@ export function createSyncServer(options: CreateSyncServerOptions = {}): {
               ? allowedOrigins(origin, req)
               : allowedOrigins.includes(origin);
         } catch {
-          // A throw inside the upgrade handler escapes ws, so a failing host check refuses.
+          // a throw would escape ws; refuse instead
         }
         if (ok) cb(true);
         else cb(false, 403);
       }
     : undefined;
-  const verify = verifyClient ? { verifyClient } : {};
   const wss = options.server
     ? new WebSocketServer({
         server: options.server,
         maxPayload: maxMessageBytes,
         handleProtocols,
-        ...verify,
+        verifyClient,
       })
     : new WebSocketServer({
         port: options.port ?? 0,
         maxPayload: maxMessageBytes,
         handleProtocols,
-        ...verify,
+        verifyClient,
       });
   const heartbeat = startHeartbeat(wss, options.heartbeatIntervalMs ?? 30000);
   let shuttingDown = false;

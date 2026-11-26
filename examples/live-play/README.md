@@ -17,6 +17,9 @@ Open the client URL in **two tabs** and pick the same room. Join one tab as **DM
 `DEMO_TOKENS` (`src/policies.ts`) as a `Sec-WebSocket-Protocol` entry; the relay looks up the name and role
 from that token. The URL carries only the room, and a `?role=` or `?name=` parameter is ignored.
 
+The relay only accepts sockets from `http://localhost:5173`, so a client served on another port or host
+gets HTTP 403. Use each demo identity in one tab: two tabs with the same identity share one roster entry.
+
 ## Try it
 
 - **Canvas tools** — the toolbar has the standard instrumentation (Select, Pan, Draw, Shape, Arrow, Note, Text,

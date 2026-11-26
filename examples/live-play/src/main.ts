@@ -13,7 +13,13 @@ import {
 import type { Tool } from '@fieldnotes/core';
 import { bearerSubprotocols, SyncClient, WebSocketTransport } from '@fieldnotes/sync';
 import type { RemoteLayerUpdate } from '@fieldnotes/sync';
-import { DEMO_TOKENS, DM_SECRET_LAYER_ID, makeResolveAudience, type Role } from './policies';
+import {
+  DEMO_TOKENS,
+  DM_MAP_LAYER_ID,
+  DM_SECRET_LAYER_ID,
+  makeResolveAudience,
+  type Role,
+} from './policies';
 import { TokenTool } from './token-tool';
 
 const TOOL_LABELS: Record<string, string> = {
@@ -73,15 +79,12 @@ function start(token: string, name: string, role: Role, room: string): void {
 
   const { layerManager, store } = viewport;
   if (role === 'dm') {
-    const order = Math.max(...layerManager.getLayers().map((l) => l.order)) + 1;
-    layerManager.addLayerDirect({
-      id: DM_SECRET_LAYER_ID,
-      name: 'DM Secret',
-      visible: true,
-      locked: false,
-      order,
-      opacity: 1,
-    });
+    const [starter] = layerManager.getLayers();
+    const layer = { visible: true, locked: false, opacity: 1 };
+    layerManager.addLayerDirect({ ...layer, id: DM_MAP_LAYER_ID, name: 'Map', order: 0 });
+    layerManager.setActiveLayer(DM_MAP_LAYER_ID);
+    if (starter) layerManager.removeLayerDirect(starter.id);
+    layerManager.addLayerDirect({ ...layer, id: DM_SECRET_LAYER_ID, name: 'DM Secret', order: 1 });
   }
 
   // Remote layers apply without history; a player drops its empty starter layer once the DM's arrive.
@@ -209,17 +212,13 @@ function wireLiveFeatures(ctx: {
   if (role === 'dm') {
     const toolbar = $('dm-toolbar');
     toolbar.style.display = 'flex';
-    const mapLayerId = viewport.layerManager
-      .getLayers()
-      .find((l) => l.id !== DM_SECRET_LAYER_ID)?.id;
     $('hide').addEventListener('click', () => {
       for (const id of viewport.getSelectedIds())
         viewport.layerManager.moveElementToLayer(id, DM_SECRET_LAYER_ID);
     });
     $('reveal').addEventListener('click', () => {
-      if (!mapLayerId) return;
       for (const id of viewport.getSelectedIds())
-        viewport.layerManager.moveElementToLayer(id, mapLayerId);
+        viewport.layerManager.moveElementToLayer(id, DM_MAP_LAYER_ID);
     });
   }
 }

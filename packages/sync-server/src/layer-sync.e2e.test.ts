@@ -275,12 +275,23 @@ describe('layer-definition sync (end-to-end)', () => {
     const late = connectPeer(port, 'late', { role: 'player' });
     await waitFor(() => late.received.some((m) => m.includes('"kind":"snapshot"')));
     const dmFramesBefore = dm.received.length;
+    const snapshots = (peer: { received: string[] }): number =>
+      peer.received.filter((m) => m.includes('"kind":"snapshot"')).length;
+    const playerSnapshots = snapshots(player);
+    const lateSnapshots = snapshots(late);
     for (const ws of server.wss.clients) ws.terminate();
     // The player's ledger tombstone is newer than its snapshot, so it re-pushes the remove.
     await waitFor(() =>
       player.received.some((m) => m.includes('"from":"hub","op":{"kind":"layer-remove"')),
     );
-    await new Promise((r) => setTimeout(r, 50));
+    // Fence: the player's next op reaches dm after anything its remove re-push caused.
+    player.client.publishLayerUpsert(layerDef('layer-fence', { name: 'Fence' }));
+    await waitFor(
+      () =>
+        dm.received.slice(dmFramesBefore).some((m) => m.includes('layer-fence')) &&
+        snapshots(player) > playerSnapshots &&
+        snapshots(late) > lateSnapshots,
+    );
 
     for (const peer of [player, late]) {
       expect(peer.received.some((m) => m.includes('DM Secret'))).toBe(false);

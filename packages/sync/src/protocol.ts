@@ -557,13 +557,12 @@ export function isAllowedImageSrcScheme(src: string): boolean {
     const code = src.charCodeAt(i);
     if (code < 0x20 || code === 0x7f) return false;
   }
-  const url = src.replace(/^ +/, '').toLowerCase();
+  const url = src.replace(/^ +/, '');
   const colon = url.indexOf(':');
   const end = url.search(/[/?#]/);
   if (colon === -1 || (end !== -1 && end < colon)) return true;
-  const scheme = url.slice(0, colon + 1);
-  if (scheme === 'https:' || scheme === 'http:') return true;
-  return scheme === 'data:' && url.startsWith('image/', colon + 1);
+  // Case-insensitive match instead of lowercasing: data URLs can be megabytes long.
+  return /^(?:https?:|data:image\/)/i.test(url);
 }
 
 /** Whether an already-valid legacy envelope stays within `SYNC_LIMITS`; authority:1 does not use it. */

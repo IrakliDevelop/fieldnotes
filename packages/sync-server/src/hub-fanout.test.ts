@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createCurrentCapabilities, type SyncOp } from '@fieldnotes/sync';
 import type { Layer } from '@fieldnotes/core';
 import { InMemoryHubFanout } from './hub-fanout';
+import { MemoryHubBackend } from './memory-hub-backend';
 import { SyncHub, type Connection } from './sync-hub';
 import type { CanRead, CanReadLayer, ResolvePresenceAudience } from './authorize';
 
@@ -134,16 +135,22 @@ describe('layer read filter across instances', () => {
   function twoHubs() {
     const bus = new InMemoryHubFanout();
     const origin = new SyncHub({ instanceId: 'A', fanout: bus, canReadLayer });
-    const remote = new SyncHub({ instanceId: 'B', fanout: bus, canReadLayer });
+    const remoteBackend = new MemoryHubBackend();
+    const remote = new SyncHub({
+      instanceId: 'B',
+      fanout: bus,
+      canReadLayer,
+      backend: remoteBackend,
+    });
     join(origin, 'dm', 'dm');
     const dm2 = join(remote, 'dm2', 'dm');
     const pl = join(remote, 'pl', 'player');
     const send = (op: SyncOp) => origin.handleMessage('dm', JSON.stringify({ from: 'dm', op }));
-    return { bus, remote, dm2, pl, send };
+    return { bus, remote, remoteBackend, dm2, pl, send };
   }
 
   it('applies the read table to a player on the receiving instance', async () => {
-    const { remote, dm2, pl, send } = twoHubs();
+    const { remote, remoteBackend, dm2, pl, send } = twoHubs();
 
     await send(upsert(1, 'DM Secret', 'S'));
     expect(dm2).toEqual([frame(upsert(1, 'DM Secret', 'S'))]);
@@ -161,7 +168,9 @@ describe('layer read filter across instances', () => {
     ]);
     expect(dm2).toHaveLength(6);
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.waitFor(async () =>
+      expect((await remoteBackend.getLayerRecord('R', 'L1'))?.version).toBe(4),
+    );
     pl.length = 0;
     await remote.handleMessage(
       'pl',

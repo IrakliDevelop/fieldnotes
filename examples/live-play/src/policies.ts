@@ -19,6 +19,8 @@ import {
 export type Role = 'dm' | 'player';
 export const DM_AUDIENCE = 'dm';
 export const DM_SECRET_LAYER_ID = 'dm-secret';
+/** Fixed id so a DM rejoin republishes the same map layer instead of adding one. */
+export const DM_MAP_LAYER_ID = 'map';
 
 // A real app issues tokens from its own login and never ships them to the browser.
 export const DEMO_TOKENS: Record<string, { name: string; role: Role }> = {
@@ -45,8 +47,7 @@ export const authorize: Authorize = ({ role, userId, op, currentElement }) => {
 // D3 — two-tier read filter: dm-tagged elements reach only the DM.
 export const canRead: CanRead = ({ role, audience }) => audience !== DM_AUDIENCE || role === 'dm';
 
-// Server-side audience, never the client's tag. DM edits derive it fresh so Reveal works; a player edit
-// keeps the stored audience so a player cannot un-hide an element the DM hid.
+// DM edits derive the audience fresh so Reveal works; a player edit keeps the stored one.
 export const resolveAudience: ResolveAudience = ({ role, element, currentElement }) => {
   if (element.layerId === DM_SECRET_LAYER_ID || getMovementVisibility(element) === 'dm') {
     return DM_AUDIENCE;

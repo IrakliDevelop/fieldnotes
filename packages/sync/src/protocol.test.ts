@@ -1197,6 +1197,12 @@ describe('isAllowedImageSrcScheme', () => {
     expect(isAllowedImageSrcScheme(src)).toBe(false);
   });
 
+  it('allows a multi-megabyte data:image/ URL', () => {
+    expect(isAllowedImageSrcScheme(`data:image/png;base64,${'A'.repeat(4 * 1024 * 1024)}`)).toBe(
+      true,
+    );
+  });
+
   it('rejects every control character from 0x00 to 0x1f and 0x7f', () => {
     const codes = [...Array(0x20).keys(), 0x7f];
     for (const code of codes) {

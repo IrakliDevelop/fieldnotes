@@ -497,8 +497,8 @@ export class SyncHub {
   }
 
   /**
-   * Broadcasts ephemeral server-owned presence data to every connection in a room, or with
-   * `audience` only to those `canRead` admits on every instance.
+   * Broadcasts ephemeral server-owned presence data to every connection `canRead` admits (all
+   * when unset), on every instance; `audience` tags the frame.
    * The returned count covers accepted synchronous send admission on this hub instance,
    * not completed physical delivery. Async frame policy can subsequently deny a frame.
    */
@@ -1354,6 +1354,8 @@ export class SyncHub {
       } catch {
         return; // fail closed; this also runs from the throttle timer, where a throw would crash
       }
+      // A JS host can return anything; treat a non-string like a throw.
+      if (audience !== undefined && typeof audience !== 'string') return;
     }
     this.presenceConnections.add(conn.id);
     const message = JSON.stringify({ from: conn.id, op: { kind: 'presence', data } });
@@ -1571,12 +1573,10 @@ export class SyncHub {
     const tombstones = stored
       .filter((tombstone) => this.mayRead(conn, tombstone.audience))
       .map(({ id, version, editor }) => ({ id, version, editor }));
-    // Layer records pass `canReadLayer`; tombstones carry only an id and version and reach every
-    // viewer so one who saw the layer converges. The field is omitted while the room has none.
-    const allLayers = await this.getLayerRecords(conn.room);
-    const layers = this.canReadLayer
-      ? allLayers.filter((r) => !r.definition || this.mayReadLayer(conn, r.definition))
-      : allLayers;
+    // Tombstones (id and version only) reach every viewer so one who saw the layer converges.
+    const layers = (await this.getLayerRecords(conn.room)).filter(
+      (r) => !r.definition || this.mayReadLayer(conn, r.definition),
+    );
     const snapshotOp: Record<string, unknown> = { kind: 'snapshot', to, elements };
     if (layers.length > 0) snapshotOp['layers'] = layers;
     if (tombstones.length > 0) snapshotOp['tombstones'] = tombstones;
@@ -1623,8 +1623,7 @@ export class SyncHub {
     const op = env.op;
     if (isPresenceOp(op)) {
       if (op.kind === 'presence' && !this.isPresenceWithinLimit(op.data)) return;
-      // No backend: the sender lives on the origin, which resolved the audience; canRead filters
-      // presence here. presence-leave carries no data and goes to every local member.
+      // The origin resolved the audience; presence-leave carries no data and reaches every member.
       const message = JSON.stringify({ from: env.from, op });
       if (op.kind === 'presence-leave') {
         this.relayToRoom(env.room, undefined, message);

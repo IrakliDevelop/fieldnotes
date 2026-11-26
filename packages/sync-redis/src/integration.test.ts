@@ -742,6 +742,7 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
         send(upsert('barrier', 1, 'Open'));
 
         await waitFor(() => player.join().includes('"id":"barrier"'));
+        await waitFor(() => dm2.join().includes('"id":"barrier"'));
         expect(dm2.join()).toContain('dm-presence-marker');
         expect(player.join()).not.toContain('dm-presence-marker');
       });
@@ -753,6 +754,7 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
         send(upsert('barrier', 1, 'Open'));
 
         await waitFor(() => player.join().includes('"id":"barrier"'));
+        await waitFor(() => dm2.join().includes('"id":"barrier"'));
         expect(dm2.join()).toContain('DM Secret');
         expect(player.join()).not.toContain('DM Secret');
         const late = await connectRaw(portB, 'late');
@@ -768,12 +770,13 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
 
         send(upsert('L1', 1, 'Open'));
         send(upsert('L1', 2, 'DM Secret'));
+        send(upsert('barrier', 1, 'Open'));
 
-        await waitFor(() => player.length === 2);
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await waitFor(() => player.join().includes('"id":"barrier"'));
         expect(player.map((m) => JSON.parse(m).op)).toEqual([
           upsert('L1', 1, 'Open'),
           { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' },
+          upsert('barrier', 1, 'Open'),
         ]);
         expect(player.join()).not.toContain('DM Secret');
       });

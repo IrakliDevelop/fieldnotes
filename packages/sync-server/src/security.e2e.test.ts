@@ -381,6 +381,7 @@ describe('sync-server connection hardening (end-to-end)', () => {
         expect(await connect(port, 'https://app.example')).toBe('open');
       } finally {
         for (const c of rawSockets) c.close();
+        rawSockets.length = 0;
         await new Promise((resolve) => http.close(resolve));
       }
     });

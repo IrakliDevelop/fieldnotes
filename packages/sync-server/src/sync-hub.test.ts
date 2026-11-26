@@ -5330,6 +5330,20 @@ describe('image source schemes', () => {
     expect(frames(b)).toEqual([{ from: 'A', op: { kind: 'upsert', element: shape('s') } }]);
   });
 
+  it('does not call allowImageSrc outbound: a stored good-src image reaches a joiner snapshot', async () => {
+    const good = image('i', 'https://cdn.example/a.png');
+    const allowImageSrc = vi.fn(() => false);
+    const hub = new SyncHub({ allowImageSrc, backend: await seeded(good) });
+    const conn = join(hub, 'J');
+
+    await hub.handleMessage('J', envelope('J', { kind: 'request-snapshot' }));
+
+    expect(frames(conn)).toEqual([
+      { from: 'hub', op: { kind: 'snapshot', to: 'J', elements: [good] } },
+    ]);
+    expect(allowImageSrc).not.toHaveBeenCalled();
+  });
+
   describe('a stored blob: image never leaves the hub', () => {
     it('is absent from a joiner snapshot', async () => {
       const hub = new SyncHub({ backend: await seeded(image('b', 'blob:x'), shape('s')) });
@@ -5566,6 +5580,21 @@ describe('presence audience (resolvePresenceAudience)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('drops the frame for everyone when a JS host hook returns a non-string audience', async () => {
+    const published: string[] = [];
+    const hook = (): string | undefined => JSON.parse('42');
+    const { hub, dm2, pl } = dmRoom({
+      fanout: { publish: (p) => void published.push(p), subscribe: () => () => undefined },
+      resolvePresenceAudience: hook,
+    });
+
+    await hub.handleMessage('dm', presenceMsg('dm', { kind: 'cursor', note: 'bad-return' }));
+
+    expect(has(dm2, 'bad-return')).toBe(false);
+    expect(has(pl, 'bad-return')).toBe(false);
+    expect(published.some((p) => p.includes('bad-return'))).toBe(false);
   });
 
   it('keeps delivering to the other viewers when canRead throws for one', async () => {
@@ -5880,6 +5909,28 @@ describe('layer read filter (canReadLayer)', () => {
     expect(has(v1, 'Open')).toBe(true);
     expect(bad.sent).toEqual([]);
     expect(has(v3, 'Open')).toBe(true);
+    hub.close();
+  });
+
+  it('sends a layer-remove, never the new definition, to a viewer whose hook throws on a rename', async () => {
+    const hub = new SyncHub({
+      canReadLayer: (ctx) => {
+        if (ctx.userId === 'bad' && ctx.layer.name === 'Renamed') throw new Error('policy failed');
+        return canReadLayer(ctx);
+      },
+    });
+    admit(hub, conn('sender', 'dm'));
+    const v1 = admit(hub, conn('v1', 'dm'));
+    const bad = admit(hub, conn('bad', 'dm', 'bad'));
+    await hub.handleMessage('sender', envelope('sender', upsert(1, 'sender', 'Open')));
+    bad.sent.length = 0;
+
+    await hub.handleMessage('sender', envelope('sender', upsert(2, 'sender', 'Renamed')));
+
+    expect(has(v1, 'Renamed')).toBe(true);
+    expect(frames(bad)).toEqual([
+      { from: 'sender', op: { kind: 'layer-remove', id: 'L1', version: 2, editor: 'sender' } },
+    ]);
     hub.close();
   });
 });
