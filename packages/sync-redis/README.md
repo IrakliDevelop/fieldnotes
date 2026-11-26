@@ -28,7 +28,8 @@ import { RedisHubBackend } from '@fieldnotes/sync-redis';
 
 const client = createClient({ url: process.env.REDIS_URL });
 await client.connect();
-createSyncServer({ port: 8080, backend: new RedisHubBackend(client) });
+// authenticate: your own hook, see the @fieldnotes/sync-server README
+createSyncServer({ port: 8080, authenticate, backend: new RedisHubBackend(client) });
 ```
 
 ## ioredis (shim)
@@ -153,6 +154,7 @@ await subscriber.connect(); // DEDICATED subscriber — a subscriber connection 
 
 createSyncServer({
   port: 8080,
+  authenticate,
   backend: new RedisHubBackend(hash),
   fanout: new RedisHubFanout(publisher, subscriber),
 });

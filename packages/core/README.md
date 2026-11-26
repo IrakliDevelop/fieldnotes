@@ -901,8 +901,8 @@ client.onPresenceLeave((from) => overlay.remove(from));
 // later: overlay.dispose();
 ```
 
-Presence is not filtered by audience on the hub. Do not forward previews for strokes on
-audience-restricted layers.
+The hub filters presence per lane and role, not per layer, so do not forward previews for strokes
+on audience-restricted layers.
 
 ## Browser Support
 

@@ -31,6 +31,39 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
   without an `authenticate` hook (see `security.e2e.test.ts`). `authorizeLayer` has no such guard;
   without `authenticate` its `userId` is the per-socket connection id.
 
+**Startup guards and origin** (`create-sync-server.ts`, `SyncHub` constructor)
+
+- `createSyncServer` throws without `authenticate` unless `allowAnonymous: true`, and throws when
+  both are set. Never add a default that admits anonymous sockets.
+- With `canRead`, `SyncHub` throws without `resolvePresenceAudience` or `canReadLayer`, so a host
+  that filters elements cannot leak presence or layer names by omission.
+- `allowedOrigins` refuses a browser upgrade from an unlisted origin with HTTP 403 before
+  `authenticate`; a throwing host check refuses. A request without `Origin` passes.
+
+**Presence**
+
+- The origin instance resolves one audience per client presence frame with
+  `resolvePresenceAudience`; a throw drops the frame. The audience travels on fanout so every
+  instance filters for its own members.
+- With `canRead`, every presence frame (client, `broadcastPresence`, fanout) passes `canRead`,
+  untagged ones with `audience: undefined`. Without `canRead`, presence is a plain relay.
+
+**Layers**
+
+- `canReadLayer` gates every outbound layer definition: live ops, snapshots, and sender
+  corrections (a sender who cannot read the stored record gets the unknown-id answer). A throw
+  denies.
+- A layer op on fanout carries `prevLayer`, the previous definition, so each receiving instance
+  sends a `layer-remove` to a viewer who could read the old record but not the new one.
+- Layer tombstones in snapshots carry only an id and a version and reach every viewer; a live
+  layer remove goes only to viewers who could read the layer.
+
+**Image sources**
+
+- The hub refuses an image upsert whose `src` fails `isAllowedImageSrcScheme`
+  (`packages/sync/src/protocol.ts`) or the host's `allowImageSrc`, with a sender correction, and
+  drops stored refused images from every outbound frame.
+
 **Snapshots**
 
 - Snapshots are filtered by `mayRead`, then by each plugin's `filterSnapshot`. A new snapshot field
@@ -62,8 +95,9 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
 
 ## Known gap
 
-Image `src` is checked only with `isString` in `state-serializer.ts`; no URL scheme allowlist
-exists in core or VTT. Flag every change that touches URLs; do not widen the gap.
+The hub checks image `src` schemes, but core persistence does not: `state-serializer.ts` checks
+image `src` only with `isString`, and VTT has no scheme allowlist. Flag every change that touches
+URLs; do not widen the gap.
 
 ## Mandatory tests
 
@@ -71,7 +105,9 @@ For a new op, hook, or filter:
 
 1. Adversarial cases: unauthenticated, wrong role, wrong room, audience revoked mid-session,
    oversized frame.
-2. Both paths: live relay and snapshot.
+2. Both paths: live relay and snapshot. For presence, the client, `broadcastPresence`, and
+   fanout paths; for layers, live ops, snapshots, sender corrections, and fanout with
+   `prevLayer`.
 3. Mixed-version peer: an old validator drops the new kind (`packages/sync/src/protocol.test.ts`).
 4. Redis fan-out keeps the filtering when the change touches `sync-redis`
    (`redis-fog.integration.test.ts`; state when Redis was unavailable).
@@ -82,7 +118,7 @@ Extend the existing suites: `security.e2e.test.ts`, `frame-policy-matrix.e2e.tes
 ## Review checklist
 
 - Every outbound path for the new data (relay, snapshot, correction, Redis fan-out) goes through
-  `mayRead` and `stripOwnerId`.
+  `mayRead` and `stripOwnerId`, or `canReadLayer` for layer definitions.
 - No audience, role, or owner taken from the client frame.
 - Versions and capabilities updated together; the duplicated fog constant still matches.
 - Assert absence: tests check the forbidden bytes are not in the frame, not that the UI hides them.

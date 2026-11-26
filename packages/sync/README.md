@@ -37,6 +37,11 @@ dropped. `isWithinSyncLimits(envelope)` applies the same checks to an already pa
 reported as a `SyncLimitError` (`elementId`, `limit`) through `globalThis.reportError` when
 available. The local store keeps the element.
 
+`isAllowedImageSrcScheme(src)` is true for an image `src` that is `https:`, `http:`, `data:image/`
+or a relative URL. `@fieldnotes/sync-server` 0.31.0 refuses other image sources and does not send
+stored ones, so an upload that returns a `blob:` or custom-scheme URL has to be stored elsewhere and
+referenced by an `https:` URL.
+
 ## Capability handshake
 
 `createCurrentCapabilities(extensionKinds)` advertises `{ protocolVersion: 3, extensionKinds,

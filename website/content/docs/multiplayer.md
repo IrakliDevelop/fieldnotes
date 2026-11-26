@@ -20,7 +20,7 @@ The first line is for the server and the second for the app. `@fieldnotes/sync` 
 
 ::code{example="multiplayer" region="relay"}
 
-`createSyncServer` starts a WebSocket server on the port. A board joins a room with `?room=<id>` in the URL, where the id is 1 to 64 letters, digits, `_` or `-`. A missing or invalid id closes the socket with code 4400.
+`createSyncServer` starts a WebSocket server on the port. `allowAnonymous: true` lets anyone who can reach the port join any room, which suits a local test; for real players pass `authenticate` instead, as the next sections show. Without one of the two, `createSyncServer` throws. A board joins a room with `?room=<id>` in the URL, where the id is 1 to 64 letters, digits, `_` or `-`. A missing or invalid id closes the socket with code 4400.
 
 The relay keeps each room's elements, sends them to each person who joins, and passes every change on to the others in the room. `close()` closes the open sockets with code 1001 and stops the server.
 
@@ -40,7 +40,7 @@ The relay keeps each room's elements, sends them to each person who joins, and p
 
 A browser can't set headers on a WebSocket, so the client offers the token with `bearerSubprotocols(token)`, as in the client code further down. The relay also reads an `Authorization: Bearer` header, and a `token` query parameter, which ends up in server logs.
 
-Without `authenticate`, every connection joins, and its `userId` changes each time it reconnects.
+With `allowAnonymous: true` instead of `authenticate`, every connection joins, and its `userId` changes each time it reconnects. `allowedOrigins: ['https://app.example']` refuses a browser page served from any other origin with HTTP 403.
 
 ## Decide who may change what
 
@@ -67,7 +67,9 @@ arrow](/docs/tools-and-input/#mouse-touch-and-pen) the same audience as that sha
 one person edits that text while another moves or resizes the shape or arrow, the text can stay out
 of place until someone edits either one again.
 
-When an element moves to an audience a viewer can't read, that viewer receives a remove, and when it moves back, an add. With several relay instances, each one filters for its own connections, so all of them need the same `canRead`. Layers are not filtered: every viewer receives every synced layer and its name.
+With `canRead` set, the relay also needs `canReadLayer` and `resolvePresenceAudience`, and throws without them. `canReadLayer({ userId, role, room, layer })` decides whether a viewer receives a layer and its name. Keep it in step with `canRead`: here players receive neither the GM layer nor the elements on it. `resolvePresenceAudience` gives each cursor an audience, here `gm` for a GM's cursor, so players don't see where the GM is working. Return the same audience for every frame of one kind from one role. If a cursor's audience changes partway through, a player who stops receiving it keeps the last one they saw on screen.
+
+When an element moves to an audience a viewer can't read, that viewer receives a remove, and when it moves back, an add. A layer works the same way with `canReadLayer`. With several relay instances, each one filters for its own connections, so all of them need the same hooks, and all of them need the same version of `@fieldnotes/sync-server`.
 
 ## Keep rooms in Redis
 

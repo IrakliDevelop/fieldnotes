@@ -4,7 +4,7 @@ import { createSyncServer } from '@fieldnotes/sync-server';
 
 export function relay(): () => Promise<void> {
   // #region relay
-  const { close } = createSyncServer({ port: 8080 });
+  const { close } = createSyncServer({ port: 8080, allowAnonymous: true });
   // #endregion relay
   return close;
 }
@@ -24,6 +24,7 @@ interface Member {
 
 export function serverRules(
   verify: (token: string | undefined, room: string) => Promise<Member | null>,
+  gmLayerId: string,
 ): () => Promise<void> {
   // #region server-rules
   const { close } = createSyncServer({
@@ -41,6 +42,8 @@ export function serverRules(
     resolveAudience: ({ role, element, currentElement }) =>
       role === 'gm' ? element.audience : (currentElement?.audience ?? 'shared'),
     canRead: ({ role, audience }) => audience !== 'gm' || role === 'gm',
+    canReadLayer: ({ role, layer }) => role === 'gm' || layer.id !== gmLayerId,
+    resolvePresenceAudience: ({ role }) => (role === 'gm' ? 'gm' : undefined),
   });
   // #endregion server-rules
   return close;
