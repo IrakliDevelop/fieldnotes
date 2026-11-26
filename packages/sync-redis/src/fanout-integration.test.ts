@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { SyncHub } from '@fieldnotes/sync-server';
 import type { Connection } from '@fieldnotes/sync-server';
-import { createShape } from '@fieldnotes/core';
-import { createCurrentCapabilities } from '@fieldnotes/sync';
+import { createShape, type Layer } from '@fieldnotes/core';
+import { createCurrentCapabilities, type SyncOp } from '@fieldnotes/sync';
 import { RedisHubBackend, RedisHubFanout } from './index';
 import type { RedisHashClient, RedisPublisher, RedisSubscriber } from './index';
 import { emulateElementScript } from './test-support/element-scripts-fake';
@@ -226,5 +226,95 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
         parentId: parent.id,
       }),
     );
+  });
+
+  describe('presence and layer read filters, player on the second hub', () => {
+    const layer = (name: string): Layer => ({
+      id: 'L1',
+      name,
+      visible: true,
+      locked: false,
+      order: 0,
+      opacity: 1,
+    });
+    const upsert = (version: number, name: string): SyncOp => ({
+      kind: 'layer-upsert',
+      layer: layer(name),
+      version,
+      editor: 'dm',
+    });
+
+    async function room() {
+      const bus = new FakeBus();
+      const redis = new FakeRedis();
+      const pub: RedisPublisher = { publish: (c: string, m: string) => bus.publish(c, m) };
+      const sub: RedisSubscriber = {
+        subscribe: (c: string, l: (m: string) => void) => bus.subscribe(c, l),
+      };
+      const mk = (id: string): SyncHub =>
+        new SyncHub({
+          instanceId: id,
+          canRead: ({ role, audience }) => audience !== 'dm' || role === 'dm',
+          resolvePresenceAudience: ({ role }) => (role === 'dm' ? 'dm' : undefined),
+          canReadLayer: ({ role, layer }) => role === 'dm' || layer.name !== 'DM Secret',
+          fanout: new RedisHubFanout(pub, sub),
+          backend: new RedisHubBackend(redis),
+        });
+      const hubA = mk('A');
+      const hubB = mk('B');
+      await tick();
+      const join = async (hub: SyncHub, id: string, role: string) => {
+        const conn = { ...makeConn(id, 'R'), role };
+        hub.addConnection(conn);
+        await admit(hub, conn);
+        return conn;
+      };
+      await join(hubA, 'dm', 'dm');
+      const dm2 = await join(hubB, 'dm2', 'dm');
+      const player = await join(hubB, 'pl', 'player');
+      const send = async (op: SyncOp): Promise<void> => {
+        await hubA.handleMessage('dm', JSON.stringify({ from: 'dm', op }));
+        await tick();
+      };
+      return { hubB, dm2, player, send, join };
+    }
+
+    it('keeps DM presence from the player', async () => {
+      const { dm2, player, send } = await room();
+
+      await send({ kind: 'presence', data: { note: 'dm-presence-marker' } });
+
+      expect(dm2.sent.join()).toContain('dm-presence-marker');
+      expect(player.sent.join()).not.toContain('dm-presence-marker');
+    });
+
+    it('keeps a new hidden layer from the player live and in a later snapshot', async () => {
+      const { hubB, dm2, player, send, join } = await room();
+
+      await send(upsert(1, 'DM Secret'));
+
+      expect(dm2.sent.join()).toContain('DM Secret');
+      expect(player.sent.join()).not.toContain('DM Secret');
+      const late = await join(hubB, 'late', 'player');
+      await hubB.handleMessage(
+        'late',
+        JSON.stringify({ from: 'late', op: { kind: 'request-snapshot' } }),
+      );
+      expect(late.sent.join()).toContain('"kind":"snapshot"');
+      expect(late.sent.join()).not.toContain('DM Secret');
+    });
+
+    it('sends the player a layer-remove when a visible layer is renamed to a hidden one', async () => {
+      const { player, send } = await room();
+
+      await send(upsert(1, 'Open'));
+      await send(upsert(2, 'DM Secret'));
+
+      expect(player.sent.map((m) => JSON.parse(m).op)).toEqual([
+        upsert(1, 'Open'),
+        { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' },
+      ]);
+      expect(player.sent.join()).not.toContain('DM Secret');
+    });
   });
 });

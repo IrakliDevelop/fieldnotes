@@ -501,7 +501,10 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
     });
 
     async function startHubs(
-      options: Pick<CreateSyncServerOptions, 'canRead'> = {},
+      options: Pick<
+        CreateSyncServerOptions,
+        'canRead' | 'authenticate' | 'resolvePresenceAudience' | 'canReadLayer'
+      > = {},
     ): Promise<[number, number]> {
       const channel = `${keyPrefix}fanout`;
       const ports: number[] = [];
@@ -693,6 +696,87 @@ describe.skipIf(!redisUrl)('RedisHubBackend elements against a real Redis', () =
           expect.objectContaining({ id: privateChild.id }),
         ]),
       );
+    });
+
+    describe('presence and layer read filters, player on hub B', () => {
+      const layer = (id: string, name: string) => ({
+        id,
+        name,
+        visible: true,
+        locked: false,
+        order: 0,
+        opacity: 1,
+      });
+      const upsert = (id: string, version: number, name: string) => ({
+        kind: 'layer-upsert',
+        layer: layer(id, name),
+        version,
+        editor: 'dm',
+      });
+
+      function record(socket: WebSocket): string[] {
+        const frames: string[] = [];
+        socket.addEventListener('message', (event) => frames.push(String(event.data)));
+        return frames;
+      }
+
+      async function room() {
+        const [portA, portB] = await startHubs({
+          authenticate: ({ token }) =>
+            token ? { userId: token, role: token.startsWith('dm') ? 'dm' : 'player' } : null,
+          canRead: ({ role, audience }) => audience !== 'dm' || role === 'dm',
+          resolvePresenceAudience: ({ role }) => (role === 'dm' ? 'dm' : undefined),
+          canReadLayer: ({ role, layer }) => role === 'dm' || layer.name !== 'DM Secret',
+        });
+        const dm = await connectRaw(portA, 'dm');
+        const dm2 = record(await connectRaw(portB, 'dm2'));
+        const player = record(await connectRaw(portB, 'player'));
+        const send = (op: object): void => dm.send(JSON.stringify({ from: 'dm-raw', op }));
+        return { portB, dm2, player, send };
+      }
+
+      it('keeps DM presence from the player', async () => {
+        const { dm2, player, send } = await room();
+
+        send({ kind: 'presence', data: { note: 'dm-presence-marker' } });
+        send(upsert('barrier', 1, 'Open'));
+
+        await waitFor(() => player.join().includes('"id":"barrier"'));
+        expect(dm2.join()).toContain('dm-presence-marker');
+        expect(player.join()).not.toContain('dm-presence-marker');
+      });
+
+      it('keeps a new hidden layer from the player live and in a later snapshot', async () => {
+        const { portB, dm2, player, send } = await room();
+
+        send(upsert('secret', 1, 'DM Secret'));
+        send(upsert('barrier', 1, 'Open'));
+
+        await waitFor(() => player.join().includes('"id":"barrier"'));
+        expect(dm2.join()).toContain('DM Secret');
+        expect(player.join()).not.toContain('DM Secret');
+        const late = await connectRaw(portB, 'late');
+        const lateFrames = record(late);
+        late.send(JSON.stringify({ from: 'late-raw', op: { kind: 'request-snapshot' } }));
+        await waitFor(() => lateFrames.join().includes('"kind":"snapshot"'));
+        expect(lateFrames.join()).toContain('"id":"barrier"');
+        expect(lateFrames.join()).not.toContain('DM Secret');
+      });
+
+      it('sends the player a layer-remove when a visible layer is renamed to a hidden one', async () => {
+        const { player, send } = await room();
+
+        send(upsert('L1', 1, 'Open'));
+        send(upsert('L1', 2, 'DM Secret'));
+
+        await waitFor(() => player.length === 2);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(player.map((m) => JSON.parse(m).op)).toEqual([
+          upsert('L1', 1, 'Open'),
+          { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' },
+        ]);
+        expect(player.join()).not.toContain('DM Secret');
+      });
     });
 
     it('never leaves a player-owned element when a player recreate races a GM delete', async () => {
