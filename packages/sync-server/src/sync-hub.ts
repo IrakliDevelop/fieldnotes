@@ -766,12 +766,14 @@ export class SyncHub {
         let allowed = isAllowedImageSrcScheme(src);
         if (allowed && this.allowImageSrc) {
           try {
-            allowed = this.allowImageSrc({
-              src,
-              userId: conn.userId,
-              role: conn.role,
-              room: conn.room,
-            });
+            // `=== true` so a plain-JS async hook (a truthy Promise) fails closed.
+            allowed =
+              this.allowImageSrc({
+                src,
+                userId: conn.userId,
+                role: conn.role,
+                room: conn.room,
+              }) === true;
           } catch {
             allowed = false; // a throwing host hook fails closed
           }
@@ -1172,7 +1174,10 @@ export class SyncHub {
   private mayReadLayer(conn: Connection, layer: Layer): boolean {
     if (!this.canReadLayer) return true;
     try {
-      return this.canReadLayer({ userId: conn.userId, role: conn.role, room: conn.room, layer });
+      // `=== true` so a plain-JS async hook (a truthy Promise) fails closed.
+      return (
+        this.canReadLayer({ userId: conn.userId, role: conn.role, room: conn.room, layer }) === true
+      );
     } catch {
       return false;
     }

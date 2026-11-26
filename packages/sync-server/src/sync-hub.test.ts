@@ -18,6 +18,7 @@ import type { Connection, SyncHubOptions } from './sync-hub';
 import type { HubBackend } from './hub-backend';
 import { MemoryHubBackend } from './memory-hub-backend';
 import type {
+  AllowImageSrc,
   Authorize,
   CanReadLayer,
   OwnedElement,
@@ -5291,6 +5292,15 @@ describe('image source schemes', () => {
     expect(frames(a)).toEqual([refusal('i')]);
   });
 
+  it('refuses an image when allowImageSrc returns a Promise', async () => {
+    const allowImageSrc = (() => Promise.resolve(true)) as unknown as AllowImageSrc;
+    const { a, b, stored } = await upsertImage({ allowImageSrc }, 'https://cdn.example/p.png');
+
+    expect(stored).toBeUndefined();
+    expect(JSON.stringify(b.sent)).not.toContain('https://cdn.example/p.png');
+    expect(frames(a)).toEqual([refusal('i')]);
+  });
+
   it('passes the connection identity and room to allowImageSrc', async () => {
     const allowImageSrc = vi.fn(() => true);
     await upsertImage({ allowImageSrc }, 'https://cdn.example/a.png');
@@ -5909,6 +5919,23 @@ describe('layer read filter (canReadLayer)', () => {
     expect(has(v1, 'Open')).toBe(true);
     expect(bad.sent).toEqual([]);
     expect(has(v3, 'Open')).toBe(true);
+    hub.close();
+  });
+
+  it('hides a layer from a viewer whose canReadLayer returns a Promise', async () => {
+    const hub = new SyncHub({
+      canReadLayer: ((ctx: Parameters<CanReadLayer>[0]) =>
+        ctx.userId === 'async' ? Promise.resolve(true) : true) as unknown as CanReadLayer,
+    });
+    admit(hub, conn('sender', 'dm'));
+    const v1 = admit(hub, conn('v1', 'dm'));
+    const asyncViewer = admit(hub, conn('async', 'dm', 'async'));
+
+    await hub.handleMessage('sender', envelope('sender', upsert(1, 'sender', 'Open')));
+
+    expect(has(v1, 'Open')).toBe(true);
+    expect(has(asyncViewer, 'Open')).toBe(false);
+    expect(await snapshot(hub, asyncViewer)).not.toContain('Open');
     hub.close();
   });
 
