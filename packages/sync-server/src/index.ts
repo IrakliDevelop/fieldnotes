@@ -66,4 +66,5 @@ export type {
   ServerNext,
   PluginSnapshot,
   ServerExtensionRegistry,
+  PluginViewer,
 } from './sync-plugin';

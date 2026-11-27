@@ -70,9 +70,30 @@ const client = new SyncClient({
 });
 ```
 
-Server and Redis deployments use `createFogServerPlugin()` from `@fieldnotes/vtt/server` and
+Server and Redis deployments use `createFogServerPlugin` from `@fieldnotes/vtt/server` and
 `createFogBackendPlugin()` from `@fieldnotes/vtt/redis` respectively. These retain the v3
 `fog-meta`/`fog-patch` wire format.
+
+`createFogServerPlugin` throws unless it gets `authorize`, which decides who may change the fog,
+or `allowAnyWriter: true`, which lets every room member change it. Passing both also throws.
+`authorize` must return `true` to admit a write; any other value, a throw or a rejection denies it.
+
+```typescript
+import { createFogServerPlugin } from '@fieldnotes/vtt/server';
+
+const fog = createFogServerPlugin({ authorize: ({ role }) => role === 'gm' });
+```
+
+`filterSnapshot(snapshot, viewer)` redacts the fog snapshot a viewer joins with, and
+`filterOp(op, viewer)` redacts each live `fog-meta` or `fog-patch` op the same way; returning
+`null` withholds it. Pass the two together: either one without the other throws, since live ops
+or the join snapshot would bypass the redaction.
+A hub older than 0.32.0 never calls `filterOp`, so it sends live fog ops to every viewer
+unfiltered.
+
+Fog is a display aid. Every client in the room receives the elements under the fog. To withhold an
+element from players, give it an audience their `canRead` denies and hide its layer with
+`canReadLayer`, as the `@fieldnotes/sync-server` read filtering section shows.
 
 ### Managed authority fog
 
@@ -80,10 +101,10 @@ Managed authority rooms opt in with `createFogAuthorityClientExtension()` from
 `@fieldnotes/vtt/sync` and `createFogAuthorityServerExtension()` from
 `@fieldnotes/vtt/server`. These adapters require the managed-authority APIs shipped by
 `@fieldnotes/sync` and `@fieldnotes/sync-server` 0.26.0. The package peer ranges are
-`@fieldnotes/core` `>=0.110.0 <1.0.0`, `@fieldnotes/sync` and `@fieldnotes/sync-server`
-`>=0.28.0 <1.0.0`, and `@fieldnotes/sync-redis` `>=0.14.0 <1.0.0`; the three sync peers are
-optional. The exact checkpoint requirement is `fog/fog/1`, and the server owns `fog-meta` and
-`fog-patch` only when the factory is installed.
+`@fieldnotes/core` `>=0.110.0 <1.0.0`, `@fieldnotes/sync` `>=0.28.0 <1.0.0`,
+`@fieldnotes/sync-server` `>=0.32.0 <1.0.0`, and `@fieldnotes/sync-redis` `>=0.14.0 <1.0.0`;
+the three sync peers are optional. The exact checkpoint requirement is `fog/fog/1`, and the
+server owns `fog-meta` and `fog-patch` only when the factory is installed.
 
 `prepareFogAuthorityIntent()` and `applyFogAuthorityIntent()` expose immutable, bounded pure
 transitions for an application driver. Patches are atomic, contain at most 64 unique canonical

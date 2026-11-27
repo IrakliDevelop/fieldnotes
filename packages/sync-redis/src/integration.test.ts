@@ -220,13 +220,13 @@ describe('RedisHubBackend behind SyncHub', () => {
     const fanout = new InMemoryHubFanout();
     const hubA = new SyncHub({
       backend: new RedisHubBackend(fake, { plugins: [createFogBackendPlugin()] }),
-      plugins: [createFogServerPlugin()],
+      plugins: [createFogServerPlugin({ allowAnyWriter: true })],
       fanout,
       instanceId: 'hub-a',
     });
     const hubB = new SyncHub({
       backend: new RedisHubBackend(fake, { plugins: [createFogBackendPlugin()] }),
-      plugins: [createFogServerPlugin()],
+      plugins: [createFogServerPlugin({ allowAnyWriter: true })],
       fanout,
       instanceId: 'hub-b',
     });
