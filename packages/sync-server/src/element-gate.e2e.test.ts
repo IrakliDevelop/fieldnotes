@@ -1,5 +1,10 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { WebSocket as WsClient } from 'ws';
+import type { AddressInfo } from 'net';
+import { ElementStore } from '@fieldnotes/core';
 import {
+  SyncClient,
+  WebSocketTransport,
   createCurrentCapabilities,
   createExtensionKind,
   type BatchOp,
@@ -459,6 +464,33 @@ describe('element gate reconcile', () => {
     expect(seen(player)).toEqual(['hub: remove a', 'hub: remove b']);
   });
 
+  it('sends nothing from a reconcile whose room was emptied and reloaded while it read', async () => {
+    const { hub, backend, gm, player, writer } = await gateRoom(new Set(['a']), [el('a')]);
+    let release: () => void = () => undefined;
+    backend.hold = new Promise((resolve) => (release = resolve));
+
+    await write(hub, gm, toggle('a', false));
+    await vi.waitFor(() => expect(backend.calls).toBe(1));
+    for (const conn of [gm, player, writer]) hub.removeConnection(conn.id);
+    const joiner = admit(hub, makeConn('joiner', 'player'));
+    release();
+    await write(hub, joiner, toggle('none', false));
+
+    expect(seen(joiner)).toEqual([]);
+  });
+
+  it('retries a reconcile whose snapshot read failed on the next snapshot request', async () => {
+    const { hub, backend, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')]);
+    backend.failNext = true;
+
+    await write(hub, gm, toggle('a', true));
+    await flush();
+    await write(hub, writer, { kind: 'request-snapshot' });
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a']);
+  });
+
   it('removes an element moved while a reconcile that hides it is pending', async () => {
     const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')]);
 
@@ -722,4 +754,67 @@ describe('element ops a plugin returns', () => {
       expect(seen(player)).toEqual([`hub: remove ${hidden.id}`, 'hub: upsert ok']);
     },
   );
+});
+
+describe('first gate load', () => {
+  const servers: ReturnType<typeof createSyncServer>[] = [];
+  const transports: WebSocketTransport[] = [];
+
+  afterEach(async () => {
+    for (const transport of transports.splice(0)) transport.close();
+    for (const server of servers.splice(0)) await server.close();
+  });
+
+  async function waitFor(cond: () => boolean | Promise<boolean>): Promise<void> {
+    const start = Date.now();
+    while (!(await cond())) {
+      if (Date.now() - start > 2000) throw new Error('waitFor: condition not met within 2000ms');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  it('keeps the newer local edit of a reconnecting first member instead of resending the stored element', async () => {
+    const backend = new MemoryHubBackend();
+    await backend.applyElement('R', { kind: 'upsert', element: el('e', 10, 1) }, null);
+    let release: () => void = () => undefined;
+    const allowAll: ElementReadGate = () => true;
+    // The first load finishes only after the snapshot request is queued behind it.
+    const loaded = new Promise<ElementReadGate>((resolve) => (release = () => resolve(allowAll)));
+    const server = createSyncServer({
+      allowAnonymous: true,
+      port: 0,
+      backend,
+      plugins: [{ name: 'gate', elementReadGate: () => loaded }],
+      resolvePresenceAudience: () => undefined,
+    });
+    servers.push(server);
+    server.wss.on('connection', (ws) =>
+      ws.on('message', (data) => {
+        if (String(data).includes('request-snapshot')) release();
+      }),
+    );
+    const { port } = server.wss.address() as AddressInfo;
+    const store = new ElementStore();
+    store.add(el('e', 50, 2));
+    const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=R`, {
+      WebSocket: WsClient as unknown as typeof WebSocket,
+    });
+    transports.push(transport);
+    const received: string[] = [];
+    transport.onMessage((message) => {
+      const { from, op } = JSON.parse(message) as { from: string; op: SyncOp };
+      if (op.kind !== 'capabilities') received.push(`${from}: ${label(op)}`);
+    });
+    new SyncClient({ store, transport, firstSnapshot: 'reconcile' }).start();
+
+    const storedX = async () => {
+      const record = await backend.getRecord('R', 'e');
+      return record?.kind === 'element' ? record.element.position.x : undefined;
+    };
+    await waitFor(async () => (await storedX()) === 50 || received.length > 1);
+
+    expect(received).toEqual(['hub: snapshot e']);
+    expect(await storedX()).toBe(50);
+    expect(store.getById('e')?.position).toEqual({ x: 50, y: 0 });
+  });
 });

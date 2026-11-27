@@ -1302,8 +1302,10 @@ export class SyncHub {
     this.gates.drop(room);
     void this.roomQueue(room)
       .enqueue(async () => {
-        if (this.rooms.has(room) && (await this.gates.refresh(room, this.backend)))
-          this.scheduleReconcile(room);
+        if (!this.rooms.has(room)) return;
+        await this.gates.refresh(room, this.backend);
+        // No member has had a snapshot yet, so a reconcile would only resend stale stored state.
+        this.gates.markSettled(room);
       })
       .catch(() => {
         /* unloaded gates withhold every element; a later snapshot retries */
@@ -1336,6 +1338,8 @@ export class SyncHub {
     if (!current) return;
     const settled = this.gates.settled(room);
     const { elements } = await this.backend.snapshot(room);
+    // The room was dropped and reloaded while this read; the new load owns it.
+    if (this.gates.current(room) !== current) return;
     for (const cid of this.rooms.get(room) ?? []) {
       const conn = this.conns.get(cid);
       if (!conn || !this.peerCapabilities.has(cid)) continue;
@@ -1763,12 +1767,11 @@ export class SyncHub {
    * share it so a corrected sender is never left with less state than a joiner receives.
    */
   private async buildSnapshotOp(conn: Connection, to: string): Promise<SyncOp> {
-    if (
-      this.gates.active &&
-      this.rooms.has(conn.room) &&
-      (await this.gates.refresh(conn.room, this.backend))
-    )
-      this.scheduleReconcile(conn.room);
+    if (this.gates.active && this.rooms.has(conn.room)) {
+      const changed = await this.gates.refresh(conn.room, this.backend);
+      // A failed reconcile leaves the room pending; this retries it.
+      if (changed || this.gates.isPending(conn.room)) this.scheduleReconcile(conn.room);
+    }
     const { elements: all, tombstones: stored } = await this.backend.snapshot(conn.room);
     const elements =
       this.canRead || this.gates.active ? all.filter((el) => this.mayReadElement(conn, el)) : all;
