@@ -833,8 +833,8 @@ extension that owns that exact legacy kind. This does not activate a legacy VTT 
 codec-validated extension kinds, provide versioned snapshots, return sender-only corrections, and
 choose local or shared fanout per accepted operation. The hub writes before it publishes, and
 `process` may run up to 3 times for one op when a concurrent write conflicts, so keep side effects
-in `broadcast` and `corrections`. Fog authorization and state application are
-supplied by `createFogServerPlugin` from `@fieldnotes/vtt/server`, which requires `authorize` or
+in `broadcast` and `corrections`. Fog authorization and state application are supplied by
+`createFogServerPlugin` from `@fieldnotes/vtt/server`, which requires `authorize` or
 `allowAnyWriter: true`; the generic server has no runtime VTT dependency.
 
 `filterSnapshot(snapshot, viewer)` redacts a plugin's snapshot per viewer, and
@@ -845,8 +845,9 @@ for each local peer, so upgrade every instance together. `viewer` is a `PluginVi
 another kind withholds the frame from that recipient. `filterOp` must not mutate its input; return
 a copy.
 
-Fog is a display aid: every client in the room receives the elements under it. Elements a viewer
-must not receive belong on layers hidden with `canReadLayer`.
+Fog is a display aid: every client in the room receives the elements under it. To withhold an
+element, give it an audience `canRead` denies and hide its layer with `canReadLayer` (see
+[Layers](#layers)).
 
 ## Maintainer release check
 

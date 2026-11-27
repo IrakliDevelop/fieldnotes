@@ -34,13 +34,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 - `allowAnyWriter` and `filterOp` options on `createFogServerPlugin`.
 - Types `FogViewer` and `FogOp`.
-- A throwing or rejecting `authorize` denies the write with a sender correction instead of
-  escaping.
 
 **Changed**
 
-- `filterOp` needs `@fieldnotes/sync-server` 0.32.0; an older hub never calls it. The
-  `@fieldnotes/sync-server` peer floor is now 0.32.0.
+- A throwing or rejecting `authorize` denies the write with a sender correction instead of
+  escaping.
+- The `@fieldnotes/sync-server` peer floor is now 0.32.0: an older hub never calls `filterOp`.
 
 ### Sync 0.31.0 — image source check
 
