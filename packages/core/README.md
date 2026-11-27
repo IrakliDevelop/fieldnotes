@@ -76,8 +76,8 @@ Your container element needs a defined size (width/height). The canvas fills its
 `Viewport` installs no tools and no optional features by itself, so a bundle carries only what you
 import. Each feature is a plugin for the `plugins` option:
 
-- `paletteFeature(options?)`: the command palette and shortcuts help.
-- `presentationFeature()`: presentation mode behind `viewport.presentation`.
+- `paletteFeature(options?)`: the [command palette and shortcuts help](https://fieldnotesjs.dev/docs/tools-and-input/#command-palette-and-find-on-the-board).
+- `presentationFeature()`: [presentation mode](https://fieldnotesjs.dev/docs/tools-and-input/#presentation) behind `viewport.presentation`.
 - `minimapFeature()`: the overview minimap in the bottom-right corner.
 - `defaultFeatures(options?)`: `paletteFeature` and `presentationFeature` together.
 

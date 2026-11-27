@@ -17,8 +17,8 @@ Full runnable example: `examples/vue` — `pnpm --filter fieldnotes-vue-example 
 The canvas needs a container with a defined size — it fills whatever it's given. It registers the
 tools you pass in `tools` and starts on `select` when it is one of them; without `tools` it has
 none. A persisting board with the default tools (`createDefaultTools()`: hand, select, pencil,
-eraser, arrow, note, text, shape) and the default features (`defaultFeatures()`: command palette,
-shortcuts help and presentation) is one component:
+eraser, arrow, note, text, shape and frame) and the default features (`defaultFeatures()`: command
+palette, shortcuts help and presentation) is one component:
 
 ```vue
 <script setup lang="ts">
@@ -99,17 +99,17 @@ this package proxies it for you.
 
 Not all props are reactive — the canvas is stateful. Changing a mount-only prop after mount has no effect:
 
-| Prop                            | Reactivity                                                                                |
-| ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `options`                       | Mount-only — the canvas is stateful; construct with the right options                     |
-| `tools`                         | Array: reactive, append-only (pushes into a reactive array register too). Else mount-only |
-| `initialData`                   | Mount-only — loaded once before `onReady`                                                 |
-| `onChange` / `changeDebounceMs` | Reactive — the latest callback is used without resubscribing                              |
-| `tool` / `onToolChange`         | Reactive (controlled). `v-model:tool` binds both                                          |
-| `defaultTool`                   | Mount-only (uncontrolled initial tool); ignored when `tool` is set                        |
-| `snapToGrid` (deprecated)       | Reactive compatibility prop; prefer a domain constraint service                           |
-| `theme`                         | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object.            |
-| `class` / `style`               | Fall through to the root `<div>`                                                          |
+| Prop                            | Reactivity                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `options`                       | Mount-only — the canvas is stateful; construct with the right options          |
+| `tools`                         | Array: reactive, append-only (pushes into a reactive array register too)       |
+| `initialData`                   | Mount-only — loaded once before `onReady`                                      |
+| `onChange` / `changeDebounceMs` | Reactive — the latest callback is used without resubscribing                   |
+| `tool` / `onToolChange`         | Reactive (controlled). `v-model:tool` binds both                               |
+| `defaultTool`                   | Mount-only (uncontrolled initial tool); ignored when `tool` is set             |
+| `snapToGrid` (deprecated)       | Reactive compatibility prop; prefer a domain constraint service                |
+| `theme`                         | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object. |
+| `class` / `style`               | Fall through to the root `<div>`                                               |
 
 `tools` as an array registers each tool once (tools cannot be unregistered). They register
 at mount, before `onReady` (so you can customise them there), then `tool`, `defaultTool` or

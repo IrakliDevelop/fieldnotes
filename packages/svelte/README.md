@@ -19,8 +19,8 @@ Full runnable example: `examples/svelte` — `pnpm --filter fieldnotes-svelte-ex
 The canvas needs a container with a defined size — it fills whatever it's given. It registers the
 tools you pass in `tools` and starts on `select` when it is one of them; without `tools` it has
 none. A persisting board with the default tools (`createDefaultTools()`: hand, select, pencil,
-eraser, arrow, note, text, shape) and the default features (`defaultFeatures()`: command palette,
-shortcuts help and presentation) is one component:
+eraser, arrow, note, text, shape and frame) and the default features (`defaultFeatures()`: command
+palette, shortcuts help and presentation) is one component:
 
 ```svelte
 <script lang="ts">

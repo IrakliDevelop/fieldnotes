@@ -42,17 +42,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Published source maps no longer embed sources.
 - Bundle size, gzip bytes, measured by `pnpm bundle:check` (esbuild bundle and minify from source,
   ESM, es2022, then gzip -9), before and after:
-  - `new Viewport(el)` alone: 116,988 to 82,738 (117.0 KB to 82.7 KB).
-  - with hand, select and pencil tools: 117,021 to 91,805 (117.0 KB to 91.8 KB).
+  - `new Viewport(el)` alone: 116,988 to 82,738 (117.0 kB to 82.7 kB).
+  - with hand, select and pencil tools: 117,021 to 91,805 (117.0 kB to 91.8 kB).
   - default tools, `defaultFeatures()`, `minimapFeature()` and the three export functions:
-    117,020 to 118,701 (117.0 KB to 118.7 KB).
+    117,020 to 118,699 (117.0 kB to 118.7 kB).
+- A host plugin with `priority` below -1000 now registers its actions before the built-in
+  `presentation.*` and `link.*` actions.
+- `mountViewport` no longer re-activates a tool that is already active at mount, so tool-change
+  listeners subscribed in `onReady` fire once instead of twice.
 
 ### React 0.18.0 — tools passed by the host
 
 **Breaking**
 
-- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools. See the
-  migration table under Core 0.111.0.
+- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools.
+  `options.plugins` must include `defaultFeatures()` to keep the palette, help and presentation.
+  See the migration table under Core 0.111.0.
 
 **Changed**
 
@@ -62,8 +67,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 **Breaking**
 
-- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools. See the
-  migration table under Core 0.111.0.
+- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools.
+  `options.plugins` must include `defaultFeatures()` to keep the palette, help and presentation.
+  See the migration table under Core 0.111.0.
 
 **Changed**
 
@@ -73,8 +79,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 **Breaking**
 
-- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools. See the
-  migration table under Core 0.111.0.
+- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools.
+  `options.plugins` must include `defaultFeatures()` to keep the palette, help and presentation.
+  See the migration table under Core 0.111.0.
 
 **Changed**
 
@@ -84,8 +91,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 **Breaking**
 
-- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools. See the
-  migration table under Core 0.111.0.
+- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools.
+  `options.plugins` must include `defaultFeatures()` to keep the palette, help and presentation.
+  See the migration table under Core 0.111.0.
 
 **Changed**
 

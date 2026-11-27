@@ -17,9 +17,9 @@ Full runnable example: `examples/angular` (`pnpm --filter fieldnotes-angular-exa
 
 `<fn-canvas>` fills its own box, so give it a size. It registers the tools you pass in `tools` and
 starts on `select` when it is one of them; without `tools` it has none. A persisting board with the
-default tools (`createDefaultTools()`: hand, select, pencil, eraser, arrow, note, text, shape) and
-the default features (`defaultFeatures()`: command palette, shortcuts help and presentation) is one
-element:
+default tools (`createDefaultTools()`: hand, select, pencil, eraser, arrow, note, text, shape and
+frame) and the default features (`defaultFeatures()`: command palette, shortcuts help and
+presentation) is one element:
 
 ```ts
 import { Component } from '@angular/core';

@@ -17,10 +17,11 @@ Full runnable example: `examples/react-app` — `pnpm --filter fieldnotes-react-
 The canvas needs a container with a defined size — it fills whatever it's given. It registers the
 tools you pass in `tools` and starts on `select` when it is one of them; without `tools` it has
 none. A persisting board with the default tools (`createDefaultTools()`: hand, select, pencil,
-eraser, arrow, note, text, shape) and the default features (`defaultFeatures()`: command palette,
-shortcuts help and presentation) is one element:
+eraser, arrow, note, text, shape and frame) and the default features (`defaultFeatures()`: command
+palette, shortcuts help and presentation) is one element:
 
 ```tsx
+import { useMemo } from 'react';
 import { FieldNotesCanvas } from '@fieldnotes/react';
 import { createDefaultTools, defaultFeatures, type CanvasState } from '@fieldnotes/core';
 
@@ -28,11 +29,14 @@ const saved = localStorage.getItem('board') ?? undefined;
 const save = (state: CanvasState) => localStorage.setItem('board', JSON.stringify(state));
 
 export function App() {
+  // Tools and plugins belong to one canvas, so each component creates its own.
+  const tools = useMemo(() => createDefaultTools(), []);
+  const options = useMemo(() => ({ plugins: defaultFeatures() }), []);
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
       <FieldNotesCanvas
-        tools={createDefaultTools()}
-        options={{ plugins: defaultFeatures() }}
+        tools={tools}
+        options={options}
         initialData={saved}
         onChange={save}
         style={{ width: '100%', height: '100%' }}
@@ -131,7 +135,7 @@ With a `tool` prop, the prop decides the active tool: a switch from the keyboard
 
 After `tools` removes a tool, `useToolOptions` for that name keeps returning its last options until the component re-renders, then returns `null`.
 
-`tools` registers its tools at mount, before `onReady`, then activates `tool`, `defaultTool` or `select`. Without a `tools` prop the canvas registers no tools; when `options.tools` is also unset, `tool` or `defaultTool` activates after `onReady`, so tools registered there can be selected. `tools={[]}` registers nothing. Hoist an array out of render.
+`tools` registers its tools at mount, before `onReady`, then activates `tool`, `defaultTool` or `select`. Without a `tools` prop the canvas registers no tools; when `options.tools` is also unset, `tool` or `defaultTool` activates after `onReady`, so tools registered there can be selected. `tools={[]}` registers nothing. Hoist an array out of render or memoise it per component.
 
 Runtime changes beyond these go through the viewport — access it via `useViewport()` or the ref. Grid snapping is domain behavior; VTT consumers should configure `GridController` and its constraint service rather than adopting the deprecated React prop. The background pattern is constructor-only (`options.background`).
 

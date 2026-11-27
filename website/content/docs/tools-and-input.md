@@ -129,7 +129,7 @@ Press ? or call `viewport.shortcutsHelp.open()` to open shortcuts help. It is bu
 
 ## Presentation
 
-`viewport.presentation.start()` steps through every frame on a visible layer, in scene order. To show other areas, pass `start({ slides })` with a camera `view` for each slide.
+Presentation comes from `presentationFeature()`, which `defaultFeatures()` includes. Without it, `start()` throws. `viewport.presentation.start()` steps through every frame on a visible layer, in scene order. To show other areas, pass `start({ slides })` with a camera `view` for each slide.
 
 `next()`, `previous()` and `goTo(index)` move between slides and return `false` when they can't; `exit()` ends the presentation. `onChange` reports every step, and `getState()` returns `index` and `count` for a slide counter.
 
