@@ -786,6 +786,64 @@ describe('element gate reconcile', () => {
     expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
   });
 
+  it('does not re-send an element the viewer received live after a withheld upsert', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 20) }),
+      write(hub, gm, toggle('b', false)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 30, 2) }),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['gm: upsert b']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 30, y: 0 });
+  });
+
+  it('does not re-send an element the viewer received live after a gate remove', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('b')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 20, 2) }),
+      write(hub, gm, toggle('b', false)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 30, 3) }),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove b', 'gm: upsert b']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 30, y: 0 });
+  });
+
+  it('does not re-send an element the viewer wrote itself after a gate remove', async () => {
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('b')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, writer, { kind: 'upsert', element: el('b', 20, 2) }),
+      write(hub, gm, toggle('b', false)),
+      write(hub, player, { kind: 'upsert', element: el('b', 30, 3) }),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove b']);
+  });
+
+  it('does not re-send an element a snapshot gave the viewer after a withheld upsert', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 20) }),
+      write(hub, gm, toggle('b', false)),
+      write(hub, player, { kind: 'request-snapshot' }),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: snapshot a,b']);
+  });
+
   it('sends back an element removed by a live op during a failed refresh once the next load allows it', async () => {
     const switchable = switchablePlugin(new Set());
     let failNext = false;

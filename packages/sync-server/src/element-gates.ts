@@ -41,6 +41,10 @@ function keepReplaced(state: RoomGateState, replaced: GateSet): void {
   else state.overflowed = true;
 }
 
+function forgetRemovedOf(state: RoomGateState, cid: string): void {
+  for (const key of state.removed) if (key.startsWith(`${cid}\n`)) state.removed.delete(key);
+}
+
 /** Per-room element read gates: the set in force and the settled set. */
 export class RoomElementGates {
   private readonly plugins: readonly ServerSyncPlugin[];
@@ -128,16 +132,23 @@ export class RoomElementGates {
     this.rooms.get(room)?.removed.add(`${cid}\n${elementId}`);
   }
 
+  forgetRemoved(room: string, cid: string, elementId: string): void {
+    this.rooms.get(room)?.removed.delete(`${cid}\n${elementId}`);
+  }
+
   noteSnapshot(room: string, cid: string): void {
     const state = this.rooms.get(room);
-    state?.snapshots.set(cid, state.current ?? 'deny');
+    if (!state) return;
+    state.snapshots.set(cid, state.current ?? 'deny');
+    // The snapshot replaces what the viewer holds.
+    forgetRemovedOf(state, cid);
   }
 
   forgetConnection(room: string, cid: string): void {
     const state = this.rooms.get(room);
     if (!state) return;
     state.snapshots.delete(cid);
-    for (const key of state.removed) if (key.startsWith(`${cid}\n`)) state.removed.delete(key);
+    forgetRemovedOf(state, cid);
   }
 
   /** True when the connection may lack the element: a gate removed it, its last snapshot or else settled withheld it. */

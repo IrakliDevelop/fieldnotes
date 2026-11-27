@@ -917,13 +917,13 @@ export class SyncHub {
         if (batch) batch.push(delivery);
         else this.deliverToRoom(conn.room, conn.id, conn.id, [delivery]);
         // The sender holds its own upsert, so a gate that denies it must take it back.
-        if (
-          accepted.kind === 'upsert' &&
-          this.gates.active &&
-          !this.gatesAllowNow(conn, accepted.element)
-        ) {
-          this.noteGateRemove(conn, accepted.element);
-          this.sendToConnection(conn, HUB_FROM, hubRemoveOf(accepted.element));
+        if (accepted.kind === 'upsert' && this.gates.active) {
+          if (this.gatesAllowNow(conn, accepted.element)) {
+            this.gates.forgetRemoved(conn.room, conn.id, accepted.element.id);
+          } else {
+            this.noteGateRemove(conn, accepted.element);
+            this.sendToConnection(conn, HUB_FROM, hubRemoveOf(accepted.element));
+          }
         }
       }
       await this.deliverPluginResult(conn, pluginOutput, opVersion);
@@ -1415,6 +1415,13 @@ export class SyncHub {
     if (message === null) return false;
     try {
       conn.send(message);
+      if (this.gates.active) {
+        // The viewer now holds each upserted element, so the reconcile need not resend it.
+        const ops: readonly (SyncOp | BatchOp)[] = op.kind === 'batch' ? op.ops : [op];
+        for (const sent of ops) {
+          if (sent.kind === 'upsert') this.gates.forgetRemoved(conn.room, conn.id, sent.element.id);
+        }
+      }
       return true;
     } catch {
       return false;

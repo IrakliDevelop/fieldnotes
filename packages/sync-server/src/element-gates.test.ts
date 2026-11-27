@@ -134,6 +134,33 @@ describe('RoomElementGates', () => {
     expect(gates.mayLack('R', 'q', element, viewer)).toBe(true);
   });
 
+  it('forgetRemoved clears only that connection and element', async () => {
+    const other = { ...element, id: 'other' };
+    const gates = new RoomElementGates([plugin('a', () => () => true)]);
+    await gates.refresh('R', backend);
+    gates.noteRemoved('R', 'p', element.id);
+    gates.noteRemoved('R', 'p', other.id);
+    gates.noteRemoved('R', 'q', element.id);
+
+    gates.forgetRemoved('R', 'p', element.id);
+
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'p', other, viewer)).toBe(true);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(true);
+  });
+
+  it('noteSnapshot clears the removes of that connection only', async () => {
+    const gates = new RoomElementGates([plugin('a', () => () => true)]);
+    await gates.refresh('R', backend);
+    gates.noteRemoved('R', 'p', element.id);
+    gates.noteRemoved('R', 'q', element.id);
+
+    gates.noteSnapshot('R', 'p');
+
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(true);
+  });
+
   it('ignores overflow when judging what a viewer may lack', async () => {
     const other = { ...element, id: 'other' };
     const gates = new RoomElementGates([plugin('a', () => (el) => el.id !== other.id)]);
