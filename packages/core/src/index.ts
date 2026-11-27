@@ -203,6 +203,7 @@ export type {
   PresentationStartOptions,
   PresentationState,
 } from './canvas/presentation';
+export { presentationFeature } from './canvas/features/presentation-feature';
 export type { PaletteApi } from './canvas/command-palette';
 export type { ShortcutsHelpApi } from './canvas/shortcuts-help';
 export type { PaletteOptions, PaletteStrings } from './canvas/palette-model';

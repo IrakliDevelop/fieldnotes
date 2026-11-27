@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from './viewport';
+import { presentationFeature } from './features/presentation-feature';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
 import { createNote, createShape } from '../elements/element-factory';
@@ -495,6 +496,11 @@ describe('createShortcutsSource', () => {
 
 describe('createPresentationSource', () => {
   it('keeps its snapshot until the presentation changes', () => {
+    vp.destroy();
+    vp = new Viewport(container, {
+      tools: [new SelectTool(), new PencilTool()],
+      plugins: [presentationFeature()],
+    });
     Object.defineProperty(container, 'clientWidth', { configurable: true, value: 800 });
     Object.defineProperty(container, 'clientHeight', { configurable: true, value: 600 });
     vp.store.add(createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 100 } }));

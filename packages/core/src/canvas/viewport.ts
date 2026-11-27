@@ -87,12 +87,8 @@ import { ContextLossGuard } from './context-loss-guard';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
 import { normalizeLink } from '../elements/link';
 import { LinkController } from './link-controller';
-import {
-  createPresentationActions,
-  framePresentationSlides,
-  PresentationMode,
-} from './presentation';
 import type { PresentationApi } from './presentation';
+import { coreActionsPlugin, createFeatureHost, INERT_PRESENTATION } from './feature-host';
 import { CommandPalette, createPaletteActions } from './command-palette';
 import type { PaletteApi } from './command-palette';
 import { ShortcutsHelp } from './shortcuts-help';
@@ -229,7 +225,7 @@ export class Viewport {
   private readonly disposers: (() => void)[] = [];
   private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
-  private readonly presentationMode: PresentationMode;
+  private presentationApi: PresentationApi | null = null;
   private readonly commandPalette: CommandPalette | null;
   private readonly shortcutsHelpDialog: ShortcutsHelp | null;
   private readonly background: Background;
@@ -536,27 +532,6 @@ export class Viewport {
       assets: options.assets,
       onImageError: reportImageError,
     });
-    this.presentationMode = new PresentationMode({
-      container: this.container,
-      wrapper: this.wrapper,
-      camera: this.camera,
-      getCanvasSize: () => this.getCanvasSize(),
-      defaultSlides: () =>
-        framePresentationSlides(this.store, (id) => this.layerManager.isLayerVisible(id)),
-      onResize: (listener) => this.onResize(listener),
-      activeToolName: () => this.toolManager.activeTool?.name ?? null,
-      setTool: (name) => this.actionRegistry.run('tool.' + name, { source: 'api' }),
-      clearSelection: () => this.getSelectTool()?.setSelection([]),
-      stopCameraMotion: () => this.inputHandler.stopPanInertia(),
-      hasOpenOverlay: () =>
-        (this.contextMenu?.isOpen() ?? false) ||
-        this.interactMode.isInteracting() ||
-        (this.commandPalette?.isOpen() ?? false) ||
-        (this.shortcutsHelpDialog?.isOpen() ?? false),
-    });
-    const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
-      (action) => this.actionRegistry.register(action),
-    );
     this.links = new LinkController({
       store: this.store,
       layerManager: this.layerManager,
@@ -575,12 +550,12 @@ export class Viewport {
       },
       setLink: (ids, link) => this.setLink(ids, link),
     });
-    const unregisterLinkActions = createLinkActions({
-      setLink: (ids, link) => this.setLink(ids, link),
-      openLink: (id) => this.links.open(id, null),
-      promptLink: (ids, initial, label) => this.links.prompt(ids, initial, label),
-    }).map((action) => this.actionRegistry.register(action));
-    const unregisterEditText = this.actionRegistry.register(
+    const coreActions = [
+      ...createLinkActions({
+        setLink: (ids, link) => this.setLink(ids, link),
+        openLink: (id) => this.links.open(id, null),
+        promptLink: (ids, initial, label) => this.links.prompt(ids, initial, label),
+      }),
       createEditTextAction({
         store: this.store,
         layerManager: this.layerManager,
@@ -588,14 +563,8 @@ export class Viewport {
         editBoundText: (id) => this.interactions.editBoundText(id),
         startEditingElement: (id) => this.interactions.startEditingElement(id),
       }),
-    );
-    this.disposers.push(
-      ...unregisterPresentationActions,
-      ...unregisterLinkActions,
-      () => this.links.closePrompt(),
-      unregisterEditText,
-      () => this.presentationMode.destroy(),
-    );
+    ];
+    this.disposers.push(() => this.links.closePrompt());
     if (options.embedded) {
       // After InputHandler, whose touch-action: none this overrides.
       const embeddedMode = new EmbeddedMode({
@@ -669,19 +638,42 @@ export class Viewport {
       });
       this.commandPalette = palette;
       this.shortcutsHelpDialog = help;
-      this.disposers.push(
-        ...createPaletteActions(palette, help).map((action) =>
-          this.actionRegistry.register(action),
-        ),
-        () => {
-          help.destroy();
-          palette.destroy();
-        },
-      );
+      // Palette actions follow link and edit-text in registry order.
+      coreActions.push(...createPaletteActions(palette, help));
+      this.disposers.push(() => {
+        help.destroy();
+        palette.destroy();
+      });
     }
 
+    createFeatureHost({
+      viewport: this,
+      container: this.container,
+      wrapper: this.wrapper,
+      actions: this.actionRegistry,
+      getActionContext: () => this.currentActionContext(),
+      getBindings: () => this.inputHandler.shortcuts.getBindings(),
+      matchShortcut: (event) => this.inputHandler.matchShortcut(event),
+      stopCameraMotion: () => this.inputHandler.stopPanInertia(),
+      closeContextMenu: () => this.contextMenu?.close(),
+      selectionColor: () => options.selectionColor ?? this.theme.tokens.selection,
+      clearSelection: () => this.getSelectTool()?.setSelection([]),
+      isMac,
+      getExtraBounds: () => this.pluginHost.getExtraBounds(),
+      hasViewportOverlay: () =>
+        (this.contextMenu?.isOpen() ?? false) ||
+        this.interactMode.isInteracting() ||
+        (this.commandPalette?.isOpen() ?? false) ||
+        (this.shortcutsHelpDialog?.isOpen() ?? false),
+      setPresentation: (api) => {
+        this.presentationApi = api;
+      },
+    });
     try {
-      this.pluginHost.configurePlugins(options.plugins);
+      this.pluginHost.configurePlugins([
+        coreActionsPlugin(coreActions),
+        ...(options.plugins ?? []),
+      ]);
     } catch (error) {
       this.destroy();
       throw error;
@@ -1149,7 +1141,7 @@ export class Viewport {
 
   /** Presentation controls for this viewport. */
   get presentation(): PresentationApi {
-    return this.presentationMode;
+    return this.presentationApi ?? INERT_PRESENTATION;
   }
 
   /** Command palette controls for this viewport. */

@@ -45,6 +45,7 @@ import { setTextMeasurer } from '../elements/text-measure';
 import { ElementRegistry } from '../elements/element-registry';
 import { createBoundText } from '../elements/bound-text';
 import { installRecordingContexts } from '../test-helpers/recording-contexts';
+import { presentationFeature } from './features/presentation-feature';
 import type { RenderLoop } from './render-loop';
 
 function arrowAnchor(from: { x: number; y: number }, to: { x: number; y: number }, bend: number) {
@@ -3509,7 +3510,7 @@ describe('Viewport', () => {
     });
 
     it('viewport.actions.list() contains the 31 built-ins followed by presentation, palette and tool actions, and shortcuts.getBindings() has canonical keys only', () => {
-      const viewport = new Viewport(container);
+      const viewport = new Viewport(container, { plugins: [presentationFeature()] });
       setupSelect(viewport);
       const list = viewport.actions.list();
       const builtins = list.filter(
@@ -3903,7 +3904,7 @@ describe('Viewport', () => {
 
   describe('presentation', () => {
     function presentationHarness() {
-      const h = createViewportHarness();
+      const h = createViewportHarness({ plugins: [presentationFeature()] });
       const canvas = h.container.querySelector('canvas');
       if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
       Object.defineProperties(canvas, {
@@ -4218,7 +4219,7 @@ describe('Viewport', () => {
     });
 
     it('Escape closes the palette before ending a presentation', () => {
-      const viewport = createPaletteViewport();
+      const viewport = createPaletteViewport(container, { plugins: [presentationFeature()] });
       sizeCanvas(viewport);
       addFrames(viewport);
       expect(viewport.presentation.start({ fullscreen: false, animate: false })).toBe(true);
@@ -4247,7 +4248,7 @@ describe('Viewport', () => {
     });
 
     it('Escape on the board with the palette open closes the palette and keeps the presentation', () => {
-      const viewport = createPaletteViewport();
+      const viewport = createPaletteViewport(container, { plugins: [presentationFeature()] });
       sizeCanvas(viewport);
       addFrames(viewport);
       expect(viewport.presentation.start({ fullscreen: false, animate: false })).toBe(true);
@@ -4260,7 +4261,7 @@ describe('Viewport', () => {
     });
 
     it('fixed presentation help rows drive the presentation', () => {
-      const viewport = createPaletteViewport();
+      const viewport = createPaletteViewport(container, { plugins: [presentationFeature()] });
       sizeCanvas(viewport, 400, 324);
       addFrames(viewport, 3);
       const keys: Record<

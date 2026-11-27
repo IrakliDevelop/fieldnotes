@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createNote, createText } from '../elements/element-factory';
 import { createFrame } from '../elements/frame-element';
+import { presentationFeature } from './features/presentation-feature';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { Camera } from './camera';
 import { CommandPalette, createPaletteActions } from './command-palette';
@@ -57,7 +58,7 @@ const ghostDefinition: ElementTypeDefinition<GhostElement> = {
 };
 
 function makeDeps(overrides: Partial<CommandPaletteDeps> = {}) {
-  const harness = createViewportHarness();
+  const harness = createViewportHarness({ plugins: [presentationFeature()] });
   cleanup.push(() => harness.cleanup());
   const container = document.createElement('div');
   const wrapper = document.createElement('div');
