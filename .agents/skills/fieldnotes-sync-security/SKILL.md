@@ -70,7 +70,7 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
   removes and upserts per viewer instead.
 - A plugin with `elementReadGate` requires `resolvePresenceAudience` (`SyncHub` throws), but its
   audience takes effect only with `canRead`; without `canRead` every member gets presence, including
-  a GM's drag of a hidden token. A host that withholds that drag passes both.
+  a DM's drag of a hidden token. A host that withholds that drag passes both.
 
 **Image sources**
 

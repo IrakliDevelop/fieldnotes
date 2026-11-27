@@ -860,10 +860,10 @@ the plugin must return the same function while its answer is unchanged: a new fu
 hub re-check every element for every local viewer, then send a remove for elements a viewer lost
 and the element for ones it gained. Stored elements and their versions do not change.
 
-The hub requires `resolvePresenceAudience` with an `elementReadGate` plugin. The audience it returns
-takes effect only when the host also passes `canRead`: without `canRead`, every member gets
-presence whatever the audience. To keep a GM's drag of a hidden token from players, pass both.
-With `() => undefined` every member gets presence:
+The hub requires `resolvePresenceAudience` with an `elementReadGate` plugin and throws without it.
+The audience it returns takes effect only when the host also passes `canRead`. Without `canRead`,
+every member gets presence, including a DM's drag of a hidden token, so pass both to keep that drag
+from players:
 
 ```text
 SyncHub: a plugin with `elementReadGate` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)
