@@ -269,6 +269,16 @@ describe('element read gate', () => {
     );
   });
 
+  it('relays presence to every member when a gate plugin returns an audience without canRead', async () => {
+    const { hub, gm, player, batcher, writer } = await room(gated(), {
+      resolvePresenceAudience: () => 'gm',
+    });
+
+    await write(hub, writer, { kind: 'presence', data: { cursor: { x: 1, y: 2 } } });
+
+    for (const conn of [gm, player, batcher]) expect(seen(conn)).toEqual(['writer: presence']);
+  });
+
   it('sends the same frames with a plugin lacking elementReadGate as with no plugin', async () => {
     const run = async (plugins: readonly ServerSyncPlugin[]) => {
       const { hub, gm, player, batcher, writer } = await room(plugins);
@@ -293,11 +303,12 @@ class CountingBackend extends MemoryHubBackend {
   calls = 0;
   hold: Promise<void> = Promise.resolve();
   failNext = false;
+  failing = false;
 
   override async snapshot(room: string): ReturnType<MemoryHubBackend['snapshot']> {
     this.calls += 1;
     await this.hold;
-    if (this.failNext) {
+    if (this.failNext || this.failing) {
       this.failNext = false;
       throw new Error('backend down');
     }
@@ -571,6 +582,294 @@ describe('element gate reconcile', () => {
     await flush();
 
     expect(seen(player)).toEqual(['hub: remove a', 'hub: remove a']);
+  });
+
+  it('removes an element delivered live under a reveal that was covered again before the reconcile', async () => {
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(['a']), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('a', false)),
+      write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) }),
+      write(hub, gm, toggle('a', true)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['writer: upsert a', 'hub: remove a']);
+  });
+
+  it('removes an element sent in a snapshot under a reveal that was covered again before the reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(['a']), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('a', false)),
+      write(hub, player, { kind: 'request-snapshot' }),
+      write(hub, gm, toggle('a', true)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: snapshot a', 'hub: remove a']);
+  });
+
+  it('removes what an intermediate gate set allowed after a reconcile that failed', async () => {
+    const { hub, backend, gm, player, writer, flush } = await gateRoom(new Set(['a']), [el('a')]);
+    backend.failNext = true;
+
+    await write(hub, gm, toggle('a', false));
+    await flush();
+    await write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) });
+    await write(hub, gm, toggle('a', true));
+    await flush();
+
+    expect(seen(player)).toEqual(['writer: upsert a', 'hub: remove a']);
+  });
+
+  it('removes an element revealed before a failed gate refresh once the next load covers it', async () => {
+    const switchable = switchablePlugin(new Set(['a']));
+    let failNext = false;
+    const flaky: ServerSyncPlugin = {
+      ...switchable,
+      elementReadGate: async (room, store) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('gate down');
+        }
+        return switchable.elementReadGate?.(room, store);
+      },
+    };
+    const { hub, backend, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')], {
+      plugins: [flaky],
+    });
+    backend.failNext = true;
+
+    await write(hub, gm, toggle('a', false));
+    await flush();
+    await write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) });
+    failNext = true;
+    await write(hub, gm, toggle('a', true)).catch(() => undefined);
+    // The first flush loads the gates and queues the reconcile; the second waits for it.
+    await flush();
+    await flush();
+
+    expect(seen(player)).toEqual(['writer: upsert a', 'hub: remove a']);
+  });
+
+  it('sends back an element the gate took from its sender when a reveal lands before the reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('a', true)),
+      write(hub, player, { kind: 'upsert', element: el('a', 20, 2) }),
+      write(hub, gm, toggle('a', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: upsert a']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
+  });
+
+  it('sends back an element a correction removed under a cover when a reveal lands before the reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')], {
+      authorize: ({ role }) => role === 'gm',
+    });
+
+    await Promise.all([
+      write(hub, gm, toggle('a', true)),
+      write(hub, player, { kind: 'upsert', element: el('a', 20, 2) }),
+      write(hub, gm, toggle('a', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: upsert a']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 10, y: 0 });
+  });
+
+  it('sends a revealed element to a player whose snapshot request failed before the reconcile', async () => {
+    const switchable = switchablePlugin(new Set(['a']));
+    let failSnapshot = true;
+    const failing: ServerSyncPlugin = {
+      ...switchable,
+      snapshot: async () => {
+        if (failSnapshot) {
+          failSnapshot = false;
+          throw new Error('snapshot down');
+        }
+        return undefined;
+      },
+    };
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')], {
+      plugins: [failing],
+    });
+    failSnapshot = true;
+
+    await Promise.all([
+      write(hub, gm, toggle('a', false)),
+      write(hub, player, { kind: 'request-snapshot' }).catch(() => undefined),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert a']);
+  });
+
+  it('reveals both elements when two reveals land before one reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(['a', 'b']), [el('a'), el('b')]);
+
+    await Promise.all([write(hub, gm, toggle('a', false)), write(hub, gm, toggle('b', false))]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert a', 'hub: upsert b']);
+  });
+
+  it('restores an element removed under an intermediate cover when the reveal returns before the reconcile', async () => {
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(['a']), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('a', false)),
+      write(hub, gm, toggle('a', true)),
+      write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) }),
+      write(hub, gm, toggle('a', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: upsert a']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
+  });
+
+  it('after the since list overflows, removes denied elements and upserts only those a viewer lacked', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(['c']), [el('a'), el('b'), el('c')]);
+    const ids = ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x8', 'x9'];
+
+    await Promise.all([
+      ...ids.map((id) => write(hub, gm, toggle(id, true))),
+      write(hub, gm, toggle('b', true)),
+      write(hub, gm, toggle('c', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove b', 'hub: upsert c']);
+  });
+
+  it('does not re-send an element to a viewer that held it through an intermediate cover', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([write(hub, gm, toggle('a', true)), write(hub, gm, toggle('a', false))]);
+    await flush();
+
+    expect(seen(player)).toEqual([]);
+  });
+
+  it('sends an element created under an intermediate cover when the reveal lands before the reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 20) }),
+      write(hub, gm, toggle('b', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert b']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
+  });
+
+  it('sends an element moved under an intermediate cover when the reveal lands before the reconcile', async () => {
+    const plugins = [switchablePlugin(new Set(), (element) => element.position.x < 0)];
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('n', -10)], { plugins });
+
+    await Promise.all([
+      write(hub, gm, toggle('n', true)),
+      write(hub, gm, { kind: 'upsert', element: el('n', 20, 2) }),
+      write(hub, gm, toggle('n', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert n']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
+  });
+
+  it('does not re-send an element the viewer received live after a withheld upsert', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 20) }),
+      write(hub, gm, toggle('b', false)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 30, 2) }),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['gm: upsert b']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 30, y: 0 });
+  });
+
+  it('does not re-send an element the viewer received live after a gate remove', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('b')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 20, 2) }),
+      write(hub, gm, toggle('b', false)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 30, 3) }),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove b', 'gm: upsert b']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 30, y: 0 });
+  });
+
+  it('does not re-send an element the viewer wrote itself after a gate remove', async () => {
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('b')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, writer, { kind: 'upsert', element: el('b', 20, 2) }),
+      write(hub, gm, toggle('b', false)),
+      write(hub, player, { kind: 'upsert', element: el('b', 30, 3) }),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove b']);
+  });
+
+  it('does not re-send an element a snapshot gave the viewer after a withheld upsert', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 20) }),
+      write(hub, gm, toggle('b', false)),
+      write(hub, player, { kind: 'request-snapshot' }),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: snapshot a,b']);
+  });
+
+  it('sends back an element removed by a live op during a failed refresh once the next load allows it', async () => {
+    const switchable = switchablePlugin(new Set());
+    let failNext = false;
+    const flaky: ServerSyncPlugin = {
+      ...switchable,
+      elementReadGate: async (room, store) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('gate down');
+        }
+        return switchable.elementReadGate?.(room, store);
+      },
+    };
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')], {
+      plugins: [flaky],
+    });
+    failNext = true;
+
+    await write(hub, gm, toggle('x', true)).catch(() => undefined);
+    await write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) });
+    // The first flush loads the gates and queues the reconcile; the second waits for it.
+    await flush();
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: upsert a']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
   });
 });
 
@@ -880,6 +1179,61 @@ describe('first gate load', () => {
 
     expect(received).toEqual(['hub: snapshot e']);
     expect(await storedX()).toBe(50);
+    expect(store.getById('e')?.position).toEqual({ x: 50, y: 0 });
+  });
+});
+
+describe('reconnect while a reconcile is pending', () => {
+  const servers: ReturnType<typeof createSyncServer>[] = [];
+  const transports: WebSocketTransport[] = [];
+
+  afterEach(async () => {
+    for (const transport of transports.splice(0)) transport.close();
+    for (const server of servers.splice(0)) await server.close();
+  });
+
+  it('keeps the offline edit of a player reconnecting while the since list has overflowed', async () => {
+    const backend = new CountingBackend();
+    await backend.applyElement('R', { kind: 'upsert', element: el('e', 10, 1) }, null);
+    const server = createSyncServer({
+      allowAnonymous: true,
+      port: 0,
+      backend,
+      plugins: [switchablePlugin(new Set())],
+      resolvePresenceAudience: () => undefined,
+    });
+    servers.push(server);
+    const gm = admit(server.hub, makeConn('gm', 'gm'));
+    backend.failing = true;
+    for (const id of ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x8', 'x9', 'x10']) {
+      await write(server.hub, gm, toggle(id, true));
+    }
+    await write(server.hub, gm, toggle('none', false));
+    backend.failing = false;
+    const { port } = server.wss.address() as AddressInfo;
+    const store = new ElementStore();
+    store.add(el('e', 50, 2));
+    const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=R`, {
+      WebSocket: WsClient as unknown as typeof WebSocket,
+    });
+    transports.push(transport);
+    const received: string[] = [];
+    transport.onMessage((message) => {
+      const { from, op } = JSON.parse(message) as { from: string; op: SyncOp };
+      if (op.kind !== 'capabilities') received.push(`${from}: ${label(op)}`);
+    });
+    new SyncClient({ store, transport, firstSnapshot: 'reconcile' }).start();
+
+    const storedX = async () => {
+      const record = await backend.getRecord('R', 'e');
+      return record?.kind === 'element' ? record.element.position.x : undefined;
+    };
+    await vi.waitFor(async () => {
+      if ((await storedX()) !== 50) throw new Error('not settled');
+    });
+    await write(server.hub, gm, toggle('none', false));
+
+    expect(received).toEqual(['hub: snapshot e']);
     expect(store.getById('e')?.position).toEqual({ x: 50, y: 0 });
   });
 });

@@ -25,6 +25,24 @@ interface RoomGateState {
   // Undefined after a failed refresh: withhold everything until the next load.
   current: GateSet | undefined;
   settled: GateSet;
+  // Sets replaced since settled: members may hold what any of them allowed.
+  since: GateSet[];
+  overflowed: boolean;
+  // `${cid}\n${elementId}` for each gate-caused hub remove or withheld upsert since settled.
+  removed: Set<string>;
+  // Per connection id, the set in force when its last snapshot since settled was built.
+  snapshots: Map<string, GateSet | 'deny'>;
+}
+
+const MAX_SINCE = 8;
+
+function keepReplaced(state: RoomGateState, replaced: GateSet): void {
+  if (state.since.length < MAX_SINCE) state.since.push(replaced);
+  else state.overflowed = true;
+}
+
+function forgetRemovedOf(state: RoomGateState, cid: string): void {
+  for (const key of state.removed) if (key.startsWith(`${cid}\n`)) state.removed.delete(key);
 }
 
 /** Per-room element read gates: the set in force and the settled set. */
@@ -63,6 +81,7 @@ export class RoomElementGates {
       // settled stays so the next load reconciles what members already hold.
       if (this.generations.get(room) === generation) {
         const state = this.rooms.get(room);
+        if (state?.current) keepReplaced(state, state.current);
         if (state) state.current = undefined;
         else this.drop(room);
       }
@@ -72,10 +91,18 @@ export class RoomElementGates {
     const state = this.rooms.get(room);
     if (!state) {
       // With no settled set yet, no member holds an element, so the load settles at once.
-      this.rooms.set(room, { current: next, settled: next });
+      this.rooms.set(room, {
+        current: next,
+        settled: next,
+        since: [],
+        overflowed: false,
+        removed: new Set(),
+        snapshots: new Map(),
+      });
       return true;
     }
     if (state.current && sameGates(state.current, next)) return false;
+    if (state.current) keepReplaced(state, state.current);
     state.current = next;
     return true;
   }
@@ -90,14 +117,65 @@ export class RoomElementGates {
     return this.rooms.get(room)?.settled ?? 'deny';
   }
 
-  /** Sets settled to the set in force. */
+  /** Sets settled to the set in force and forgets the sets replaced since. */
   markSettled(room: string): void {
     const state = this.rooms.get(room);
-    if (state?.current) state.settled = state.current;
+    if (!state?.current) return;
+    state.settled = state.current;
+    state.since = [];
+    state.overflowed = false;
+    state.removed.clear();
+    state.snapshots.clear();
+  }
+
+  noteRemoved(room: string, cid: string, elementId: string): void {
+    this.rooms.get(room)?.removed.add(`${cid}\n${elementId}`);
+  }
+
+  forgetRemoved(room: string, cid: string, elementId: string): void {
+    this.rooms.get(room)?.removed.delete(`${cid}\n${elementId}`);
+  }
+
+  noteSnapshot(room: string, cid: string): void {
+    const state = this.rooms.get(room);
+    if (!state) return;
+    state.snapshots.set(cid, state.current ?? 'deny');
+    // The snapshot replaces what the viewer holds.
+    forgetRemovedOf(state, cid);
+  }
+
+  forgetConnection(room: string, cid: string): void {
+    const state = this.rooms.get(room);
+    if (!state) return;
+    state.snapshots.delete(cid);
+    forgetRemovedOf(state, cid);
+  }
+
+  /** True when the connection may lack the element: a gate removed it, its last snapshot or else settled withheld it. */
+  mayLack(room: string, cid: string, element: SyncElement, viewer: PluginViewer): boolean {
+    const state = this.rooms.get(room);
+    if (!state || state.removed.has(`${cid}\n${element.id}`)) return true;
+    const held = state.snapshots.get(cid) ?? state.settled;
+    return held === 'deny' || !gatesAllow(held, element, viewer);
+  }
+
+  /** True when the settled set or any set replaced since allowed the element; all after overflow. */
+  allowedSinceSettled(room: string, element: SyncElement, viewer: PluginViewer): boolean {
+    const state = this.rooms.get(room);
+    if (!state) return false;
+    // A remove for an element the viewer never held is a client no-op, so over-removing is safe.
+    if (state.overflowed) return true;
+    return (
+      gatesAllow(state.settled, element, viewer) ||
+      state.since.some((gates) => gatesAllow(gates, element, viewer))
+    );
   }
 
   isPending(room: string): boolean {
-    return this.current(room) !== this.settled(room);
+    const state = this.rooms.get(room);
+    // No state: unloaded, so current (undefined) differs from settled ('deny').
+    if (!state) return true;
+    return state.current !== state.settled || state.since.length > 0 || state.overflowed;
   }
 
   drop(room: string): void {

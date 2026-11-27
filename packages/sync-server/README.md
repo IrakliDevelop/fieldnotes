@@ -825,7 +825,8 @@ extension that owns that exact legacy kind. This does not activate a legacy VTT 
 - `authenticate`, with a stable `userId` and `role`. `allowAnonymous: true` is for development.
 - `allowedOrigins`, listing the origins your app is served from.
 - `resolveAudience`, so the hub, not the client, decides each element's audience.
-- `resolvePresenceAudience`, so cursors and drags on hidden content reach only viewers who may see it.
+- `resolvePresenceAudience` together with `canRead`, so cursors and drags on hidden content reach only
+  viewers who may see it. Without `canRead` the hub ignores the audience and sends presence to every member.
 - `canReadLayer`, so viewers do not receive hidden layers or their names.
 - `allowImageSrc`, limited to your asset hosts (or `data:` only). The built-in scheme check alone does
   not stop an image from exposing viewers' IP addresses to a host a player runs.
@@ -856,11 +857,14 @@ value or a throw withholds it. The hub asks for the gate before the first local 
 anything, after it accepts an op the plugin owns or applies one from fanout, and when it builds a
 snapshot. While no gate is loaded it sends no element. A gate must be pure and synchronous, and
 the plugin must return the same function while its answer is unchanged: a new function makes the
-hub re-check every element for every local viewer, then send a remove for elements a viewer lost
-and the element for ones it gained. Stored elements and their versions do not change.
+hub re-check every element for every local viewer. It sends a remove for each element a viewer may
+hold that the gates now deny, and the element to each viewer that may lack it and the gates now
+allow. Stored elements and their versions do not change.
 
-The hub requires `resolvePresenceAudience` with an `elementReadGate` plugin so the host decides who
-receives presence. With `() => undefined` every member gets presence, including a GM's drag of a hidden token:
+The hub requires `resolvePresenceAudience` with an `elementReadGate` plugin and throws without it.
+The audience it returns takes effect only when the host also passes `canRead`. Without `canRead`,
+every member gets presence, including a DM's drag of a hidden token, so pass both to keep that drag
+from players:
 
 ```text
 SyncHub: a plugin with `elementReadGate` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)
@@ -868,7 +872,14 @@ SyncHub: a plugin with `elementReadGate` requires `resolvePresenceAudience` (pas
 
 With several instances, an element update that arrives by fanout while the hub is re-checking a
 room can be overwritten on a viewer by the older copy the re-check sends. The next op on that
-element, or the next resync, corrects it.
+element, or the next resync, corrects it. The re-check can also resend an element to a viewer who
+already received it live after the gates began to allow it.
+
+When the gates change more than 8 times before one re-check finishes, for example while the
+room's op queue is backlogged, the hub stops tracking which viewer may hold what. The next re-check
+sends a remove for every element the gates deny to every viewer `canRead` admits, including
+elements that viewer never received. A viewer then learns the id, version and number of hidden
+elements, but not their position or content.
 
 Without such a gate, fog is a display aid: every client in the room receives the elements under
 it. `createFogServerPlugin` with `seesUnderFog` installs one that withholds elements fully under

@@ -74,6 +74,157 @@ describe('RoomElementGates', () => {
     expect(gates.isPending('R')).toBe(false);
   });
 
+  it('allows since settled what any gate set in force since then allowed, until markSettled', async () => {
+    const other = { ...element, id: 'other' };
+    let gate: ElementReadGate = () => false;
+    const gates = new RoomElementGates([plugin('a', () => gate)]);
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(false);
+    await gates.refresh('R', backend);
+    gate = (el) => el.id === element.id;
+    await gates.refresh('R', backend);
+    gate = () => false;
+    await gates.refresh('R', backend);
+
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(true);
+    expect(gates.allowedSinceSettled('R', other, viewer)).toBe(false);
+    gates.markSettled('R');
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(false);
+    expect(gates.isPending('R')).toBe(false);
+  });
+
+  it('may lack only what a remove, the last snapshot or else the settled set withheld, until markSettled', async () => {
+    const other = { ...element, id: 'other' };
+    let gate: ElementReadGate = (el) => el.id !== other.id;
+    const gates = new RoomElementGates([plugin('a', () => gate)]);
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(true);
+    await gates.refresh('R', backend);
+
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'p', other, viewer)).toBe(true);
+    gates.noteRemoved('R', 'p', element.id);
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(true);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(false);
+    gate = () => false;
+    await gates.refresh('R', backend);
+    gates.noteSnapshot('R', 'q');
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(true);
+    gate = () => true;
+    await gates.refresh('R', backend);
+    gates.noteSnapshot('R', 's');
+    expect(gates.mayLack('R', 's', other, viewer)).toBe(false);
+    gates.markSettled('R');
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(false);
+  });
+
+  it('forgets the removes and snapshot of a closed connection only', async () => {
+    let gate: ElementReadGate = () => true;
+    const gates = new RoomElementGates([plugin('a', () => gate)]);
+    await gates.refresh('R', backend);
+    gate = () => false;
+    await gates.refresh('R', backend);
+    gates.noteSnapshot('R', 'p');
+    gates.noteRemoved('R', 'p', element.id);
+    gates.noteRemoved('R', 'q', element.id);
+    gates.noteSnapshot('R', 'q');
+
+    gates.forgetConnection('R', 'p');
+
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(true);
+  });
+
+  it('forgetRemoved clears only that connection and element', async () => {
+    const other = { ...element, id: 'other' };
+    const gates = new RoomElementGates([plugin('a', () => () => true)]);
+    await gates.refresh('R', backend);
+    gates.noteRemoved('R', 'p', element.id);
+    gates.noteRemoved('R', 'p', other.id);
+    gates.noteRemoved('R', 'q', element.id);
+
+    gates.forgetRemoved('R', 'p', element.id);
+
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'p', other, viewer)).toBe(true);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(true);
+  });
+
+  it('noteSnapshot clears the removes of that connection only', async () => {
+    const gates = new RoomElementGates([plugin('a', () => () => true)]);
+    await gates.refresh('R', backend);
+    gates.noteRemoved('R', 'p', element.id);
+    gates.noteRemoved('R', 'q', element.id);
+
+    gates.noteSnapshot('R', 'p');
+
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(true);
+  });
+
+  it('ignores overflow when judging what a viewer may lack', async () => {
+    const other = { ...element, id: 'other' };
+    const gates = new RoomElementGates([plugin('a', () => (el) => el.id !== other.id)]);
+    for (let i = 0; i < 10; i++) await gates.refresh('R', backend);
+
+    expect(gates.allowedSinceSettled('R', other, viewer)).toBe(true);
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+  });
+
+  it('records a snapshot built while unloaded as lacking everything', async () => {
+    let broken = false;
+    const gates = new RoomElementGates([
+      plugin('a', () => {
+        if (broken) throw new Error('gate down');
+        return () => true;
+      }),
+    ]);
+    await gates.refresh('R', backend);
+    broken = true;
+    await expect(gates.refresh('R', backend)).rejects.toThrow('gate down');
+
+    gates.noteSnapshot('R', 'p');
+
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(true);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(false);
+  });
+
+  it('allows everything since settled once a ninth gate set was replaced', async () => {
+    let gate: ElementReadGate = () => false;
+    const gates = new RoomElementGates([plugin('a', () => gate)]);
+    await gates.refresh('R', backend);
+    for (let i = 0; i < 8; i++) {
+      gate = () => false;
+      await gates.refresh('R', backend);
+    }
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(false);
+    gate = () => false;
+    await gates.refresh('R', backend);
+
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(true);
+    gates.markSettled('R');
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(false);
+    expect(gates.isPending('R')).toBe(false);
+  });
+
+  it('keeps the set a failed refresh unloaded among the sets since settled', async () => {
+    let gate: ElementReadGate | 'throw' = () => false;
+    const gates = new RoomElementGates([
+      plugin('a', () => {
+        if (gate === 'throw') throw new Error('gate down');
+        return gate;
+      }),
+    ]);
+    await gates.refresh('R', backend);
+    gate = () => true;
+    await gates.refresh('R', backend);
+    gate = 'throw';
+    await expect(gates.refresh('R', backend)).rejects.toThrow('gate down');
+    gate = () => false;
+    await gates.refresh('R', backend);
+
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(true);
+  });
+
   it('keeps settled and unloads current when a refresh throws after a load', async () => {
     const loaded: ElementReadGate = () => true;
     let broken = false;

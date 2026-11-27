@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync server 0.33.1 — fog reconcile
+
+**Fixed**
+
+- A fog change that covers an element after a reveal, before the hub's reconcile runs, no longer
+  leaves the element with players who received it under the reveal.
+- An element a player lost to a live update while a passing fog change covered it is sent again
+  when the fog reveals it before the hub's reconcile runs.
+- An element a player lost to a live update while a gate refresh was failing comes back once the
+  gates load again.
+- An element created or moved into a covered area between a cover and a reveal reaches players
+  once the hub's reconcile runs.
+- The hub's reconcile no longer sends an element again to a player who already received it live
+  or in a snapshot, which could drop an offline edit the player had queued for it.
+- The README now says the audience from `resolvePresenceAudience` takes effect only with
+  `canRead`; without it every member gets presence.
+
+### VTT 0.20.1 — per-tile fog coverage
+
+**Fixed**
+
+- `isCoveredByFog` judges coverage per tile, so a large covered element no longer stalls the
+  relay.
+
 ### Sync server 0.33.0 — per-viewer element gate
 
 **Added**

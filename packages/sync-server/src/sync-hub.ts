@@ -503,6 +503,7 @@ export class SyncHub {
     this.legacyAdmissionTimers.delete(connId);
     this.opLimiters.delete(connId);
     const room = conn.room;
+    this.gates.forgetConnection(room, connId);
     const hadPresence = this.presenceConnections.delete(connId);
     this.clearPresenceLanes(connId);
     const members = this.rooms.get(room);
@@ -916,12 +917,14 @@ export class SyncHub {
         if (batch) batch.push(delivery);
         else this.deliverToRoom(conn.room, conn.id, conn.id, [delivery]);
         // The sender holds its own upsert, so a gate that denies it must take it back.
-        if (
-          accepted.kind === 'upsert' &&
-          this.gates.active &&
-          !this.gatesAllowNow(conn, accepted.element)
-        )
-          this.sendToConnection(conn, HUB_FROM, hubRemoveOf(accepted.element));
+        if (accepted.kind === 'upsert' && this.gates.active) {
+          if (this.gatesAllowNow(conn, accepted.element)) {
+            this.gates.forgetRemoved(conn.room, conn.id, accepted.element.id);
+          } else {
+            this.noteGateRemove(conn, accepted.element);
+            this.sendToConnection(conn, HUB_FROM, hubRemoveOf(accepted.element));
+          }
+        }
       }
       await this.deliverPluginResult(conn, pluginOutput, opVersion);
       return;
@@ -1054,6 +1057,7 @@ export class SyncHub {
       const visible = stamped && this.opForViewer(conn, stamped);
       if (!visible) continue;
       const hidden = visible.kind === 'upsert' && !this.mayReadElement(conn, visible.element);
+      if (hidden) this.noteGateRemove(conn, visible.element);
       this.sendToConnection(conn, HUB_FROM, hidden ? hubRemoveOf(visible.element) : visible);
     }
     if (result.accepted) await this.publishPluginOp(conn, result.accepted, result.locality);
@@ -1283,17 +1287,21 @@ export class SyncHub {
     return !this.gates.active || this.gatesAllowNow(conn, element);
   }
 
-  // While a reconcile is pending the viewer may still hold what the settled gates allowed.
+  // Records a gate-decided (not canRead) hub remove or withheld upsert, so a later reveal sends it.
+  private noteGateRemove(conn: Connection, element: SyncElement): void {
+    if (!this.gates.active || !this.mayRead(conn, element.audience)) return;
+    if (!this.gatesAllowNow(conn, element)) this.gates.noteRemoved(conn.room, conn.id, element.id);
+  }
+
+  // While a reconcile is pending the viewer may still hold what any gate set since settled allowed.
   private couldReadBefore(conn: Connection, delivery: Delivery): boolean {
     if (!delivery.existed || !this.mayRead(conn, delivery.prevAudience)) return false;
     const prev = delivery.prevElement;
     if (!this.gates.active || !prev) return true;
     if (this.gatesAllowNow(conn, prev)) return true;
-    const settled = this.gates.settled(conn.room);
     return (
       this.gates.isPending(conn.room) &&
-      settled !== 'deny' &&
-      gatesAllow(settled, prev, this.viewerOf(conn))
+      this.gates.allowedSinceSettled(conn.room, prev, this.viewerOf(conn))
     );
   }
 
@@ -1329,7 +1337,7 @@ export class SyncHub {
       });
   }
 
-  // Sends each local viewer what changed between the settled gates and those in force.
+  // Sends each local viewer what changed between the gate sets since settled and those in force.
   private async reconcile(room: string): Promise<void> {
     const current = this.gates.current(room);
     if (!current) return;
@@ -1337,6 +1345,7 @@ export class SyncHub {
     if (settled === 'deny' || !this.gates.isPending(room)) return;
     const { elements } = await this.backend.snapshot(room);
     // The room was dropped and reloaded while this read; the new load owns it.
+    // Also covers a set appended to since during the read: that run settles nothing, the next one does.
     if (this.gates.current(room) !== current) return;
     for (const cid of this.rooms.get(room) ?? []) {
       const conn = this.conns.get(cid);
@@ -1344,11 +1353,10 @@ export class SyncHub {
       const viewer = this.viewerOf(conn);
       for (const element of elements) {
         if (!this.mayRead(conn, element.audience)) continue;
-        const before = gatesAllow(settled, element, viewer);
         const now = gatesAllow(current, element, viewer);
-        if (before && !now) {
+        if (!now && this.gates.allowedSinceSettled(room, element, viewer)) {
           this.sendToConnection(conn, HUB_FROM, hubRemoveOf(element));
-        } else if (!before && now) {
+        } else if (now && this.gates.mayLack(room, cid, element, viewer)) {
           this.sendToConnection(conn, HUB_FROM, { kind: 'upsert', element });
         }
       }
@@ -1407,6 +1415,13 @@ export class SyncHub {
     if (message === null) return false;
     try {
       conn.send(message);
+      if (this.gates.active) {
+        // The viewer now holds each upserted element, so the reconcile need not resend it.
+        const ops: readonly (SyncOp | BatchOp)[] = op.kind === 'batch' ? op.ops : [op];
+        for (const sent of ops) {
+          if (sent.kind === 'upsert') this.gates.forgetRemoved(conn.room, conn.id, sent.element.id);
+        }
+      }
       return true;
     } catch {
       return false;
@@ -1452,6 +1467,7 @@ export class SyncHub {
       if (!conn) continue;
       // A plugin's element op: the earlier state is unknown, so an unreadable upsert is a remove.
       if (prior && op.kind === 'upsert' && !this.mayReadElement(conn, op.element)) {
+        this.noteGateRemove(conn, op.element);
         this.sendToConnection(conn, HUB_FROM, hubRemoveOf(op.element), removals);
         continue;
       }
@@ -1671,6 +1687,7 @@ export class SyncHub {
       deliveries.forEach((delivery, index) => {
         const { op } = delivery;
         if (op.kind === 'upsert' && !this.mayReadElement(conn, op.element)) {
+          this.noteGateRemove(conn, op.element);
           if (!this.couldReadBefore(conn, delivery)) return;
           sendRun();
           const { id, version } = op.element;
@@ -1737,6 +1754,7 @@ export class SyncHub {
         this.mayReadElement(conn, current) && !hasRefusedImageSrc(current)
           ? { kind: 'upsert', element: current }
           : { kind: 'remove', id: current.id, version: current.version, editor: HUB_FROM };
+      if (correction.kind === 'remove') this.noteGateRemove(conn, current);
     } else if (record) {
       const { id, version } = record.tombstone;
       correction = { kind: 'remove', id, version, editor: HUB_FROM };
@@ -1799,6 +1817,7 @@ export class SyncHub {
       extensions[plugin.name] = snapshot;
     }
     if (Object.keys(extensions).length > 0) snapshotOp['extensions'] = extensions;
+    if (this.gates.active) this.gates.noteSnapshot(conn.room, conn.id);
     return snapshotOp as SyncOp;
   }
 
