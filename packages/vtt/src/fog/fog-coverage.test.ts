@@ -9,7 +9,7 @@ import { templateElementTypeDefinition } from '../template/template-definition';
 import { isCoveredByFog, isElementCoveredByFog } from './fog-coverage';
 import type { FogSnapshot, FogTileRecord } from './fog-sync-types';
 import { createTileBytes, encodeBase64, setBit } from './tile-codec';
-import type { FogBase } from './types';
+import type { FogBase, FogDefinitionV1 } from './types';
 
 function snap(base: FogBase, tiles: readonly FogTileRecord[] = []): FogSnapshot {
   return {
@@ -146,7 +146,14 @@ function randomMask(random: () => number): Mask {
       });
     }
   }
-  const definition = { version: 1, generation: 'g1', bounds: fog, cellSize, tileCells: 128, base };
+  const definition: FogDefinitionV1 = {
+    version: 1,
+    generation: 'g1',
+    bounds: fog,
+    cellSize,
+    tileCells: 128,
+    base,
+  };
   return { snapshot: { meta: { version: 1, editor: 'gm', definition }, tiles }, bytes };
 }
 
@@ -215,13 +222,13 @@ describe('isCoveredByFog against the per-cell rule', () => {
         tiles.push({ generation: 'g1', x, y, version: 1, editor: 'gm', data });
     }
     const bounds = { x: 0, y: 0, w: 20480, h: 20480 };
-    const definition = {
+    const definition: FogDefinitionV1 = {
       version: 1,
       generation: 'g1',
       bounds,
       cellSize: 10,
       tileCells: 128,
-      base: 'revealed' as const,
+      base: 'revealed',
     };
     const fresh: FogSnapshot = { meta: { version: 1, editor: 'gm', definition }, tiles };
     const start = performance.now();
