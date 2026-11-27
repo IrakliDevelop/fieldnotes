@@ -37,7 +37,8 @@ import type {
   ResolvePresenceAudience,
 } from './authorize';
 import { ServerPluginRegistry } from './sync-plugin';
-import type { ApplyResult, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
+import type { ApplyResult, PluginViewer, ServerOpContext, ServerSyncPlugin } from './sync-plugin';
+import { gatesAllow, RoomElementGates } from './element-gates';
 import { snapshotAuthContext, validateExpiresAt, type AuthContext } from './auth-context';
 import { SerialRoomQueue } from './serial-room-queue';
 import { AuthorityRuntime } from './authority-runtime';
@@ -152,6 +153,7 @@ interface Delivery {
   readonly op: ElementOp;
   readonly prevAudience: string | undefined;
   readonly existed: boolean;
+  readonly prevElement?: SyncElement;
 }
 
 const MAX_VERSION_JUMP = 1_000_000;
@@ -276,6 +278,7 @@ export class SyncHub {
   private readonly authorize?: Authorize;
   private readonly authorizeLayer?: AuthorizeLayer;
   private readonly pluginRegistry: ServerPluginRegistry;
+  private readonly gates: RoomElementGates;
   private readonly peerCapabilities = new Map<string, SyncCapabilities>();
   private readonly peerCapabilityHashes = new Map<string, string>();
   private readonly legacyAdmissionTimers = new Map<
@@ -318,6 +321,7 @@ export class SyncHub {
   constructor(options: SyncHubOptions = {}) {
     this.backend = options.backend ?? new MemoryHubBackend();
     this.pluginRegistry = new ServerPluginRegistry(options.plugins ?? []);
+    this.gates = new RoomElementGates(this.pluginRegistry.plugins);
     this.instanceId = options.instanceId ?? generateInstanceId();
     this.fanout = options.fanout ?? new InMemoryHubFanout();
     this.authorize = options.authorize;
@@ -372,6 +376,11 @@ export class SyncHub {
     if (options.canRead && !options.resolvePresenceAudience) {
       throw new Error(
         'SyncHub: `canRead` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)',
+      );
+    }
+    if (this.gates.active && !options.resolvePresenceAudience) {
+      throw new Error(
+        'SyncHub: a plugin with `elementReadGate` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)',
       );
     }
     if (options.canRead && !options.canReadLayer) {
@@ -446,6 +455,7 @@ export class SyncHub {
     if (!set) {
       set = new Set();
       this.rooms.set(conn.room, set);
+      if (this.gates.active) this.loadGates(conn.room);
     }
     set.add(conn.id);
     const timer = setTimeout(() => {
@@ -880,9 +890,18 @@ export class SyncHub {
           );
         }
       } finally {
-        const delivery = { op: accepted, prevAudience, existed };
+        const delivery = { op: accepted, prevAudience, existed, prevElement: current };
         if (batch) batch.push(delivery);
         else this.deliverToRoom(conn.room, conn.id, conn.id, [delivery]);
+        // The sender holds its own upsert, so a gate that denies it must take it back.
+        if (
+          accepted.kind === 'upsert' &&
+          this.gates.active &&
+          !this.gatesAllowNow(conn, accepted.element)
+        ) {
+          const { id, version } = accepted.element;
+          this.sendToConnection(conn, HUB_FROM, { kind: 'remove', id, version, editor: HUB_FROM });
+        }
       }
       await this.deliverPluginResult(conn, pluginOutput, opVersion);
       return;
@@ -1210,6 +1229,47 @@ export class SyncHub {
     return this.canRead({ userId: conn.userId, role: conn.role, room: conn.room, audience });
   }
 
+  // Unloaded gates deny, so a member who joins mid-load gets no element by off-queue fanout.
+  private gatesAllowNow(conn: Connection, element: SyncElement): boolean {
+    const gates = this.gates.current(conn.room);
+    return gates !== undefined && gatesAllow(gates, element, this.viewerOf(conn));
+  }
+
+  private viewerOf(conn: Connection): PluginViewer {
+    return { userId: conn.userId, role: conn.role, room: conn.room };
+  }
+
+  private mayReadElement(conn: Connection, element: SyncElement): boolean {
+    if (!this.mayRead(conn, element.audience)) return false;
+    return !this.gates.active || this.gatesAllowNow(conn, element);
+  }
+
+  // While a reconcile is pending the viewer may still hold what the settled gates allowed.
+  private couldReadBefore(conn: Connection, delivery: Delivery): boolean {
+    if (!delivery.existed || !this.mayRead(conn, delivery.prevAudience)) return false;
+    const prev = delivery.prevElement;
+    if (!this.gates.active || !prev) return true;
+    if (this.gatesAllowNow(conn, prev)) return true;
+    const settled = this.gates.settled(conn.room);
+    return (
+      this.gates.isPending(conn.room) &&
+      settled !== 'deny' &&
+      gatesAllow(settled, prev, this.viewerOf(conn))
+    );
+  }
+
+  /** First load for a room's first local member; never awaited, so `addConnection` stays sync. */
+  private loadGates(room: string): void {
+    this.gates.drop(room);
+    void this.roomQueue(room)
+      .enqueue(async () => {
+        if (this.rooms.has(room)) await this.gates.refresh(room, this.backend);
+      })
+      .catch(() => {
+        /* unloaded gates withhold every element; a later snapshot retries */
+      });
+  }
+
   private safePublish(payload: string): void {
     try {
       void Promise.resolve(this.fanout.publish(payload)).catch(() => {
@@ -1508,9 +1568,10 @@ export class SyncHub {
         indices = [];
         ops = [];
       };
-      deliveries.forEach(({ op, prevAudience, existed }, index) => {
-        if (op.kind === 'upsert' && !this.mayRead(conn, op.element.audience)) {
-          if (!existed || !this.mayRead(conn, prevAudience)) return;
+      deliveries.forEach((delivery, index) => {
+        const { op } = delivery;
+        if (op.kind === 'upsert' && !this.mayReadElement(conn, op.element)) {
+          if (!this.couldReadBefore(conn, delivery)) return;
           sendRun();
           const { id, version } = op.element;
           this.sendToConnection(
@@ -1522,7 +1583,11 @@ export class SyncHub {
           return;
         }
         // With canRead, only recipients who could see the removed element get it.
-        if (op.kind === 'remove' && this.canRead && (!existed || !this.mayRead(conn, prevAudience)))
+        if (
+          op.kind === 'remove' &&
+          (this.canRead || this.gates.active) &&
+          !this.couldReadBefore(conn, delivery)
+        )
           return;
         const batchOp = grouped ? asBatchOp(op) : undefined;
         if (batchOp) {
@@ -1569,7 +1634,7 @@ export class SyncHub {
       const current = record.element;
       // A refused image would be dropped outbound, leaving the sender's copy in place.
       correction =
-        this.mayRead(conn, current.audience) && !hasRefusedImageSrc(current)
+        this.mayReadElement(conn, current) && !hasRefusedImageSrc(current)
           ? { kind: 'upsert', element: current }
           : { kind: 'remove', id: current.id, version: current.version, editor: HUB_FROM };
     } else if (record) {
@@ -1600,8 +1665,11 @@ export class SyncHub {
    * share it so a corrected sender is never left with less state than a joiner receives.
    */
   private async buildSnapshotOp(conn: Connection, to: string): Promise<SyncOp> {
+    if (this.gates.active && this.rooms.has(conn.room))
+      await this.gates.refresh(conn.room, this.backend);
     const { elements: all, tombstones: stored } = await this.backend.snapshot(conn.room);
-    const elements = this.canRead ? all.filter((el) => this.mayRead(conn, el.audience)) : all;
+    const elements =
+      this.canRead || this.gates.active ? all.filter((el) => this.mayReadElement(conn, el)) : all;
     const tombstones = stored
       .filter((tombstone) => this.mayRead(conn, tombstone.audience))
       .map(({ id, version, editor }) => ({ id, version, editor }));
@@ -1742,6 +1810,7 @@ export class SyncHub {
           // A connection may have joined while the eviction waited behind queued work.
           if (this.rooms.has(room)) return;
           this.memoryLayers.delete(room);
+          this.gates.drop(room);
           for (const plugin of this.pluginRegistry.plugins) {
             try {
               plugin.evictRoom?.(room);

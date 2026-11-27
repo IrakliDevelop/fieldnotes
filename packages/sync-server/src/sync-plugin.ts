@@ -1,5 +1,11 @@
 import type { ServiceKey } from '@fieldnotes/core';
-import type { ExtensionKind, PluginSnapshot, TypedExtensionOp, SyncOp } from '@fieldnotes/sync';
+import type {
+  ExtensionKind,
+  PluginSnapshot,
+  SyncElement,
+  TypedExtensionOp,
+  SyncOp,
+} from '@fieldnotes/sync';
 import type { HubBackend } from './hub-backend';
 import type { AuthContext } from './auth-context';
 
@@ -48,6 +54,9 @@ export interface PluginViewer {
   readonly room: string;
 }
 
+/** Whether `viewer` may receive `element`. Pure, synchronous, and immutable once returned. */
+export type ElementReadGate = (element: SyncElement, viewer: PluginViewer) => boolean;
+
 export interface ServerSyncPlugin {
   readonly name: string;
   readonly ownedLegacyKinds?: readonly string[];
@@ -58,6 +67,8 @@ export interface ServerSyncPlugin {
   filterSnapshot?(snapshot: PluginSnapshot, viewer: PluginViewer): PluginSnapshot | null;
   /** Per-recipient view of an op this plugin owns; null withholds it. Must not mutate `op`. */
   filterOp?(op: SyncOp, viewer: PluginViewer): SyncOp | null;
+  /** The gate in force for a room now; undefined means this plugin gates nothing there. */
+  elementReadGate?(room: string, backend: HubBackend): Promise<ElementReadGate | undefined>;
   /** Called after `roomIdleTimeoutMs` with no local connection; drops this plugin's per-room memory. */
   evictRoom?(room: string): void;
 }

@@ -67,4 +67,5 @@ export type {
   PluginSnapshot,
   ServerExtensionRegistry,
   PluginViewer,
+  ElementReadGate,
 } from './sync-plugin';
