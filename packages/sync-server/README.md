@@ -825,7 +825,8 @@ extension that owns that exact legacy kind. This does not activate a legacy VTT 
 - `authenticate`, with a stable `userId` and `role`. `allowAnonymous: true` is for development.
 - `allowedOrigins`, listing the origins your app is served from.
 - `resolveAudience`, so the hub, not the client, decides each element's audience.
-- `resolvePresenceAudience`, so cursors and drags on hidden content reach only viewers who may see it.
+- `resolvePresenceAudience` together with `canRead`, so cursors and drags on hidden content reach only
+  viewers who may see it. Without `canRead` the hub ignores the audience and sends presence to every member.
 - `canReadLayer`, so viewers do not receive hidden layers or their names.
 - `allowImageSrc`, limited to your asset hosts (or `data:` only). The built-in scheme check alone does
   not stop an image from exposing viewers' IP addresses to a host a player runs.
@@ -859,8 +860,10 @@ the plugin must return the same function while its answer is unchanged: a new fu
 hub re-check every element for every local viewer, then send a remove for elements a viewer lost
 and the element for ones it gained. Stored elements and their versions do not change.
 
-The hub requires `resolvePresenceAudience` with an `elementReadGate` plugin so the host decides who
-receives presence. With `() => undefined` every member gets presence, including a GM's drag of a hidden token:
+The hub requires `resolvePresenceAudience` with an `elementReadGate` plugin. The audience it returns
+takes effect only when the host also passes `canRead`: without `canRead`, every member gets
+presence whatever the audience. To keep a GM's drag of a hidden token from players, pass both.
+With `() => undefined` every member gets presence:
 
 ```text
 SyncHub: a plugin with `elementReadGate` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)

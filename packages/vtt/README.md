@@ -120,7 +120,9 @@ viewer's `canRead` denies and hide its layer with `canReadLayer`, as the `@field
 read filtering section shows.
 
 `seesUnderFog` needs `@fieldnotes/sync-server` 0.33.0 and `resolvePresenceAudience` on the hub,
-which throws at startup without it. Upgrade every relay instance before turning it on.
+which throws at startup without it. Upgrade every relay instance before turning it on. The
+presence audience takes effect only when the hub also has `canRead`, so pass both to keep a GM's
+drag of a hidden token from players.
 `isCoveredByFog(snapshot, bounds)` from `@fieldnotes/vtt/server` is the coverage check on its own.
 
 ### Managed authority fog

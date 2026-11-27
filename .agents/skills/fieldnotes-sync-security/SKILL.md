@@ -68,8 +68,9 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
   viewer that either the settled gates or the gates in force allow.
 - A gate change never rewrites stored elements, their versions or `audience`; the hub sends hub
   removes and upserts per viewer instead.
-- A plugin with `elementReadGate` requires `resolvePresenceAudience` (`SyncHub` throws) so the host decides
-  who receives presence; with `() => undefined` every member gets presence, including a GM's drag of a hidden token.
+- A plugin with `elementReadGate` requires `resolvePresenceAudience` (`SyncHub` throws), but its
+  audience takes effect only with `canRead`; without `canRead` every member gets presence, including
+  a GM's drag of a hidden token. A host that withholds that drag passes both.
 
 **Image sources**
 

@@ -269,6 +269,16 @@ describe('element read gate', () => {
     );
   });
 
+  it('relays presence to every member when a gate plugin returns an audience without canRead', async () => {
+    const { hub, gm, player, batcher, writer } = await room(gated(), {
+      resolvePresenceAudience: () => 'gm',
+    });
+
+    await write(hub, writer, { kind: 'presence', data: { cursor: { x: 1, y: 2 } } });
+
+    for (const conn of [gm, player, batcher]) expect(seen(conn)).toEqual(['writer: presence']);
+  });
+
   it('sends the same frames with a plugin lacking elementReadGate as with no plugin', async () => {
     const run = async (plugins: readonly ServerSyncPlugin[]) => {
       const { hub, gm, player, batcher, writer } = await room(plugins);
