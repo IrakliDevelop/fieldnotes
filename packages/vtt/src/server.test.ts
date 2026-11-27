@@ -11,6 +11,8 @@ const MISSING_WRITER =
 const COMBINED = 'createFogServerPlugin: `allowAnyWriter` cannot be combined with `authorize`';
 const SNAPSHOT_WITHOUT_OP =
   'createFogServerPlugin: `filterSnapshot` requires `filterOp` (live fog ops would bypass it)';
+const OP_WITHOUT_SNAPSHOT =
+  'createFogServerPlugin: `filterOp` requires `filterSnapshot` (the join snapshot would bypass it)';
 
 const meta: FogOp = { kind: 'fog-meta', record: { version: 2, editor: 'alice' } };
 const viewer = { userId: 'bob', role: 'player', room: 'R' };
@@ -45,6 +47,11 @@ describe('createFogServerPlugin', () => {
       { allowAnyWriter: true, filterSnapshot: (snapshot) => snapshot },
       SNAPSHOT_WITHOUT_OP,
     ],
+    [
+      'filterOp without filterSnapshot',
+      { allowAnyWriter: true, filterOp: (op) => op },
+      OP_WITHOUT_SNAPSHOT,
+    ],
   ])('throws for %s', (_, options, message) => {
     expect(() => createFogServerPlugin(options)).toThrow(message);
   });
@@ -78,6 +85,16 @@ describe('createFogServerPlugin', () => {
     expect(result.corrections).toEqual([
       { kind: 'fog-meta', record: { version: 1, editor: 'hub' } },
     ]);
+    expect(result).toEqual(denied);
+  });
+
+  it('denies a write when authorize returns a non-boolean truthy value', async () => {
+    const denied = await process(createFogServerPlugin({ authorize: () => false }), meta);
+    const authorize = (() => 'no') as unknown as FogServerPluginOptions['authorize'];
+
+    const result = await process(createFogServerPlugin({ authorize }), meta);
+
+    expect(result.accepted).toBeNull();
     expect(result).toEqual(denied);
   });
 

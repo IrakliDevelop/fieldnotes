@@ -119,10 +119,15 @@ export function createFogServerPlugin(options: FogServerPluginOptions = {}): Ser
       'createFogServerPlugin: `filterSnapshot` requires `filterOp` (live fog ops would bypass it)',
     );
   }
+  if (filterOp && !options.filterSnapshot) {
+    throw new Error(
+      'createFogServerPlugin: `filterOp` requires `filterSnapshot` (the join snapshot would bypass it)',
+    );
+  }
   const authorized = async (context: FogAuthorizationContext): Promise<boolean> => {
     if (!authorize) return true;
     try {
-      return await authorize(context);
+      return (await authorize(context)) === true;
     } catch {
       return false;
     }

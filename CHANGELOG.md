@@ -29,6 +29,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   `allowAnyWriter: true` to keep letting every member write fog. Passing both also throws.
 - `createFogServerPlugin` with `filterSnapshot` but no `filterOp` throws. Fix: add a `filterOp`
   that redacts live fog ops the same way `filterSnapshot` redacts the snapshot.
+- `createFogServerPlugin` with `filterOp` but no `filterSnapshot` throws. Fix: add a
+  `filterSnapshot` that redacts the snapshot the same way.
 
 **Added**
 
@@ -37,8 +39,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 **Changed**
 
-- A throwing or rejecting `authorize` denies the write with a sender correction instead of
-  escaping.
+- `authorize` must return `true` to admit a write; any other value, a throw or a rejection denies
+  it with a sender correction.
 - The `@fieldnotes/sync-server` peer floor is now 0.32.0: an older hub never calls `filterOp`.
 
 ### Sync 0.31.0 — image source check

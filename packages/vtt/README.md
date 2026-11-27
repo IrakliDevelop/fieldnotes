@@ -75,8 +75,8 @@ Server and Redis deployments use `createFogServerPlugin` from `@fieldnotes/vtt/s
 `fog-meta`/`fog-patch` wire format.
 
 `createFogServerPlugin` throws unless it gets `authorize`, which decides who may change the fog,
-or `allowAnyWriter: true`, which lets every room member change it. Passing both also throws. A
-throwing or rejecting `authorize` denies the write.
+or `allowAnyWriter: true`, which lets every room member change it. Passing both also throws.
+`authorize` must return `true` to admit a write; any other value, a throw or a rejection denies it.
 
 ```typescript
 import { createFogServerPlugin } from '@fieldnotes/vtt/server';
@@ -86,7 +86,8 @@ const fog = createFogServerPlugin({ authorize: ({ role }) => role === 'gm' });
 
 `filterSnapshot(snapshot, viewer)` redacts the fog snapshot a viewer joins with, and
 `filterOp(op, viewer)` redacts each live `fog-meta` or `fog-patch` op the same way; returning
-`null` withholds it. `filterSnapshot` without `filterOp` throws, since live ops would bypass it.
+`null` withholds it. Pass the two together: either one without the other throws, since live ops
+or the join snapshot would bypass the redaction.
 A hub older than 0.32.0 never calls `filterOp`, so it sends live fog ops to every viewer
 unfiltered.
 
