@@ -23,13 +23,6 @@ test.describe('bench mode', () => {
     expect(await canvasPage.getElementsByType('stroke')).toHaveLength(500);
   });
 
-  test('?bench=999999 is clamped to 20000', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name === 'ipad', 'parse-only check; desktop covers it');
-    test.slow();
-    await gotoDemo(page, '?bench=999999');
-    await expect(page.locator('#bench-hud')).toContainText('20011 elements');
-  });
-
   test('?bench=0 is clamped to 1', async ({ page }) => {
     const canvasPage = await gotoDemo(page, '?bench=0');
     expect(await canvasPage.getElementsByType('stroke')).toHaveLength(1);

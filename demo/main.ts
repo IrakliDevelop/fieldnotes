@@ -56,6 +56,7 @@ import type {
   MovementTrackOptions,
 } from '@fieldnotes/vtt';
 import { createSampleBoard } from './sample-board';
+import { parseBenchCount } from './bench';
 
 // Register VTT element types (grid, template) before creating the viewport
 registerVttElementTypes();
@@ -116,12 +117,8 @@ const gridController = new GridController({
 });
 
 const searchParams = new URLSearchParams(location.search);
-const MAX_BENCH = 20_000;
 const sampleParam = searchParams.has('sample');
-// Math.max(1, NaN) is NaN, so a missing or unparsable value falls back to 500.
-const benchCount = searchParams.has('bench')
-  ? Math.min(MAX_BENCH, Math.max(1, parseInt(searchParams.get('bench') ?? '', 10)) || 500)
-  : 0;
+const benchCount = parseBenchCount(searchParams);
 
 const hand = new HandTool();
 const pencil = new PencilTool({ color: '#1a1a1a', width: 2 });
