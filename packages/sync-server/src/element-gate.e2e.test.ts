@@ -572,6 +572,45 @@ describe('element gate reconcile', () => {
 
     expect(seen(player)).toEqual(['hub: remove a', 'hub: remove a']);
   });
+
+  it('removes an element delivered live under a reveal that was covered again before the reconcile', async () => {
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(['a']), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('a', false)),
+      write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) }),
+      write(hub, gm, toggle('a', true)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['writer: upsert a', 'hub: remove a']);
+  });
+
+  it('removes an element sent in a snapshot under a reveal that was covered again before the reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(['a']), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('a', false)),
+      write(hub, player, { kind: 'request-snapshot' }),
+      write(hub, gm, toggle('a', true)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: snapshot a', 'hub: remove a']);
+  });
+
+  it('removes what an intermediate gate set allowed after a reconcile that failed', async () => {
+    const { hub, backend, gm, player, writer, flush } = await gateRoom(new Set(['a']), [el('a')]);
+    backend.failNext = true;
+
+    await write(hub, gm, toggle('a', false));
+    await flush();
+    await write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) });
+    await write(hub, gm, toggle('a', true));
+    await flush();
+
+    expect(seen(player)).toEqual(['writer: upsert a', 'hub: remove a']);
+  });
 });
 
 const left = (element: SyncElement) => element.position.x < 0;

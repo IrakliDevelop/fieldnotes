@@ -1283,17 +1283,15 @@ export class SyncHub {
     return !this.gates.active || this.gatesAllowNow(conn, element);
   }
 
-  // While a reconcile is pending the viewer may still hold what the settled gates allowed.
+  // While a reconcile is pending the viewer may still hold what any gate set since settled allowed.
   private couldReadBefore(conn: Connection, delivery: Delivery): boolean {
     if (!delivery.existed || !this.mayRead(conn, delivery.prevAudience)) return false;
     const prev = delivery.prevElement;
     if (!this.gates.active || !prev) return true;
     if (this.gatesAllowNow(conn, prev)) return true;
-    const settled = this.gates.settled(conn.room);
     return (
       this.gates.isPending(conn.room) &&
-      settled !== 'deny' &&
-      gatesAllow(settled, prev, this.viewerOf(conn))
+      this.gates.allowedSinceSettled(conn.room, prev, this.viewerOf(conn))
     );
   }
 
@@ -1329,7 +1327,7 @@ export class SyncHub {
       });
   }
 
-  // Sends each local viewer what changed between the settled gates and those in force.
+  // Sends each local viewer what changed between the gate sets since settled and those in force.
   private async reconcile(room: string): Promise<void> {
     const current = this.gates.current(room);
     if (!current) return;
@@ -1337,6 +1335,7 @@ export class SyncHub {
     if (settled === 'deny' || !this.gates.isPending(room)) return;
     const { elements } = await this.backend.snapshot(room);
     // The room was dropped and reloaded while this read; the new load owns it.
+    // Also covers a set appended to since during the read: that run settles nothing, the next one does.
     if (this.gates.current(room) !== current) return;
     for (const cid of this.rooms.get(room) ?? []) {
       const conn = this.conns.get(cid);
@@ -1344,7 +1343,7 @@ export class SyncHub {
       const viewer = this.viewerOf(conn);
       for (const element of elements) {
         if (!this.mayRead(conn, element.audience)) continue;
-        const before = gatesAllow(settled, element, viewer);
+        const before = this.gates.allowedSinceSettled(room, element, viewer);
         const now = gatesAllow(current, element, viewer);
         if (before && !now) {
           this.sendToConnection(conn, HUB_FROM, hubRemoveOf(element));

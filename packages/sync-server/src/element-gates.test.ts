@@ -74,6 +74,42 @@ describe('RoomElementGates', () => {
     expect(gates.isPending('R')).toBe(false);
   });
 
+  it('allows since settled what any gate set in force since then allowed, until markSettled', async () => {
+    const other = { ...element, id: 'other' };
+    let gate: ElementReadGate = () => false;
+    const gates = new RoomElementGates([plugin('a', () => gate)]);
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(false);
+    await gates.refresh('R', backend);
+    gate = (el) => el.id === element.id;
+    await gates.refresh('R', backend);
+    gate = () => false;
+    await gates.refresh('R', backend);
+
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(true);
+    expect(gates.allowedSinceSettled('R', other, viewer)).toBe(false);
+    gates.markSettled('R');
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(false);
+    expect(gates.isPending('R')).toBe(false);
+  });
+
+  it('allows everything since settled once a ninth gate set was replaced', async () => {
+    let gate: ElementReadGate = () => false;
+    const gates = new RoomElementGates([plugin('a', () => gate)]);
+    await gates.refresh('R', backend);
+    for (let i = 0; i < 8; i++) {
+      gate = () => false;
+      await gates.refresh('R', backend);
+    }
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(false);
+    gate = () => false;
+    await gates.refresh('R', backend);
+
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(true);
+    gates.markSettled('R');
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(false);
+    expect(gates.isPending('R')).toBe(false);
+  });
+
   it('keeps settled and unloads current when a refresh throws after a load', async () => {
     const loaded: ElementReadGate = () => true;
     let broken = false;
