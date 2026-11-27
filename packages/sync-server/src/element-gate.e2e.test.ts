@@ -683,6 +683,33 @@ describe('element gate reconcile', () => {
     expect(upserted(player)[0]?.position).toEqual({ x: 10, y: 0 });
   });
 
+  it('sends a revealed element to a player whose snapshot request failed before the reconcile', async () => {
+    const switchable = switchablePlugin(new Set(['a']));
+    let failSnapshot = true;
+    const failing: ServerSyncPlugin = {
+      ...switchable,
+      snapshot: async () => {
+        if (failSnapshot) {
+          failSnapshot = false;
+          throw new Error('snapshot down');
+        }
+        return undefined;
+      },
+    };
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')], {
+      plugins: [failing],
+    });
+    failSnapshot = true;
+
+    await Promise.all([
+      write(hub, gm, toggle('a', false)),
+      write(hub, player, { kind: 'request-snapshot' }).catch(() => undefined),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert a']);
+  });
+
   it('reveals both elements when two reveals land before one reconcile', async () => {
     const { hub, gm, player, flush } = await gateRoom(new Set(['a', 'b']), [el('a'), el('b')]);
 

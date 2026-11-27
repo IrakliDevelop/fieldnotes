@@ -133,6 +133,13 @@ export class RoomElementGates {
     state?.snapshots.set(cid, state.current ?? 'deny');
   }
 
+  forgetConnection(room: string, cid: string): void {
+    const state = this.rooms.get(room);
+    if (!state) return;
+    state.snapshots.delete(cid);
+    for (const key of state.removed) if (key.startsWith(`${cid}\n`)) state.removed.delete(key);
+  }
+
   /** True when the connection may lack the element: a gate removed it, its last snapshot or else settled withheld it. */
   mayLack(room: string, cid: string, element: SyncElement, viewer: PluginViewer): boolean {
     const state = this.rooms.get(room);

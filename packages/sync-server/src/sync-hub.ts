@@ -503,6 +503,7 @@ export class SyncHub {
     this.legacyAdmissionTimers.delete(connId);
     this.opLimiters.delete(connId);
     const room = conn.room;
+    this.gates.forgetConnection(room, connId);
     const hadPresence = this.presenceConnections.delete(connId);
     this.clearPresenceLanes(connId);
     const members = this.rooms.get(room);
@@ -1781,7 +1782,6 @@ export class SyncHub {
       if (changed || this.gates.isPending(conn.room)) this.scheduleReconcile(conn.room);
     }
     const { elements: all, tombstones: stored } = await this.backend.snapshot(conn.room);
-    if (this.gates.active) this.gates.noteSnapshot(conn.room, conn.id);
     const elements =
       this.canRead || this.gates.active ? all.filter((el) => this.mayReadElement(conn, el)) : all;
     const tombstones = stored
@@ -1810,6 +1810,7 @@ export class SyncHub {
       extensions[plugin.name] = snapshot;
     }
     if (Object.keys(extensions).length > 0) snapshotOp['extensions'] = extensions;
+    if (this.gates.active) this.gates.noteSnapshot(conn.room, conn.id);
     return snapshotOp as SyncOp;
   }
 

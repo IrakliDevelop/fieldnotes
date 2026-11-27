@@ -117,6 +117,23 @@ describe('RoomElementGates', () => {
     expect(gates.mayLack('R', 'q', element, viewer)).toBe(false);
   });
 
+  it('forgets the removes and snapshot of a closed connection only', async () => {
+    let gate: ElementReadGate = () => true;
+    const gates = new RoomElementGates([plugin('a', () => gate)]);
+    await gates.refresh('R', backend);
+    gate = () => false;
+    await gates.refresh('R', backend);
+    gates.noteSnapshot('R', 'p');
+    gates.noteRemoved('R', 'p', element.id);
+    gates.noteRemoved('R', 'q', element.id);
+    gates.noteSnapshot('R', 'q');
+
+    gates.forgetConnection('R', 'p');
+
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(true);
+  });
+
   it('ignores overflow when judging what a viewer may lack', async () => {
     const other = { ...element, id: 'other' };
     const gates = new RoomElementGates([plugin('a', () => (el) => el.id !== other.id)]);
