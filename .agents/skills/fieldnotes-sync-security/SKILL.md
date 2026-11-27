@@ -68,11 +68,16 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
 
 - Snapshots are filtered by `mayRead`, then by each plugin's `filterSnapshot`. A new snapshot field
   passes through both.
+- Live plugin-owned ops (relay, sender corrections, fanout on the receiving instance) are filtered
+  per recipient by the owning plugin's `filterOp`. A throw or any non-op result withholds the frame.
 
 **Fog**
 
-- `createFogServerPlugin` (`packages/vtt/src/server.ts`) authorizes fog ops and passes through the
-  host's `filterSnapshot`. The server applies no built-in fog redaction; hosts must supply it.
+- `createFogServerPlugin` (`packages/vtt/src/server.ts`) throws without `authorize` or
+  `allowAnyWriter: true`, and when `filterSnapshot` is set without `filterOp`. A throwing
+  `authorize` denies the write. It passes the host's `filterSnapshot` and `filterOp` to the hub.
+- The server applies no built-in fog redaction; hosts must supply it. Fog is a display aid: elements
+  under it reach every client, so secrets belong on layers hidden with `canReadLayer`.
 
 **Protocol**
 

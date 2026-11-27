@@ -6,6 +6,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync server 0.32.0 — per-viewer plugin op filter
+
+**Added**
+
+- `ServerSyncPlugin.filterOp(op, viewer)` returns each recipient's view of an op the plugin owns,
+  in live relay, sender corrections and fanout. `null`, a throw, a promise or an op of another kind
+  withholds the frame from that recipient.
+- Type `PluginViewer` (`userId`, `role`, `room`).
+- The `filterSnapshot` viewer now carries `room`.
+
+**Changed**
+
+- Upgrade every relay instance together: fanout is filtered on the receiving instance, so a 0.31
+  instance relays plugin ops unfiltered to its own peers.
+
+### VTT 0.19.0 — fog write guard
+
+**Breaking**
+
+- `createFogServerPlugin` without `authorize` throws. Fix: pass `authorize`, or
+  `allowAnyWriter: true` to keep letting every member write fog. Passing both also throws.
+- `createFogServerPlugin` with `filterSnapshot` but no `filterOp` throws. Fix: add a `filterOp`
+  that redacts live fog ops the same way `filterSnapshot` redacts the snapshot.
+
+**Added**
+
+- `allowAnyWriter` and `filterOp` options on `createFogServerPlugin`.
+- Types `FogViewer` and `FogOp`.
+- A throwing or rejecting `authorize` denies the write with a sender correction instead of
+  escaping.
+
+**Changed**
+
+- `filterOp` needs `@fieldnotes/sync-server` 0.32.0; an older hub never calls it. The
+  `@fieldnotes/sync-server` peer floor is now 0.32.0.
+
 ### Sync 0.31.0 — image source check
 
 **Added**
