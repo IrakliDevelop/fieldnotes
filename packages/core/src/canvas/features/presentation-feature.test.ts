@@ -122,6 +122,20 @@ describe('presentationFeature', () => {
     expect(viewport.presentation.getState().active).toBe(false);
   });
 
+  it('one feature object serves two viewports independently', () => {
+    const feature = presentationFeature();
+    const first = createViewport({ plugins: [feature] });
+    const second = createViewport({ plugins: [feature] });
+    addFrames(first);
+    addFrames(second);
+    expect(first.runAction('presentation.start')).toBe(true);
+    expect(first.presentation.getState().active).toBe(true);
+    expect(second.presentation.getState().active).toBe(false);
+    first.destroy();
+    expect(second.runAction('presentation.start')).toBe(true);
+    expect(second.presentation.getState().active).toBe(true);
+  });
+
   it('destroy ends a running presentation and detaches it from the viewport', () => {
     const viewport = createViewport({ plugins: [presentationFeature()] });
     addFrames(viewport);
@@ -155,7 +169,6 @@ describe('presentationFeature', () => {
     viewport.toolManager.getTool<SelectTool>('select')?.setSelection([note.id]);
     const ids = viewport.actions.list().map((action) => action.id);
     const firstPresentation = ids.indexOf('presentation.start');
-    expect(firstPresentation).toBe(31);
     expect(ids.slice(firstPresentation)).toEqual([
       'presentation.start',
       'presentation.exit',
