@@ -84,4 +84,17 @@ describe('RoomElementGates', () => {
     expect(gates.current('R')).toBeUndefined();
     expect(gates.settled('R')).toBe('deny');
   });
+
+  it('discards a refresh that a drop overtook', async () => {
+    let release: (gate: ElementReadGate) => void = () => undefined;
+    const loading = new Promise<ElementReadGate>((resolve) => (release = resolve));
+    const gates = new RoomElementGates([{ name: 'slow', elementReadGate: () => loading }]);
+
+    const refreshing = gates.refresh('R', backend);
+    gates.drop('R');
+    release(() => true);
+
+    expect(await refreshing).toBe(false);
+    expect(gates.isLoaded('R')).toBe(false);
+  });
 });

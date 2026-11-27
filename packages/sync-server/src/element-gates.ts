@@ -30,6 +30,8 @@ interface RoomGateState {
 export class RoomElementGates {
   private readonly plugins: readonly ServerSyncPlugin[];
   private readonly rooms = new Map<string, RoomGateState>();
+  // One token per generation; drop deletes it, so a refresh it overtook stores nothing.
+  private readonly generations = new Map<string, object>();
   /** False when no plugin has `elementReadGate`; the hub then skips all gate work. */
   readonly active: boolean;
 
@@ -44,11 +46,17 @@ export class RoomElementGates {
 
   /** Asks every gate plugin; returns true when the set in force changed (by identity). */
   async refresh(room: string, backend: HubBackend): Promise<boolean> {
+    let generation = this.generations.get(room);
+    if (!generation) {
+      generation = {};
+      this.generations.set(room, generation);
+    }
     const next: ElementReadGate[] = [];
     for (const plugin of this.plugins) {
       const gate = await plugin.elementReadGate?.(room, backend);
       if (gate) next.push(gate);
     }
+    if (this.generations.get(room) !== generation) return false;
     const state = this.rooms.get(room);
     if (!state) {
       this.rooms.set(room, { current: next, settled: 'deny' });
@@ -81,5 +89,6 @@ export class RoomElementGates {
 
   drop(room: string): void {
     this.rooms.delete(room);
+    this.generations.delete(room);
   }
 }

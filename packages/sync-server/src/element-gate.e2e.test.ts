@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import {
   createCurrentCapabilities,
+  createExtensionKind,
   type BatchOp,
   type SyncCapabilities,
   type SyncElement,
@@ -280,5 +281,188 @@ describe('element read gate', () => {
 
     expect(plain[1]?.length).toBeGreaterThan(0);
     expect(await run([{ name: 'ungated', snapshot: async () => undefined }])).toEqual(plain);
+  });
+});
+
+class CountingBackend extends MemoryHubBackend {
+  calls = 0;
+  hold: Promise<void> = Promise.resolve();
+  failNext = false;
+
+  override async snapshot(room: string): ReturnType<MemoryHubBackend['snapshot']> {
+    this.calls += 1;
+    await this.hold;
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error('backend down');
+    }
+    return super.snapshot(room);
+  }
+}
+
+const gateKind = createExtensionKind<{ id: string; hidden: boolean }>({
+  extensionKind: 'test:gate',
+  codec: {
+    validate: (payload): payload is { id: string; hidden: boolean } =>
+      typeof payload === 'object' &&
+      payload !== null &&
+      typeof (payload as { id?: unknown }).id === 'string' &&
+      typeof (payload as { hidden?: unknown }).hidden === 'boolean',
+  },
+});
+
+/** A gate plugin whose `test:gate` op hides or reveals one id, replacing the gate only on a change. */
+function switchablePlugin(hidden: Set<string>): ServerSyncPlugin {
+  const make = (): ElementReadGate => {
+    const frozen = new Set(hidden);
+    return (element, viewer) => viewer.role === 'gm' || !frozen.has(element.id);
+  };
+  let gate = make();
+  return {
+    name: 'gate',
+    elementReadGate: async () => gate,
+    registerExtensionKinds(registry) {
+      registry.register(gateKind, async (op) => {
+        const { id, hidden: hide } = op.payload;
+        if (hidden.has(id) !== hide) {
+          if (hide) hidden.add(id);
+          else hidden.delete(id);
+          gate = make();
+        }
+        return { accepted: op, corrections: [] };
+      });
+    },
+  };
+}
+
+function toggle(id: string, hidden: boolean): SyncOp {
+  return { kind: 'extension', extensionKind: 'test:gate', payload: { id, hidden } };
+}
+
+/** gm, player and gm writer; seeds `elements`; every queued reconcile has run on return. */
+async function gateRoom(
+  hidden: Set<string>,
+  elements: readonly SyncElement[],
+  options: SyncHubOptions = {},
+) {
+  const backend = new CountingBackend();
+  const hub = makeHub({ backend, plugins: [switchablePlugin(hidden)], ...options });
+  const gm = admit(hub, makeConn('gm', 'gm'));
+  const player = admit(hub, makeConn('player', 'player'));
+  const writer = admit(hub, { ...makeConn('writer', 'gm'), userId: 'u1' });
+  for (const element of elements) await write(hub, writer, { kind: 'upsert', element });
+  // An unchanged toggle queues behind any reconcile without scheduling one.
+  const flush = () => write(hub, gm, toggle('none', false));
+  await flush();
+  for (const conn of [gm, player, writer]) conn.sent.length = 0;
+  backend.calls = 0;
+  return { hub, backend, gm, player, writer, flush };
+}
+
+function upserted(conn: FakeConn): SyncElement[] {
+  return conn.sent.flatMap((message) => {
+    const { op } = JSON.parse(message) as { op: SyncOp };
+    return op.kind === 'upsert' ? [op.element] : [];
+  });
+}
+
+describe('element gate reconcile', () => {
+  it('sends the player a hub remove for an element a gate change hides', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a'), el('b')]);
+
+    await write(hub, gm, toggle('a', true));
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a']);
+    expect(seen(gm)).toEqual([]);
+  });
+
+  it('sends the player the stored element when a gate change reveals it', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(['a']), [el('a', 30, 1)]);
+
+    await write(hub, gm, toggle('a', false));
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert a']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 30, y: 0 });
+    expect(seen(gm)).toEqual([]);
+  });
+
+  it('never reveals an element the player cannot read by audience', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(['s', 'a']), [el('s'), el('a')], {
+      canRead: ({ role, audience }) => role === 'gm' || audience !== 'secret',
+      canReadLayer: () => true,
+      resolveAudience: ({ element }) => (element.id === 's' ? 'secret' : undefined),
+    });
+
+    await write(hub, gm, toggle('s', false));
+    await write(hub, gm, toggle('a', false));
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert a']);
+  });
+
+  it('strips ownerId from a reveal upsert for a viewer without canReadOwnerId', async () => {
+    const { hub, backend, gm, player, flush } = await gateRoom(new Set(['a']), [el('a')], {
+      authorize: () => true,
+      canReadOwnerId: ({ role }) => role === 'gm',
+    });
+
+    await write(hub, gm, toggle('a', false));
+    await flush();
+
+    expect((await backend.snapshot('R')).elements[0]?.ownerId).toBe('u1');
+    expect(seen(player)).toEqual(['hub: upsert a']);
+    expect(upserted(player)[0]).not.toHaveProperty('ownerId');
+  });
+
+  it('coalesces gate changes made while a reconcile is blocked into one more run', async () => {
+    const { hub, backend, gm, flush } = await gateRoom(new Set(), [el('a'), el('b'), el('c')]);
+    let release: () => void = () => undefined;
+    backend.hold = new Promise((resolve) => (release = resolve));
+
+    await write(hub, gm, toggle('a', true));
+    const pending = [toggle('b', true), toggle('c', true), toggle('a', false)].map((op) =>
+      write(hub, gm, op),
+    );
+    release();
+    await Promise.all(pending);
+    await flush();
+
+    expect(backend.calls).toBe(2);
+  });
+
+  it('does not reconcile when the same gate function is returned again', async () => {
+    const { hub, backend, gm, player, flush } = await gateRoom(new Set(['a']), [el('a')]);
+
+    await write(hub, gm, toggle('a', true));
+    await flush();
+
+    expect(backend.calls).toBe(0);
+    expect(seen(player)).toEqual([]);
+  });
+
+  it('keeps settled after a failed reconcile, so the next change reconciles from it', async () => {
+    const { hub, backend, gm, player, flush } = await gateRoom(new Set(), [el('a'), el('b')]);
+    backend.failNext = true;
+
+    await write(hub, gm, toggle('a', true));
+    await flush();
+    expect(seen(player)).toEqual([]);
+    await write(hub, gm, toggle('b', true));
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: remove b']);
+  });
+
+  it('removes an element moved while a reconcile that hides it is pending', async () => {
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')]);
+
+    const hiding = write(hub, gm, toggle('a', true));
+    const moving = write(hub, writer, { kind: 'upsert', element: el('a', 40, 2) });
+    await Promise.all([hiding, moving]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: remove a']);
   });
 });

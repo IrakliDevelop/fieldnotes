@@ -279,6 +279,7 @@ export class SyncHub {
   private readonly authorizeLayer?: AuthorizeLayer;
   private readonly pluginRegistry: ServerPluginRegistry;
   private readonly gates: RoomElementGates;
+  private readonly reconcileWaiting = new Set<string>();
   private readonly peerCapabilities = new Map<string, SyncCapabilities>();
   private readonly peerCapabilityHashes = new Map<string, string>();
   private readonly legacyAdmissionTimers = new Map<
@@ -1039,6 +1040,7 @@ export class SyncHub {
       const stamped = await this.stampHubRemove(conn.room, broadcast, fallbackVersion);
       if (stamped) await this.publishPluginOp(conn, stamped, result.locality);
     }
+    if (result.accepted) await this.refreshGatesAfter(conn.room, result.accepted);
   }
 
   // Clients drop versionless removes: stamp a plugin's with the stored (else op) version and 'hub'.
@@ -1263,11 +1265,57 @@ export class SyncHub {
     this.gates.drop(room);
     void this.roomQueue(room)
       .enqueue(async () => {
-        if (this.rooms.has(room)) await this.gates.refresh(room, this.backend);
+        if (this.rooms.has(room) && (await this.gates.refresh(room, this.backend)))
+          this.scheduleReconcile(room);
       })
       .catch(() => {
         /* unloaded gates withhold every element; a later snapshot retries */
       });
+  }
+
+  /** Runs on the room queue after an op its owning plugin accepted. */
+  private async refreshGatesAfter(room: string, op: SyncOp): Promise<void> {
+    if (!this.ownerOfOp(op)?.elementReadGate || !this.rooms.has(room)) return;
+    if (await this.gates.refresh(room, this.backend)) this.scheduleReconcile(room);
+  }
+
+  /** Never awaited: callers run on the room queue, and at most one run waits per room. */
+  private scheduleReconcile(room: string): void {
+    if (this.reconcileWaiting.has(room)) return;
+    this.reconcileWaiting.add(room);
+    void this.roomQueue(room)
+      .enqueue(async () => {
+        this.reconcileWaiting.delete(room);
+        await this.reconcile(room);
+      })
+      .catch(() => {
+        /* settled stays put, so the next gate change reconciles from it */
+      });
+  }
+
+  // Sends each local viewer what changed between the settled gates and those in force.
+  private async reconcile(room: string): Promise<void> {
+    const current = this.gates.current(room);
+    if (!current) return;
+    const settled = this.gates.settled(room);
+    const { elements } = await this.backend.snapshot(room);
+    for (const cid of this.rooms.get(room) ?? []) {
+      const conn = this.conns.get(cid);
+      if (!conn || !this.peerCapabilities.has(cid)) continue;
+      const viewer = this.viewerOf(conn);
+      for (const element of elements) {
+        if (!this.mayRead(conn, element.audience)) continue;
+        const before = settled !== 'deny' && gatesAllow(settled, element, viewer);
+        const now = gatesAllow(current, element, viewer);
+        if (before && !now) {
+          const { id, version } = element;
+          this.sendToConnection(conn, HUB_FROM, { kind: 'remove', id, version, editor: HUB_FROM });
+        } else if (!before && now) {
+          this.sendToConnection(conn, HUB_FROM, { kind: 'upsert', element });
+        }
+      }
+    }
+    this.gates.markSettled(room);
   }
 
   private safePublish(payload: string): void {
@@ -1665,8 +1713,12 @@ export class SyncHub {
    * share it so a corrected sender is never left with less state than a joiner receives.
    */
   private async buildSnapshotOp(conn: Connection, to: string): Promise<SyncOp> {
-    if (this.gates.active && this.rooms.has(conn.room))
-      await this.gates.refresh(conn.room, this.backend);
+    if (
+      this.gates.active &&
+      this.rooms.has(conn.room) &&
+      (await this.gates.refresh(conn.room, this.backend))
+    )
+      this.scheduleReconcile(conn.room);
     const { elements: all, tombstones: stored } = await this.backend.snapshot(conn.room);
     const elements =
       this.canRead || this.gates.active ? all.filter((el) => this.mayReadElement(conn, el)) : all;
@@ -1770,6 +1822,7 @@ export class SyncHub {
           const accepted = owner.applyFanout ? await owner.applyFanout(op, context) : op;
           if (accepted) {
             this.relayOpToRoom(env.room as string, undefined, env.from as string, accepted);
+            await this.refreshGatesAfter(env.room as string, accepted);
           }
         })
         .catch(() => {
