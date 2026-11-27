@@ -92,6 +92,38 @@ describe('RoomElementGates', () => {
     expect(gates.isPending('R')).toBe(false);
   });
 
+  it('denies since settled when any gate set since then denied, until markSettled', async () => {
+    const other = { ...element, id: 'other' };
+    let gate: ElementReadGate = () => true;
+    const gates = new RoomElementGates([plugin('a', () => gate)]);
+    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(true);
+    await gates.refresh('R', backend);
+    gate = (el) => el.id !== element.id;
+    await gates.refresh('R', backend);
+    gate = () => true;
+    await gates.refresh('R', backend);
+
+    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(true);
+    expect(gates.deniedSinceSettled('R', other, viewer)).toBe(false);
+    gates.markSettled('R');
+    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(false);
+  });
+
+  it('denies everything since settled once a ninth gate set was replaced', async () => {
+    let gate: ElementReadGate = () => true;
+    const gates = new RoomElementGates([plugin('a', () => gate)]);
+    await gates.refresh('R', backend);
+    for (let i = 0; i < 8; i++) {
+      gate = () => true;
+      await gates.refresh('R', backend);
+    }
+    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(false);
+    gate = () => true;
+    await gates.refresh('R', backend);
+
+    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(true);
+  });
+
   it('allows everything since settled once a ninth gate set was replaced', async () => {
     let gate: ElementReadGate = () => false;
     const gates = new RoomElementGates([plugin('a', () => gate)]);

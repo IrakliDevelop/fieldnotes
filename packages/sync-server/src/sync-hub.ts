@@ -1343,11 +1343,10 @@ export class SyncHub {
       const viewer = this.viewerOf(conn);
       for (const element of elements) {
         if (!this.mayRead(conn, element.audience)) continue;
-        const before = this.gates.allowedSinceSettled(room, element, viewer);
         const now = gatesAllow(current, element, viewer);
-        if (before && !now) {
+        if (!now && this.gates.allowedSinceSettled(room, element, viewer)) {
           this.sendToConnection(conn, HUB_FROM, hubRemoveOf(element));
-        } else if (!before && now) {
+        } else if (now && this.gates.deniedSinceSettled(room, element, viewer)) {
           this.sendToConnection(conn, HUB_FROM, { kind: 'upsert', element });
         }
       }

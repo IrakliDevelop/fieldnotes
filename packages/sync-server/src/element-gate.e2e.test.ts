@@ -641,6 +641,44 @@ describe('element gate reconcile', () => {
 
     expect(seen(player)).toEqual(['writer: upsert a', 'hub: remove a']);
   });
+
+  it('reveals both elements when two reveals land before one reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(['a', 'b']), [el('a'), el('b')]);
+
+    await Promise.all([write(hub, gm, toggle('a', false)), write(hub, gm, toggle('b', false))]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert a', 'hub: upsert b']);
+  });
+
+  it('restores an element removed under an intermediate cover when the reveal returns before the reconcile', async () => {
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(['a']), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('a', false)),
+      write(hub, gm, toggle('a', true)),
+      write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) }),
+      write(hub, gm, toggle('a', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: upsert a']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
+  });
+
+  it('sends every allowed element after the since list overflows', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(['a']), [el('a'), el('b')]);
+    const ids = ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x8', 'x9'];
+
+    await Promise.all([
+      ...ids.map((id) => write(hub, gm, toggle(id, true))),
+      write(hub, gm, toggle('a', false)),
+      write(hub, gm, toggle('b', true)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert a', 'hub: remove b']);
+  });
 });
 
 const left = (element: SyncElement) => element.position.x < 0;

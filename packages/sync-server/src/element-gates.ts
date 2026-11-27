@@ -123,6 +123,17 @@ export class RoomElementGates {
     );
   }
 
+  /** True when the settled set or any set replaced since denied the element; all after overflow. */
+  deniedSinceSettled(room: string, element: SyncElement, viewer: PluginViewer): boolean {
+    const state = this.rooms.get(room);
+    // An upsert of the stored element the viewer already holds is idempotent, so over-sending is safe.
+    if (!state || state.overflowed) return true;
+    return (
+      !gatesAllow(state.settled, element, viewer) ||
+      state.since.some((gates) => !gatesAllow(gates, element, viewer))
+    );
+  }
+
   isPending(room: string): boolean {
     const state = this.rooms.get(room);
     // No state: unloaded, so current (undefined) differs from settled ('deny').
