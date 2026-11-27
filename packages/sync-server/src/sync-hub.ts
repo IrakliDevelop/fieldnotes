@@ -1302,10 +1302,7 @@ export class SyncHub {
     this.gates.drop(room);
     void this.roomQueue(room)
       .enqueue(async () => {
-        if (!this.rooms.has(room)) return;
-        await this.gates.refresh(room, this.backend);
-        // No member has had a snapshot yet, so a reconcile would only resend stale stored state.
-        this.gates.markSettled(room);
+        if (this.rooms.has(room)) await this.gates.refresh(room, this.backend);
       })
       .catch(() => {
         /* unloaded gates withhold every element; a later snapshot retries */
@@ -1337,11 +1334,7 @@ export class SyncHub {
     const current = this.gates.current(room);
     if (!current) return;
     const settled = this.gates.settled(room);
-    // Members hold only what snapshots built after the load sent, so 'deny' has nothing to undo.
-    if (settled === 'deny') {
-      this.gates.markSettled(room);
-      return;
-    }
+    if (settled === 'deny' || !this.gates.isPending(room)) return;
     const { elements } = await this.backend.snapshot(room);
     // The room was dropped and reloaded while this read; the new load owns it.
     if (this.gates.current(room) !== current) return;

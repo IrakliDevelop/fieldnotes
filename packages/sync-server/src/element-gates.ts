@@ -23,10 +23,10 @@ function sameGates(a: GateSet, b: GateSet): boolean {
 
 interface RoomGateState {
   current: GateSet;
-  settled: GateSet | 'deny';
+  settled: GateSet;
 }
 
-/** Per-room element read gates: the set in force and the set as of the last finished reconcile. */
+/** Per-room element read gates: the set in force and the settled set. */
 export class RoomElementGates {
   private readonly plugins: readonly ServerSyncPlugin[];
   private readonly rooms = new Map<string, RoomGateState>();
@@ -65,7 +65,8 @@ export class RoomElementGates {
     if (this.generations.get(room) !== generation) return false;
     const state = this.rooms.get(room);
     if (!state) {
-      this.rooms.set(room, { current: next, settled: 'deny' });
+      // A first load runs on the room queue before any member holds an element.
+      this.rooms.set(room, { current: next, settled: next });
       return true;
     }
     if (sameGates(state.current, next)) return false;
@@ -78,7 +79,7 @@ export class RoomElementGates {
     return this.rooms.get(room)?.current;
   }
 
-  /** Gates as of the last finished reconcile; `'deny'` before the first. */
+  /** Gates as of the first load or the last finished reconcile; `'deny'` before the load. */
   settled(room: string): GateSet | 'deny' {
     return this.rooms.get(room)?.settled ?? 'deny';
   }

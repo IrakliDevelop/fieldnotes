@@ -56,14 +56,12 @@ describe('RoomElementGates', () => {
     expect(gates.current('R')).toEqual([changing, stable]);
   });
 
-  it('settles to deny until markSettled, then pends on the next change', async () => {
+  it('settles to deny before the first load and to the loaded set on it, then pends on the next change', async () => {
     let gate: ElementReadGate = () => true;
     const gates = new RoomElementGates([plugin('a', () => gate)]);
+    expect(gates.settled('R')).toBe('deny');
     await gates.refresh('R', backend);
 
-    expect(gates.settled('R')).toBe('deny');
-    expect(gates.isPending('R')).toBe(true);
-    gates.markSettled('R');
     expect(gates.settled('R')).toEqual([gate]);
     expect(gates.isPending('R')).toBe(false);
     const old = gate;
@@ -71,6 +69,9 @@ describe('RoomElementGates', () => {
     await gates.refresh('R', backend);
     expect(gates.isPending('R')).toBe(true);
     expect(gates.settled('R')).toEqual([old]);
+    gates.markSettled('R');
+    expect(gates.settled('R')).toEqual([gate]);
+    expect(gates.isPending('R')).toBe(false);
   });
 
   it('drop unloads the room', async () => {

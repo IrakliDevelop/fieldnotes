@@ -512,6 +512,31 @@ describe('element gate reconcile', () => {
     expect(seen(player)).toEqual(['hub: snapshot e']);
   });
 
+  it('sends an element a gate change reveals after a snapshot request loaded the gates', async () => {
+    const backend = new MemoryHubBackend();
+    await backend.applyElement('R', { kind: 'upsert', element: el('a') }, null);
+    const switchable = switchablePlugin(new Set(['a']));
+    let calls = 0;
+    const flaky: ServerSyncPlugin = {
+      ...switchable,
+      elementReadGate: async (room, store) => {
+        calls += 1;
+        if (calls === 1) throw new Error('gate down');
+        return switchable.elementReadGate?.(room, store);
+      },
+    };
+    const hub = makeHub({ backend, plugins: [flaky] });
+    const player = admit(hub, makeConn('player', 'player'));
+    const gm = admit(hub, makeConn('gm', 'gm'));
+
+    const snapshot = write(hub, player, { kind: 'request-snapshot' });
+    const reveal = write(hub, gm, toggle('a', false));
+    await Promise.all([snapshot, reveal]);
+    await write(hub, gm, toggle('none', false));
+
+    expect(seen(player)).toEqual(['hub: snapshot ', 'hub: upsert a']);
+  });
+
   it('removes an element moved while a reconcile that hides it is pending', async () => {
     const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')]);
 
@@ -786,14 +811,6 @@ describe('first gate load', () => {
     for (const server of servers.splice(0)) await server.close();
   });
 
-  async function waitFor(cond: () => boolean | Promise<boolean>): Promise<void> {
-    const start = Date.now();
-    while (!(await cond())) {
-      if (Date.now() - start > 2000) throw new Error('waitFor: condition not met within 2000ms');
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-  }
-
   it('keeps the newer local edit of a reconnecting first member instead of resending the stored element', async () => {
     const backend = new MemoryHubBackend();
     await backend.applyElement('R', { kind: 'upsert', element: el('e', 10, 1) }, null);
@@ -832,7 +849,9 @@ describe('first gate load', () => {
       const record = await backend.getRecord('R', 'e');
       return record?.kind === 'element' ? record.element.position.x : undefined;
     };
-    await waitFor(async () => (await storedX()) === 50 || received.length > 1);
+    await vi.waitFor(async () => {
+      if ((await storedX()) !== 50 && received.length < 2) throw new Error('not settled');
+    });
 
     expect(received).toEqual(['hub: snapshot e']);
     expect(await storedX()).toBe(50);
