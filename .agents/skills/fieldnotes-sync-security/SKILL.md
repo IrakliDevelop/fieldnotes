@@ -58,6 +58,19 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
 - Layer tombstones in snapshots carry only an id and a version and reach every viewer; a live
   layer remove goes only to viewers who could read the layer.
 
+**Element read gates** (`packages/sync-server/src/element-gates.ts`, `sync-hub.ts`)
+
+- A viewer receives an element only when `canRead` allows its audience and every plugin
+  `elementReadGate` returns exactly `true`. A throw, any other value, or gates not yet loaded for
+  the room withholds; a gate never fails open.
+- Every outbound element path uses the combined check: live relay, fanout, snapshots, sender
+  corrections and element ops a plugin returns. While a reconcile is pending, a viewer the old or
+  the new gates allow gets the remove.
+- A gate change never rewrites stored elements, their versions or `audience`; the hub sends hub
+  removes and upserts per viewer instead.
+- A plugin with `elementReadGate` requires `resolvePresenceAudience` (`SyncHub` throws), so a drag
+  cannot leak a gated element's position through presence.
+
 **Image sources**
 
 - The hub refuses an image upsert whose `src` fails `isAllowedImageSrcScheme`
@@ -76,8 +89,12 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
 - `createFogServerPlugin` (`packages/vtt/src/server.ts`) throws without `authorize` or
   `allowAnyWriter: true`, and when `filterSnapshot` is set without `filterOp`. A throwing
   `authorize` denies the write. It passes the host's `filterSnapshot` and `filterOp` to the hub.
-- The server applies no built-in fog redaction; hosts must supply it. Fog is a display aid: elements
-  under it reach every client, so secrets belong on layers hidden with `canReadLayer`.
+- The server applies no built-in fog redaction; hosts must supply it. Without `seesUnderFog`, fog
+  is a display aid and elements under it reach every client. With it, the plugin's gate withholds
+  elements fully under fog (`isElementCoveredByFog`, `packages/vtt/src/fog/fog-coverage.ts`);
+  partly covered elements, custom extension types and presence still reach every client.
+- Secrets belong on elements whose audience `canRead` denies to the viewer. `canReadLayer` hides
+  only the layer record, not the elements on it.
 
 **Protocol**
 
