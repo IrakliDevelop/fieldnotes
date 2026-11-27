@@ -6,6 +6,7 @@ import {
   SelectTool,
   Viewport,
   createStroke,
+  defaultFeatures,
   type CanvasState,
   type PeerRoster,
 } from '@fieldnotes/core';
@@ -63,6 +64,7 @@ export async function mountHero(root: HTMLElement): Promise<HeroHandle> {
     background: { pattern: 'none' },
     onPaste: ignore,
     onDrop: ignore,
+    plugins: defaultFeatures(),
     tools: [
       selectTool,
       new PencilTool({ color: GRAPHITE, width: 2 }),

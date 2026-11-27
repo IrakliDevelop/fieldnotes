@@ -2,6 +2,8 @@ import {
   AutoSave,
   IndexedDBAdapter,
   Viewport,
+  createDefaultTools,
+  defaultFeatures,
   type ImportableCanvasState,
   type StrokePoint,
   type ViewportOptions,
@@ -17,7 +19,10 @@ export function openBoard(): void {
   // #region load
   const saved = localStorage.getItem('board');
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
-  const viewport = new Viewport(document.getElementById('board')!, { tools: 'default' });
+  const viewport = new Viewport(document.getElementById('board')!, {
+    tools: createDefaultTools(),
+    plugins: defaultFeatures(),
+  });
   if (saved) viewport.loadJSON(saved);
   // #endregion load
 }
@@ -85,7 +90,11 @@ const SAMPLE_BOARD = JSON.stringify({
 
 /** Opens the sample board as the `load` region opens a saved one. */
 export function createBoard(container: HTMLElement, extra?: ViewportOptions): Viewport {
-  const viewport = new Viewport(container, { tools: 'default', ...extra });
+  const viewport = new Viewport(container, {
+    tools: createDefaultTools(),
+    plugins: defaultFeatures(),
+    ...extra,
+  });
   viewport.loadJSON(SAMPLE_BOARD);
   return viewport;
 }

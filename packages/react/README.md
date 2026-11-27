@@ -21,7 +21,7 @@ active, so a persisting board is one line:
 
 ```tsx
 import { FieldNotesCanvas } from '@fieldnotes/react';
-import type { CanvasState } from '@fieldnotes/core';
+import { createDefaultTools, defaultFeatures, type CanvasState } from '@fieldnotes/core';
 
 const saved = localStorage.getItem('board') ?? undefined;
 const save = (state: CanvasState) => localStorage.setItem('board', JSON.stringify(state));
@@ -30,6 +30,8 @@ export function App() {
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
       <FieldNotesCanvas
+        tools={createDefaultTools()}
+        options={{ plugins: defaultFeatures() }}
         initialData={saved}
         onChange={save}
         style={{ width: '100%', height: '100%' }}

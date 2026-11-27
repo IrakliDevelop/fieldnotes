@@ -31,12 +31,11 @@ export interface FieldNotesCanvasProps extends Omit<
   /** Constructor-only: changes after mount are ignored (the canvas is stateful). */
   options?: ViewportOptions;
   /**
-   * `'default'` (mount-only): `createDefaultTools()` registered before `onReady`, `select` active.
-   * Omitted: the same bundle after `onReady`, only if no tools are registered by then.
+   * Omitted: no tools.
    * An array is reactive by name: new names register, departing names unregister, and a new
    * instance under an existing name is ignored. `[]` registers nothing.
    */
-  tools?: Tool[] | 'default';
+  tools?: Tool[];
   /** Mount-only: a saved state (object or JSON string) loaded before `onReady`. */
   initialData?: ImportableCanvasState | string;
   /** Trailing-debounced with the exported state after any change; flushed on unmount. */
@@ -179,7 +178,7 @@ export const FieldNotesCanvas = forwardRef<FieldNotesCanvasRef, FieldNotesCanvas
     }, []);
 
     useEffect(() => {
-      if (!viewport || !Array.isArray(tools)) return;
+      if (!viewport || !tools) return;
       mountedRef.current?.setTools(tools);
     }, [viewport, tools]);
 

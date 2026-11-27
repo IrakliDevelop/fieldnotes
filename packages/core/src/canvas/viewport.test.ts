@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { Viewport } from './viewport';
+import { createDefaultTools } from '../tools/default-tools';
 import { minimapFeature } from './features/minimap-feature';
 import { exportImage } from './export-image';
 import { exportSvg } from './export-svg';
@@ -361,7 +362,10 @@ describe('Viewport', () => {
   });
 
   it('ignores wrapper, window, document, queued-frame, and window shortcut work after destruction', async () => {
-    const viewport = new Viewport(container, { tools: 'default', shortcuts: { scope: 'window' } });
+    const viewport = new Viewport(container, {
+      tools: createDefaultTools(),
+      shortcuts: { scope: 'window' },
+    });
     const note = createNote({
       position: { x: 0, y: 0 },
       layerId: viewport.layerManager.activeLayerId,
@@ -5102,8 +5106,8 @@ describe('Viewport tools option and onStateChange', () => {
     onPointerUp: () => undefined,
   };
 
-  it("tools: 'default' registers the default bundle and activates select", () => {
-    const viewport = new Viewport(container, { tools: 'default' });
+  it('tools: createDefaultTools() registers the default bundle and activates select', () => {
+    const viewport = new Viewport(container, { tools: createDefaultTools() });
     expect(viewport.toolManager.toolNames).toEqual([
       'hand',
       'select',
@@ -5120,7 +5124,7 @@ describe('Viewport tools option and onStateChange', () => {
   });
 
   it('selects a completed default frame gesture and undoes it once', () => {
-    const viewport = new Viewport(container, { tools: 'default' });
+    const viewport = new Viewport(container, { tools: createDefaultTools() });
     const wrapper = wrapperOf(container);
     viewport.runAction('tool.frame');
     for (const [type, clientX, clientY] of [
@@ -5148,7 +5152,7 @@ describe('Viewport tools option and onStateChange', () => {
   });
 
   it('leaves selection and history unchanged when a default frame gesture is cancelled', () => {
-    const viewport = new Viewport(container, { tools: 'default' });
+    const viewport = new Viewport(container, { tools: createDefaultTools() });
     const wrapper = wrapperOf(container);
     viewport.runAction('tool.frame');
     for (const [type, clientX, clientY] of [
@@ -7146,7 +7150,7 @@ describe('Viewport links', () => {
   function withOnOpenLink(onOpenLink: ViewportOptions['onOpenLink']) {
     const container = document.createElement('div');
     document.body.appendChild(container);
-    const viewport = new Viewport(container, { onOpenLink, tools: 'default' });
+    const viewport = new Viewport(container, { onOpenLink, tools: createDefaultTools() });
     return {
       viewport,
       wrapper: wrapperOf(container),

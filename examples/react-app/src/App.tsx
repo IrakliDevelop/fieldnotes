@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FieldNotesCanvas, HostElement } from '@fieldnotes/react';
 import type { Viewport } from '@fieldnotes/react';
-import { createDefaultTools } from '@fieldnotes/core';
+import { createDefaultTools, defaultFeatures } from '@fieldnotes/core';
 import { CameraBar } from './CameraBar';
 import { Card } from './Card';
 import { Toolbar } from './Toolbar';
@@ -43,6 +43,7 @@ export function App() {
         }}
         style={{ width: '100%', height: '100%' }}
         options={{
+          plugins: defaultFeatures(),
           onImageError: ({ src }) => window.alert(`Image failed to load: ${src}`),
         }}
       >

@@ -23,18 +23,22 @@ element:
 ```ts
 import { Component } from '@angular/core';
 import { FieldNotesCanvas } from '@fieldnotes/angular';
-import type { CanvasState } from '@fieldnotes/core';
+import { createDefaultTools, defaultFeatures, type CanvasState } from '@fieldnotes/core';
 
 @Component({
   selector: 'app-board',
   imports: [FieldNotesCanvas],
   template: `<fn-canvas
+    [tools]="tools"
+    [options]="options"
     [initialData]="saved"
     (stateChange)="save($event)"
     style="width: 100vw; height: 100vh"
   />`,
 })
 export class Board {
+  protected readonly tools = createDefaultTools();
+  protected readonly options = { plugins: defaultFeatures() };
   // The canvas mounts only in the browser; guard storage too so the page also renders on a server.
   protected readonly saved =
     typeof localStorage === 'undefined' ? undefined : (localStorage.getItem('board') ?? undefined);

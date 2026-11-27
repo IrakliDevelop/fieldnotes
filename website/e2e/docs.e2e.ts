@@ -2,11 +2,12 @@ import { expect, test } from '@playwright/test';
 import { expectNoAxeViolations } from './helpers';
 
 const MOUNT_CODE = `\`\`\`ts
-import { Viewport } from '@fieldnotes/core';
+import { Viewport, createDefaultTools, defaultFeatures } from '@fieldnotes/core';
 
 const viewport = new Viewport(document.getElementById('board')!, {
   background: { pattern: 'dots', spacing: 24 },
-  tools: 'default',
+  tools: createDefaultTools(),
+  plugins: defaultFeatures(),
 });
 \`\`\``;
 

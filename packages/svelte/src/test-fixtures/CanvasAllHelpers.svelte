@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Viewport } from '@fieldnotes/core';
+  import { createDefaultTools, type Viewport } from '@fieldnotes/core';
   import { FieldNotesCanvas } from '../index.js';
   import AllHelpers from './AllHelpers.svelte';
 
@@ -7,7 +7,7 @@
     $props();
 </script>
 
-<FieldNotesCanvas {onready}>
+<FieldNotesCanvas tools={createDefaultTools()} {onready}>
   {#if helpers}
     <AllHelpers />
   {/if}

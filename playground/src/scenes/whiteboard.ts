@@ -1,5 +1,6 @@
 import {
   ArrowTool,
+  defaultFeatures,
   EraserTool,
   FrameTool,
   HandTool,
@@ -22,7 +23,7 @@ import { registerWidgets } from '../widgets';
 export const VIEWPORT_OPTIONS = {
   background: { pattern: 'dots', spacing: 24 },
   theme: { base: 'light', tokens: { pattern: '#d4d4d8' } },
-  plugins: [minimapFeature()],
+  plugins: [...defaultFeatures(), minimapFeature()],
   panInertia: true,
 } satisfies ViewportOptions;
 

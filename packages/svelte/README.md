@@ -24,14 +24,22 @@ active, so a persisting board is one component:
 ```svelte
 <script lang="ts">
   import { FieldNotesCanvas } from '@fieldnotes/svelte';
-  import type { CanvasState } from '@fieldnotes/core';
+  import { createDefaultTools, defaultFeatures, type CanvasState } from '@fieldnotes/core';
 
+  const tools = createDefaultTools();
+  const options = { plugins: defaultFeatures() };
   const saved = localStorage.getItem('board') ?? undefined;
   const save = (state: CanvasState) => localStorage.setItem('board', JSON.stringify(state));
 </script>
 
 <div style="width: 100vw; height: 100vh">
-  <FieldNotesCanvas initialData={saved} onchange={save} style="width: 100%; height: 100%" />
+  <FieldNotesCanvas
+    {tools}
+    {options}
+    initialData={saved}
+    onchange={save}
+    style="width: 100%; height: 100%"
+  />
 </div>
 ```
 

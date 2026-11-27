@@ -26,7 +26,6 @@ import { getElementsBoundingBox } from '../elements/bounds';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
-import { createDefaultTools } from '../tools/default-tools';
 import { hitTest, hitTestResizeHandle, hitTestRotateHandle } from '../tools/select-hit';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
@@ -174,7 +173,7 @@ export interface ViewportOptions {
    * Tools registered after plugins start, replacing same-named plugin tools; activates `select` when present.
    * If a plugin activated a tool that an option tool replaces, the plugin's instance stays active.
    */
-  tools?: 'default' | Tool[];
+  tools?: Tool[];
   /**
    * Board inside a scrolling page: plain wheel and, until `setEmbeddedEngaged(true)`, touch scroll
    * the page; Ctrl/⌘+wheel zooms; mouse and pen work as usual. Input only, read at construction.
@@ -778,8 +777,7 @@ export class Viewport {
       () => this.stateChangeListeners.clear(),
     );
 
-    const tools = options.tools === 'default' ? createDefaultTools() : (options.tools ?? []);
-    for (const tool of tools) this.toolManager.register(tool);
+    for (const tool of options.tools ?? []) this.toolManager.register(tool);
     if (!this.toolManager.activeTool && this.toolManager.getTool('select')) {
       this.toolManager.setTool('select', this.toolContext);
     }

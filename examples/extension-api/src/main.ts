@@ -1,4 +1,4 @@
-import { Viewport, SelectTool, HandTool, PencilTool } from '@fieldnotes/core';
+import { Viewport, SelectTool, HandTool, PencilTool, defaultFeatures } from '@fieldnotes/core';
 import { annotationPlugin, AnnotationServiceKey } from './annotation-plugin';
 import { AnnotationTool } from './annotation-tool';
 
@@ -11,7 +11,7 @@ if (!(container instanceof HTMLElement)) throw new Error('Missing #canvas contai
 
 const viewport = new Viewport(container, {
   background: { pattern: 'dots', spacing: 24 },
-  plugins: [annotationPlugin],
+  plugins: [annotationPlugin, ...defaultFeatures()],
 });
 
 // ─── Register tools ──────────────────────────────────────────────────────────

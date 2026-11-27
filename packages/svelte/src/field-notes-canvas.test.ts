@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, afterEach, type Mock } from 'vitest';
 import { render } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
-import { HandTool, SelectTool, PencilTool, Viewport, createShape } from '@fieldnotes/core';
+import {
+  HandTool,
+  SelectTool,
+  PencilTool,
+  Viewport,
+  createDefaultTools,
+  createShape,
+} from '@fieldnotes/core';
 import type { CanvasState, ImportableCanvasState } from '@fieldnotes/core';
 import { FieldNotesCanvas } from './index.js';
 import CanvasWithChild from './test-fixtures/CanvasWithChild.svelte';
@@ -92,9 +99,9 @@ describe('FieldNotesCanvas', () => {
     expect(viewport.toolManager.activeTool?.name).toBe('select');
   });
 
-  it('a bare canvas registers the default bundle with select active', () => {
+  it('createDefaultTools() registers the bundle with select active', () => {
     const onready = vi.fn<(viewport: Viewport) => void>();
-    render(FieldNotesCanvas, { props: { onready } });
+    render(FieldNotesCanvas, { props: { tools: createDefaultTools(), onready } });
     const viewport = viewportAt(onready, 0);
     expect(viewport.toolManager.toolNames).toEqual(DEFAULT_TOOL_NAMES);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
@@ -108,21 +115,29 @@ describe('FieldNotesCanvas', () => {
     expect(viewport.toolManager.activeTool).toBeNull();
   });
 
-  it("tools='default' registers the default bundle even with options.tools set", () => {
+  it('a canvas with no tools has no tools', () => {
+    const onready = vi.fn<(viewport: Viewport) => void>();
+    render(FieldNotesCanvas, { props: { onready } });
+    const viewport = viewportAt(onready, 0);
+    expect(viewport.toolManager.toolNames).toEqual([]);
+    expect(viewport.toolManager.activeTool).toBeNull();
+  });
+
+  it('createDefaultTools() registers the bundle even with options.tools set', () => {
     const onready = vi.fn<(viewport: Viewport) => void>();
     render(FieldNotesCanvas, {
-      props: { tools: 'default', options: { tools: [new HandTool()] }, onready },
+      props: { tools: createDefaultTools(), options: { tools: [new HandTool()] }, onready },
     });
     const viewport = viewportAt(onready, 0);
     expect(viewport.toolManager.toolNames).toEqual(DEFAULT_TOOL_NAMES);
     expect(viewport.toolManager.activeTool?.name).toBe('select');
   });
 
-  it("tools='default' registers the bundle before onready", () => {
+  it('createDefaultTools() registers the bundle before onready', () => {
     let namesAtReady: string[] = [];
     render(FieldNotesCanvas, {
       props: {
-        tools: 'default',
+        tools: createDefaultTools(),
         onready: (vp: Viewport) => {
           namesAtReady = [...vp.toolManager.toolNames];
         },
@@ -159,7 +174,9 @@ describe('FieldNotesCanvas', () => {
 
   it('defaultTool wins over select with the default bundle', () => {
     const onready = vi.fn<(viewport: Viewport) => void>();
-    render(FieldNotesCanvas, { props: { defaultTool: 'pencil', onready } });
+    render(FieldNotesCanvas, {
+      props: { tools: createDefaultTools(), defaultTool: 'pencil', onready },
+    });
     expect(viewportAt(onready, 0).toolManager.activeTool?.name).toBe('pencil');
   });
 
@@ -213,7 +230,12 @@ describe('FieldNotesCanvas', () => {
     const onready = vi.fn<(viewport: Viewport) => void>();
     const ontoolchange = vi.fn<(name: string) => void>();
     render(FieldNotesCanvas, {
-      props: { options: { shortcuts: { scope: 'window' } }, ontoolchange, onready },
+      props: {
+        tools: createDefaultTools(),
+        options: { shortcuts: { scope: 'window' } },
+        ontoolchange,
+        onready,
+      },
     });
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h' }));
     expect(viewportAt(onready, 0).toolManager.activeTool?.name).toBe('hand');
@@ -359,11 +381,11 @@ describe('FieldNotesCanvas initialData and onchange', () => {
     expect(onchange).not.toHaveBeenCalled();
   });
 
-  it('registering deferred defaults after onready does not fire onchange', () => {
+  it('registering tools at mount does not fire onchange', () => {
     vi.useFakeTimers();
     const onready = vi.fn<(viewport: Viewport) => void>();
     const onchange = vi.fn<(state: CanvasState) => void>();
-    render(FieldNotesCanvas, { props: { onchange, onready } });
+    render(FieldNotesCanvas, { props: { tools: createDefaultTools(), onchange, onready } });
     vi.advanceTimersByTime(1000);
     expect(viewportAt(onready, 0).toolManager.activeTool?.name).toBe('select');
     expect(onchange).not.toHaveBeenCalled();

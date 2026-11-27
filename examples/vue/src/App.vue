@@ -1,5 +1,5 @@
 <script lang="ts">
-import { createDefaultTools } from '@fieldnotes/core';
+import { createDefaultTools, defaultFeatures } from '@fieldnotes/core';
 import type { ViewportOptions } from '@fieldnotes/core';
 import { StampTool } from './StampTool';
 
@@ -15,6 +15,7 @@ import SaveControls from './SaveControls.vue';
 
 const tool = ref('select');
 const options: ViewportOptions = {
+  plugins: defaultFeatures(),
   onImageError: ({ src }) => window.alert(`Image failed to load: ${src}`),
 };
 </script>

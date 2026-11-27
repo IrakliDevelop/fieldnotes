@@ -549,7 +549,8 @@ describe('core public surface', () => {
 
   it('exports mountViewport for framework bindings', () => {
     expect(typeof FN.mountViewport).toBe('function');
-    const opts: FN.MountViewportOptions = { tools: 'default', changeDebounceMs: 0 };
+    const tools = FN.createDefaultTools();
+    const opts: FN.MountViewportOptions = { tools, changeDebounceMs: 0 };
     const members: (keyof FN.MountedViewport)[] = [
       'viewport',
       'autoSave',
@@ -558,7 +559,7 @@ describe('core public surface', () => {
       'setTools',
       'destroy',
     ];
-    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual(['default', 0, 6]);
+    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual([tools, 0, 6]);
   });
 
   it('exports attachHostElement for framework bindings', () => {

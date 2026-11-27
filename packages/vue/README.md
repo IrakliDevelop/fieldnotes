@@ -22,15 +22,23 @@ active, so a persisting board is one component:
 ```vue
 <script setup lang="ts">
 import { FieldNotesCanvas } from '@fieldnotes/vue';
-import type { CanvasState } from '@fieldnotes/core';
+import { createDefaultTools, defaultFeatures, type CanvasState } from '@fieldnotes/core';
 
+const tools = createDefaultTools();
+const options = { plugins: defaultFeatures() };
 const saved = localStorage.getItem('board') ?? undefined;
 const save = (state: CanvasState) => localStorage.setItem('board', JSON.stringify(state));
 </script>
 
 <template>
   <div style="width: 100vw; height: 100vh">
-    <FieldNotesCanvas :initial-data="saved" @change="save" style="width: 100%; height: 100%" />
+    <FieldNotesCanvas
+      :tools="tools"
+      :options="options"
+      :initial-data="saved"
+      @change="save"
+      style="width: 100%; height: 100%"
+    />
   </div>
 </template>
 ```

@@ -1,4 +1,4 @@
-import { HandTool, SelectTool, Viewport } from '@fieldnotes/core';
+import { HandTool, SelectTool, Viewport, defaultFeatures } from '@fieldnotes/core';
 import { SyncClient, type SyncTransport } from '@fieldnotes/sync';
 import { createSyncServer, type Authenticate } from '@fieldnotes/sync-server';
 import {
@@ -19,7 +19,7 @@ export function table(isGm: boolean, transport: SyncTransport): void {
   const fogPlugin = createFogPlugin();
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
   const viewport = new Viewport(document.getElementById('board')!, {
-    plugins: [fogPlugin],
+    plugins: [fogPlugin, ...defaultFeatures()],
     tools: [
       new SelectTool(),
       new HandTool(),

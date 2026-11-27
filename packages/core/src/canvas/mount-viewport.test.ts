@@ -7,6 +7,7 @@ import { mountViewport, type MountViewportOptions, type MountedViewport } from '
 import { HandTool } from '../tools/hand-tool';
 import { SelectTool } from '../tools/select-tool';
 import { PencilTool } from '../tools/pencil-tool';
+import { createDefaultTools } from '../tools/default-tools';
 import { createShape } from '../elements/element-factory';
 import { exportState } from '../core/state-serializer';
 import type { CanvasState } from '../core/state-serializer';
@@ -107,20 +108,15 @@ describe('mountViewport tools', () => {
     expect(m.viewport).toBeInstanceOf(Viewport);
   });
 
-  it("tools='default' registers the bundle with select active before onReady", () => {
+  it('createDefaultTools() registers the bundle with select active before onReady', () => {
     let atReady: { names: string[]; active: string | undefined } | undefined;
     mount({
-      tools: 'default',
+      tools: createDefaultTools(),
       onReady: (vp) => {
         atReady = { names: [...vp.toolManager.toolNames], active: vp.toolManager.activeTool?.name };
       },
     });
     expect(atReady).toEqual({ names: DEFAULT_TOOL_NAMES, active: 'select' });
-  });
-
-  it("tools='default' registers the bundle even with options.tools set", () => {
-    const { viewport } = mount({ tools: 'default', options: { tools: [new HandTool()] } });
-    expect(viewport.toolManager.toolNames).toEqual(DEFAULT_TOOL_NAMES);
   });
 
   it('registers an array of tools and activates defaultTool', () => {
@@ -129,9 +125,20 @@ describe('mountViewport tools', () => {
     expect(viewport.toolManager.activeTool?.name).toBe('hand');
   });
 
-  it('an array of tools activates nothing without tool or defaultTool', () => {
+  it('an array of tools with select activates select without tool or defaultTool', () => {
     const { viewport } = mount({ tools: [new HandTool(), new SelectTool()] });
+    expect(viewport.toolManager.activeTool?.name).toBe('select');
+  });
+
+  it('an array of tools without select activates nothing without tool or defaultTool', () => {
+    const { viewport } = mount({ tools: [new PencilTool()] });
+    expect(viewport.toolManager.toolNames).toEqual(['pencil']);
     expect(viewport.toolManager.activeTool).toBeNull();
+  });
+
+  it('an array without select activates defaultTool', () => {
+    const { viewport } = mount({ tools: [new PencilTool()], defaultTool: 'pencil' });
+    expect(viewport.toolManager.activeTool?.name).toBe('pencil');
   });
 
   it('tools=[] registers nothing and activates no tool', () => {
@@ -140,16 +147,10 @@ describe('mountViewport tools', () => {
     expect(viewport.toolManager.activeTool).toBeNull();
   });
 
-  it('omitted tools register the bundle after onReady with select active', () => {
-    let namesAtReady: string[] = [];
-    const { viewport } = mount({
-      onReady: (vp) => {
-        namesAtReady = [...vp.toolManager.toolNames];
-      },
-    });
-    expect(namesAtReady).toEqual([]);
-    expect(viewport.toolManager.toolNames).toEqual(DEFAULT_TOOL_NAMES);
-    expect(viewport.toolManager.activeTool?.name).toBe('select');
+  it('omitted tools register no tools and activate none', () => {
+    const { viewport } = mount();
+    expect(viewport.toolManager.toolNames).toEqual([]);
+    expect(viewport.toolManager.activeTool).toBeNull();
   });
 
   it('omitted tools register no defaults when onReady registered a tool', () => {
@@ -187,8 +188,8 @@ describe('mountViewport tools', () => {
     ['tool wins over defaultTool', { tool: 'select', defaultTool: 'hand' }, 'select'],
     ['defaultTool wins over the select fallback', { defaultTool: 'pencil' }, 'pencil'],
     ['select is the fallback', {}, 'select'],
-  ])("with tools='default', %s", (_, pick, expected) => {
-    const { viewport } = mount({ tools: 'default', ...pick });
+  ])('with createDefaultTools(), %s', (_, pick, expected) => {
+    const { viewport } = mount({ tools: createDefaultTools(), ...pick });
     expect(viewport.toolManager.activeTool?.name).toBe(expected);
   });
 
@@ -494,14 +495,6 @@ describe('mountViewport initialData and errors', () => {
 });
 
 describe('mountViewport onChange', () => {
-  it('registering deferred defaults after onReady does not fire onChange', () => {
-    vi.useFakeTimers();
-    const onChange = vi.fn<(state: CanvasState) => void>();
-    mount({ onChange });
-    vi.advanceTimersByTime(1000);
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
   it('debounces rapid changes into one onChange with the exported state', () => {
     vi.useFakeTimers();
     const onChange = vi.fn<(state: CanvasState) => void>();
@@ -994,7 +987,7 @@ describe('mountViewport tool changes', () => {
   it('reads onToolChange live', () => {
     const first = vi.fn<(name: string) => void>();
     const second = vi.fn<(name: string) => void>();
-    const opts: MountViewportOptions = { tools: 'default', onToolChange: first };
+    const opts: MountViewportOptions = { tools: createDefaultTools(), onToolChange: first };
     const { viewport } = mount(opts);
     opts.onToolChange = second;
     viewport.setTool('hand');
@@ -1004,7 +997,7 @@ describe('mountViewport tool changes', () => {
 
   it('stops calling onToolChange after destroy', () => {
     const onToolChange = vi.fn<(name: string) => void>();
-    const m = mount({ tools: 'default', onToolChange });
+    const m = mount({ tools: createDefaultTools(), onToolChange });
     m.destroy();
     m.viewport.setTool('hand');
     expect(onToolChange).not.toHaveBeenCalled();
@@ -1012,7 +1005,7 @@ describe('mountViewport tool changes', () => {
 
   it('setTool switches the active tool and is a no-op when already active', () => {
     const onToolChange = vi.fn<(name: string) => void>();
-    const m = mount({ tools: 'default', onToolChange });
+    const m = mount({ tools: createDefaultTools(), onToolChange });
     m.setTool('select');
     expect(onToolChange).not.toHaveBeenCalled();
     m.setTool('hand');

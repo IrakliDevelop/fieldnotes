@@ -38,11 +38,10 @@ export class FieldNotesCanvas implements OnDestroy {
   /** Constructor-only: changes after mount are ignored (the canvas is stateful). */
   readonly options = input<ViewportOptions>();
   /**
-   * `'default'` (mount-only): `createDefaultTools()` registered before `ready`, `select` active.
-   * Omitted: the same bundle after `ready`, only if no tools are registered by then.
+   * Omitted: no tools.
    * An array is append-only: a new array reference registers its unregistered tools; in-place mutation is not seen.
    */
-  readonly tools = input<Tool[] | 'default'>();
+  readonly tools = input<Tool[]>();
   /** Mount-only: a saved state (object or JSON string) loaded before `ready`. */
   readonly initialData = input<ImportableCanvasState | string>();
   /** Debounce window for `stateChange` in milliseconds (default 250). */
@@ -121,7 +120,7 @@ export class FieldNotesCanvas implements OnDestroy {
     effect(() => {
       const vp = this.viewport();
       const tools = this.tools();
-      if (!vp || !this.mounted || !Array.isArray(tools)) return;
+      if (!vp || !this.mounted || !tools) return;
       const { mounted } = this;
       untracked(() => mounted.addTools(tools));
     });

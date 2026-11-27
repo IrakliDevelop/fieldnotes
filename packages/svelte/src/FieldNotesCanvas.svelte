@@ -13,12 +13,11 @@
     /** Constructor-only: changes after mount are ignored (the canvas is stateful). */
     options?: ViewportOptions;
     /**
-     * `'default'` (mount-only): `createDefaultTools()` registered before `onready`, `select` active.
-     * Omitted: the same bundle after `onready`, only if no tools are registered by then.
+     * Omitted: no tools.
      * An array is reactive (append-only): tools present here are registered; removal is not
      * supported, and `[]` registers nothing.
      */
-    tools?: Tool[] | 'default';
+    tools?: Tool[];
     /** Mount-only: a saved state (object or JSON string) loaded before `onready`. */
     initialData?: ImportableCanvasState | string;
     /** Debounce window for `onchange` in milliseconds (default 250). */
@@ -125,7 +124,7 @@
   });
 
   $effect(() => {
-    if (!viewport || !Array.isArray(tools)) return;
+    if (!viewport || !tools) return;
     mounted?.addTools(tools);
   });
 </script>
