@@ -64,12 +64,12 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
   `elementReadGate` returns exactly `true`. A throw, any other value, or gates not yet loaded for
   the room withholds; a gate never fails open.
 - Every outbound element path uses the combined check: live relay, fanout, snapshots, sender
-  corrections and element ops a plugin returns. While a reconcile is pending, a viewer the old or
-  the new gates allow gets the remove.
+  corrections and element ops a plugin returns. While a reconcile is pending, the hub sends an element's remove to every
+  viewer that either the settled gates or the gates in force allow.
 - A gate change never rewrites stored elements, their versions or `audience`; the hub sends hub
   removes and upserts per viewer instead.
-- A plugin with `elementReadGate` requires `resolvePresenceAudience` (`SyncHub` throws), so a drag
-  cannot leak a gated element's position through presence.
+- A plugin with `elementReadGate` requires `resolvePresenceAudience` (`SyncHub` throws) so the host decides
+  who receives presence; with `() => undefined` every member gets presence, including a GM's drag of a hidden token.
 
 **Image sources**
 

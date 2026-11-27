@@ -105,7 +105,7 @@ const fog = createFogServerPlugin({
 
 The `ownerId` half is only safe when `createSyncServer` also gets an `authorize` hook: only then
 does the hub stamp `ownerId` from the authenticated user, and without it a player can send an
-element with any `ownerId`. A throwing hook exempts nobody.
+element with any `ownerId`. If `seesUnderFog` throws, the relay treats it as `false` for that viewer and element.
 
 An element is fully covered when its bounds lie inside the fog bounds and every fog cell they
 touch is covered. A cell with no tile takes the fog's `base`. Grids are never covered, an area
@@ -115,9 +115,9 @@ elements a viewer lost and sends the ones it gained.
 
 These still reach every viewer: the fog mask (unless `filterSnapshot` and `filterOp` redact it),
 the map image and any other element only partly under fog, presence (cursors and drags), the ids
-of deleted elements, and elements of custom extension types, whose position the relay cannot know. To withhold those, give them an audience the viewer's
-`canRead` denies and hide their layer with `canReadLayer`, as the `@fieldnotes/sync-server` read
-filtering section shows.
+of deleted elements, and elements of custom extension types, whose position the relay cannot know. To withhold one of those elements, give it an audience the
+viewer's `canRead` denies and hide its layer with `canReadLayer`, as the `@fieldnotes/sync-server`
+read filtering section shows.
 
 `seesUnderFog` needs `@fieldnotes/sync-server` 0.33.0 and `resolvePresenceAudience` on the hub,
 which throws at startup without it. Upgrade every relay instance before turning it on.
