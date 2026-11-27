@@ -28,7 +28,7 @@ interface RoomGateState {
   // Sets replaced since settled: members may hold what any of them allowed.
   since: GateSet[];
   overflowed: boolean;
-  // `${cid}\n${elementId}` for each gate-caused hub remove sent since settled.
+  // `${cid}\n${elementId}` for each gate-caused hub remove or withheld upsert since settled.
   removed: Set<string>;
   // Per connection id, the set in force when its last snapshot since settled was built.
   snapshots: Map<string, GateSet | 'deny'>;

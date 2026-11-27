@@ -757,6 +757,35 @@ describe('element gate reconcile', () => {
     expect(seen(player)).toEqual([]);
   });
 
+  it('sends an element created under an intermediate cover when the reveal lands before the reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('b', true)),
+      write(hub, gm, { kind: 'upsert', element: el('b', 20) }),
+      write(hub, gm, toggle('b', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert b']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
+  });
+
+  it('sends an element moved under an intermediate cover when the reveal lands before the reconcile', async () => {
+    const plugins = [switchablePlugin(new Set(), (element) => element.position.x < 0)];
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('n', -10)], { plugins });
+
+    await Promise.all([
+      write(hub, gm, toggle('n', true)),
+      write(hub, gm, { kind: 'upsert', element: el('n', 20, 2) }),
+      write(hub, gm, toggle('n', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: upsert n']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
+  });
+
   it('sends back an element removed by a live op during a failed refresh once the next load allows it', async () => {
     const switchable = switchablePlugin(new Set());
     let failNext = false;

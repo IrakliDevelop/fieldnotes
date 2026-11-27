@@ -1287,7 +1287,7 @@ export class SyncHub {
     return !this.gates.active || this.gatesAllowNow(conn, element);
   }
 
-  // Records a hub remove the gates decided (not canRead), so a later reveal sends the element back.
+  // Records a gate-decided (not canRead) hub remove or withheld upsert, so a later reveal sends it.
   private noteGateRemove(conn: Connection, element: SyncElement): void {
     if (!this.gates.active || !this.mayRead(conn, element.audience)) return;
     if (!this.gatesAllowNow(conn, element)) this.gates.noteRemoved(conn.room, conn.id, element.id);
@@ -1680,8 +1680,8 @@ export class SyncHub {
       deliveries.forEach((delivery, index) => {
         const { op } = delivery;
         if (op.kind === 'upsert' && !this.mayReadElement(conn, op.element)) {
-          if (!this.couldReadBefore(conn, delivery)) return;
           this.noteGateRemove(conn, op.element);
+          if (!this.couldReadBefore(conn, delivery)) return;
           sendRun();
           const { id, version } = op.element;
           this.sendToConnection(
