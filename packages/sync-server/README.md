@@ -857,8 +857,9 @@ value or a throw withholds it. The hub asks for the gate before the first local 
 anything, after it accepts an op the plugin owns or applies one from fanout, and when it builds a
 snapshot. While no gate is loaded it sends no element. A gate must be pure and synchronous, and
 the plugin must return the same function while its answer is unchanged: a new function makes the
-hub re-check every element for every local viewer, then send a remove for elements a viewer lost
-and the element for ones it gained. Stored elements and their versions do not change.
+hub re-check every element for every local viewer. It sends a remove for each element a viewer may
+hold that the gates now deny, and the element to each viewer that may lack it and the gates now
+allow. Stored elements and their versions do not change.
 
 The hub requires `resolvePresenceAudience` with an `elementReadGate` plugin and throws without it.
 The audience it returns takes effect only when the host also passes `canRead`. Without `canRead`,
@@ -871,7 +872,8 @@ SyncHub: a plugin with `elementReadGate` requires `resolvePresenceAudience` (pas
 
 With several instances, an element update that arrives by fanout while the hub is re-checking a
 room can be overwritten on a viewer by the older copy the re-check sends. The next op on that
-element, or the next resync, corrects it.
+element, or the next resync, corrects it. The re-check can also resend an element to a viewer who
+already received it live after the gates began to allow it.
 
 Without such a gate, fog is a display aid: every client in the room receives the elements under
 it. `createFogServerPlugin` with `seesUnderFog` installs one that withholds elements fully under

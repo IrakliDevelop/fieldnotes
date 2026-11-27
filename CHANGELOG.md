@@ -12,7 +12,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 - A fog change that covers an element after a reveal, before the hub's reconcile runs, no longer
   leaves the element with players who received it under the reveal.
-- Reveals that land together before one reconcile now all reach players.
+- An element a player lost to a live update while a passing fog change covered it is sent again
+  when the fog reveals it before the hub's reconcile runs.
+- An element a player lost to a live update while a gate refresh was failing comes back once the
+  gates load again.
 - The README now says the audience from `resolvePresenceAudience` takes effect only with
   `canRead`; without it every member gets presence.
 
