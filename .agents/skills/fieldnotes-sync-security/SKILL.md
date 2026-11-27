@@ -92,7 +92,8 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
 - The server applies no built-in fog redaction; hosts must supply it. Without `seesUnderFog`, fog
   is a display aid and elements under it reach every client. With it, the plugin's gate withholds
   elements fully under fog (`isElementCoveredByFog`, `packages/vtt/src/fog/fog-coverage.ts`);
-  partly covered elements, custom extension types and presence still reach every client.
+  the fog mask, the map image, partly covered elements, custom extension types, presence and the
+  ids of deleted elements still reach every client.
 - Secrets belong on elements whose audience `canRead` denies to the viewer. `canReadLayer` hides
   only the layer record, not the elements on it.
 

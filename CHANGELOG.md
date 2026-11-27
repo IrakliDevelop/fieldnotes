@@ -23,7 +23,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 - Element upserts and removes a plugin returns as `accepted`, `broadcast` or `corrections` now pass
   `canRead` and the gates; an unreadable upsert becomes a hub remove.
 - Fanout envelopes for those plugin-returned element ops now carry `pluginOp`, `existed` and
-  `prev`.
+  `prev`. With a plugin that has `elementReadGate`, an element fanout envelope for an existing
+  element also carries `prevEl`, the previous element without `src`.
 - Every relay instance behind one fanout bus needs 0.33.0 before `seesUnderFog` (or any
   `elementReadGate`) is turned on: an older instance sends gated elements to its own viewers.
 

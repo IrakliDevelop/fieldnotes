@@ -43,12 +43,12 @@ npm install @fieldnotes/core @fieldnotes/vtt
 
 `createFogClientPlugin` from `@fieldnotes/vtt/sync` sends fog edits through the sync client, and `createFogServerPlugin` from `@fieldnotes/vtt/server` applies them on the relay. Its `authorize` decides who may change the fog, here only the game master. The plugin throws at startup without `authorize`, unless you pass `allowAnyWriter: true` to let every player change the fog. With Redis, the backend also takes `createFogBackendPlugin()` from `@fieldnotes/vtt/redis`.
 
-Without `seesUnderFog`, fog hides the map on screen only. Every client in the room receives the whole fog and the elements under it, and the player view draws the fog over them.
+By default, fog hides the map on screen only. Every client in the room receives the whole fog and the elements under it, and the player view draws the fog over them. `seesUnderFog` changes which elements are sent, never the fog itself.
 
 Pass `seesUnderFog(viewer, element)` to `createFogServerPlugin` and the relay stops sending an element that is fully under fog to a viewer, unless the hook returns `true` for that viewer and element. `seesUnderFog: (viewer, element) => viewer.role === 'gm' || element.ownerId === viewer.userId` lets the game master see everything and each player see their own tokens. The `ownerId` half is only safe when `createSyncServer` also gets an `authorize` hook, because only then does the relay set `ownerId` from the signed-in user. The relay needs `resolvePresenceAudience` too, and throws at startup without it.
 
 - An element is fully covered when its bounds lie inside the fog bounds and every fog cell they touch is covered. Grids are never covered, an area template uses its template bounds, and a token's movement record follows the last point of its trail.
 - When the game master reveals or conceals, the relay sends each player the elements they gained and removes the ones they lost.
-- The relay still sends every player the map image and any element only partly under fog, presence (cursors and drags), the ids of deleted elements, and elements of custom extension types.
+- The relay still sends every player the fog itself, the map image and any element only partly under fog, presence (cursors and drags), the ids of deleted elements, and elements of custom extension types.
 
-Put anything players must not receive at all, such as a trap or a secret door, on a layer the relay filters with `canRead`, as [Multiplayer](/docs/multiplayer/) shows. The relay then never sends those elements to them, and when `canReadLayer` hides the layer, they don't receive its name either.
+Give anything players must not receive at all, such as a trap or a secret door, an audience the relay's `canRead` denies them, as [Multiplayer](/docs/multiplayer/) shows. The relay then never sends those elements to them, and when `canReadLayer` hides their layer, they don't receive its name either.
