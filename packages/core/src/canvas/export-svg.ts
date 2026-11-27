@@ -38,7 +38,6 @@ import type { RenderHooks } from './render-hooks';
 import { resolveFrameExport } from './frame-export';
 import { buildSceneEnvelope, serializeSceneEnvelope } from './scene-embed';
 import type { SceneEmbedOptions } from './scene-embed';
-import { isExportSource } from './export-viewport';
 import type { ExportSource } from './export-viewport';
 import { getBoundText } from '../elements/bound-text';
 import { getElbowRoute } from '../elements/elbow-cache';
@@ -386,7 +385,7 @@ export async function exportSvg(
   options: ExportSvgOptions = {},
   layerManager?: LayerManager,
 ): Promise<string> {
-  if (isExportSource(store)) {
+  if ('exportDefaults' in store) {
     const defaults = store.exportDefaults();
     return exportSvg(defaults.store, defaults.options(options), defaults.layerManager);
   }

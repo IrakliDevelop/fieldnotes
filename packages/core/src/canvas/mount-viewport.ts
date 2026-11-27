@@ -69,7 +69,7 @@ export function mountViewport(
 
   const activate = (fallback?: string) => {
     const name = opts.tool ?? opts.defaultTool ?? fallback;
-    if (name) vp.setTool(name);
+    if (name && vp.toolManager.activeTool?.name !== name) vp.setTool(name);
   };
   // Without host tools, activation waits for tools registered in onReady.
   const deferActivation = tools === undefined && options?.tools === undefined;

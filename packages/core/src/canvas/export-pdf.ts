@@ -12,7 +12,6 @@ import {
   withAssetWarning,
 } from './export-image';
 import type { ExportImageOptions, PreparedExport } from './export-image';
-import { isExportSource } from './export-viewport';
 import type { ExportSource } from './export-viewport';
 import { deflate, pdfNumber, pdfString, PdfWriter } from './pdf-writer';
 import { defaultExportBackground, resolveTheme } from './theme';
@@ -157,7 +156,7 @@ export async function exportPdf(
   options: ExportPdfOptions = {},
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
-  if (isExportSource(store)) {
+  if ('exportDefaults' in store) {
     const defaults = store.exportDefaults();
     return exportPdf(defaults.store, defaults.options(options), defaults.layerManager);
   }

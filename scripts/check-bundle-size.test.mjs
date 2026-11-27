@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-const script = new URL('./check-bundle-size.mjs', import.meta.url).pathname;
+const script = fileURLToPath(new URL('./check-bundle-size.mjs', import.meta.url));
+const dirs = [];
+after(() => Promise.all(dirs.map((dir) => rm(dir, { recursive: true, force: true }))));
 
 async function run(limits) {
   const dir = await mkdtemp(join(tmpdir(), 'bundle-check-'));
+  dirs.push(dir);
   await writeFile(join(dir, 'used-mod.ts'), "export const used = 'x'.repeat(4000);\n");
   await writeFile(join(dir, 'unused-mod.ts'), 'export const unused = 1;\n');
   await writeFile(
@@ -30,7 +34,7 @@ test('fails and names the fixture when its gzip size exceeds the limit', async (
 });
 
 test('fails and names the module when a contributing input matches a forbidden entry', async () => {
-  const result = await run({ app: { gzip: 100000, forbidden: ['used-mod'] } });
+  const result = await run({ app: { gzip: 100000, forbidden: ['/used-mod'] } });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /app.*used-mod\.ts/);
 });

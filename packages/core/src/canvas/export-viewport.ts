@@ -4,12 +4,3 @@ import type { ExportDefaults } from './viewport';
 export interface ExportSource {
   exportDefaults(): ExportDefaults;
 }
-
-export function isExportSource(x: unknown): x is ExportSource {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    'exportDefaults' in x &&
-    typeof x.exportDefaults === 'function'
-  );
-}

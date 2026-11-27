@@ -1013,7 +1013,7 @@ export class Viewport {
         const htmlPainters = base.htmlPainters ?? this.html.painters;
         const declared = htmlPainters.canvasTypes;
         const expectedCanvasTypes = base.expectedCanvasTypes
-          ? new Set([...declared, ...base.expectedCanvasTypes]) // union only; never shrink
+          ? new Set([...declared, ...base.expectedCanvasTypes])
           : declared;
         return {
           ...base,

@@ -24,7 +24,6 @@ import type {
 import { resolveFrameExport } from './frame-export';
 import { buildSceneEnvelope, SCENE_PNG_KEYWORD, serializeSceneEnvelope } from './scene-embed';
 import type { SceneEmbedOptions } from './scene-embed';
-import { isExportSource } from './export-viewport';
 import type { ExportSource } from './export-viewport';
 import { appendItxtChunk } from './png-chunks';
 import { renderImagePlaceholder } from '../elements/renderers/image-renderer';
@@ -715,7 +714,7 @@ export async function exportImage(
   options: ExportImageOptions = {},
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
-  if (isExportSource(store)) {
+  if ('exportDefaults' in store) {
     const defaults = store.exportDefaults();
     return exportImage(defaults.store, defaults.options(options), defaults.layerManager);
   }
