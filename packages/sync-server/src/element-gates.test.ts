@@ -110,6 +110,25 @@ describe('RoomElementGates', () => {
     expect(gates.isPending('R')).toBe(false);
   });
 
+  it('keeps the set a failed refresh unloaded among the sets since settled', async () => {
+    let gate: ElementReadGate | 'throw' = () => false;
+    const gates = new RoomElementGates([
+      plugin('a', () => {
+        if (gate === 'throw') throw new Error('gate down');
+        return gate;
+      }),
+    ]);
+    await gates.refresh('R', backend);
+    gate = () => true;
+    await gates.refresh('R', backend);
+    gate = 'throw';
+    await expect(gates.refresh('R', backend)).rejects.toThrow('gate down');
+    gate = () => false;
+    await gates.refresh('R', backend);
+
+    expect(gates.allowedSinceSettled('R', element, viewer)).toBe(true);
+  });
+
   it('keeps settled and unloads current when a refresh throws after a load', async () => {
     const loaded: ElementReadGate = () => true;
     let broken = false;

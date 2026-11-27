@@ -611,6 +611,36 @@ describe('element gate reconcile', () => {
 
     expect(seen(player)).toEqual(['writer: upsert a', 'hub: remove a']);
   });
+
+  it('removes an element revealed before a failed gate refresh once the next load covers it', async () => {
+    const switchable = switchablePlugin(new Set(['a']));
+    let failNext = false;
+    const flaky: ServerSyncPlugin = {
+      ...switchable,
+      elementReadGate: async (room, store) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('gate down');
+        }
+        return switchable.elementReadGate?.(room, store);
+      },
+    };
+    const { hub, backend, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')], {
+      plugins: [flaky],
+    });
+    backend.failNext = true;
+
+    await write(hub, gm, toggle('a', false));
+    await flush();
+    await write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) });
+    failNext = true;
+    await write(hub, gm, toggle('a', true)).catch(() => undefined);
+    // The first flush loads the gates and queues the reconcile; the second waits for it.
+    await flush();
+    await flush();
+
+    expect(seen(player)).toEqual(['writer: upsert a', 'hub: remove a']);
+  });
 });
 
 const left = (element: SyncElement) => element.position.x < 0;

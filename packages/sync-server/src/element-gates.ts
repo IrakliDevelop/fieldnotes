@@ -32,6 +32,11 @@ interface RoomGateState {
 
 const MAX_SINCE = 8;
 
+function keepReplaced(state: RoomGateState, replaced: GateSet): void {
+  if (state.since.length < MAX_SINCE) state.since.push(replaced);
+  else state.overflowed = true;
+}
+
 /** Per-room element read gates: the set in force and the settled set. */
 export class RoomElementGates {
   private readonly plugins: readonly ServerSyncPlugin[];
@@ -68,6 +73,7 @@ export class RoomElementGates {
       // settled stays so the next load reconciles what members already hold.
       if (this.generations.get(room) === generation) {
         const state = this.rooms.get(room);
+        if (state?.current) keepReplaced(state, state.current);
         if (state) state.current = undefined;
         else this.drop(room);
       }
@@ -81,10 +87,7 @@ export class RoomElementGates {
       return true;
     }
     if (state.current && sameGates(state.current, next)) return false;
-    if (state.current) {
-      if (state.since.length < MAX_SINCE) state.since.push(state.current);
-      else state.overflowed = true;
-    }
+    if (state.current) keepReplaced(state, state.current);
     state.current = next;
     return true;
   }
