@@ -1249,6 +1249,37 @@ describe('SyncClient resync-on-reconnect', () => {
     expect(newSends).toEqual(['request-snapshot']);
   });
 
+  it('restores an element when a hub upsert follows a hub remove at the same version', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
+    client.start();
+    const x = { ...shape(1), version: 3 };
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    transport.deliver(envelope('hub', { kind: 'remove', id: x.id, version: 3, editor: 'hub' }));
+    expect(store.getById(x.id)).toBeUndefined();
+
+    transport.deliver(envelope('hub', { kind: 'upsert', element: x }));
+    expect(store.getById(x.id)).toBeDefined();
+  });
+
+  it('drops an element a reconcile snapshot lacks without re-uploading it', () => {
+    const store = new ElementStore();
+    const transport = makeReconnectTransport();
+    const client = new SyncClient({ flushIntervalMs: 0, store, transport, clientId: 'B' });
+    client.start();
+    const x = shape(1);
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [x] }));
+
+    transport.triggerReconnect();
+    const sentBefore = transport.sent.length;
+    transport.deliver(envelope('hub', { kind: 'snapshot', to: 'B', elements: [] }));
+
+    expect(store.getById(x.id)).toBeUndefined();
+    expect(sentKinds(transport.sent.slice(sentBefore))).toEqual([]);
+  });
+
   it('the same snapshot payload merges before join but reconciles after (the contrast)', () => {
     const payload = (elements: CanvasElement[]): string =>
       envelope('hub', { kind: 'snapshot', to: 'B', elements });
