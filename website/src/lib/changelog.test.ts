@@ -207,20 +207,24 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
     const prior = release('@fieldnotes/core', '0.101.0');
 
     expect(current.slice(0, 2)).toMatchObject([
+      { npmName: '@fieldnotes/sync-server', version: '0.33.1' },
+      { npmName: '@fieldnotes/vtt', version: '0.20.1' },
+    ]);
+    expect(current.slice(2, 4)).toMatchObject([
       { npmName: '@fieldnotes/sync-server', version: '0.33.0' },
       { npmName: '@fieldnotes/vtt', version: '0.20.0' },
     ]);
-    expect(current.slice(2, 4)).toMatchObject([
+    expect(current.slice(4, 6)).toMatchObject([
       { npmName: '@fieldnotes/sync-server', version: '0.32.0' },
       { npmName: '@fieldnotes/vtt', version: '0.19.0' },
     ]);
-    expect(current.slice(4, 6)).toMatchObject([
+    expect(current.slice(6, 8)).toMatchObject([
       { npmName: '@fieldnotes/sync', version: '0.31.0' },
       { npmName: '@fieldnotes/sync-server', version: '0.31.0' },
     ]);
-    expect(current[6]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.110.2' });
-    expect(current[7]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.110.1' });
-    expect(current.slice(8, 14)).toMatchObject([
+    expect(current[8]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.110.2' });
+    expect(current[9]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.110.1' });
+    expect(current.slice(10, 16)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.110.0' },
       { npmName: '@fieldnotes/react', version: '0.17.0' },
       { npmName: '@fieldnotes/vue', version: '0.2.0' },
@@ -228,21 +232,21 @@ describe('parseChangelog on the current CHANGELOG.md', () => {
       { npmName: '@fieldnotes/angular', version: '0.2.0' },
       { npmName: '@fieldnotes/vtt', version: '0.18.0' },
     ]);
-    expect(current.slice(14, 19)).toMatchObject([
+    expect(current.slice(16, 21)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.109.0' },
       { npmName: '@fieldnotes/react', version: '0.16.0' },
       { npmName: '@fieldnotes/core', version: '0.108.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.4' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.4' },
     ]);
-    expect(current[19]).toMatchObject({ npmName: '@fieldnotes/vtt', version: '0.17.2' });
-    expect(current.slice(20, 23)).toMatchObject([
+    expect(current[21]).toMatchObject({ npmName: '@fieldnotes/vtt', version: '0.17.2' });
+    expect(current.slice(22, 25)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.107.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.3' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.3' },
     ]);
-    expect(current[23]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
-    expect(current.slice(24, 27)).toMatchObject([
+    expect(current[25]).toMatchObject({ npmName: '@fieldnotes/core', version: '0.106.1' });
+    expect(current.slice(26, 29)).toMatchObject([
       { npmName: '@fieldnotes/core', version: '0.106.0' },
       { npmName: '@fieldnotes/sync', version: '0.30.2' },
       { npmName: '@fieldnotes/sync-server', version: '0.30.2' },
