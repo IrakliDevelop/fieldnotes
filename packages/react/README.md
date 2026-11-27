@@ -8,16 +8,17 @@ React bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnotes
 npm install @fieldnotes/core @fieldnotes/react
 ```
 
-Requires React 18 or 19 (`react >=18 <20`) and `@fieldnotes/core >=0.110.0 <1.0.0`. Using Vue, Svelte or Angular? See [`@fieldnotes/vue`](../vue), [`@fieldnotes/svelte`](../svelte) and [`@fieldnotes/angular`](../angular).
+Requires React 18 or 19 (`react >=18 <20`) and `@fieldnotes/core >=0.111.0 <1.0.0`. Using Vue, Svelte or Angular? See [`@fieldnotes/vue`](../vue), [`@fieldnotes/svelte`](../svelte) and [`@fieldnotes/angular`](../angular).
 
 ## Quick Start
 
 Full runnable example: `examples/react-app` — `pnpm --filter fieldnotes-react-example dev`
 
-The canvas needs a container with a defined size — it fills whatever it's given. With no `tools`
-prop and no tools registered in `onReady`, it registers the default tool bundle
-(`createDefaultTools()`: hand, select, pencil, eraser, arrow, note, text, shape) with `select`
-active, so a persisting board is one line:
+The canvas needs a container with a defined size — it fills whatever it's given. It registers the
+tools you pass in `tools` and starts on `select` when it is one of them; without `tools` it has
+none. A persisting board with the default tools (`createDefaultTools()`: hand, select, pencil,
+eraser, arrow, note, text, shape) and the default features (`defaultFeatures()`: command palette,
+shortcuts help and presentation) is one element:
 
 ```tsx
 import { FieldNotesCanvas } from '@fieldnotes/react';
@@ -130,7 +131,7 @@ With a `tool` prop, the prop decides the active tool: a switch from the keyboard
 
 After `tools` removes a tool, `useToolOptions` for that name keeps returning its last options until the component re-renders, then returns `null`.
 
-`tools="default"` registers `createDefaultTools()` at mount, before `onReady`. Without a `tools` prop the canvas registers the same bundle after `onReady`, only when `options.tools` is unset and `onReady` registered no tool, then activates `tool`, `defaultTool` or `select`. `tools={[]}` registers nothing. Hoist an array out of render.
+`tools` registers its tools at mount, before `onReady`, then activates `tool`, `defaultTool` or `select`. Without a `tools` prop the canvas registers no tools; when `options.tools` is also unset, `tool` or `defaultTool` activates after `onReady`, so tools registered there can be selected. `tools={[]}` registers nothing. Hoist an array out of render.
 
 Runtime changes beyond these go through the viewport — access it via `useViewport()` or the ref. Grid snapping is domain behavior; VTT consumers should configure `GridController` and its constraint service rather than adopting the deprecated React prop. The background pattern is constructor-only (`options.background`).
 
@@ -359,7 +360,7 @@ which resolves to a PDF `Blob` with one page per frame in `frameIds`, or one pag
 
 ## Minimap
 
-Render `<Minimap>` inside `<FieldNotesCanvas>` and position it with `style` or `className`. `width` and `height` default to 200 and 140 CSS pixels, `background` and `viewportStroke` set its colours, and `defaultCollapsed` starts it folded. Leave `options.minimap` off when you render `<Minimap>`, or the board shows two.
+Render `<Minimap>` inside `<FieldNotesCanvas>` and position it with `style` or `className`. `width` and `height` default to 200 and 140 CSS pixels, `background` and `viewportStroke` set its colours, and `defaultCollapsed` starts it folded. Leave `minimapFeature()` out of `options.plugins` when you render `<Minimap>`, or the board shows two.
 
 ```tsx
 import { FieldNotesCanvas, Minimap } from '@fieldnotes/react';
@@ -503,7 +504,7 @@ function App() {
 
 ### `onReady`
 
-`onReady` runs once per viewport, synchronously, after `initialData` loads and before autosave loads a saved board. An array or `'default'` `tools` prop is registered by then; the default bundle for an omitted prop registers after it. In development, StrictMode mounts twice, so `onReady` runs for two viewports and the first is destroyed. Make setup safe to repeat, and put anything that needs cleanup in a child effect that calls `useViewport()`.
+`onReady` runs once per viewport, synchronously, after `initialData` loads and before autosave loads a saved board. The `tools` prop is registered by then. In development, StrictMode mounts twice, so `onReady` runs for two viewports and the first is destroyed. Make setup safe to repeat, and put anything that needs cleanup in a child effect that calls `useViewport()`.
 
 ```tsx
 <FieldNotesCanvas

@@ -341,7 +341,7 @@ canvas.loadState(state);
 canvas.loadJSON(json);
 
 // Image export — returns PNG as Blob, respects layer visibility
-const blob = await canvas.exportImage({
+const blob = await exportImage(canvas, {
   scale: 2, // pixel density multiplier (default 2)
   padding: 20, // world-space padding around content (default 0)
   background: '#fff', // fill color (default '#ffffff')

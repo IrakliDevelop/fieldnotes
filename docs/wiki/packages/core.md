@@ -82,7 +82,7 @@ The composition root. Coordinates all subsystems.
 const viewport = new Viewport(container, options);
 viewport.setTool('select');
 viewport.undo();
-viewport.exportImage({ format: 'png' });
+await exportImage(viewport, { format: 'png' });
 viewport.dispose();
 ```
 

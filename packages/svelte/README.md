@@ -8,7 +8,7 @@ Svelte bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnote
 npm install @fieldnotes/core @fieldnotes/svelte
 ```
 
-Requires Svelte 5 (`svelte >=5 <6`, runes) and `@fieldnotes/core >=0.110.0 <1.0.0`. The package ships
+Requires Svelte 5 (`svelte >=5 <6`, runes) and `@fieldnotes/core >=0.111.0 <1.0.0`. The package ships
 `.svelte` sources, so your bundler compiles them with your Svelte version (Vite with
 `@sveltejs/vite-plugin-svelte`, or SvelteKit).
 
@@ -16,10 +16,11 @@ Requires Svelte 5 (`svelte >=5 <6`, runes) and `@fieldnotes/core >=0.110.0 <1.0.
 
 Full runnable example: `examples/svelte` — `pnpm --filter fieldnotes-svelte-example dev`
 
-The canvas needs a container with a defined size — it fills whatever it's given. With no `tools`
-prop and no tools registered in `onready`, it registers the default tool bundle
-(`createDefaultTools()`: hand, select, pencil, eraser, arrow, note, text, shape) with `select`
-active, so a persisting board is one component:
+The canvas needs a container with a defined size — it fills whatever it's given. It registers the
+tools you pass in `tools` and starts on `select` when it is one of them; without `tools` it has
+none. A persisting board with the default tools (`createDefaultTools()`: hand, select, pencil,
+eraser, arrow, note, text, shape) and the default features (`defaultFeatures()`: command palette,
+shortcuts help and presentation) is one component:
 
 ```svelte
 <script lang="ts">
@@ -84,7 +85,7 @@ Not all props are reactive — the canvas is stateful. Changing a mount-only pro
 | Prop                            | Reactivity                                                                     |
 | ------------------------------- | ------------------------------------------------------------------------------ |
 | `options`                       | Mount-only — the canvas is stateful; construct with the right options          |
-| `tools`                         | Array: reactive, append-only. Omitted or `'default'`: mount-only (see below)   |
+| `tools`                         | Array: reactive, append-only (see below)                                       |
 | `initialData`                   | Mount-only — loaded once before `onready`                                      |
 | `onchange` / `changeDebounceMs` | Reactive — the latest callback is used without resubscribing                   |
 | `tool` / `ontoolchange`         | Reactive (controlled)                                                          |
@@ -93,11 +94,11 @@ Not all props are reactive — the canvas is stateful. Changing a mount-only pro
 | `theme`                         | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object. |
 | `class` / `style` / `children`  | Reactive; `class` and `style` apply to the root `<div>`                        |
 
-`tools` as an array registers each tool once (tools cannot be unregistered). `tools="default"`
-registers `createDefaultTools()` at mount, before `onready` (so you can customise them there).
-Omitted registers the same bundle after `onready` only when neither `options.tools` is set nor any
-tool was registered by then, then activates `tool`, `defaultTool` or `select`; hosts that register
-tools in `onready` get no defaults. `tools={[]}` registers nothing.
+`tools` as an array registers each tool once (tools cannot be unregistered). They register
+at mount, before `onready` (so you can customise them there), then `tool`, `defaultTool` or
+`select` activates. Omitted registers no tools; when `options.tools` is also unset, `tool` or
+`defaultTool` activates after `onready`, so tools registered there can be selected. `tools={[]}`
+registers nothing.
 
 `tool` is a plain prop, not `$bindable`: a core tool switch (keyboard or API) never reverts or
 overwrites it. Update your state from `ontoolchange`, as in the example above.
@@ -216,7 +217,7 @@ their children unmount.
 ## Versioning
 
 `@fieldnotes/core` and `@fieldnotes/svelte` are versioned independently. The package's
-`peerDependencies` declare the compatible core range (`@fieldnotes/core >=0.110.0 <1.0.0`). Pre-1.0, minor versions
+`peerDependencies` declare the compatible core range (`@fieldnotes/core >=0.111.0 <1.0.0`). Pre-1.0, minor versions
 may contain breaking changes; if a core minor ever breaks the wrapper, a coordinated release raises
 the lower bound.
 

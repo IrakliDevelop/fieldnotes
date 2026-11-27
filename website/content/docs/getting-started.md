@@ -15,8 +15,10 @@ npm install @fieldnotes/core
 
 ## Mount a board
 
-Create a `Viewport` on any element. Passing `tools: 'default'` registers select, pencil, eraser,
-shapes, arrows, notes, text, frames and pan, and starts on select. Frame uses F.
+Create a `Viewport` on any element. Passing `tools: createDefaultTools()` registers select, pencil,
+eraser, shapes, arrows, notes, text, frames and pan, and starts on select. Frame uses F. A `Viewport`
+has no tools until you pass them. `plugins: defaultFeatures()` adds the command palette, shortcuts
+help and presentation mode.
 
 :::margin
 Give the container a height. An empty container is 0px tall, and so is the board in it.

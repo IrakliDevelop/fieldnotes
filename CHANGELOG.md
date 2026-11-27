@@ -6,6 +6,91 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.111.0 — optional features out of Viewport
+
+**Breaking**
+
+- `Viewport` installs no tools and no optional features by itself. The command palette, shortcuts
+  help, presentation mode and minimap are plugins, and export is three functions, so a bundle
+  carries only what it imports. Migration:
+
+  | Before                                                                         | After                                                                                                          |
+  | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+  | `tools: 'default'`                                                             | `tools: createDefaultTools()`                                                                                  |
+  | palette, shortcuts help and presentation on by default                         | `plugins: defaultFeatures()`                                                                                   |
+  | `palette: { strings }`                                                         | `plugins: [paletteFeature({ strings }), presentationFeature()]` or `defaultFeatures({ palette: { strings } })` |
+  | `palette: false`                                                               | install nothing                                                                                                |
+  | `minimap: true`                                                                | `plugins: [minimapFeature()]`                                                                                  |
+  | `viewport.exportPDF(o)` / `exportSVG(o)` / `exportImage(o)`                    | `exportPdf(viewport, o)` / `exportSvg(viewport, o)` / `exportImage(viewport, o)`                               |
+  | `<FieldNotesCanvas>` or `mountViewport` with no `tools` (got default tools)    | pass `tools={createDefaultTools()}` and `options={{ plugins: defaultFeatures() }}`                             |
+  | `mountViewport({ tools: [...] })` with `select` in the array activated nothing | it activates `select` (as `Viewport` does)                                                                     |
+
+- `viewport.presentation.start()` throws without `presentationFeature()`.
+- `viewport.palette` and `viewport.shortcutsHelp` are inert without `paletteFeature()`.
+- `mountViewport` `tools` accepts only a `Tool[]`; `'default'` is gone.
+
+**Added**
+
+- `paletteFeature(options?)`, `presentationFeature()`, `minimapFeature()` and
+  `defaultFeatures(options?)` (palette with shortcuts help, and presentation).
+- `exportImage`, `exportSvg` and `exportPdf` accept a viewport as their first argument.
+- `Viewport.exportDefaults()` and type `ExportDefaults`: the store, layers and option defaults the
+  export functions read from a viewport.
+
+**Changed**
+
+- Published source maps no longer embed sources.
+- Bundle size, gzip bytes, measured by `pnpm bundle:check` (esbuild bundle and minify from source,
+  ESM, es2022, then gzip -9), before and after:
+  - `new Viewport(el)` alone: 116,988 to 82,738 (117.0 KB to 82.7 KB).
+  - with hand, select and pencil tools: 117,021 to 91,805 (117.0 KB to 91.8 KB).
+  - default tools, `defaultFeatures()`, `minimapFeature()` and the three export functions:
+    117,020 to 118,701 (117.0 KB to 118.7 KB).
+
+### React 0.18.0 — tools passed by the host
+
+**Breaking**
+
+- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools. See the
+  migration table under Core 0.111.0.
+
+**Changed**
+
+- Peer floor: `@fieldnotes/core >=0.111.0 <1.0.0`.
+
+### Vue 0.3.0 — tools passed by the host
+
+**Breaking**
+
+- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools. See the
+  migration table under Core 0.111.0.
+
+**Changed**
+
+- Peer floor: `@fieldnotes/core >=0.111.0 <1.0.0`.
+
+### Svelte 0.3.0 — tools passed by the host
+
+**Breaking**
+
+- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools. See the
+  migration table under Core 0.111.0.
+
+**Changed**
+
+- Peer floor: `@fieldnotes/core >=0.111.0 <1.0.0`.
+
+### Angular 0.3.0 — tools passed by the host
+
+**Breaking**
+
+- `tools` no longer accepts `'default'`, and a canvas without `tools` has no tools. See the
+  migration table under Core 0.111.0.
+
+**Changed**
+
+- Peer floor: `@fieldnotes/core >=0.111.0 <1.0.0`.
+
 ### Sync server 0.33.1 — fog reconcile
 
 **Fixed**

@@ -8,16 +8,17 @@ Vue bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnotes) 
 npm install @fieldnotes/core @fieldnotes/vue
 ```
 
-Requires Vue 3.5+ (`vue >=3.5 <4`) and `@fieldnotes/core >=0.110.0 <1.0.0`.
+Requires Vue 3.5+ (`vue >=3.5 <4`) and `@fieldnotes/core >=0.111.0 <1.0.0`.
 
 ## Quick Start
 
 Full runnable example: `examples/vue` — `pnpm --filter fieldnotes-vue-example dev`
 
-The canvas needs a container with a defined size — it fills whatever it's given. With no `tools`
-prop and no tools registered in `onReady`, it registers the default tool bundle
-(`createDefaultTools()`: hand, select, pencil, eraser, arrow, note, text, shape) with `select`
-active, so a persisting board is one component:
+The canvas needs a container with a defined size — it fills whatever it's given. It registers the
+tools you pass in `tools` and starts on `select` when it is one of them; without `tools` it has
+none. A persisting board with the default tools (`createDefaultTools()`: hand, select, pencil,
+eraser, arrow, note, text, shape) and the default features (`defaultFeatures()`: command palette,
+shortcuts help and presentation) is one component:
 
 ```vue
 <script setup lang="ts">
@@ -110,11 +111,11 @@ Not all props are reactive — the canvas is stateful. Changing a mount-only pro
 | `theme`                         | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object.            |
 | `class` / `style`               | Fall through to the root `<div>`                                                          |
 
-`tools` as an array registers each tool once (tools cannot be unregistered). `tools="default"`
-registers `createDefaultTools()` at mount, before `onReady` (so you can customise them there).
-Omitted registers the same bundle after `onReady` only when neither `options.tools` is set nor any
-tool was registered by then, then activates `tool`, `defaultTool` or `select`; hosts that register
-tools in `onReady` get no defaults. `:tools="[]"` registers nothing.
+`tools` as an array registers each tool once (tools cannot be unregistered). They register
+at mount, before `onReady` (so you can customise them there), then `tool`, `defaultTool` or
+`select` activates. Omitted registers no tools; when `options.tools` is also unset, `tool` or
+`defaultTool` activates after `onReady`, so tools registered there can be selected. `:tools="[]"`
+registers nothing.
 
 `onReady`, `onChange` and `onToolChange` are function props, so both `:on-ready="fn"` and
 `@ready="fn"` work. `update:tool` is the only emit: it fires on every core tool switch (keyboard,
@@ -255,7 +256,7 @@ under `<KeepAlive>`, where deactivation keeps it and the final unmount destroys 
 ## Versioning
 
 `@fieldnotes/core` and `@fieldnotes/vue` are versioned independently. The package's
-`peerDependencies` declare the compatible core range (`@fieldnotes/core >=0.110.0 <1.0.0`). Pre-1.0, minor versions
+`peerDependencies` declare the compatible core range (`@fieldnotes/core >=0.111.0 <1.0.0`). Pre-1.0, minor versions
 may contain breaking changes; if a core minor ever breaks the wrapper, a coordinated release raises
 the lower bound.
 

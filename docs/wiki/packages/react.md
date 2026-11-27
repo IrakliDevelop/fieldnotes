@@ -48,7 +48,7 @@ import { FieldNotesCanvas } from '@fieldnotes/react';
 function App() {
   return (
     <FieldNotesCanvas
-      options={{ toolbar: true, minimap: true }}
+      options={{ toolbar: true, plugins: [minimapFeature()] }}
       tools={[new PencilTool(), new EraserTool()]}
       defaultTool="hand"
       onReady={(viewport) => console.log('Ready!', viewport)}

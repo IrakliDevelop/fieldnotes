@@ -1,13 +1,15 @@
+import { useMemo } from 'react';
 import { createDefaultTools, defaultFeatures, type CanvasState } from '@fieldnotes/core';
 import { FieldNotesCanvas, useActiveTool, useShortcuts } from '@fieldnotes/react';
 
 // #region app
-const tools = createDefaultTools();
-const options = { plugins: defaultFeatures() };
 const saved = localStorage.getItem('board') ?? undefined;
 const save = (state: CanvasState) => localStorage.setItem('board', JSON.stringify(state));
 
 export function App() {
+  // Tools and plugins belong to one canvas, so each component creates its own.
+  const tools = useMemo(() => createDefaultTools(), []);
+  const options = useMemo(() => ({ plugins: defaultFeatures() }), []);
   return (
     <FieldNotesCanvas
       tools={tools}
@@ -24,6 +26,8 @@ export function App() {
 
 // #region autosave
 export function AutoSaveApp() {
+  const tools = useMemo(() => createDefaultTools(), []);
+  const options = useMemo(() => ({ plugins: defaultFeatures() }), []);
   return (
     <FieldNotesCanvas
       tools={tools}

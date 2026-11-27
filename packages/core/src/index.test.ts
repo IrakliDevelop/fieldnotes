@@ -123,8 +123,8 @@ describe('core public surface', () => {
     ])
       expect(name in FN).toBe(false);
   });
-  it('reports VERSION 0.110.2', () => {
-    expect(FN.VERSION).toBe('0.110.2');
+  it('reports VERSION 0.111.0', () => {
+    expect(FN.VERSION).toBe('0.111.0');
   });
 
   it('exports the elbow arrow document model without routing helpers', () => {
@@ -155,6 +155,16 @@ describe('core public surface', () => {
       'Inter',
       'function',
     ]);
+  });
+
+  it('exports the optional feature plugins and Viewport#exportDefaults', () => {
+    expect([
+      typeof FN.paletteFeature,
+      typeof FN.presentationFeature,
+      typeof FN.minimapFeature,
+      typeof FN.defaultFeatures,
+      typeof FN.Viewport.prototype.exportDefaults,
+    ]).toEqual(['function', 'function', 'function', 'function', 'function']);
   });
 
   it('exports ExportDefaults and moves export methods off Viewport', () => {
@@ -589,9 +599,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reads VERSION 0.110.2 from a dynamic import', async () => {
+  it('reads VERSION 0.111.0 from a dynamic import', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.110.2');
+    expect(VERSION).toBe('0.111.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

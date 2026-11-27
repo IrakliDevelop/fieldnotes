@@ -49,9 +49,10 @@ const url = canonicalUrl(Astro.url.pathname, import.meta.env.SITE);
           </p>
           <p>
             Using React? <a href={link('/docs/using-react/')}
-              ><code>&lt;FieldNotesCanvas initialData=&#123;saved&#125; onChange=&#123;save&#125; /&gt;</code
-              ></a
-            > does the same.
+              ><code>&lt;FieldNotesCanvas&gt;</code></a
+            > takes the same <code>tools</code> and <code>plugins</code>, and saves through <code
+              >initialData</code
+            > and <code>onChange</code>.
           </p>
         </div>
         <CodeSample source={gettingStarted} region="ten-lines" lang="ts" />
