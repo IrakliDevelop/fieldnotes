@@ -1,6 +1,18 @@
 import { test as base, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import type { ExportImageOptions, ExportPdfOptions, ExportSvgOptions } from '../../src';
 import { installCompositeCanvas } from './composite-canvas';
+
+declare global {
+  interface Window {
+    /** The demo's core export functions; pass `window.__fieldnotes_viewport` first. */
+    __fieldnotes_export: {
+      exportImage(viewport: unknown, options?: ExportImageOptions): Promise<Blob | null>;
+      exportSvg(viewport: unknown, options?: ExportSvgOptions): Promise<string>;
+      exportPdf(viewport: unknown, options?: ExportPdfOptions): Promise<Blob | null>;
+    };
+  }
+}
 
 interface CanvasPageFixtures {
   canvasPage: CanvasPage;

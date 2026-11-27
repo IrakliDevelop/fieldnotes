@@ -1,10 +1,10 @@
 import type { ElementStore } from '../elements/element-store';
 import type { LayerManager } from '../layers/layer-manager';
 import { parseElementLink } from '../elements/link';
+import { getElementRect } from '../elements/element-rect';
 import {
   assertRenderCapabilities,
   fitExportScale,
-  getElementRect,
   nonNegativeOption,
   paintExport,
   positiveOption,
@@ -12,6 +12,8 @@ import {
   withAssetWarning,
 } from './export-image';
 import type { ExportImageOptions, PreparedExport } from './export-image';
+import { isExportSource } from './export-viewport';
+import type { ExportSource } from './export-viewport';
 import { deflate, pdfNumber, pdfString, PdfWriter } from './pdf-writer';
 import { defaultExportBackground, resolveTheme } from './theme';
 import { parseColor } from './theme-color';
@@ -144,11 +146,21 @@ function annotations(
 }
 
 /** Exports the board or selected frames as fitted raster PDF pages. */
-export async function exportPdf(
+export function exportPdf(viewport: ExportSource, options?: ExportPdfOptions): Promise<Blob | null>;
+export function exportPdf(
   store: ElementStore,
+  options?: ExportPdfOptions,
+  layerManager?: LayerManager,
+): Promise<Blob | null>;
+export async function exportPdf(
+  store: ElementStore | ExportSource,
   options: ExportPdfOptions = {},
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
+  if (isExportSource(store)) {
+    const defaults = store.exportDefaults();
+    return exportPdf(defaults.store, defaults.options(options), defaults.layerManager);
+  }
   assertRenderCapabilities(
     options.renderHooks?.imageExport,
     'imageExport',

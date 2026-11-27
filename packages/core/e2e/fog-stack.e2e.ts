@@ -82,8 +82,6 @@ test('player fog is included after scene elements in bitmap and SVG exports', as
     const globals = window as unknown as Record<string, unknown>;
     const viewport = globals.__fieldnotes_viewport as {
       store: { add(element: unknown): void };
-      exportImage(options: { scale: number }): Promise<Blob | null>;
-      exportSVG(): Promise<string>;
     };
     const fog = globals.__fieldnotes_fog_manager as {
       initialize(options: {
@@ -114,7 +112,7 @@ test('player fog is included after scene elements in bitmap and SVG exports', as
     });
     fog.setViewMode('player');
 
-    const blob = await viewport.exportImage({ scale: 1 });
+    const blob = await window.__fieldnotes_export.exportImage(viewport, { scale: 1 });
     if (!blob) throw new Error('bitmap export unexpectedly empty');
     const bitmap = await createImageBitmap(blob);
     const canvas = document.createElement('canvas');
@@ -124,7 +122,7 @@ test('player fog is included after scene elements in bitmap and SVG exports', as
     if (!ctx) throw new Error('missing export inspection context');
     ctx.drawImage(bitmap, 0, 0);
     const pixel = [...ctx.getImageData(50, 30, 1, 1).data];
-    const svg = await viewport.exportSVG();
+    const svg = await window.__fieldnotes_export.exportSvg(viewport);
 
     return {
       pixel,

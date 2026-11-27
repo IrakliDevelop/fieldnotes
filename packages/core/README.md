@@ -135,7 +135,7 @@ viewport.addShape({
 Export the canvas as a PNG image:
 
 ```typescript
-const blob = await viewport.exportImage({
+const blob = await exportImage(viewport, {
   scale: 2, // pixel density (default 2)
   padding: 20, // world-space padding around content (default 0)
   background: '#fff', // fill color
@@ -170,7 +170,7 @@ elements. PDF links still point at elements under fog; pass `links: false` when 
 board. `readSceneFile` reads the scene back, and dropping the file on a board inserts it:
 
 ```typescript
-const png = await viewport.exportImage({ embedScene: true });
+const png = await exportImage(viewport, { embedScene: true });
 const state = png ? await readSceneFile(png) : null;
 if (state) viewport.loadState(state);
 ```
@@ -191,8 +191,8 @@ const options = {
   },
 };
 
-const png = await viewport.exportImage(options);
-const svg = await viewport.exportSVG(options);
+const png = await exportImage(viewport, options);
+const svg = await exportSvg(viewport, options);
 ```
 
 Without `renderHtml`, embeds remain omitted and can be observed through `onHtmlError`.

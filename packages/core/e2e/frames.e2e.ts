@@ -267,18 +267,6 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
           }): () => void;
         };
       };
-      exportImage: (options: {
-        frameId: string;
-        scale: number;
-        padding: number;
-        filter: (element: { id: string }) => boolean;
-        onAssetError: (diagnostic: { elementId: string }) => void;
-      }) => Promise<Blob | null>;
-      exportSVG: (options: {
-        frameId: string;
-        padding: number;
-        filter: (element: { id: string }) => boolean;
-      }) => Promise<string>;
     };
     const frameId = 'e2e-export-frame';
     const layerId = viewport.layerManager.activeLayerId;
@@ -440,7 +428,7 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
     });
     const diagnostics: string[] = [];
     collectPainterIds = true;
-    const image = await viewport.exportImage({
+    const image = await window.__fieldnotes_export.exportImage(viewport, {
       frameId,
       scale: 1,
       padding: 24,
@@ -455,7 +443,7 @@ test('exports rich frame contents as real PNG pixels and structured SVG', async 
     const context = surface.getContext('2d');
     if (!context) throw new Error('Scratch canvas was not created');
     context.drawImage(bitmap, 0, 0);
-    const svg = await viewport.exportSVG({
+    const svg = await window.__fieldnotes_export.exportSvg(viewport, {
       frameId,
       padding: 24,
       filter: (element) => element.id !== 'e2e-export-clip',
@@ -578,18 +566,6 @@ test('exports empty frame backgrounds and encoding without changing board defaul
   const result = await page.evaluate(async () => {
     const viewport = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
       store: { add: (element: unknown) => void };
-      exportImage: (options: {
-        frameId: string;
-        padding?: number;
-        scale?: number;
-        background?: string;
-        format?: 'jpeg';
-      }) => Promise<Blob | null>;
-      exportSVG: (options: {
-        frameId: string;
-        padding?: number;
-        background?: string;
-      }) => Promise<string>;
     };
     const frameId = 'e2e-empty-export-frame';
     viewport.store.add({
@@ -605,15 +581,27 @@ test('exports empty frame backgrounds and encoding without changing board defaul
       dataVersion: 1,
       data: { title: 'Empty', color: '#64748b' },
     });
-    const png = await viewport.exportImage({ frameId, padding: 2, scale: 1 });
-    const colored = await viewport.exportImage({
+    const png = await window.__fieldnotes_export.exportImage(viewport, {
+      frameId,
+      padding: 2,
+      scale: 1,
+    });
+    const colored = await window.__fieldnotes_export.exportImage(viewport, {
       frameId,
       padding: 2,
       scale: 1,
       background: '#123456',
     });
-    const jpeg = await viewport.exportImage({ frameId, format: 'jpeg', scale: 1 });
-    const svg = await viewport.exportSVG({ frameId, padding: 2, background: '#123456' });
+    const jpeg = await window.__fieldnotes_export.exportImage(viewport, {
+      frameId,
+      format: 'jpeg',
+      scale: 1,
+    });
+    const svg = await window.__fieldnotes_export.exportSvg(viewport, {
+      frameId,
+      padding: 2,
+      background: '#123456',
+    });
     if (!png || !colored || !jpeg) throw new Error('Empty frame image was not created');
     const pngBitmap = await createImageBitmap(png);
     const coloredBitmap = await createImageBitmap(colored);

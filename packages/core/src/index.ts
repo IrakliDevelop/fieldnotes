@@ -60,6 +60,7 @@ export type {
 export { Viewport } from './canvas/viewport';
 export type {
   ViewportOptions,
+  ExportDefaults,
   AlignEdge,
   DistributeAxis,
   RotateDirection,

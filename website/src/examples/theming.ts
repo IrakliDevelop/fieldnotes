@@ -3,6 +3,7 @@ import {
   createNote,
   createShape,
   createText,
+  exportImage,
   type ViewportOptions,
 } from '@fieldnotes/core';
 
@@ -62,6 +63,6 @@ export function customTheme(container: HTMLElement): Viewport {
 
 // #region export
 export async function exportDarkBoard(viewport: Viewport): Promise<Blob | null> {
-  return viewport.exportImage({ theme: 'dark' });
+  return exportImage(viewport, { theme: 'dark' });
 }
 // #endregion export

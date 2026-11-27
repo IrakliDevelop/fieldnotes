@@ -1,5 +1,23 @@
 {
-  "viewport": { "gzip": 118012, "forbidden": [] },
-  "board": { "gzip": 118045, "forbidden": [] },
-  "full": { "gzip": 118044, "forbidden": [] }
+  "viewport": {
+    "gzip": 105936,
+    "forbidden": [
+      "canvas/export-image",
+      "canvas/export-svg",
+      "canvas/export-pdf",
+      "pdf-writer",
+      "export-fonts"
+    ]
+  },
+  "board": {
+    "gzip": 105951,
+    "forbidden": [
+      "canvas/export-image",
+      "canvas/export-svg",
+      "canvas/export-pdf",
+      "pdf-writer",
+      "export-fonts"
+    ]
+  },
+  "full": { "gzip": 118254, "forbidden": [] }
 }

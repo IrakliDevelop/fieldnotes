@@ -59,7 +59,7 @@ test.describe('elbow connectors', () => {
         const arrow = viewport.store.getElementsByType('arrow')[0];
         const blocker = viewport.store.getElementsByType('shape')[1];
         if (!arrow || !blocker) throw new Error('Arrow fixture is incomplete');
-        const svg = await viewport.exportSVG();
+        const svg = await window.__fieldnotes_export.exportSvg(viewport);
         const paths = [
           ...new DOMParser()
             .parseFromString(svg, 'image/svg+xml')

@@ -75,7 +75,10 @@ const readExportWorldPixel = (page: Page, world: Position): Promise<Pixel> =>
   page.evaluate(async (point) => {
     const scale = 2;
     const region = { x: point.x - 12, y: point.y - 12, w: 24, h: 24 };
-    const blob = await window.__fieldnotes_viewport.exportImage({ region, scale });
+    const blob = await window.__fieldnotes_export.exportImage(window.__fieldnotes_viewport, {
+      region,
+      scale,
+    });
     if (!blob) throw new Error('Missing image export');
     const bitmap = await createImageBitmap(blob);
     const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
@@ -387,7 +390,7 @@ test.describe('themes', () => {
     const exported = await canvasPage.page.evaluate(async () => {
       const viewport = window.__fieldnotes_viewport;
       const read = async (theme?: 'light') => {
-        const blob = await viewport.exportImage({
+        const blob = await window.__fieldnotes_export.exportImage(viewport, {
           region: { x: 0, y: 0, w: 100, h: 100 },
           scale: 1,
           ...(theme ? { theme } : {}),
@@ -409,7 +412,11 @@ test.describe('themes', () => {
         }
         return theme ? light : dark;
       };
-      return { dark: await read(), light: await read('light'), svg: await viewport.exportSVG() };
+      return {
+        dark: await read(),
+        light: await read('light'),
+        svg: await window.__fieldnotes_export.exportSvg(viewport),
+      };
     });
     expect(exported.dark).toBeGreaterThan(0);
     expect(exported.light).toBeGreaterThan(0);

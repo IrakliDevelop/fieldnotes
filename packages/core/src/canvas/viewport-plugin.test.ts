@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServiceKey } from '../core/service-key';
 import type { PluginHandle } from '../core/plugin-state-manager';
 import { Viewport } from './viewport';
+import { exportImage } from './export-image';
+import { exportSvg } from './export-svg';
 import type { ViewportPlugin } from './viewport-plugin';
 import { SelectTool } from '../tools/select-tool';
 import { createArrow, createNote } from '../elements/element-factory';
@@ -286,8 +288,8 @@ describe('Viewport plugin lifecycle', () => {
 
     disposeSatisfiers();
 
-    await expect(viewport.exportImage()).rejects.toThrow('missing on imageExport: x');
-    await expect(viewport.exportSVG()).rejects.toThrow('missing on svgExport: x');
+    await expect(exportImage(viewport)).rejects.toThrow('missing on imageExport: x');
+    await expect(exportSvg(viewport)).rejects.toThrow('missing on svgExport: x');
     viewport.destroy();
   });
 

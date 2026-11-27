@@ -42,11 +42,8 @@ import {
 } from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
-import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
-import { exportSvg } from './export-svg';
 import type { ExportSvgOptions } from './export-svg';
-import { exportPdf } from './export-pdf';
 import type { ExportPdfOptions } from './export-pdf';
 import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
@@ -111,6 +108,14 @@ export type {
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { RotateDirection } from './selection-rotate';
+
+/** What `exportImage`/`exportSvg`/`exportPdf` read from a viewport. */
+export interface ExportDefaults {
+  store: ElementStore;
+  layerManager: LayerManager;
+  /** `options` completed with this viewport's registry, render hooks, theme and html painters. */
+  options<T extends ExportImageOptions | ExportSvgOptions | ExportPdfOptions>(options?: T): T;
+}
 
 const EMPTY_IDS: string[] = [];
 
@@ -1068,46 +1073,32 @@ export class Viewport {
   }
 
   /**
-   * Injects this viewport's own html painter registry into export options so a host
-   * that registered painters via `registerHtmlPainter`/`expectCanvasHtmlTypes` gets
-   * markers in exports without passing anything. An explicitly passed `htmlPainters`
-   * REPLACES the viewport's registry rather than merging with it. `expectedCanvasTypes`
-   * is always UNIONED with the resolved registry's own declarations — a caller's set
-   * can only add expectations, never shrink the registry's own.
+   * Export inputs for this viewport. An explicitly passed `htmlPainters` REPLACES the viewport's
+   * registry; `expectedCanvasTypes` is always UNIONED with the resolved registry's declarations.
    */
-  private withHtmlDefaults<
-    T extends { htmlPainters?: HtmlPainterRegistry; expectedCanvasTypes?: ReadonlySet<string> },
-  >(options?: T): T {
-    const base = (options ?? {}) as T;
-    const registry = base.htmlPainters ?? this.html.painters;
-    const declared = registry.canvasTypes;
-    const expected = base.expectedCanvasTypes
-      ? new Set([...declared, ...base.expectedCanvasTypes]) // union only; never shrink
-      : declared;
-    return { ...base, htmlPainters: registry, expectedCanvasTypes: expected };
-  }
-
-  private exportOptions<T extends ExportImageOptions | ExportSvgOptions | ExportPdfOptions>(
-    options?: T,
-  ): T {
+  exportDefaults(): ExportDefaults {
     return {
-      ...this.withHtmlDefaults(options),
-      elementRegistry: options?.elementRegistry ?? this.elementRegistry,
-      renderHooks: options?.renderHooks ?? this._renderHooks,
-      theme: options?.theme ?? { base: this.theme.base, tokens: this.theme.tokens },
+      store: this.store,
+      layerManager: this.layerManager,
+      options: <T extends ExportImageOptions | ExportSvgOptions | ExportPdfOptions>(
+        options?: T,
+      ): T => {
+        const base = (options ?? {}) as T;
+        const htmlPainters = base.htmlPainters ?? this.html.painters;
+        const declared = htmlPainters.canvasTypes;
+        const expectedCanvasTypes = base.expectedCanvasTypes
+          ? new Set([...declared, ...base.expectedCanvasTypes]) // union only; never shrink
+          : declared;
+        return {
+          ...base,
+          htmlPainters,
+          expectedCanvasTypes,
+          elementRegistry: base.elementRegistry ?? this.elementRegistry,
+          renderHooks: base.renderHooks ?? this._renderHooks,
+          theme: base.theme ?? { base: this.theme.base, tokens: this.theme.tokens },
+        };
+      },
     };
-  }
-
-  async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    return exportImage(this.store, this.exportOptions(options), this.layerManager);
-  }
-
-  async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    return exportSvg(this.store, this.exportOptions(options), this.layerManager);
-  }
-
-  async exportPDF(options?: ExportPdfOptions): Promise<Blob | null> {
-    return exportPdf(this.store, this.exportOptions(options), this.layerManager);
   }
 
   loadState(state: ImportableCanvasState): void {

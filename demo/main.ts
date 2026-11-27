@@ -28,6 +28,9 @@ import {
   RemoteCursorOverlay,
   createPresentationSource,
   setTextFontFamily,
+  exportImage,
+  exportSvg,
+  exportPdf,
 } from '@fieldnotes/core';
 import type { AlignEdge, DistributeAxis, CameraView, FocusAudience } from '@fieldnotes/core';
 import {
@@ -928,7 +931,7 @@ document.getElementById('export-png')?.addEventListener('click', async () => {
   const scale = Number(
     (document.getElementById('export-scale') as HTMLSelectElement | null)?.value ?? 2,
   );
-  const blob = await viewport.exportImage({
+  const blob = await exportImage(viewport, {
     scale,
     padding,
     ...(exportBackgroundSelected && exportBackgroundInput
@@ -1221,6 +1224,11 @@ if (info) {
 }
 
 (window as unknown as Record<string, unknown>).__fieldnotes_viewport = viewport;
+(window as unknown as Record<string, unknown>).__fieldnotes_export = {
+  exportImage,
+  exportSvg,
+  exportPdf,
+};
 (window as unknown as Record<string, unknown>).__fieldnotes_set_text_font_family =
   setTextFontFamily;
 (window as unknown as Record<string, unknown>).__fieldnotes_fog_manager = fogPlugin.manager;

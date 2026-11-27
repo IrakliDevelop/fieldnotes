@@ -1,11 +1,14 @@
 import {
+  exportImage,
+  exportPdf as exportPdfBlob,
+  exportSvg as exportSvgString,
   isFrameElement,
   setTextFontFamily,
   type HtmlElement,
   type Viewport,
 } from '@fieldnotes/core';
 
-type PdfViewport = Pick<Viewport, 'exportPDF'> & {
+type PdfViewport = Pick<Viewport, 'exportDefaults'> & {
   store: Pick<Viewport['store'], 'getAll'>;
 };
 
@@ -24,21 +27,21 @@ function download(blob: Blob, name: string): void {
 
 export async function exportPng(viewport: Viewport): Promise<void> {
   // #region png
-  const blob = await viewport.exportImage({ padding: 20 });
+  const blob = await exportImage(viewport, { padding: 20 });
   if (blob) download(blob, 'board.png');
   // #endregion png
 }
 
 export async function exportSvg(viewport: Viewport): Promise<void> {
   // #region svg
-  const svg = await viewport.exportSVG({ padding: 20, background: '#ffffff' });
+  const svg = await exportSvgString(viewport, { padding: 20, background: '#ffffff' });
   download(new Blob([svg], { type: 'image/svg+xml' }), 'board.svg');
   // #endregion svg
 }
 
 // #region fonts
 export async function exportSvgWithFonts(viewport: Viewport): Promise<void> {
-  const svg = await viewport.exportSVG({
+  const svg = await exportSvgString(viewport, {
     fonts: [{ family: 'Inter', src: '/fonts/inter.woff2' }],
   });
   download(new Blob([svg], { type: 'image/svg+xml' }), 'board.svg');
@@ -52,7 +55,7 @@ export async function exportPdf(viewport: PdfViewport): Promise<void> {
     .filter(isFrameElement)
     .filter((frame) => frame.parentId === undefined)
     .map((frame) => frame.id);
-  const blob = await viewport.exportPDF({
+  const blob = await exportPdfBlob(viewport, {
     ...(frameIds.length > 0 ? { frameIds } : {}),
     pageSize: 'a4',
   });
@@ -81,7 +84,7 @@ function drawCard(element: HtmlElement): HTMLCanvasElement {
 
 export async function exportWithCards(viewport: Viewport): Promise<void> {
   // #region render-html
-  const blob = await viewport.exportImage({
+  const blob = await exportImage(viewport, {
     renderHtml: (element) => (element.htmlType === 'initiative' ? drawCard(element) : null),
     onHtmlError: ({ elementId, reason }) => console.warn(`Left out ${elementId}: ${reason}`),
   });

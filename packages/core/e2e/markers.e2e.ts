@@ -345,12 +345,11 @@ test.describe('marker export', () => {
             size: { w: number; h: number },
             opts?: { htmlType?: string },
           ) => string;
-          exportImage: (options: Record<string, unknown>) => Promise<Blob | null>;
         };
         vp.addHtmlElement(document.createElement('div'), { x: 0, y: 0 }, size, {
           htmlType: 'demo-marker',
         });
-        const blob = await vp.exportImage({
+        const blob = await window.__fieldnotes_export.exportImage(vp, {
           scale: 1,
           region: { x: 0, y: 0, w: size.w, h: size.h },
         });
@@ -393,12 +392,11 @@ test.describe('marker export', () => {
             size: { w: number; h: number },
             opts?: { htmlType?: string },
           ) => string;
-          exportSVG: (options?: Record<string, unknown>) => Promise<string>;
         };
         vp.addHtmlElement(document.createElement('div'), { x: 0, y: 0 }, size, {
           htmlType: 'demo-marker',
         });
-        const svg = await vp.exportSVG();
+        const svg = await window.__fieldnotes_export.exportSvg(vp);
         const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
         const imageEl = doc.querySelector('image');
         if (!imageEl) return null;
@@ -441,14 +439,6 @@ test.describe('marker export', () => {
           size: { w: number; h: number },
           opts?: { htmlType?: string },
         ) => string;
-        exportImage: (options: {
-          strictMissingCanvasHtml: boolean;
-          expectedCanvasTypes: Set<string>;
-        }) => Promise<Blob | null>;
-        exportSVG: (options: {
-          strictMissingCanvasHtml: boolean;
-          expectedCanvasTypes: Set<string>;
-        }) => Promise<string>;
       };
       // Unregistered htmlType — never claimed via expectCanvasHtmlTypes or
       // registerHtmlPainter, only declared per-call so it routes to 'missing'.
@@ -470,13 +460,13 @@ test.describe('marker export', () => {
       };
       return {
         image: await errorName(() =>
-          vp.exportImage({
+          window.__fieldnotes_export.exportImage(vp, {
             strictMissingCanvasHtml: true,
             expectedCanvasTypes: new Set(['e2e-ghost-marker']),
           }),
         ),
         svg: await errorName(() =>
-          vp.exportSVG({
+          window.__fieldnotes_export.exportSvg(vp, {
             strictMissingCanvasHtml: true,
             expectedCanvasTypes: new Set(['e2e-ghost-marker']),
           }),

@@ -20,7 +20,6 @@ import {
   assertExportSize,
   assertRenderCapabilities,
   loadImages,
-  getElementRect,
   nonNegativeOption,
   positiveOption,
   validateExportResourceOptions,
@@ -39,6 +38,8 @@ import type { RenderHooks } from './render-hooks';
 import { resolveFrameExport } from './frame-export';
 import { buildSceneEnvelope, serializeSceneEnvelope } from './scene-embed';
 import type { SceneEmbedOptions } from './scene-embed';
+import { isExportSource } from './export-viewport';
+import type { ExportSource } from './export-viewport';
 import { getBoundText } from '../elements/bound-text';
 import { getElbowRoute } from '../elements/elbow-cache';
 import { parseStyledRuns } from '../elements/note-sanitizer';
@@ -52,6 +53,7 @@ import type { ExportFontOptions } from './export-fonts';
 import { defaultExportBackground, inkFor, resolveTheme } from './theme';
 import type { FixedTheme, ResolvedTheme } from './theme';
 import { getBoundTextContainerId } from '../elements/bound-text';
+import { getElementRect } from '../elements/element-rect';
 
 export interface ExportSvgOptions
   extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions, ExportFontOptions {
@@ -372,11 +374,22 @@ function emitNotePlaceholder(note: NoteElement, theme: ResolvedTheme): string {
   return `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="4" fill="${attr(theme.adapt(note.backgroundColor))}" />`;
 }
 
-export async function exportSvg(
+/** Exports a viewport, or a store with explicit options, as an SVG string. */
+export function exportSvg(viewport: ExportSource, options?: ExportSvgOptions): Promise<string>;
+export function exportSvg(
   store: ElementStore,
+  options?: ExportSvgOptions,
+  layerManager?: LayerManager,
+): Promise<string>;
+export async function exportSvg(
+  store: ElementStore | ExportSource,
   options: ExportSvgOptions = {},
   layerManager?: LayerManager,
 ): Promise<string> {
+  if (isExportSource(store)) {
+    const defaults = store.exportDefaults();
+    return exportSvg(defaults.store, defaults.options(options), defaults.layerManager);
+  }
   const reportingOptions = withAssetWarning(options);
   assertRenderCapabilities(
     options.renderHooks?.svgExport,

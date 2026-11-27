@@ -157,6 +157,16 @@ describe('core public surface', () => {
     ]);
   });
 
+  it('exports ExportDefaults and moves export methods off Viewport', () => {
+    const viewport = new FN.Viewport(document.createElement('div'));
+    const defaults: FN.ExportDefaults = viewport.exportDefaults();
+    expect(
+      ['exportImage', 'exportSVG', 'exportPDF'].filter((name) => name in FN.Viewport.prototype),
+    ).toEqual([]);
+    expect(defaults.options({ padding: 4 }).padding).toBe(4);
+    viewport.destroy();
+  });
+
   it('exports PDF export types and function', () => {
     const size: FN.PdfPageSize = 'a4';
     const options: FN.ExportPdfOptions = { pageSize: size };
