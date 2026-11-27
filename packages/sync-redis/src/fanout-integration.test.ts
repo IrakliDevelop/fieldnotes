@@ -3,6 +3,8 @@ import { SyncHub } from '@fieldnotes/sync-server';
 import type { Connection } from '@fieldnotes/sync-server';
 import { createShape, type Layer } from '@fieldnotes/core';
 import { createCurrentCapabilities, type SyncOp } from '@fieldnotes/sync';
+import { fogEncodeBase64 } from '@fieldnotes/vtt';
+import { createFogServerPlugin } from '@fieldnotes/vtt/server';
 import { RedisHubBackend, RedisHubFanout } from './index';
 import type { RedisHashClient, RedisPublisher, RedisSubscriber } from './index';
 import { emulateElementScript } from './test-support/element-scripts-fake';
@@ -315,6 +317,119 @@ describe('RedisHubFanout + RedisHubBackend cross-instance integration', () => {
         { kind: 'layer-remove', id: 'L1', version: 2, editor: 'dm' },
       ]);
       expect(player.sent.join()).not.toContain('DM Secret');
+    });
+  });
+
+  describe('fog element gate, gm on the first hub and player on the second', () => {
+    /** Tile (0, 0) with cells 0..`lastCol` x 0..`lastRow` revealed; without them, all covered. */
+    function tile(version: number, lastCol?: number, lastRow = lastCol): SyncOp {
+      const record = { generation: 'g1', x: 0, y: 0, version, editor: 'gm' };
+      if (lastCol === undefined || lastRow === undefined) {
+        return { kind: 'fog-patch', generation: 'g1', tiles: [record] };
+      }
+      const bytes = new Uint8Array(2048);
+      for (let row = 0; row <= lastRow; row++) {
+        for (let col = 0; col <= lastCol; col++) {
+          const index = row * 128 + col;
+          bytes[index >> 3] = (bytes[index >> 3] ?? 0) | (0x80 >> (index & 7));
+        }
+      }
+      return {
+        kind: 'fog-patch',
+        generation: 'g1',
+        tiles: [{ ...record, data: fogEncodeBase64(bytes) }],
+      };
+    }
+
+    const token = (x: number, y: number, version: number) => ({
+      ...createShape({ index: 'a0', position: { x, y }, size: { w: 40, h: 40 } }),
+      id: 't',
+      version,
+    });
+
+    /** Fog base covered with world 0..100 revealed; the fake Redis cannot run fog scripts, so each hub keeps fog in memory. */
+    async function room() {
+      const bus = new FakeBus();
+      const redis = new FakeRedis();
+      const pub: RedisPublisher = { publish: (c: string, m: string) => bus.publish(c, m) };
+      const sub: RedisSubscriber = {
+        subscribe: (c: string, l: (m: string) => void) => bus.subscribe(c, l),
+      };
+      const mk = (id: string): SyncHub =>
+        new SyncHub({
+          instanceId: id,
+          plugins: [
+            createFogServerPlugin({
+              authorize: ({ role }) => role === 'gm',
+              seesUnderFog: (viewer) => viewer.role === 'gm',
+            }),
+          ],
+          resolvePresenceAudience: () => undefined,
+          fanout: new RedisHubFanout(pub, sub),
+          backend: new RedisHubBackend(redis),
+        });
+      const hubA = mk('A');
+      const hubB = mk('B');
+      await tick();
+      const gm = { ...makeConn('gm', 'R'), role: 'gm' };
+      const player = { ...makeConn('pl', 'R'), role: 'player' };
+      hubA.addConnection(gm);
+      hubB.addConnection(player);
+      await admit(hubA, gm);
+      await admit(hubB, player);
+      const send = async (op: SyncOp): Promise<void> => {
+        await hubA.handleMessage('gm', JSON.stringify({ from: 'gm', op }));
+        await tick();
+        // A queued snapshot request on hub B runs after any reconcile scheduled before it.
+        await hubB.handleMessage(
+          'pl',
+          JSON.stringify({ from: 'pl', op: { kind: 'request-snapshot' } }),
+        );
+        player.sent.pop();
+      };
+      const definition = {
+        version: 1,
+        generation: 'g1',
+        bounds: { x: 0, y: 0, w: 2000, h: 2000 },
+        cellSize: 10,
+        tileCells: 128,
+        base: 'covered',
+      } as const;
+      await send({ kind: 'fog-meta', record: { version: 2, editor: 'gm', definition } });
+      await send(tile(1, 9));
+      player.sent.length = 0;
+      return { player, send };
+    }
+
+    const seen = (conn: { sent: string[] }): string[] =>
+      conn.sent.flatMap((message) => {
+        const { from, op } = JSON.parse(message) as { from: string; op: SyncOp };
+        if (op.kind === 'upsert') return [`${from}: upsert ${op.element.id}`];
+        if (op.kind === 'remove') return [`${from}: remove ${op.id}`];
+        return [];
+      });
+
+    it('sends the player a token the gm reveals and removes it when the gm covers it', async () => {
+      const { player, send } = await room();
+
+      await send({ kind: 'upsert', element: token(200, 20, 1) });
+      expect(seen(player)).toEqual([]);
+
+      await send(tile(2, 29, 9));
+      expect(seen(player)).toEqual(['hub: upsert t']);
+
+      player.sent.length = 0;
+      await send(tile(3));
+      expect(seen(player)).toEqual(['hub: remove t']);
+    });
+
+    it('sends the player a hub remove for a token moved under fog on the first hub', async () => {
+      const { player, send } = await room();
+
+      await send({ kind: 'upsert', element: token(10, 10, 1) });
+      await send({ kind: 'upsert', element: token(500, 500, 2) });
+
+      expect(seen(player)).toEqual(['gm: upsert t', 'hub: remove t']);
     });
   });
 });

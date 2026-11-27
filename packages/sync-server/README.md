@@ -807,6 +807,9 @@ Upgrade every relay instance together. An older instance ignores the `audience` 
 fanned-out presence and the `prevLayer` it puts on layer ops, so its viewers receive presence and
 layers the newer instances would hide.
 
+An instance older than 0.33.0 never calls a plugin's `elementReadGate`, so it sends gated elements to
+its own viewers. Turn a gate on only after every instance runs 0.33.0 (see [Domain plugins](#domain-plugins)).
+
 A Redis `HubBackend` and cross-instance fan-out ship in [`@fieldnotes/sync-redis`](../sync-redis).
 
 ### Authority legacy-kind ownership
@@ -826,6 +829,7 @@ extension that owns that exact legacy kind. This does not activate a legacy VTT 
 - `canReadLayer`, so viewers do not receive hidden layers or their names.
 - `allowImageSrc`, limited to your asset hosts (or `data:` only). The built-in scheme check alone does
   not stop an image from exposing viewers' IP addresses to a host a player runs.
+- Every relay instance on 0.33.0 before you turn on a plugin with `elementReadGate`, such as fog with `seesUnderFog`.
 
 ## Domain plugins
 
@@ -845,9 +849,31 @@ for each local peer, so upgrade every instance together. `viewer` is a `PluginVi
 another kind withholds the frame from that recipient. `filterOp` must not mutate its input; return
 a copy.
 
-Fog is a display aid: every client in the room receives the elements under it. To withhold an
-element, give it an audience `canRead` denies and hide its layer with `canReadLayer` (see
-[Layers](#layers)).
+`elementReadGate(room, backend)` returns the gate in force for a room, an `ElementReadGate`
+`(element, viewer) => boolean`, or `undefined` to gate nothing there. A viewer receives an
+element only when `canRead` allows its audience and every gate returns exactly `true`; any other
+value or a throw withholds it. The hub asks for the gate before the first local member of a room receives
+anything, after it accepts an op the plugin owns or applies one from fanout, and when it builds a
+snapshot. While no gate is loaded it sends no element. A gate must be pure and synchronous, and
+the plugin must return the same function while its answer is unchanged: a new function makes the
+hub re-check every element for every local viewer, then send a remove for elements a viewer lost
+and the element for ones it gained. Stored elements and their versions do not change.
+
+The hub requires `resolvePresenceAudience` with an `elementReadGate` plugin so the host decides who
+receives presence. With `() => undefined` every member gets presence, including a GM's drag of a hidden token:
+
+```text
+SyncHub: a plugin with `elementReadGate` requires `resolvePresenceAudience` (pass `() => undefined` to send presence to everyone)
+```
+
+With several instances, an element update that arrives by fanout while the hub is re-checking a
+room can be overwritten on a viewer by the older copy the re-check sends. The next op on that
+element, or the next resync, corrects it.
+
+Without such a gate, fog is a display aid: every client in the room receives the elements under
+it. `createFogServerPlugin` with `seesUnderFog` installs one that withholds elements fully under
+fog (see [Fog sync in `@fieldnotes/vtt`](../vtt#fog-sync)). To withhold any other element, give it an audience `canRead` denies
+and hide its layer with `canReadLayer` (see [Layers](#layers)).
 
 ## Maintainer release check
 

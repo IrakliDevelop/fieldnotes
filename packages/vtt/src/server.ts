@@ -3,6 +3,8 @@ import type {
   ApplyResult,
   AuthorityExtension,
   Authorize,
+  ElementReadGate,
+  HubBackend,
   JsonValue,
   PluginViewer,
   ServerOpContext,
@@ -13,6 +15,7 @@ import {
   isValidFogAuthorityState,
   prepareFogAuthorityIntent,
 } from './fog/fog-authority';
+import { isElementCoveredByFog } from './fog/fog-coverage';
 import { FogLedger } from './fog/fog-ledger';
 import type { FogMetaRecord, FogSnapshot, FogTileRecord } from './fog/fog-sync-types';
 import { FogBackendServiceKey } from './sync/fog-backend-service';
@@ -27,6 +30,8 @@ export { applyFogAuthorityIntent, prepareFogAuthorityIntent } from './fog/fog-au
 export type { FogAuthorityIntent, FogAuthorityTransitionResult } from './fog/fog-authority';
 
 export { FogLedger } from './fog/fog-ledger';
+
+export { isCoveredByFog } from './fog/fog-coverage';
 
 /**
  * Authorizes a movement record op as an upsert of its target element, so whoever may edit a
@@ -102,10 +107,12 @@ export interface FogServerPluginOptions {
   allowAnyWriter?: boolean;
   filterSnapshot?(snapshot: PluginSnapshot, viewer: FogViewer): PluginSnapshot | null;
   filterOp?(op: FogOp, viewer: FogViewer): FogOp | null;
+  /** Turns on withholding elements fully under fog; true lets `viewer` receive `element` anyway. */
+  seesUnderFog?(viewer: FogViewer, element: SyncElement): boolean;
 }
 
 export function createFogServerPlugin(options: FogServerPluginOptions = {}): ServerSyncPlugin {
-  const { authorize, filterOp } = options;
+  const { authorize, filterOp, seesUnderFog } = options;
   if (!authorize && options.allowAnyWriter !== true) {
     throw new Error(
       'createFogServerPlugin: pass `authorize`, or `allowAnyWriter: true` to let every member change the fog',
@@ -144,6 +151,32 @@ export function createFogServerPlugin(options: FogServerPluginOptions = {}): Ser
   const snapshot = async (context: ServerOpContext): Promise<FogSnapshot | undefined> => {
     const backend = context.backendPlugin(FogBackendServiceKey);
     return backend ? backend.snapshot(context.room) : ledger(context.room).snapshot();
+  };
+  const snapshotContext = (room: string, backend: HubBackend): ServerOpContext => ({
+    room,
+    connectionId: 'snapshot',
+    backend,
+    backendPlugin: (key) => backend.getService?.(key),
+  });
+  const gates = new Map<string, { key: string; gate: ElementReadGate }>();
+  const elementReadGate = async (room: string, backend: HubBackend): Promise<ElementReadGate> => {
+    const data = await snapshot(snapshotContext(room, backend));
+    const tiles = [...(data?.tiles ?? [])]
+      .sort((a, b) => a.x - b.x || a.y - b.y)
+      .map((tile) => [tile.x, tile.y, tile.version, tile.editor]);
+    const key = JSON.stringify([data?.meta.version, data?.meta.editor, tiles]);
+    const cached = gates.get(room);
+    if (cached?.key === key) return cached.gate;
+    const gate: ElementReadGate = (element, viewer) => {
+      try {
+        if (seesUnderFog?.(viewer, element) === true) return true;
+      } catch {
+        // A throwing host hook exempts nobody.
+      }
+      return !data || !isElementCoveredByFog(data, element);
+    };
+    gates.set(room, { key, gate });
+    return gate;
   };
   const applyMeta = async (context: ServerOpContext, record: FogMetaRecord) => {
     const backend = context.backendPlugin(FogBackendServiceKey);
@@ -260,13 +293,7 @@ export function createFogServerPlugin(options: FogServerPluginOptions = {}): Ser
         : null;
     },
     async snapshot(room, backend) {
-      const context: ServerOpContext = {
-        room,
-        connectionId: 'snapshot',
-        backend,
-        backendPlugin: (key) => backend.getService?.(key),
-      };
-      const data = await snapshot(context);
+      const data = await snapshot(snapshotContext(room, backend));
       return data ? { pluginName: 'fog', version: 1, data } : undefined;
     },
     filterSnapshot: options.filterSnapshot,
@@ -274,8 +301,10 @@ export function createFogServerPlugin(options: FogServerPluginOptions = {}): Ser
       filterOp: (op: SyncOp, viewer: FogViewer) =>
         op.kind === 'fog-meta' || op.kind === 'fog-patch' ? filterOp(op, viewer) : op,
     }),
+    ...(seesUnderFog && { elementReadGate }),
     evictRoom(room) {
       memory.delete(room);
+      gates.delete(room);
     },
   };
 }

@@ -1,10 +1,11 @@
-import { createNote } from '@fieldnotes/core';
-import type { SyncOp } from '@fieldnotes/sync';
+import { createNote, createShape } from '@fieldnotes/core';
+import type { SyncElement, SyncOp } from '@fieldnotes/sync';
 import { MemoryHubBackend } from '@fieldnotes/sync-server';
 import type { ServerOpContext, ServerSyncPlugin } from '@fieldnotes/sync-server';
 import { describe, expect, it, vi } from 'vitest';
 import { createFogServerPlugin } from './server';
 import type { FogOp, FogServerPluginOptions } from './server';
+import { createTileBytes, encodeBase64, setBit } from './fog/tile-codec';
 
 const MISSING_WRITER =
   'createFogServerPlugin: pass `authorize`, or `allowAnyWriter: true` to let every member change the fog';
@@ -122,5 +123,95 @@ describe('createFogServerPlugin', () => {
 
   it('exposes no filterOp when the host sets none', () => {
     expect(createFogServerPlugin({ allowAnyWriter: true }).filterOp).toBeUndefined();
+  });
+});
+
+describe('createFogServerPlugin with seesUnderFog', () => {
+  const defineFog: FogOp = {
+    kind: 'fog-meta',
+    record: {
+      version: 2,
+      editor: 'alice',
+      definition: {
+        version: 1,
+        generation: 'g1',
+        bounds: { x: 0, y: 0, w: 2000, h: 2000 },
+        cellSize: 10,
+        tileCells: 128,
+        base: 'covered',
+      },
+    },
+  };
+  const bytes = createTileBytes(false);
+  setBit(bytes, 12, 12, true);
+  const revealCell: FogOp = {
+    kind: 'fog-patch',
+    generation: 'g1',
+    tiles: [
+      { generation: 'g1', x: 0, y: 0, version: 1, editor: 'alice', data: encodeBase64(bytes) },
+    ],
+  };
+  const covered: SyncElement = createShape({
+    index: 'a0',
+    position: { x: 100, y: 100 },
+    size: { w: 40, h: 40 },
+  });
+  const outside: SyncElement = createShape({
+    index: 'a0',
+    position: { x: 3000, y: 100 },
+    size: { w: 40, h: 40 },
+  });
+
+  async function gate(plugin: ServerSyncPlugin) {
+    const result = await plugin.elementReadGate?.('R', new MemoryHubBackend());
+    if (!result) throw new Error('fog plugin returned no gate');
+    return result;
+  }
+
+  it('has no elementReadGate without seesUnderFog', () => {
+    expect('elementReadGate' in createFogServerPlugin({ allowAnyWriter: true })).toBe(false);
+  });
+
+  it('returns the same gate until an accepted fog-meta or fog-patch', async () => {
+    const plugin = createFogServerPlugin({ allowAnyWriter: true, seesUnderFog: () => false });
+
+    const first = await gate(plugin);
+    expect(await gate(plugin)).toBe(first);
+    expect((await process(plugin, defineFog)).accepted).not.toBeNull();
+    const defined = await gate(plugin);
+    expect(defined).not.toBe(first);
+    expect(await gate(plugin)).toBe(defined);
+    expect((await process(plugin, revealCell)).accepted).not.toBeNull();
+    expect(await gate(plugin)).not.toBe(defined);
+  });
+
+  it.each<[string, () => unknown, SyncElement, boolean]>([
+    ['exempts a covered element when seesUnderFog is true', () => true, covered, true],
+    ['withholds a covered element when seesUnderFog returns a string', () => 'yes', covered, false],
+    [
+      'withholds a covered element when seesUnderFog throws',
+      () => {
+        throw new Error('boom');
+      },
+      covered,
+      false,
+    ],
+    ['sends an element outside the fog bounds', () => false, outside, true],
+  ])('%s', async (_, seesUnderFog, element, allowed) => {
+    const plugin = createFogServerPlugin({
+      allowAnyWriter: true,
+      seesUnderFog: seesUnderFog as FogServerPluginOptions['seesUnderFog'],
+    });
+    await process(plugin, defineFog);
+
+    expect((await gate(plugin))(element, viewer)).toBe(allowed);
+  });
+
+  it('allows every element for any viewer when the room has no fog definition', async () => {
+    const plugin = createFogServerPlugin({ allowAnyWriter: true, seesUnderFog: () => false });
+    const read = await gate(plugin);
+
+    expect(read(covered, viewer)).toBe(true);
+    expect(read(covered, { room: 'R' })).toBe(true);
   });
 });

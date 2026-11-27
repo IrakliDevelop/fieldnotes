@@ -91,9 +91,37 @@ or the join snapshot would bypass the redaction.
 A hub older than 0.32.0 never calls `filterOp`, so it sends live fog ops to every viewer
 unfiltered.
 
-Fog is a display aid. Every client in the room receives the elements under the fog. To withhold an
-element from players, give it an audience their `canRead` denies and hide its layer with
-`canReadLayer`, as the `@fieldnotes/sync-server` read filtering section shows.
+Without `seesUnderFog`, fog is a display aid: every client in the room receives the elements under
+it. Pass `seesUnderFog(viewer, element)` and the relay stops sending an element that is fully under
+fog to a viewer, unless the hook returns `true` for that viewer and element. The option withholds
+elements only; only `filterSnapshot` and `filterOp` redact the fog itself:
+
+```typescript
+const fog = createFogServerPlugin({
+  authorize: ({ role }) => role === 'gm',
+  seesUnderFog: (viewer, element) => viewer.role === 'gm' || element.ownerId === viewer.userId,
+});
+```
+
+The `ownerId` half is only safe when `createSyncServer` also gets an `authorize` hook: only then
+does the hub stamp `ownerId` from the authenticated user, and without it a player can send an
+element with any `ownerId`. If `seesUnderFog` throws, the relay treats it as `false` for that viewer and element.
+
+An element is fully covered when its bounds lie inside the fog bounds and every fog cell they
+touch is covered. A cell with no tile takes the fog's `base`. Grids are never covered, an area
+template uses its template bounds, and a movement record follows the last point of its trail (a
+record with an empty trail counts as covered). When the fog changes, the relay removes the
+elements a viewer lost and sends the ones it gained.
+
+These still reach every viewer: the fog mask (unless `filterSnapshot` and `filterOp` redact it),
+the map image and any other element only partly under fog, presence (cursors and drags), the ids
+of deleted elements, and elements of custom extension types, whose position the relay cannot know. To withhold one of those elements, give it an audience the
+viewer's `canRead` denies and hide its layer with `canReadLayer`, as the `@fieldnotes/sync-server`
+read filtering section shows.
+
+`seesUnderFog` needs `@fieldnotes/sync-server` 0.33.0 and `resolvePresenceAudience` on the hub,
+which throws at startup without it. Upgrade every relay instance before turning it on.
+`isCoveredByFog(snapshot, bounds)` from `@fieldnotes/vtt/server` is the coverage check on its own.
 
 ### Managed authority fog
 
@@ -102,7 +130,7 @@ Managed authority rooms opt in with `createFogAuthorityClientExtension()` from
 `@fieldnotes/vtt/server`. These adapters require the managed-authority APIs shipped by
 `@fieldnotes/sync` and `@fieldnotes/sync-server` 0.26.0. The package peer ranges are
 `@fieldnotes/core` `>=0.110.0 <1.0.0`, `@fieldnotes/sync` `>=0.28.0 <1.0.0`,
-`@fieldnotes/sync-server` `>=0.32.0 <1.0.0`, and `@fieldnotes/sync-redis` `>=0.14.0 <1.0.0`;
+`@fieldnotes/sync-server` `>=0.33.0 <1.0.0`, and `@fieldnotes/sync-redis` `>=0.14.0 <1.0.0`;
 the three sync peers are optional. The exact checkpoint requirement is `fog/fog/1`, and the
 server owns `fog-meta` and `fog-patch` only when the factory is installed.
 

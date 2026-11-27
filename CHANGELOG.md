@@ -6,6 +6,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Sync server 0.33.0 — per-viewer element gate
+
+**Added**
+
+- `ServerSyncPlugin.elementReadGate(room, backend)` returns the gate in force for a room, or
+  `undefined`. A viewer receives an element only when `canRead` allows its audience and every gate
+  returns exactly `true`; a throw withholds. When a gate changes, the hub sends each local viewer a
+  remove for elements it lost and the element for ones it gained. Stored elements do not change.
+- Type `ElementReadGate` (`(element, viewer) => boolean`).
+- A plugin with `elementReadGate` requires `resolvePresenceAudience`; `SyncHub` and
+  `createSyncServer` throw without it.
+
+**Changed**
+
+- Element upserts and removes a plugin returns as `accepted`, `broadcast` or `corrections` now pass
+  `canRead` and the gates; an unreadable upsert becomes a hub remove.
+- Fanout envelopes for those plugin-returned element ops now carry `pluginOp`, `existed` and
+  `prev`. With a plugin that has `elementReadGate`, an element fanout envelope for an existing
+  element also carries `prevEl`, the previous element without `src`.
+- Every relay instance behind one fanout bus needs 0.33.0 before `seesUnderFog` (or any
+  `elementReadGate`) is turned on: an older instance sends gated elements to its own viewers.
+
+### VTT 0.20.0 — elements under fog
+
+**Added**
+
+- `seesUnderFog(viewer, element)` option on `createFogServerPlugin`. With it set, the relay does
+  not send an element fully under fog to a viewer unless the hook returns `true` for that viewer
+  and element. Fully covered means the element's bounds lie inside the fog bounds and every cell
+  they touch is covered. `vtt:grid` is never covered, `vtt:template` uses its template bounds, a
+  movement record follows the last point of its trail (an empty trail counts as covered), and
+  other extension types are sent.
+- `isCoveredByFog(snapshot, bounds)` from `@fieldnotes/vtt/server`.
+
+**Changed**
+
+- The `@fieldnotes/sync-server` peer floor is now 0.33.0: an older hub never calls
+  `elementReadGate`.
+
 ### Sync server 0.32.0 — per-viewer plugin op filter
 
 **Added**
