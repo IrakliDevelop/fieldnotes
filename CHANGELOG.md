@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   gates load again.
 - An element created or moved into a covered area between a cover and a reveal reaches players
   once the hub's reconcile runs.
+- The hub's reconcile no longer sends an element again to a player who already received it live
+  or in a snapshot, which could drop an offline edit the player had queued for it.
 - The README now says the audience from `resolvePresenceAudience` takes effect only with
   `canRead`; without it every member gets presence.
 
