@@ -4,14 +4,15 @@ import type { SyncElement } from '@fieldnotes/sync';
 import { movementRecordTypeDefinition } from '../movement/movement-record';
 import { templateElementTypeDefinition } from '../template/template-definition';
 import type { FogSnapshot } from './fog-sync-types';
-import { decodeBase64 } from './tile-codec';
+import { decodeBase64, isTileAllValue } from './tile-codec';
 import { FOG_TILE_CELLS } from './types';
 
 const SUMS_SIDE = FOG_TILE_CELLS + 1;
 
 interface CoverageTile {
   readonly bytes: Uint8Array;
-  revealedSums?: Uint16Array;
+  /** `null` marks a tile with no revealed cell, which needs no table. */
+  revealedSums?: Uint16Array | null;
 }
 
 const decodedTiles = new WeakMap<FogSnapshot, Map<string, CoverageTile>>();
@@ -32,8 +33,12 @@ function tilesOf(snapshot: FogSnapshot): Map<string, CoverageTile> {
 }
 
 /** Summed-area table of revealed cells: entry (row, col) counts cells above and left of it. */
-function revealedSums(tile: CoverageTile): Uint16Array {
-  if (tile.revealedSums) return tile.revealedSums;
+function revealedSums(tile: CoverageTile): Uint16Array | null {
+  if (tile.revealedSums !== undefined) return tile.revealedSums;
+  if (isTileAllValue(tile.bytes, false)) {
+    tile.revealedSums = null;
+    return null;
+  }
   const sums = new Uint16Array(SUMS_SIDE * SUMS_SIDE);
   const { bytes } = tile;
   let byteIndex = 0;
@@ -86,6 +91,7 @@ export function isCoveredByFog(snapshot: FogSnapshot, bounds: Bounds): boolean {
       const left = Math.max(firstX - tx * FOG_TILE_CELLS, 0);
       const right = Math.min(lastX - tx * FOG_TILE_CELLS, FOG_TILE_CELLS - 1) + 1;
       const sums = revealedSums(tile);
+      if (!sums) continue;
       const at = (row: number, col: number): number => sums[row * SUMS_SIDE + col] as number;
       if (at(bottom, right) - at(top, right) - at(bottom, left) + at(top, left) > 0) return false;
     }
