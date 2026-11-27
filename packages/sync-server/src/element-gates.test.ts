@@ -74,6 +74,39 @@ describe('RoomElementGates', () => {
     expect(gates.isPending('R')).toBe(false);
   });
 
+  it('keeps settled and unloads current when a refresh throws after a load', async () => {
+    const loaded: ElementReadGate = () => true;
+    let broken = false;
+    const gates = new RoomElementGates([
+      plugin('a', () => {
+        if (broken) throw new Error('gate down');
+        return loaded;
+      }),
+    ]);
+    await gates.refresh('R', backend);
+    broken = true;
+
+    await expect(gates.refresh('R', backend)).rejects.toThrow('gate down');
+
+    expect(gates.isLoaded('R')).toBe(false);
+    expect(gates.current('R')).toBeUndefined();
+    expect(gates.settled('R')).toEqual([loaded]);
+    expect(gates.isPending('R')).toBe(true);
+  });
+
+  it('leaves no state when the first load throws', async () => {
+    const gates = new RoomElementGates([
+      plugin('a', () => {
+        throw new Error('gate down');
+      }),
+    ]);
+
+    await expect(gates.refresh('R', backend)).rejects.toThrow('gate down');
+
+    expect(gates.isLoaded('R')).toBe(false);
+    expect(gates.settled('R')).toBe('deny');
+  });
+
   it('drop unloads the room', async () => {
     const gates = new RoomElementGates([plugin('a', () => () => true)]);
     await gates.refresh('R', backend);

@@ -537,6 +537,31 @@ describe('element gate reconcile', () => {
     expect(seen(player)).toEqual(['hub: snapshot ', 'hub: upsert a']);
   });
 
+  it('reconciles from the settled gates after a refresh that threw mid-session', async () => {
+    const switchable = switchablePlugin(new Set());
+    let failNext = false;
+    const flaky: ServerSyncPlugin = {
+      ...switchable,
+      elementReadGate: async (room, store) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('gate down');
+        }
+        return switchable.elementReadGate?.(room, store);
+      },
+    };
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')], {
+      plugins: [flaky],
+    });
+    failNext = true;
+
+    await write(hub, gm, toggle('a', true)).catch(() => undefined);
+    await write(hub, writer, { kind: 'request-snapshot' });
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a']);
+  });
+
   it('removes an element moved while a reconcile that hides it is pending', async () => {
     const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')]);
 

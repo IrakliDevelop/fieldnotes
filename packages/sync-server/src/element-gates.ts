@@ -22,7 +22,8 @@ function sameGates(a: GateSet, b: GateSet): boolean {
 }
 
 interface RoomGateState {
-  current: GateSet;
+  // Undefined after a failed refresh: withhold everything until the next load.
+  current: GateSet | undefined;
   settled: GateSet;
 }
 
@@ -41,7 +42,7 @@ export class RoomElementGates {
   }
 
   isLoaded(room: string): boolean {
-    return this.rooms.has(room);
+    return this.current(room) !== undefined;
   }
 
   /** Asks every gate plugin; returns true when the set in force changed (by identity). */
@@ -58,18 +59,23 @@ export class RoomElementGates {
         if (gate) next.push(gate);
       }
     } catch (error) {
-      // Unloaded withholds every element, so a broken gate never leaves an older one in force.
-      if (this.generations.get(room) === generation) this.drop(room);
+      // Unloaded withholds every element, so a broken gate never leaves an older one in force;
+      // settled stays so the next load reconciles what members already hold.
+      if (this.generations.get(room) === generation) {
+        const state = this.rooms.get(room);
+        if (state) state.current = undefined;
+        else this.drop(room);
+      }
       throw error;
     }
     if (this.generations.get(room) !== generation) return false;
     const state = this.rooms.get(room);
     if (!state) {
-      // A first load runs on the room queue before any member holds an element.
+      // With no settled set yet, no member holds an element, so the load settles at once.
       this.rooms.set(room, { current: next, settled: next });
       return true;
     }
-    if (sameGates(state.current, next)) return false;
+    if (state.current && sameGates(state.current, next)) return false;
     state.current = next;
     return true;
   }
@@ -79,7 +85,7 @@ export class RoomElementGates {
     return this.rooms.get(room)?.current;
   }
 
-  /** Gates as of the first load or the last finished reconcile; `'deny'` before the load. */
+  /** Gates as of the first load or the last finished reconcile; `'deny'` before any load. */
   settled(room: string): GateSet | 'deny' {
     return this.rooms.get(room)?.settled ?? 'deny';
   }
@@ -87,7 +93,7 @@ export class RoomElementGates {
   /** Sets settled to the set in force. */
   markSettled(room: string): void {
     const state = this.rooms.get(room);
-    if (state) state.settled = state.current;
+    if (state?.current) state.settled = state.current;
   }
 
   isPending(room: string): boolean {
