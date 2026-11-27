@@ -156,6 +156,26 @@ interface Delivery {
   readonly prevElement?: SyncElement;
 }
 
+type PriorRecord = Omit<Delivery, 'op'>;
+
+function hubRemoveOf({ id, version }: SyncElement): ElementOp {
+  return { kind: 'remove', id, version, editor: HUB_FROM };
+}
+
+// An image src may be megabytes, and no gate may depend on it.
+function withoutSrc(element: SyncElement): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...element };
+  delete copy['src'];
+  return copy;
+}
+
+function prevElementOf(value: unknown, op: ElementOp): SyncElement | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { id, type } = value as { id?: unknown; type?: unknown };
+  const opId = op.kind === 'upsert' ? op.element.id : op.id;
+  return id === opId && typeof type === 'string' ? (value as SyncElement) : undefined;
+}
+
 const MAX_VERSION_JUMP = 1_000_000;
 const MAX_WRITE_ATTEMPTS = 3;
 
@@ -887,6 +907,7 @@ export class SyncHub {
               op: accepted,
               prev: prevAudience,
               existed,
+              ...(this.gates.active && current ? { prevEl: withoutSrc(current) } : {}),
             }),
           );
         }
@@ -1033,7 +1054,9 @@ export class SyncHub {
     for (const correction of result.corrections) {
       const stamped = await this.stampHubRemove(conn.room, correction, fallbackVersion);
       const visible = stamped && this.opForViewer(conn, stamped);
-      if (visible) this.sendToConnection(conn, HUB_FROM, visible);
+      if (!visible) continue;
+      const hidden = visible.kind === 'upsert' && !this.mayReadElement(conn, visible.element);
+      this.sendToConnection(conn, HUB_FROM, hidden ? hubRemoveOf(visible.element) : visible);
     }
     if (result.accepted) await this.publishPluginOp(conn, result.accepted, result.locality);
     for (const broadcast of result.broadcast ?? []) {
@@ -1084,12 +1107,28 @@ export class SyncHub {
     op: SyncOp,
     locality: ApplyResult['locality'],
   ): Promise<void> {
+    let prior: PriorRecord | undefined;
+    let extra = {};
+    if (isFanoutOp(op)) {
+      const id = op.kind === 'upsert' ? op.element.id : op.id;
+      const record = await this.backend.getRecord(conn.room, id);
+      const element = record?.kind === 'element' ? record.element : undefined;
+      const prevAudience =
+        record?.kind === 'tombstone' ? record.tombstone.audience : element?.audience;
+      prior = { prevAudience, existed: record !== undefined, prevElement: element };
+      extra = {
+        pluginOp: true,
+        existed: prior.existed,
+        prev: prevAudience,
+        ...(this.gates.active && element ? { prevEl: withoutSrc(element) } : {}),
+      };
+    }
     if (locality !== 'local') {
       await this.fanout.publish(
-        JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op }),
+        JSON.stringify({ o: this.instanceId, room: conn.room, from: conn.id, op, ...extra }),
       );
     }
-    this.relayOpToRoom(conn.room, conn.id, conn.id, op);
+    this.relayOpToRoom(conn.room, conn.id, conn.id, op, prior);
   }
 
   /**
@@ -1400,16 +1439,30 @@ export class SyncHub {
     excludeId: string | undefined,
     from: string,
     op: SyncOp,
+    prior?: PriorRecord,
   ): number {
     const members = this.rooms.get(room);
     if (!members) return 0;
     let sent = 0;
     const encoded: EncodedFrames = new Map();
+    const removals: EncodedFrames = new Map();
     const filtered = this.ownerOfOp(op)?.filterOp !== undefined;
     for (const connectionId of members) {
       if (connectionId === excludeId) continue;
       const conn = this.conns.get(connectionId);
       if (!conn) continue;
+      // A plugin's element op: the earlier state is unknown, so an unreadable upsert is a remove.
+      if (prior && op.kind === 'upsert' && !this.mayReadElement(conn, op.element)) {
+        this.sendToConnection(conn, HUB_FROM, hubRemoveOf(op.element), removals);
+        continue;
+      }
+      if (
+        prior &&
+        op.kind === 'remove' &&
+        (this.canRead || this.gates.active) &&
+        !this.couldReadBefore(conn, { op, ...prior })
+      )
+        continue;
       const visible = filtered ? this.opForViewer(conn, op) : op;
       if (!visible) continue;
       // A rewritten op is per-viewer, so it must not populate the shared frame cache.
@@ -1769,6 +1822,8 @@ export class SyncHub {
       room?: unknown;
       prev?: unknown;
       existed?: unknown;
+      prevEl?: unknown;
+      pluginOp?: unknown;
       audiences?: unknown;
       audience?: unknown;
       prevLayer?: unknown;
@@ -1849,8 +1904,13 @@ export class SyncHub {
     }
     if (!isFanoutOp(op)) return;
     const prevAudience = typeof env.prev === 'string' ? env.prev : undefined;
-    const prevExisted = env.existed === true;
-    this.deliverToRoom(env.room, undefined, env.from, [{ op, prevAudience, existed: prevExisted }]);
+    const prior = {
+      prevAudience,
+      existed: env.existed === true,
+      prevElement: prevElementOf(env.prevEl, op),
+    };
+    if (env.pluginOp === true) this.relayOpToRoom(env.room, undefined, env.from, op, prior);
+    else this.deliverToRoom(env.room, undefined, env.from, [{ op, ...prior }]);
   }
 
   private scheduleIdleEviction(room: string): void {

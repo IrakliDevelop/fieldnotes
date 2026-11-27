@@ -52,9 +52,15 @@ export class RoomElementGates {
       this.generations.set(room, generation);
     }
     const next: ElementReadGate[] = [];
-    for (const plugin of this.plugins) {
-      const gate = await plugin.elementReadGate?.(room, backend);
-      if (gate) next.push(gate);
+    try {
+      for (const plugin of this.plugins) {
+        const gate = await plugin.elementReadGate?.(room, backend);
+        if (gate) next.push(gate);
+      }
+    } catch (error) {
+      // Unloaded withholds every element, so a broken gate never leaves an older one in force.
+      this.drop(room);
+      throw error;
     }
     if (this.generations.get(room) !== generation) return false;
     const state = this.rooms.get(room);

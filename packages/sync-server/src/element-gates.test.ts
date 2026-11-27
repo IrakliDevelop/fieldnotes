@@ -97,4 +97,23 @@ describe('RoomElementGates', () => {
     expect(await refreshing).toBe(false);
     expect(gates.isLoaded('R')).toBe(false);
   });
+
+  it('unloads the room when a gate plugin rejects during refresh', async () => {
+    let broken = false;
+    const gates = new RoomElementGates([
+      {
+        name: 'flaky',
+        elementReadGate: async () => {
+          if (broken) throw new Error('gate down');
+          return () => true;
+        },
+      },
+    ]);
+    await gates.refresh('R', backend);
+    broken = true;
+
+    await expect(gates.refresh('R', backend)).rejects.toThrow('gate down');
+    expect(gates.isLoaded('R')).toBe(false);
+    expect(gates.current('R')).toBeUndefined();
+  });
 });

@@ -11,7 +11,7 @@ import { SyncHub, type Connection, type SyncHubOptions } from './sync-hub';
 import { createSyncServer } from './create-sync-server';
 import { MemoryHubBackend } from './memory-hub-backend';
 import { InMemoryHubFanout } from './hub-fanout';
-import type { ElementReadGate, ServerSyncPlugin } from './sync-plugin';
+import type { ApplyResult, ElementReadGate, ServerSyncPlugin } from './sync-plugin';
 import { v2Remove, v2Shape } from './test-support/v2-ops';
 
 interface FakeConn extends Connection {
@@ -312,10 +312,14 @@ const gateKind = createExtensionKind<{ id: string; hidden: boolean }>({
 });
 
 /** A gate plugin whose `test:gate` op hides or reveals one id, replacing the gate only on a change. */
-function switchablePlugin(hidden: Set<string>): ServerSyncPlugin {
+function switchablePlugin(
+  hidden: Set<string>,
+  hideWhen: (element: SyncElement) => boolean = () => false,
+): ServerSyncPlugin {
   const make = (): ElementReadGate => {
     const frozen = new Set(hidden);
-    return (element, viewer) => viewer.role === 'gm' || !frozen.has(element.id);
+    return (element, viewer) =>
+      viewer.role === 'gm' || !(frozen.has(element.id) || hideWhen(element));
   };
   let gate = make();
   return {
@@ -465,4 +469,257 @@ describe('element gate reconcile', () => {
 
     expect(seen(player)).toEqual(['hub: remove a', 'hub: remove a']);
   });
+});
+
+const left = (element: SyncElement) => element.position.x < 0;
+
+/** Origin and remote hubs on one backend and bus; a gm writer on the origin, gm and player on the remote. */
+async function twoHubs(plugins: () => ServerSyncPlugin[], remotePlugins = plugins) {
+  const backend = new CountingBackend();
+  const fanout = new InMemoryHubFanout();
+  const published: string[] = [];
+  fanout.subscribe((payload) => published.push(payload));
+  const origin = makeHub({ instanceId: 'A', backend, fanout, plugins: plugins() });
+  const remote = makeHub({ instanceId: 'B', backend, fanout, plugins: remotePlugins() });
+  const writer = admit(origin, makeConn('writer', 'gm'));
+  const gm = admit(remote, makeConn('gm', 'gm'));
+  const player = admit(remote, makeConn('player', 'player'));
+  for (const element of [el('m'), el('n', -10)])
+    await write(origin, writer, { kind: 'upsert', element });
+  const flush = () => write(remote, gm, { kind: 'request-snapshot' });
+  await flush();
+  for (const conn of [writer, gm, player]) conn.sent.length = 0;
+  published.length = 0;
+  backend.calls = 0;
+  const inject = (op: SyncOp, extra: Record<string, unknown>): void =>
+    fanout.publish(JSON.stringify({ o: 'C', room: 'R', from: 'writer', op, ...extra }));
+  return { backend, origin, remote, writer, gm, player, published, flush, inject };
+}
+
+const imageBase = {
+  id: 'img',
+  type: 'image',
+  position: { x: 10, y: 0 },
+  index: 'a0',
+  version: 1,
+  locked: false,
+  layerId: '',
+  size: { w: 10, h: 10 },
+} as const;
+const imageSrc = 'data:image/png;base64,iVBORw0KGgo=';
+
+describe('element gate across instances', () => {
+  const stub = () => [gatePlugin(new Set(), left).plugin];
+
+  it('removes an element for a remote player when an update gates it, and resends it when ungated', async () => {
+    const { origin, writer, player } = await twoHubs(stub);
+
+    await write(origin, writer, { kind: 'upsert', element: el('m', -10, 2) });
+    expect(seen(player)).toEqual(['hub: remove m']);
+    await write(origin, writer, { kind: 'upsert', element: el('m', 10, 3) });
+
+    expect(seen(player)).toEqual(['hub: remove m', 'writer: upsert m']);
+  });
+
+  it('publishes prevEl without src only when a gate plugin is present', async () => {
+    const image1: SyncElement = { ...imageBase, src: imageSrc };
+    const image2: SyncElement = {
+      ...imageBase,
+      position: { x: 20, y: 0 },
+      version: 2,
+      src: imageSrc,
+    };
+    const move = { kind: 'upsert', element: image2 } as const;
+
+    const gatedHubs = await twoHubs(stub);
+    await write(gatedHubs.origin, gatedHubs.writer, { kind: 'upsert', element: image1 });
+    await write(gatedHubs.origin, gatedHubs.writer, move);
+    const plainHubs = await twoHubs(() => []);
+    await write(plainHubs.origin, plainHubs.writer, { kind: 'upsert', element: image1 });
+    await write(plainHubs.origin, plainHubs.writer, move);
+
+    expect(JSON.parse(gatedHubs.published[1] ?? '')).toEqual({
+      o: 'A',
+      room: 'R',
+      from: 'writer',
+      op: move,
+      existed: true,
+      prevEl: imageBase,
+    });
+    expect(plainHubs.published[1]).toBe(
+      JSON.stringify({ o: 'A', room: 'R', from: 'writer', op: move, existed: true }),
+    );
+  });
+
+  it('sends the hub remove for an update of an existing element without a usable prevEl', async () => {
+    const { player, inject } = await twoHubs(stub);
+    const hide = (version: number): SyncOp => ({ kind: 'upsert', element: el('m', -10, version) });
+
+    inject(hide(2), { existed: true });
+    inject(hide(3), { existed: true, prevEl: { ...el('other'), id: 'other' } });
+
+    expect(seen(player)).toEqual(['hub: remove m', 'hub: remove m']);
+  });
+
+  it('sends nothing for the remove of an element whose prevEl the remote player could not read', async () => {
+    const { gm, player, inject } = await twoHubs(stub);
+
+    inject(v2Remove('n', 2, 'writer'), { existed: true, prevEl: el('n', -10) });
+    inject(v2Remove('m', 2, 'writer'), { existed: true, prevEl: el('m') });
+
+    expect(seen(player)).toEqual(['writer: remove m']);
+    expect(seen(gm)).toEqual(['writer: remove n', 'writer: remove m']);
+  });
+
+  it('removes an element a fan-out update moves while a reconcile that hides it is pending', async () => {
+    const { backend, origin, remote, writer, gm, player, flush } = await twoHubs(stub, () => [
+      switchablePlugin(new Set(), left),
+    ]);
+    await write(origin, writer, { kind: 'upsert', element: el('a') });
+    await flush();
+    player.sent.length = 0;
+    let release: () => void = () => undefined;
+    backend.hold = new Promise((resolve) => (release = resolve));
+
+    await write(remote, gm, toggle('a', true));
+    await write(origin, writer, { kind: 'upsert', element: el('a', -10, 2) });
+    release();
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a']);
+  });
+
+  it('withholds every element after a gate refresh throws', async () => {
+    let broken = false;
+    const breaking = (): ServerSyncPlugin[] => [
+      {
+        name: 'gate',
+        elementReadGate: async () => {
+          if (broken) throw new Error('gate down');
+          return () => true;
+        },
+        registerExtensionKinds(registry) {
+          registry.register(gateKind, async (op) => {
+            broken = true;
+            return { accepted: op, corrections: [] };
+          });
+        },
+      },
+    ];
+    const { origin, remote, writer, gm, player } = await twoHubs(() => [], breaking);
+
+    await write(remote, gm, toggle('a', true)).catch(() => undefined);
+    await write(origin, writer, { kind: 'upsert', element: el('e') });
+
+    expect(seen(player)).toEqual([]);
+    expect(seen(gm)).toEqual([]);
+  });
+});
+
+const emitKind = createExtensionKind<{ emit: true }>({
+  extensionKind: 'test:emit',
+  codec: {
+    validate: (payload): payload is { emit: true } =>
+      typeof payload === 'object' &&
+      payload !== null &&
+      (payload as { emit?: unknown }).emit === true,
+  },
+});
+
+/** A plugin whose `test:emit` op returns whatever `result()` holds. */
+function emitter(result: () => ApplyResult): ServerSyncPlugin {
+  return {
+    name: 'emit',
+    registerExtensionKinds(registry) {
+      registry.register(emitKind, async () => result());
+    },
+  };
+}
+
+const secretRead: SyncHubOptions = {
+  canRead: ({ role, audience }) => role === 'gm' || audience !== 'secret',
+  canReadLayer: () => true,
+  resolveAudience: ({ element }) => (element.id === 's' ? 'secret' : undefined),
+};
+
+describe('element ops a plugin returns', () => {
+  async function pluginRoom(by: 'gate' | 'canRead', remote: boolean) {
+    const backend = new MemoryHubBackend();
+    const fanout = new InMemoryHubFanout();
+    let result: ApplyResult = { accepted: null, corrections: [] };
+    const make = (instanceId: string) =>
+      makeHub({
+        instanceId,
+        backend,
+        fanout,
+        plugins: [...(by === 'gate' ? gated() : []), emitter(() => result)],
+        ...(by === 'canRead' ? secretRead : {}),
+      });
+    const origin = make('A');
+    const other = remote ? make('B') : origin;
+    const gm = admit(origin, makeConn('gm', 'gm'));
+    const watcher = admit(other, makeConn('watcher', 'gm'));
+    const player = admit(other, makeConn('player', 'player'));
+    for (const element of [el('g', -10), el('s'), el('ok')]) {
+      await write(origin, gm, { kind: 'upsert', element });
+    }
+    await write(other, watcher, { kind: 'request-snapshot' });
+    for (const conn of [gm, watcher, player]) conn.sent.length = 0;
+    const emit = async (from: FakeConn, next: ApplyResult) => {
+      result = next;
+      await write(origin, from, {
+        kind: 'extension',
+        extensionKind: 'test:emit',
+        payload: { emit: true },
+      });
+    };
+    const hidden = by === 'gate' ? el('g', -10, 2) : { ...el('s', 10, 2), audience: 'secret' };
+    return { gm, watcher, player, emit, hidden };
+  }
+
+  const upsert = (element: SyncElement): SyncOp => ({ kind: 'upsert', element });
+  const none = { accepted: null, corrections: [] };
+
+  it.each([
+    ['gate', false],
+    ['canRead', false],
+    ['gate', true],
+    ['canRead', true],
+  ] as const)('filters by %s for a player (remote: %s)', async (by, remote) => {
+    const { gm, watcher, player, emit, hidden } = await pluginRoom(by, remote);
+    const id = hidden.id;
+
+    await emit(gm, { accepted: upsert(hidden), corrections: [] });
+    await emit(gm, { ...none, broadcast: [upsert(hidden)] });
+    await emit(gm, { accepted: upsert(el('ok', 10, 2)), corrections: [] });
+    await emit(gm, { accepted: v2Remove(id, 2, 'gm'), corrections: [] });
+    await emit(gm, { accepted: v2Remove('ok', 2, 'gm'), corrections: [] });
+    await emit(gm, { accepted: v2Remove('missing', 2, 'gm'), corrections: [] });
+
+    expect(seen(player)).toEqual([
+      `hub: remove ${id}`,
+      `hub: remove ${id}`,
+      'gm: upsert ok',
+      'gm: remove ok',
+    ]);
+    expect(seen(watcher)).toEqual([
+      `gm: upsert ${id}`,
+      `gm: upsert ${id}`,
+      'gm: upsert ok',
+      `gm: remove ${id}`,
+      'gm: remove ok',
+    ]);
+  });
+
+  it.each(['gate', 'canRead'] as const)(
+    'corrects a player sender by %s with a hub remove for an unreadable upsert',
+    async (by) => {
+      const { player, emit, hidden } = await pluginRoom(by, false);
+
+      await emit(player, { ...none, corrections: [upsert(hidden)] });
+      await emit(player, { ...none, corrections: [upsert(el('ok', 10, 2))] });
+
+      expect(seen(player)).toEqual([`hub: remove ${hidden.id}`, 'hub: upsert ok']);
+    },
+  );
 });
