@@ -19,7 +19,7 @@ import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, HtmlElement, ShapeKind } from '../elements/types';
 import type { Point, Bounds } from '../core/types';
 import { ContextMenu } from './context-menu';
-import { Minimap } from './minimap';
+import type { Minimap } from './minimap';
 import { createWrapper, createCanvas, createDomLayer, createPaintStack } from './viewport-dom';
 import { HybridRenderSurface } from './hybrid-render-surface';
 import { getElementsBoundingBox } from '../elements/bounds';
@@ -164,8 +164,6 @@ export interface ViewportOptions {
   contextMenu?: boolean;
   /** Coast (inertial glide) after a pan flick. Default `true`. */
   panInertia?: boolean;
-  /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
-  minimap?: boolean;
   /** Element type registry; defaults to a per-viewport registry layered over the global default. */
   elementRegistry?: ElementRegistry;
   /** Domain plugins to install. Each plugin self-wires via the host API. */
@@ -425,7 +423,7 @@ export class Viewport {
     // Store listeners outlive plugin disposal so plugin removals still unbind arrows.
     const unsubStore: (() => void)[] = [];
     this.disposers.push(() => unsubStore.forEach((unsubscribe) => unsubscribe()));
-    // Plugins dispose after the input handler and minimap release them.
+    // Plugins dispose after the input handler releases them.
     this.disposers.push(() => this.pluginHost.disposePlugins());
 
     this.toolContext = {
@@ -611,6 +609,9 @@ export class Viewport {
         this.commandPalette = palette;
         this.shortcutsHelpDialog = help;
       },
+      setMinimap: (minimap) => {
+        this.minimap = minimap;
+      },
     });
     try {
       this.pluginHost.configurePlugins([
@@ -621,14 +622,6 @@ export class Viewport {
       this.destroy();
       throw error;
     }
-
-    if (options.minimap) {
-      this.minimap = new Minimap(this.wrapper, this, {
-        minimapHooks: this._renderHooks.minimap,
-        getExtraBounds: () => this.pluginHost.getExtraBounds(),
-      });
-    }
-    this.disposers.push(() => this.minimap?.destroy());
 
     this.domNodeManager = new DomNodeManager({
       domLayer: this.paintStack,
@@ -1575,7 +1568,6 @@ export class Viewport {
     this.renderLoop.setTheme(theme);
     this.domNodeManager.setTheme(theme);
     this.noteEditor.setTheme(theme);
-    this.minimap?.setTheme(theme);
     this.renderLoop.markAllLayersDirty();
     this.requestRender();
     for (const listener of [...this.themeListeners]) {

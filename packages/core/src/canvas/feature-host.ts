@@ -30,10 +30,7 @@ export interface FeatureHost {
   setMinimap(minimap: Minimap | null): void;
 }
 
-export type FeatureHostDeps = Omit<
-  FeatureHost,
-  'hasOpenOverlay' | 'trackOverlay' | 'setMinimap'
-> & {
+export type FeatureHostDeps = Omit<FeatureHost, 'hasOpenOverlay' | 'trackOverlay'> & {
   viewport: Viewport;
   /** Overlays the viewport owns directly. */
   hasViewportOverlay(): boolean;
@@ -43,7 +40,7 @@ export type FeatureHostDeps = Omit<
 const hosts = new WeakMap<Viewport, FeatureHost>();
 
 function noop(): void {
-  // Slots and unsubscribes that have nothing to do.
+  // Inert methods and unsubscribes that have nothing to do.
 }
 
 export function featureHostOf(viewport: Viewport): FeatureHost {
@@ -65,7 +62,6 @@ export function createFeatureHost({
       overlays.add(isOpen);
       return () => overlays.delete(isOpen);
     },
-    setMinimap: noop,
   };
   hosts.set(viewport, host);
   return host;

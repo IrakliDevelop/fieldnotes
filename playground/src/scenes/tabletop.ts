@@ -111,7 +111,7 @@ export const tabletop: Scene = {
     const fogTool = new FogTool(manager, { operation: 'reveal', radius: 40 });
     const viewport = new Viewport(stage, {
       ...VIEWPORT_OPTIONS,
-      plugins: [fogPlugin],
+      plugins: [...VIEWPORT_OPTIONS.plugins, fogPlugin],
       tools: [
         new SelectTool(),
         new HandTool(),

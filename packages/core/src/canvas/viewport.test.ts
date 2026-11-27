@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { Viewport } from './viewport';
+import { minimapFeature } from './features/minimap-feature';
 import { exportImage } from './export-image';
 import { exportSvg } from './export-svg';
 import { exportPdf } from './export-pdf';
@@ -3810,8 +3811,8 @@ describe('Viewport', () => {
       );
     }
 
-    it('adds a minimap canvas to the wrapper when minimap: true', () => {
-      const viewport = new Viewport(container, { minimap: true });
+    it('adds a minimap canvas to the wrapper with minimapFeature()', () => {
+      const viewport = new Viewport(container, { plugins: [minimapFeature()] });
       const wrapper = wrapperOf(container);
       expect(wrapper.querySelectorAll('canvas').length).toBe(2);
       expect(minimapCanvas(wrapper)).toBeDefined();
@@ -3827,7 +3828,7 @@ describe('Viewport', () => {
     });
 
     it('survives element add + camera pan (smoke)', () => {
-      const viewport = new Viewport(container, { minimap: true });
+      const viewport = new Viewport(container, { plugins: [minimapFeature()] });
       const wrapper = wrapperOf(container);
       expect(() => {
         viewport.store.add(
@@ -3840,7 +3841,7 @@ describe('Viewport', () => {
     });
 
     it('removes the minimap canvas on destroy', () => {
-      const viewport = new Viewport(container, { minimap: true });
+      const viewport = new Viewport(container, { plugins: [minimapFeature()] });
       const wrapper = wrapperOf(container);
       expect(minimapCanvas(wrapper)).toBeDefined();
       viewport.destroy();

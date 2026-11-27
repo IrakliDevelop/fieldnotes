@@ -4,6 +4,7 @@ import { DomNodeManager } from './dom-node-manager';
 import { exportPdf } from './export-pdf';
 import { exportSvg } from './export-svg';
 import { Viewport } from './viewport';
+import { minimapFeature } from './features/minimap-feature';
 import { paletteFeature } from './features/palette-feature';
 import type { RenderLoop } from './render-loop';
 import {
@@ -91,7 +92,7 @@ describe('light identity', () => {
   it('the built-in minimap keeps its light chrome', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
-    const viewport = new Viewport(container, { minimap: true });
+    const viewport = new Viewport(container, { plugins: [minimapFeature()] });
     const minimap = container.querySelector<HTMLElement>('[data-fieldnotes-minimap]');
     expect(minimap?.style.background).toBe('rgba(255, 255, 255, 0.85)');
     expect(minimap?.style.border).toBe('1px solid rgba(0, 0, 0, 0.15)');

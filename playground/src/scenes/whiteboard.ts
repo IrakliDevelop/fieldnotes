@@ -5,6 +5,7 @@ import {
   HandTool,
   ImageTool,
   LaserTool,
+  minimapFeature,
   NoteTool,
   PencilTool,
   SelectTool,
@@ -21,7 +22,7 @@ import { registerWidgets } from '../widgets';
 export const VIEWPORT_OPTIONS = {
   background: { pattern: 'dots', spacing: 24 },
   theme: { base: 'light', tokens: { pattern: '#d4d4d8' } },
-  minimap: true,
+  plugins: [minimapFeature()],
   panInertia: true,
 } satisfies ViewportOptions;
 

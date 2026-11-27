@@ -4,13 +4,13 @@ import {
   exportImage,
   exportPdf,
   exportSvg,
+  minimapFeature,
   Viewport,
 } from '@fieldnotes/core';
 
 const viewport = new Viewport(document.body, {
   tools: createDefaultTools(),
-  minimap: true,
-  plugins: defaultFeatures(),
+  plugins: [...defaultFeatures(), minimapFeature()],
 });
 void exportImage(viewport);
 void exportSvg(viewport);

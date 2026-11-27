@@ -1,6 +1,6 @@
 {
   "viewport": {
-    "gzip": 98973,
+    "gzip": 96439,
     "forbidden": [
       "canvas/export-image",
       "canvas/export-svg",
@@ -10,11 +10,12 @@
       "canvas/presentation.ts",
       "command-palette",
       "shortcuts-help",
-      "scene-search"
+      "scene-search",
+      "canvas/minimap.ts"
     ]
   },
   "board": {
-    "gzip": 98986,
+    "gzip": 96447,
     "forbidden": [
       "canvas/export-image",
       "canvas/export-svg",
@@ -24,8 +25,9 @@
       "canvas/presentation.ts",
       "command-palette",
       "shortcuts-help",
-      "scene-search"
+      "scene-search",
+      "canvas/minimap.ts"
     ]
   },
-  "full": { "gzip": 119500, "forbidden": [] }
+  "full": { "gzip": 119533, "forbidden": [] }
 }
