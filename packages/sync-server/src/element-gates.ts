@@ -28,6 +28,10 @@ interface RoomGateState {
   // Sets replaced since settled: members may hold what any of them allowed.
   since: GateSet[];
   overflowed: boolean;
+  // `${cid}\n${elementId}` for each gate-caused hub remove sent since settled.
+  removed: Set<string>;
+  // Per connection id, the set in force when its last snapshot since settled was built.
+  snapshots: Map<string, GateSet | 'deny'>;
 }
 
 const MAX_SINCE = 8;
@@ -83,7 +87,14 @@ export class RoomElementGates {
     const state = this.rooms.get(room);
     if (!state) {
       // With no settled set yet, no member holds an element, so the load settles at once.
-      this.rooms.set(room, { current: next, settled: next, since: [], overflowed: false });
+      this.rooms.set(room, {
+        current: next,
+        settled: next,
+        since: [],
+        overflowed: false,
+        removed: new Set(),
+        snapshots: new Map(),
+      });
       return true;
     }
     if (state.current && sameGates(state.current, next)) return false;
@@ -109,6 +120,25 @@ export class RoomElementGates {
     state.settled = state.current;
     state.since = [];
     state.overflowed = false;
+    state.removed.clear();
+    state.snapshots.clear();
+  }
+
+  noteRemoved(room: string, cid: string, elementId: string): void {
+    this.rooms.get(room)?.removed.add(`${cid}\n${elementId}`);
+  }
+
+  noteSnapshot(room: string, cid: string): void {
+    const state = this.rooms.get(room);
+    state?.snapshots.set(cid, state.current ?? 'deny');
+  }
+
+  /** True when the connection may lack the element: a gate removed it, its last snapshot or else settled withheld it. */
+  mayLack(room: string, cid: string, element: SyncElement, viewer: PluginViewer): boolean {
+    const state = this.rooms.get(room);
+    if (!state || state.removed.has(`${cid}\n${element.id}`)) return true;
+    const held = state.snapshots.get(cid) ?? state.settled;
+    return held === 'deny' || !gatesAllow(held, element, viewer);
   }
 
   /** True when the settled set or any set replaced since allowed the element; all after overflow. */
@@ -120,17 +150,6 @@ export class RoomElementGates {
     return (
       gatesAllow(state.settled, element, viewer) ||
       state.since.some((gates) => gatesAllow(gates, element, viewer))
-    );
-  }
-
-  /** True when the settled set or any set replaced since denied the element; all after overflow. */
-  deniedSinceSettled(room: string, element: SyncElement, viewer: PluginViewer): boolean {
-    const state = this.rooms.get(room);
-    // An upsert of the stored element the viewer already holds is idempotent, so over-sending is safe.
-    if (!state || state.overflowed) return true;
-    return (
-      !gatesAllow(state.settled, element, viewer) ||
-      state.since.some((gates) => !gatesAllow(gates, element, viewer))
     );
   }
 

@@ -303,11 +303,12 @@ class CountingBackend extends MemoryHubBackend {
   calls = 0;
   hold: Promise<void> = Promise.resolve();
   failNext = false;
+  failing = false;
 
   override async snapshot(room: string): ReturnType<MemoryHubBackend['snapshot']> {
     this.calls += 1;
     await this.hold;
-    if (this.failNext) {
+    if (this.failNext || this.failing) {
       this.failNext = false;
       throw new Error('backend down');
     }
@@ -676,18 +677,55 @@ describe('element gate reconcile', () => {
     expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
   });
 
-  it('sends every allowed element after the since list overflows', async () => {
-    const { hub, gm, player, flush } = await gateRoom(new Set(['a']), [el('a'), el('b')]);
+  it('after the since list overflows, removes denied elements and upserts only those a viewer lacked', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(['c']), [el('a'), el('b'), el('c')]);
     const ids = ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x8', 'x9'];
 
     await Promise.all([
       ...ids.map((id) => write(hub, gm, toggle(id, true))),
-      write(hub, gm, toggle('a', false)),
       write(hub, gm, toggle('b', true)),
+      write(hub, gm, toggle('c', false)),
     ]);
     await flush();
 
-    expect(seen(player)).toEqual(['hub: upsert a', 'hub: remove b']);
+    expect(seen(player)).toEqual(['hub: remove b', 'hub: upsert c']);
+  });
+
+  it('does not re-send an element to a viewer that held it through an intermediate cover', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([write(hub, gm, toggle('a', true)), write(hub, gm, toggle('a', false))]);
+    await flush();
+
+    expect(seen(player)).toEqual([]);
+  });
+
+  it('sends back an element removed by a live op during a failed refresh once the next load allows it', async () => {
+    const switchable = switchablePlugin(new Set());
+    let failNext = false;
+    const flaky: ServerSyncPlugin = {
+      ...switchable,
+      elementReadGate: async (room, store) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('gate down');
+        }
+        return switchable.elementReadGate?.(room, store);
+      },
+    };
+    const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')], {
+      plugins: [flaky],
+    });
+    failNext = true;
+
+    await write(hub, gm, toggle('x', true)).catch(() => undefined);
+    await write(hub, writer, { kind: 'upsert', element: el('a', 20, 2) });
+    // The first flush loads the gates and queues the reconcile; the second waits for it.
+    await flush();
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: upsert a']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
   });
 });
 
@@ -997,6 +1035,61 @@ describe('first gate load', () => {
 
     expect(received).toEqual(['hub: snapshot e']);
     expect(await storedX()).toBe(50);
+    expect(store.getById('e')?.position).toEqual({ x: 50, y: 0 });
+  });
+});
+
+describe('reconnect while a reconcile is pending', () => {
+  const servers: ReturnType<typeof createSyncServer>[] = [];
+  const transports: WebSocketTransport[] = [];
+
+  afterEach(async () => {
+    for (const transport of transports.splice(0)) transport.close();
+    for (const server of servers.splice(0)) await server.close();
+  });
+
+  it('keeps the offline edit of a player reconnecting while the since list has overflowed', async () => {
+    const backend = new CountingBackend();
+    await backend.applyElement('R', { kind: 'upsert', element: el('e', 10, 1) }, null);
+    const server = createSyncServer({
+      allowAnonymous: true,
+      port: 0,
+      backend,
+      plugins: [switchablePlugin(new Set())],
+      resolvePresenceAudience: () => undefined,
+    });
+    servers.push(server);
+    const gm = admit(server.hub, makeConn('gm', 'gm'));
+    backend.failing = true;
+    for (const id of ['x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x8', 'x9', 'x10']) {
+      await write(server.hub, gm, toggle(id, true));
+    }
+    await write(server.hub, gm, toggle('none', false));
+    backend.failing = false;
+    const { port } = server.wss.address() as AddressInfo;
+    const store = new ElementStore();
+    store.add(el('e', 50, 2));
+    const transport = new WebSocketTransport(`ws://127.0.0.1:${port}?room=R`, {
+      WebSocket: WsClient as unknown as typeof WebSocket,
+    });
+    transports.push(transport);
+    const received: string[] = [];
+    transport.onMessage((message) => {
+      const { from, op } = JSON.parse(message) as { from: string; op: SyncOp };
+      if (op.kind !== 'capabilities') received.push(`${from}: ${label(op)}`);
+    });
+    new SyncClient({ store, transport, firstSnapshot: 'reconcile' }).start();
+
+    const storedX = async () => {
+      const record = await backend.getRecord('R', 'e');
+      return record?.kind === 'element' ? record.element.position.x : undefined;
+    };
+    await vi.waitFor(async () => {
+      if ((await storedX()) !== 50) throw new Error('not settled');
+    });
+    await write(server.hub, gm, toggle('none', false));
+
+    expect(received).toEqual(['hub: snapshot e']);
     expect(store.getById('e')?.position).toEqual({ x: 50, y: 0 });
   });
 });

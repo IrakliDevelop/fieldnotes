@@ -920,8 +920,10 @@ export class SyncHub {
           accepted.kind === 'upsert' &&
           this.gates.active &&
           !this.gatesAllowNow(conn, accepted.element)
-        )
+        ) {
+          this.noteGateRemove(conn, accepted.element);
           this.sendToConnection(conn, HUB_FROM, hubRemoveOf(accepted.element));
+        }
       }
       await this.deliverPluginResult(conn, pluginOutput, opVersion);
       return;
@@ -1054,6 +1056,7 @@ export class SyncHub {
       const visible = stamped && this.opForViewer(conn, stamped);
       if (!visible) continue;
       const hidden = visible.kind === 'upsert' && !this.mayReadElement(conn, visible.element);
+      if (hidden) this.noteGateRemove(conn, visible.element);
       this.sendToConnection(conn, HUB_FROM, hidden ? hubRemoveOf(visible.element) : visible);
     }
     if (result.accepted) await this.publishPluginOp(conn, result.accepted, result.locality);
@@ -1283,6 +1286,12 @@ export class SyncHub {
     return !this.gates.active || this.gatesAllowNow(conn, element);
   }
 
+  // Records a hub remove the gates decided (not canRead), so a later reveal sends the element back.
+  private noteGateRemove(conn: Connection, element: SyncElement): void {
+    if (!this.gates.active || !this.mayRead(conn, element.audience)) return;
+    if (!this.gatesAllowNow(conn, element)) this.gates.noteRemoved(conn.room, conn.id, element.id);
+  }
+
   // While a reconcile is pending the viewer may still hold what any gate set since settled allowed.
   private couldReadBefore(conn: Connection, delivery: Delivery): boolean {
     if (!delivery.existed || !this.mayRead(conn, delivery.prevAudience)) return false;
@@ -1346,7 +1355,7 @@ export class SyncHub {
         const now = gatesAllow(current, element, viewer);
         if (!now && this.gates.allowedSinceSettled(room, element, viewer)) {
           this.sendToConnection(conn, HUB_FROM, hubRemoveOf(element));
-        } else if (now && this.gates.deniedSinceSettled(room, element, viewer)) {
+        } else if (now && this.gates.mayLack(room, cid, element, viewer)) {
           this.sendToConnection(conn, HUB_FROM, { kind: 'upsert', element });
         }
       }
@@ -1450,6 +1459,7 @@ export class SyncHub {
       if (!conn) continue;
       // A plugin's element op: the earlier state is unknown, so an unreadable upsert is a remove.
       if (prior && op.kind === 'upsert' && !this.mayReadElement(conn, op.element)) {
+        this.noteGateRemove(conn, op.element);
         this.sendToConnection(conn, HUB_FROM, hubRemoveOf(op.element), removals);
         continue;
       }
@@ -1670,6 +1680,7 @@ export class SyncHub {
         const { op } = delivery;
         if (op.kind === 'upsert' && !this.mayReadElement(conn, op.element)) {
           if (!this.couldReadBefore(conn, delivery)) return;
+          this.noteGateRemove(conn, op.element);
           sendRun();
           const { id, version } = op.element;
           this.sendToConnection(
@@ -1735,6 +1746,7 @@ export class SyncHub {
         this.mayReadElement(conn, current) && !hasRefusedImageSrc(current)
           ? { kind: 'upsert', element: current }
           : { kind: 'remove', id: current.id, version: current.version, editor: HUB_FROM };
+      if (correction.kind === 'remove') this.noteGateRemove(conn, current);
     } else if (record) {
       const { id, version } = record.tombstone;
       correction = { kind: 'remove', id, version, editor: HUB_FROM };
@@ -1769,6 +1781,7 @@ export class SyncHub {
       if (changed || this.gates.isPending(conn.room)) this.scheduleReconcile(conn.room);
     }
     const { elements: all, tombstones: stored } = await this.backend.snapshot(conn.room);
+    if (this.gates.active) this.gates.noteSnapshot(conn.room, conn.id);
     const elements =
       this.canRead || this.gates.active ? all.filter((el) => this.mayReadElement(conn, el)) : all;
     const tombstones = stored

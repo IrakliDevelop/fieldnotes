@@ -92,36 +92,56 @@ describe('RoomElementGates', () => {
     expect(gates.isPending('R')).toBe(false);
   });
 
-  it('denies since settled when any gate set since then denied, until markSettled', async () => {
+  it('may lack only what a remove, the last snapshot or else the settled set withheld, until markSettled', async () => {
     const other = { ...element, id: 'other' };
-    let gate: ElementReadGate = () => true;
+    let gate: ElementReadGate = (el) => el.id !== other.id;
     const gates = new RoomElementGates([plugin('a', () => gate)]);
-    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(true);
-    await gates.refresh('R', backend);
-    gate = (el) => el.id !== element.id;
-    await gates.refresh('R', backend);
-    gate = () => true;
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(true);
     await gates.refresh('R', backend);
 
-    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(true);
-    expect(gates.deniedSinceSettled('R', other, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'p', other, viewer)).toBe(true);
+    gates.noteRemoved('R', 'p', element.id);
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(true);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(false);
+    gate = () => false;
+    await gates.refresh('R', backend);
+    gates.noteSnapshot('R', 'q');
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(true);
+    gate = () => true;
+    await gates.refresh('R', backend);
+    gates.noteSnapshot('R', 's');
+    expect(gates.mayLack('R', 's', other, viewer)).toBe(false);
     gates.markSettled('R');
-    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(false);
   });
 
-  it('denies everything since settled once a ninth gate set was replaced', async () => {
-    let gate: ElementReadGate = () => true;
-    const gates = new RoomElementGates([plugin('a', () => gate)]);
-    await gates.refresh('R', backend);
-    for (let i = 0; i < 8; i++) {
-      gate = () => true;
-      await gates.refresh('R', backend);
-    }
-    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(false);
-    gate = () => true;
-    await gates.refresh('R', backend);
+  it('ignores overflow when judging what a viewer may lack', async () => {
+    const other = { ...element, id: 'other' };
+    const gates = new RoomElementGates([plugin('a', () => (el) => el.id !== other.id)]);
+    for (let i = 0; i < 10; i++) await gates.refresh('R', backend);
 
-    expect(gates.deniedSinceSettled('R', element, viewer)).toBe(true);
+    expect(gates.allowedSinceSettled('R', other, viewer)).toBe(true);
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(false);
+  });
+
+  it('records a snapshot built while unloaded as lacking everything', async () => {
+    let broken = false;
+    const gates = new RoomElementGates([
+      plugin('a', () => {
+        if (broken) throw new Error('gate down');
+        return () => true;
+      }),
+    ]);
+    await gates.refresh('R', backend);
+    broken = true;
+    await expect(gates.refresh('R', backend)).rejects.toThrow('gate down');
+
+    gates.noteSnapshot('R', 'p');
+
+    expect(gates.mayLack('R', 'p', element, viewer)).toBe(true);
+    expect(gates.mayLack('R', 'q', element, viewer)).toBe(false);
   });
 
   it('allows everything since settled once a ninth gate set was replaced', async () => {
