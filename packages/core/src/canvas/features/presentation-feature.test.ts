@@ -158,7 +158,6 @@ describe('presentationFeature', () => {
   it('registers presentation actions after the built-ins and before link and edit-text', () => {
     const viewport = createViewport({
       plugins: [presentationFeature()],
-      palette: false,
       tools: [new SelectTool()],
     });
     const note = createNote({

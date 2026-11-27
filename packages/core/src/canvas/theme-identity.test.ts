@@ -4,6 +4,7 @@ import { DomNodeManager } from './dom-node-manager';
 import { exportPdf } from './export-pdf';
 import { exportSvg } from './export-svg';
 import { Viewport } from './viewport';
+import { paletteFeature } from './features/palette-feature';
 import type { RenderLoop } from './render-loop';
 import {
   createHtmlElement,
@@ -78,7 +79,7 @@ describe('light identity', () => {
   it('the dialog root carries no theme marks', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
-    const viewport = new Viewport(container);
+    const viewport = new Viewport(container, { plugins: [paletteFeature()] });
     viewport.palette.open();
     const dialog = container.querySelector<HTMLElement>('.fieldnotes-palette.fieldnotes-dialog');
     expect(dialog?.getAttribute('data-fieldnotes-theme')).toBeNull();

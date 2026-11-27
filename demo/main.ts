@@ -27,7 +27,7 @@ import {
   PeerRoster,
   RemoteCursorOverlay,
   createPresentationSource,
-  presentationFeature,
+  defaultFeatures,
   setTextFontFamily,
   exportImage,
   exportSvg,
@@ -102,7 +102,7 @@ const viewport = new Viewport(container, {
   background: { pattern: 'dots', spacing: 24 },
   theme: queryTheme ?? { base: 'light', tokens: { pattern: '#c0c0c0' } },
   minimap: true,
-  plugins: [fogPlugin, presentationFeature()],
+  plugins: [fogPlugin, ...defaultFeatures()],
   onImageError: ({ src }) => {
     console.warn('Image failed to load:', src);
     showToast('image-error-toast', 'Image failed to load');

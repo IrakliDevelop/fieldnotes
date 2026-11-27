@@ -89,12 +89,8 @@ import { normalizeLink } from '../elements/link';
 import { LinkController } from './link-controller';
 import type { PresentationApi } from './presentation';
 import { coreActionsPlugin, createFeatureHost, INERT_PRESENTATION } from './feature-host';
-import { CommandPalette, createPaletteActions } from './command-palette';
 import type { PaletteApi } from './command-palette';
-import { ShortcutsHelp } from './shortcuts-help';
 import type { ShortcutsHelpApi } from './shortcuts-help';
-import { resolvePaletteStrings } from './palette-model';
-import type { PaletteOptions } from './palette-model';
 export type {
   PluginConfigureContext,
   PluginStartContext,
@@ -166,8 +162,6 @@ export interface ViewportOptions {
   panBufferMargin?: number;
   /** Enable the built-in context menu. Default `true`. */
   contextMenu?: boolean;
-  /** Command palette and shortcuts help. `false` removes both and their actions. Default enabled. */
-  palette?: PaletteOptions | false;
   /** Coast (inertial glide) after a pan flick. Default `true`. */
   panInertia?: boolean;
   /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
@@ -226,8 +220,8 @@ export class Viewport {
   private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
   private presentationApi: PresentationApi | null = null;
-  private readonly commandPalette: CommandPalette | null;
-  private readonly shortcutsHelpDialog: ShortcutsHelp | null;
+  private commandPalette: PaletteApi | null = null;
+  private shortcutsHelpDialog: ShortcutsHelpApi | null = null;
   private readonly background: Background;
   private theme: ResolvedTheme;
   private themeSpec: Theme;
@@ -594,58 +588,6 @@ export class Viewport {
       () => this.insertQueue.destroy(),
     );
 
-    if (options.palette === false) {
-      this.commandPalette = null;
-      this.shortcutsHelpDialog = null;
-    } else {
-      const strings = resolvePaletteStrings(options.palette?.strings);
-      let palette: CommandPalette | null = null;
-      const help = new ShortcutsHelp({
-        container: this.container,
-        wrapper: this.wrapper,
-        actions: this.actionRegistry,
-        getActionContext: () => this.currentActionContext(),
-        getBindings: () => this.inputHandler.shortcuts.getBindings(),
-        matchShortcut: (event) => this.inputHandler.matchShortcut(event),
-        isMac,
-        strings,
-        getTheme: () => this.theme,
-        closeOthers: () => {
-          this.contextMenu?.close();
-          palette?.close();
-        },
-      });
-      palette = new CommandPalette({
-        container: this.container,
-        wrapper: this.wrapper,
-        actions: this.actionRegistry,
-        getActionContext: () => this.currentActionContext(),
-        getBindings: () => this.inputHandler.shortcuts.getBindings(),
-        store: this.store,
-        registry: this.elementRegistry,
-        isLayerVisible: (id) => this.layerManager.isLayerVisible(id),
-        camera: this.camera,
-        getCanvasSize: () => this.getCanvasSize(),
-        overlayHost: this,
-        stopCameraMotion: () => this.inputHandler.stopPanInertia(),
-        closeContextMenu: () => this.contextMenu?.close(),
-        help,
-        matchShortcut: (event) => this.inputHandler.matchShortcut(event),
-        selectionColor: () => options.selectionColor ?? this.theme.tokens.selection,
-        isMac,
-        strings,
-        getTheme: () => this.theme,
-      });
-      this.commandPalette = palette;
-      this.shortcutsHelpDialog = help;
-      // Palette actions follow link and edit-text in registry order.
-      coreActions.push(...createPaletteActions(palette, help));
-      this.disposers.push(() => {
-        help.destroy();
-        palette.destroy();
-      });
-    }
-
     createFeatureHost({
       viewport: this,
       container: this.container,
@@ -661,12 +603,13 @@ export class Viewport {
       isMac,
       getExtraBounds: () => this.pluginHost.getExtraBounds(),
       hasViewportOverlay: () =>
-        (this.contextMenu?.isOpen() ?? false) ||
-        this.interactMode.isInteracting() ||
-        (this.commandPalette?.isOpen() ?? false) ||
-        (this.shortcutsHelpDialog?.isOpen() ?? false),
+        (this.contextMenu?.isOpen() ?? false) || this.interactMode.isInteracting(),
       setPresentation: (api) => {
         this.presentationApi = api;
+      },
+      setPalette: (palette, help) => {
+        this.commandPalette = palette;
+        this.shortcutsHelpDialog = help;
       },
     });
     try {

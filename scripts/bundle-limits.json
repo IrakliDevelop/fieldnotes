@@ -1,25 +1,31 @@
 {
   "viewport": {
-    "gzip": 104427,
+    "gzip": 98973,
     "forbidden": [
       "canvas/export-image",
       "canvas/export-svg",
       "canvas/export-pdf",
       "pdf-writer",
       "export-fonts",
-      "canvas/presentation.ts"
+      "canvas/presentation.ts",
+      "command-palette",
+      "shortcuts-help",
+      "scene-search"
     ]
   },
   "board": {
-    "gzip": 104443,
+    "gzip": 98986,
     "forbidden": [
       "canvas/export-image",
       "canvas/export-svg",
       "canvas/export-pdf",
       "pdf-writer",
       "export-fonts",
-      "canvas/presentation.ts"
+      "canvas/presentation.ts",
+      "command-palette",
+      "shortcuts-help",
+      "scene-search"
     ]
   },
-  "full": { "gzip": 119153, "forbidden": [] }
+  "full": { "gzip": 119500, "forbidden": [] }
 }

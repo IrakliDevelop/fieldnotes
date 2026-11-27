@@ -32,7 +32,7 @@ export interface FeatureHost {
 
 export type FeatureHostDeps = Omit<
   FeatureHost,
-  'hasOpenOverlay' | 'trackOverlay' | 'setPalette' | 'setMinimap'
+  'hasOpenOverlay' | 'trackOverlay' | 'setMinimap'
 > & {
   viewport: Viewport;
   /** Overlays the viewport owns directly. */
@@ -65,7 +65,6 @@ export function createFeatureHost({
       overlays.add(isOpen);
       return () => overlays.delete(isOpen);
     },
-    setPalette: noop,
     setMinimap: noop,
   };
   hosts.set(viewport, host);
