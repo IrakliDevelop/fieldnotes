@@ -65,9 +65,10 @@ frame policy, authority runtime), `packages/sync-redis/src`, the VTT `/sync`, `/
   the room withholds; a gate never fails open.
 - Every outbound element path uses the combined check: live relay, fanout, snapshots, sender
   corrections and element ops a plugin returns. While a reconcile is pending, the hub sends an element's remove to every
-  viewer that either the settled gates or the gates in force allow.
+  viewer that the gates in force or any gate set since the last settle allowed (every viewer after more than 8 changes).
 - A gate change never rewrites stored elements, their versions or `audience`; the hub sends hub
-  removes and upserts per viewer instead.
+  removes and upserts per viewer instead. Reconcile upserts go only to viewers that may lack the
+  element (a gate remove, their last snapshot or the settled set withheld it), never to every viewer.
 - A plugin with `elementReadGate` requires `resolvePresenceAudience` (`SyncHub` throws), but its
   audience takes effect only with `canRead`; without `canRead` every member gets presence, including
   a DM's drag of a hidden token. A host that withholds that drag passes both.
