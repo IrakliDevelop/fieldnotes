@@ -26,7 +26,12 @@ import type {
   ResolvePresenceAudience,
 } from './authorize';
 import { InMemoryHubFanout, type HubFanout } from './hub-fanout';
-import type { ServerExtensionRegistry, ServerOpContext } from './sync-plugin';
+import type {
+  PluginViewer,
+  ServerExtensionRegistry,
+  ServerOpContext,
+  ServerSyncPlugin,
+} from './sync-plugin';
 import { registerAuthorityConnection } from './authority-connection';
 import { v2Remove, v2Shape } from './test-support/v2-ops';
 import type { AuthorityDriver, AuthorityRoomDefinition } from './authority-types';
@@ -5958,6 +5963,229 @@ describe('layer read filter (canReadLayer)', () => {
     expect(frames(bad)).toEqual([
       { from: 'sender', op: { kind: 'layer-remove', id: 'L1', version: 2, editor: 'sender' } },
     ]);
+    hub.close();
+  });
+});
+
+describe('plugin op filter', () => {
+  const stub = (filterOp?: ServerSyncPlugin['filterOp']): ServerSyncPlugin => ({
+    name: 'fog',
+    ownedLegacyKinds: ['fog-meta', 'fog-patch'],
+    async process(op, context, next) {
+      if (op.kind !== 'fog-meta' && op.kind !== 'fog-patch') return next(op, context);
+      return { accepted: op, corrections: [], locality: 'shared' };
+    },
+    filterOp,
+  });
+  const meta = (version: number): SyncOp => ({
+    kind: 'fog-meta',
+    record: { version, editor: 'gm' },
+  });
+  const withRole = (id: string, role: string, userId?: string): FakeConn => ({
+    ...makeConn(id, 'R'),
+    role,
+    userId,
+  });
+  const ops = (conn: FakeConn): SyncOp[] =>
+    conn.sent.map((frame) => (JSON.parse(frame) as { op: SyncOp }).op);
+  const hideFromPlayer: ServerSyncPlugin['filterOp'] = (op, viewer) =>
+    viewer.role === 'player' ? null : op;
+
+  it('withholds a plugin op from a recipient whose filterOp returns null', async () => {
+    const hub = new SyncHub({ plugins: [stub(hideFromPlayer)] });
+    const gm = admit(hub, withRole('gm', 'gm'));
+    const peer = admit(hub, withRole('gm2', 'gm'));
+    const player = admit(hub, withRole('player', 'player'));
+
+    await hub.handleMessage('gm', envelope('gm', meta(1)));
+
+    expect(ops(peer).map((op) => op.kind)).toEqual(['fog-meta']);
+    expect(player.sent).toEqual([]);
+    expect(gm.sent).toEqual([]);
+    hub.close();
+  });
+
+  it.each([
+    ['before', true],
+    ['after', false],
+  ])(
+    'sends a rewritten op to one role without changing another role bytes (player joins %s the gm peer)',
+    async (_order, playerFirst) => {
+      const rewrite: ServerSyncPlugin['filterOp'] = (op, viewer) =>
+        viewer.role === 'player' && op.kind === 'fog-meta'
+          ? { ...op, record: { ...op.record, version: 999 } }
+          : op;
+      const hub = new SyncHub({ plugins: [stub(rewrite)] });
+      admit(hub, withRole('gm', 'gm'));
+      const join = (id: string, role: string): FakeConn => admit(hub, withRole(id, role));
+      let player: FakeConn;
+      let peer: FakeConn;
+      if (playerFirst) {
+        player = join('player', 'player');
+        peer = join('gm2', 'gm');
+      } else {
+        peer = join('gm2', 'gm');
+        player = join('player', 'player');
+      }
+
+      await hub.handleMessage('gm', envelope('gm', meta(3)));
+
+      expect(ops(player)).toEqual([{ kind: 'fog-meta', record: { version: 999, editor: 'gm' } }]);
+      expect(ops(peer)).toEqual([meta(3)]);
+      hub.close();
+    },
+  );
+
+  it('skips only the recipient whose filterOp throws', async () => {
+    const throwing: ServerSyncPlugin['filterOp'] = (op, viewer) => {
+      if (viewer.role === 'player') throw new Error('boom');
+      return op;
+    };
+    const hub = new SyncHub({ plugins: [stub(throwing)] });
+    admit(hub, withRole('gm', 'gm'));
+    const peer = admit(hub, withRole('gm2', 'gm'));
+    const player = admit(hub, withRole('player', 'player'));
+
+    await hub.handleMessage('gm', envelope('gm', meta(1)));
+    await hub.handleMessage('gm', envelope('gm', meta(2)));
+
+    expect(player.sent).toEqual([]);
+    expect(ops(peer)).toEqual([meta(1), meta(2)]);
+    hub.close();
+  });
+
+  it.each([
+    [
+      'a promise',
+      (async (op: SyncOp) => op) as unknown as NonNullable<ServerSyncPlugin['filterOp']>,
+    ],
+    [
+      'an op of another kind',
+      ((): SyncOp => ({ kind: 'fog-patch', generation: 'g', tiles: [] })) as NonNullable<
+        ServerSyncPlugin['filterOp']
+      >,
+    ],
+  ])('withholds the frame when filterOp returns %s', async (_label, filterOp) => {
+    const hub = new SyncHub({ plugins: [stub(filterOp)] });
+    admit(hub, withRole('gm', 'gm'));
+    const peer = admit(hub, withRole('gm2', 'gm'));
+
+    await hub.handleMessage('gm', envelope('gm', meta(1)));
+
+    expect(peer.sent).toEqual([]);
+    hub.close();
+  });
+
+  it('filters per local peer on fanout', async () => {
+    const bus = new InMemoryHubFanout();
+    const hubA = new SyncHub({ instanceId: 'A', fanout: bus, plugins: [stub(hideFromPlayer)] });
+    const hubB = new SyncHub({ instanceId: 'B', fanout: bus, plugins: [stub(hideFromPlayer)] });
+    admit(hubA, withRole('gm', 'gm'));
+    const peer = admit(hubB, withRole('gm2', 'gm'));
+    const player = admit(hubB, withRole('player', 'player'));
+
+    await hubA.handleMessage('gm', envelope('gm', meta(1)));
+    await vi.waitFor(() => expect(peer.sent).toHaveLength(1));
+
+    expect(ops(peer)).toEqual([meta(1)]);
+    expect(player.sent).toEqual([]);
+    hubA.close();
+    hubB.close();
+  });
+
+  it('sends a denied writer correction through filterOp', async () => {
+    const denying: ServerSyncPlugin = {
+      ...stub(hideFromPlayer),
+      async process(op) {
+        return { accepted: null, corrections: [op] };
+      },
+    };
+    const hub = new SyncHub({ plugins: [denying] });
+    const gm = admit(hub, withRole('gm', 'gm'));
+    const player = admit(hub, withRole('player', 'player'));
+
+    await hub.handleMessage('player', envelope('player', meta(1)));
+    await hub.handleMessage('gm', envelope('gm', meta(2)));
+
+    expect(player.sent).toEqual([]);
+    expect(gm.sent).toEqual([envelope('hub', meta(2))]);
+    hub.close();
+  });
+
+  it('passes room to filterOp and filterSnapshot', async () => {
+    const viewers: PluginViewer[] = [];
+    const hub = new SyncHub({
+      plugins: [
+        {
+          ...stub((op, viewer) => {
+            viewers.push(viewer);
+            return op;
+          }),
+          snapshot: async () => ({ pluginName: 'fog', version: 1, data: {} }),
+          filterSnapshot: (snapshot, viewer) => {
+            viewers.push(viewer);
+            return snapshot;
+          },
+        },
+      ],
+    });
+    admit(hub, withRole('gm', 'gm', 'u-gm'));
+    admit(hub, withRole('player', 'player', 'u-player'));
+
+    await hub.handleMessage('gm', envelope('gm', meta(1)));
+    await hub.handleMessage('player', envelope('player', { kind: 'request-snapshot' }));
+
+    const expected = { userId: 'u-player', role: 'player', room: 'R' };
+    expect(viewers).toEqual([expected, expected]);
+    hub.close();
+  });
+
+  it('sends identical frames when the owner has no filterOp', async () => {
+    const hub = new SyncHub({ plugins: [stub(undefined)] });
+    admit(hub, withRole('gm', 'gm'));
+    const peer = admit(hub, withRole('gm2', 'gm'));
+    const player = admit(hub, withRole('player', 'player'));
+    const op = meta(1);
+
+    await hub.handleMessage('gm', envelope('gm', op));
+
+    const expected = JSON.stringify({ from: 'gm', op });
+    expect(peer.sent).toEqual([expected]);
+    expect(player.sent).toEqual([expected]);
+    hub.close();
+  });
+
+  it('withholds a relayed extension op from a recipient whose filterOp returns null', async () => {
+    const kind = createExtensionKind<{ value: number }>({
+      extensionKind: 'test:filtered',
+      codec: {
+        validate: (payload): payload is { value: number } =>
+          typeof payload === 'object' &&
+          payload !== null &&
+          typeof (payload as { value?: unknown }).value === 'number',
+      },
+    });
+    const hub = new SyncHub({
+      plugins: [
+        {
+          name: 'filtered',
+          registerExtensionKinds(registry) {
+            registry.register(kind, async (op) => ({ accepted: op, corrections: [] }));
+          },
+          filterOp: hideFromPlayer,
+        },
+      ],
+    });
+    const capabilities = createCurrentCapabilities(['test:filtered']);
+    admit(hub, withRole('gm', 'gm'), capabilities);
+    const peer = admit(hub, withRole('gm2', 'gm'), capabilities);
+    const player = admit(hub, withRole('player', 'player'), capabilities);
+    const op: SyncOp = { kind: 'extension', extensionKind: 'test:filtered', payload: { value: 1 } };
+
+    await hub.handleMessage('gm', envelope('gm', op));
+
+    expect(ops(peer)).toEqual([op]);
+    expect(player.sent).toEqual([]);
     hub.close();
   });
 });

@@ -41,6 +41,13 @@ export interface ServerExtensionRegistry {
   ): void;
 }
 
+/** The recipient a plugin filters snapshots and ops for. */
+export interface PluginViewer {
+  readonly userId?: string;
+  readonly role?: string;
+  readonly room: string;
+}
+
 export interface ServerSyncPlugin {
   readonly name: string;
   readonly ownedLegacyKinds?: readonly string[];
@@ -48,10 +55,9 @@ export interface ServerSyncPlugin {
   applyFanout?(op: SyncOp, context: ServerOpContext): Promise<SyncOp | null>;
   registerExtensionKinds?(registry: ServerExtensionRegistry): void;
   snapshot?(room: string, backend: HubBackend): Promise<PluginSnapshot | undefined>;
-  filterSnapshot?(
-    snapshot: PluginSnapshot,
-    viewer: { userId?: string; role?: string },
-  ): PluginSnapshot | null;
+  filterSnapshot?(snapshot: PluginSnapshot, viewer: PluginViewer): PluginSnapshot | null;
+  /** Per-recipient view of an op this plugin owns; null withholds it. Must not mutate `op`. */
+  filterOp?(op: SyncOp, viewer: PluginViewer): SyncOp | null;
   /** Called after `roomIdleTimeoutMs` with no local connection; drops this plugin's per-room memory. */
   evictRoom?(room: string): void;
 }

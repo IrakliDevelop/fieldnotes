@@ -1012,7 +1012,8 @@ export class SyncHub {
   ): Promise<void> {
     for (const correction of result.corrections) {
       const stamped = await this.stampHubRemove(conn.room, correction, fallbackVersion);
-      if (stamped) this.sendToConnection(conn, HUB_FROM, stamped);
+      const visible = stamped && this.opForViewer(conn, stamped);
+      if (visible) this.sendToConnection(conn, HUB_FROM, visible);
     }
     if (result.accepted) await this.publishPluginOp(conn, result.accepted, result.locality);
     for (const broadcast of result.broadcast ?? []) {
@@ -1034,6 +1035,27 @@ export class SyncHub {
     return version === undefined
       ? undefined
       : { kind: 'remove', id: op.id, version, editor: HUB_FROM };
+  }
+
+  private ownerOfOp(op: SyncOp): ServerSyncPlugin | undefined {
+    return op.kind === 'extension'
+      ? this.pluginRegistry.extension(op.extensionKind)?.plugin
+      : this.pluginRegistry.ownerOf(op.kind);
+  }
+
+  // Fails closed: a throw, a promise, or a result of another kind withholds the op.
+  private opForViewer(conn: Connection, op: SyncOp): SyncOp | null {
+    const owner = this.ownerOfOp(op);
+    if (!owner?.filterOp) return op;
+    let result: unknown;
+    try {
+      result = owner.filterOp(op, { userId: conn.userId, role: conn.role, room: conn.room });
+    } catch {
+      return null;
+    }
+    if (result === op) return op;
+    if (typeof result !== 'object' || result === null || 'then' in result) return null;
+    return 'kind' in result && result.kind === op.kind ? (result as SyncOp) : null;
   }
 
   private async publishPluginOp(
@@ -1275,12 +1297,17 @@ export class SyncHub {
     if (!members) return 0;
     let sent = 0;
     const encoded: EncodedFrames = new Map();
+    const filtered = this.ownerOfOp(op)?.filterOp !== undefined;
     for (const connectionId of members) {
       if (connectionId === excludeId) continue;
       const conn = this.conns.get(connectionId);
       if (!conn) continue;
+      const visible = filtered ? this.opForViewer(conn, op) : op;
+      if (!visible) continue;
+      // A rewritten op is per-viewer, so it must not populate the shared frame cache.
+      const cache = visible === op ? encoded : undefined;
       // A lossy translation is skipped for this peer without blocking compatible peers.
-      if (this.sendToConnection(conn, from, op, encoded)) sent += 1;
+      if (this.sendToConnection(conn, from, visible, cache)) sent += 1;
     }
     return sent;
   }
@@ -1591,7 +1618,11 @@ export class SyncHub {
       if (!snapshot) continue;
       if (plugin.filterSnapshot) {
         snapshot =
-          plugin.filterSnapshot(snapshot, { userId: conn.userId, role: conn.role }) ?? undefined;
+          plugin.filterSnapshot(snapshot, {
+            userId: conn.userId,
+            role: conn.role,
+            room: conn.room,
+          }) ?? undefined;
       }
       if (!snapshot) continue;
       extensions[plugin.name] = snapshot;
@@ -1652,14 +1683,12 @@ export class SyncHub {
       this.relayLayerOpToRoom(env.room, undefined, env.from, op, prev);
       return;
     }
-    let plugin: ServerSyncPlugin | undefined;
-    if (op.kind === 'extension') {
-      const entry = this.pluginRegistry.extension(op.extensionKind);
-      if (!entry || !entry.kind.codec.validate(op.payload)) return;
-      plugin = entry.plugin;
-    } else {
-      plugin = this.pluginRegistry.ownerOf(op.kind);
-    }
+    if (
+      op.kind === 'extension' &&
+      !this.pluginRegistry.extension(op.extensionKind)?.kind.codec.validate(op.payload)
+    )
+      return;
+    const plugin = this.ownerOfOp(op);
     if (plugin) {
       const owner = plugin;
       void this.roomQueue(env.room)
