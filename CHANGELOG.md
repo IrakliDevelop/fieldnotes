@@ -16,6 +16,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   when the fog reveals it before the hub's reconcile runs.
 - An element a player lost to a live update while a gate refresh was failing comes back once the
   gates load again.
+- An element created or moved into a covered area between a cover and a reveal reaches players
+  once the hub's reconcile runs.
 - The README now says the audience from `resolvePresenceAudience` takes effect only with
   `canRead`; without it every member gets presence.
 
