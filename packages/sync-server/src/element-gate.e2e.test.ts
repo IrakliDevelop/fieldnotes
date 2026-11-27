@@ -653,6 +653,36 @@ describe('element gate reconcile', () => {
     expect(seen(player)).toEqual(['writer: upsert a', 'hub: remove a']);
   });
 
+  it('sends back an element the gate took from its sender when a reveal lands before the reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')]);
+
+    await Promise.all([
+      write(hub, gm, toggle('a', true)),
+      write(hub, player, { kind: 'upsert', element: el('a', 20, 2) }),
+      write(hub, gm, toggle('a', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: upsert a']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 20, y: 0 });
+  });
+
+  it('sends back an element a correction removed under a cover when a reveal lands before the reconcile', async () => {
+    const { hub, gm, player, flush } = await gateRoom(new Set(), [el('a')], {
+      authorize: ({ role }) => role === 'gm',
+    });
+
+    await Promise.all([
+      write(hub, gm, toggle('a', true)),
+      write(hub, player, { kind: 'upsert', element: el('a', 20, 2) }),
+      write(hub, gm, toggle('a', false)),
+    ]);
+    await flush();
+
+    expect(seen(player)).toEqual(['hub: remove a', 'hub: upsert a']);
+    expect(upserted(player)[0]?.position).toEqual({ x: 10, y: 0 });
+  });
+
   it('reveals both elements when two reveals land before one reconcile', async () => {
     const { hub, gm, player, flush } = await gateRoom(new Set(['a', 'b']), [el('a'), el('b')]);
 
