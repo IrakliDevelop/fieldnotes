@@ -920,10 +920,8 @@ export class SyncHub {
           accepted.kind === 'upsert' &&
           this.gates.active &&
           !this.gatesAllowNow(conn, accepted.element)
-        ) {
-          const { id, version } = accepted.element;
-          this.sendToConnection(conn, HUB_FROM, { kind: 'remove', id, version, editor: HUB_FROM });
-        }
+        )
+          this.sendToConnection(conn, HUB_FROM, hubRemoveOf(accepted.element));
       }
       await this.deliverPluginResult(conn, pluginOutput, opVersion);
       return;
@@ -1347,8 +1345,7 @@ export class SyncHub {
         const before = settled !== 'deny' && gatesAllow(settled, element, viewer);
         const now = gatesAllow(current, element, viewer);
         if (before && !now) {
-          const { id, version } = element;
-          this.sendToConnection(conn, HUB_FROM, { kind: 'remove', id, version, editor: HUB_FROM });
+          this.sendToConnection(conn, HUB_FROM, hubRemoveOf(element));
         } else if (!before && now) {
           this.sendToConnection(conn, HUB_FROM, { kind: 'upsert', element });
         }
