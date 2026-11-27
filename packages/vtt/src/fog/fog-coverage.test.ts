@@ -99,6 +99,139 @@ describe('isCoveredByFog', () => {
   });
 });
 
+/** Mulberry32: a deterministic PRNG so the property run is reproducible. */
+function prng(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+interface Mask {
+  readonly snapshot: FogSnapshot;
+  readonly bytes: ReadonlyMap<string, Uint8Array>;
+}
+
+function randomMask(random: () => number): Mask {
+  const cellSize = random() < 0.5 ? 4 : 10;
+  const base: FogBase = random() < 0.5 ? 'covered' : 'revealed';
+  const fog = { x: -700 - Math.floor(random() * 600), y: -300, w: 1700, h: 1400 };
+  const span = 128 * cellSize;
+  const bytes = new Map<string, Uint8Array>();
+  const tiles: FogTileRecord[] = [];
+  for (let ty = Math.floor(fog.y / span); ty <= Math.floor((fog.y + fog.h) / span); ty++) {
+    for (let tx = Math.floor(fog.x / span); tx <= Math.floor((fog.x + fog.w) / span); tx++) {
+      const roll = random();
+      if (roll < 0.2) continue;
+      if (roll < 0.3) {
+        tiles.push({ generation: 'g1', x: tx, y: ty, version: 1, editor: 'gm' });
+        continue;
+      }
+      const data = new Uint8Array(2048);
+      for (let i = Math.floor(random() * 4); i > 0; i--) {
+        const cell = Math.floor(random() * 128 * 128);
+        data[cell >> 3] = (data[cell >> 3] ?? 0) | (0x80 >> (cell & 7));
+      }
+      bytes.set(`${tx},${ty}`, data);
+      tiles.push({
+        generation: 'g1',
+        x: tx,
+        y: ty,
+        version: 1,
+        editor: 'gm',
+        data: encodeBase64(data),
+      });
+    }
+  }
+  const definition = { version: 1, generation: 'g1', bounds: fog, cellSize, tileCells: 128, base };
+  return { snapshot: { meta: { version: 1, editor: 'gm', definition }, tiles }, bytes };
+}
+
+/** Walks every touched cell and reads its bit straight from the raw tile bytes. */
+function naiveCovered({ snapshot, bytes }: Mask, b: Bounds): boolean {
+  const def = snapshot.meta.definition;
+  if (!def) return false;
+  const f = def.bounds;
+  if (!(b.x >= f.x && b.y >= f.y && b.x + b.w <= f.x + f.w && b.y + b.h <= f.y + f.h)) return false;
+  const cs = def.cellSize;
+  const lastCell = (start: number, size: number) =>
+    size === 0 ? Math.floor(start / cs) : Math.ceil((start + size) / cs) - 1;
+  for (let cy = Math.floor(b.y / cs); cy <= lastCell(b.y, b.h); cy++) {
+    for (let cx = Math.floor(b.x / cs); cx <= lastCell(b.x, b.w); cx++) {
+      const tx = Math.floor(cx / 128);
+      const ty = Math.floor(cy / 128);
+      const data = bytes.get(`${tx},${ty}`);
+      const cell = (cy - ty * 128) * 128 + (cx - tx * 128);
+      const revealed = data
+        ? ((data[cell >> 3] ?? 0) & (0x80 >> (cell & 7))) !== 0
+        : def.base === 'revealed';
+      if (revealed) return false;
+    }
+  }
+  return true;
+}
+
+function randomBounds(random: () => number, mask: Mask): Bounds {
+  const def = mask.snapshot.meta.definition;
+  if (!def) throw new Error('mask without definition');
+  const f = def.bounds;
+  const coordinate = (start: number, size: number) => {
+    const value = start - 20 + random() * (size + 40);
+    return random() < 0.4 ? Math.round(value / def.cellSize) * def.cellSize : value;
+  };
+  const x = coordinate(f.x, f.w);
+  const y = coordinate(f.y, f.h);
+  const roll = random();
+  if (roll < 0.15) return { x, y, w: 0, h: 0 };
+  if (roll < 0.2) return { x, y, w: 1e-16, h: 1e-16 };
+  const size = () => (random() < 0.4 ? Math.ceil(random() * 40) * def.cellSize : random() * 300);
+  return { x, y, w: size(), h: size() };
+}
+
+describe('isCoveredByFog against the per-cell rule', () => {
+  it('matches a naive per-cell walk on random masks and bounds', () => {
+    const random = prng(278);
+    const outcomes = new Set<boolean>();
+    for (let m = 0; m < 60; m++) {
+      const mask = randomMask(random);
+      for (let i = 0; i < 100; i++) {
+        const bounds = randomBounds(random, mask);
+        const expected = naiveCovered(mask, bounds);
+        outcomes.add(expected);
+        expect(isCoveredByFog(mask.snapshot, bounds), JSON.stringify(bounds)).toBe(expected);
+      }
+    }
+    expect([...outcomes].sort()).toEqual([false, true]);
+  });
+
+  it('judges a map-sized covered element within the tile budget', () => {
+    const data = encodeBase64(createTileBytes(false));
+    const tiles: FogTileRecord[] = [];
+    for (let y = 0; y < 16; y++) {
+      for (let x = 0; x < 16; x++)
+        tiles.push({ generation: 'g1', x, y, version: 1, editor: 'gm', data });
+    }
+    const bounds = { x: 0, y: 0, w: 20480, h: 20480 };
+    const definition = {
+      version: 1,
+      generation: 'g1',
+      bounds,
+      cellSize: 10,
+      tileCells: 128,
+      base: 'revealed' as const,
+    };
+    const fresh: FogSnapshot = { meta: { version: 1, editor: 'gm', definition }, tiles };
+    const start = performance.now();
+    const covered = isCoveredByFog(fresh, bounds);
+    const elapsed = performance.now() - start;
+    expect(covered).toBe(true);
+    expect(elapsed).toBeLessThan(50);
+  });
+});
+
 function shape(x: number, y: number): SyncElement {
   return createShape({ index: 'a0', position: { x, y }, size: { w: 40, h: 40 } });
 }
