@@ -116,4 +116,23 @@ describe('RoomElementGates', () => {
     expect(gates.isLoaded('R')).toBe(false);
     expect(gates.current('R')).toBeUndefined();
   });
+
+  it('keeps a newer load when an older refresh rejects', async () => {
+    let fail: (error: Error) => void = () => undefined;
+    const pending = new Promise<ElementReadGate>((_, reject) => (fail = reject));
+    const newer: ElementReadGate = () => true;
+    let calls = 0;
+    const gates = new RoomElementGates([
+      { name: 'racy', elementReadGate: async () => (++calls === 1 ? pending : newer) },
+    ]);
+
+    const older = gates.refresh('R', backend);
+    gates.drop('R');
+    await gates.refresh('R', backend);
+    fail(new Error('gate down'));
+
+    await expect(older).rejects.toThrow('gate down');
+    expect(gates.isLoaded('R')).toBe(true);
+    expect(gates.current('R')).toEqual([newer]);
+  });
 });

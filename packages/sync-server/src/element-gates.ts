@@ -59,7 +59,7 @@ export class RoomElementGates {
       }
     } catch (error) {
       // Unloaded withholds every element, so a broken gate never leaves an older one in force.
-      this.drop(room);
+      if (this.generations.get(room) === generation) this.drop(room);
       throw error;
     }
     if (this.generations.get(room) !== generation) return false;
