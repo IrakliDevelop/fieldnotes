@@ -60,6 +60,9 @@ importers:
       vite:
         specifier: ^8.3.4
         version: 8.3.4(@types/node@26.0.1)(esbuild@0.28.2)(less@4.9.1)(sass-embedded@1.106.0)(sass@1.106.0)(tsx@4.23.0)(yaml@2.9.1)
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@types/node@26.0.1)(@vitest/coverage-v8@5.0.5)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.0.1)(esbuild@0.28.2)(less@4.9.1)(sass-embedded@1.106.0)(sass@1.106.0)(tsx@4.23.0)(yaml@2.9.1))
 
   examples/angular:
     dependencies:
@@ -2009,9 +2012,6 @@ packages:
   '@jridgewell/resolve-uri@3.1.2':
     resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
     engines: {node: '>=6.0.0'}
-
-  '@jridgewell/sourcemap-codec@1.5.5':
-    resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
@@ -7515,7 +7515,7 @@ snapshots:
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/sourcemap-codec': 1.6.0
       '@jridgewell/trace-mapping': 0.3.31
 
   '@jridgewell/gen-mapping@0.4.0-beta.0':
@@ -7529,8 +7529,6 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.31
 
   '@jridgewell/resolve-uri@3.1.2': {}
-
-  '@jridgewell/sourcemap-codec@1.5.5': {}
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
 
@@ -8401,7 +8399,7 @@ snapshots:
       debug: 4.4.3
       minimatch: 10.2.4
       semver: 7.7.4
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.17
       ts-api-utils: 2.5.0(typescript@6.0.3)
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -8450,7 +8448,7 @@ snapshots:
       obug: 3.0.0
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 5.0.5(@types/node@26.0.1)(@vitest/coverage-v8@5.0.5)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.0.1)(esbuild@0.28.2)(less@4.9.1)(sass-embedded@1.104.1)(sass@1.104.1)(tsx@4.23.0)(yaml@2.9.1))
+      vitest: 5.0.5(@types/node@26.0.1)(@vitest/coverage-v8@5.0.5)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.0.1)(esbuild@0.28.2)(less@4.9.1)(sass-embedded@1.106.0)(sass@1.106.0)(tsx@4.23.0)(yaml@2.9.1))
 
   '@vitest/istanbul-lib-coverage@1.0.2': {}
 
@@ -8475,6 +8473,7 @@ snapshots:
       magic-string: 1.4.3
     optionalDependencies:
       vite: 8.3.4(@types/node@26.0.1)(esbuild@0.28.2)(less@4.9.1)(sass-embedded@1.104.1)(sass@1.104.1)(tsx@4.23.0)(yaml@2.9.1)
+    optional: true
 
   '@vitest/mocker@5.0.5(vite@8.3.4(@types/node@26.0.1)(esbuild@0.28.2)(less@4.9.1)(sass-embedded@1.106.0)(sass@1.106.0)(tsx@4.23.0)(yaml@2.9.1))':
     dependencies:
@@ -9941,7 +9940,7 @@ snapshots:
 
   magic-string@0.30.21:
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/sourcemap-codec': 1.6.0
 
   magic-string@1.4.1:
     dependencies:
@@ -11513,7 +11512,7 @@ snapshots:
       lines-and-columns: 1.2.4
       mz: 2.7.0
       pirates: 4.0.7
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.17
       ts-interface-checker: 0.1.13
 
   supports-color@8.1.1:
@@ -11927,6 +11926,7 @@ snapshots:
       jsdom: 29.1.1
     transitivePeerDependencies:
       - msw
+    optional: true
 
   vitest@5.0.5(@types/node@26.0.1)(@vitest/coverage-v8@5.0.5)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.0.1)(esbuild@0.28.2)(less@4.9.1)(sass-embedded@1.106.0)(sass@1.106.0)(tsx@4.23.0)(yaml@2.9.1)):
     dependencies:
