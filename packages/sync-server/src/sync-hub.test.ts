@@ -6063,6 +6063,12 @@ describe('plugin op filter', () => {
       (async (op: SyncOp) => op) as unknown as NonNullable<ServerSyncPlugin['filterOp']>,
     ],
     [
+      'a thenable of the same kind',
+      ((op: SyncOp) => ({ ...op, then: () => undefined })) as unknown as NonNullable<
+        ServerSyncPlugin['filterOp']
+      >,
+    ],
+    [
       'an op of another kind',
       ((): SyncOp => ({ kind: 'fog-patch', generation: 'g', tiles: [] })) as NonNullable<
         ServerSyncPlugin['filterOp']

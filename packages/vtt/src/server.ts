@@ -124,7 +124,6 @@ export function createFogServerPlugin(options: FogServerPluginOptions = {}): Ser
     try {
       return await authorize(context);
     } catch {
-      // A failing host check denies the write.
       return false;
     }
   };
