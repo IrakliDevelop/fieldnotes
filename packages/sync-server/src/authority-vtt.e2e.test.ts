@@ -237,7 +237,7 @@ async function start() {
     ) => memoryBackend.applyLayerRecord(name, record),
     getService: legacyBackendLookup,
   };
-  const legacyFog = createFogServerPlugin();
+  const legacyFog = createFogServerPlugin({ allowAnyWriter: true });
   const legacyProcess = vi.fn(legacyFog.process);
   const seededFog = {
     meta: {

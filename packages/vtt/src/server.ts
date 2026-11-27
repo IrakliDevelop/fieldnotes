@@ -4,6 +4,7 @@ import type {
   AuthorityExtension,
   Authorize,
   JsonValue,
+  PluginViewer,
   ServerOpContext,
   ServerSyncPlugin,
 } from '@fieldnotes/sync-server';
@@ -81,7 +82,11 @@ export function createFogAuthorityServerExtension(): AuthorityExtension {
   });
 }
 
-type FogOp = Extract<SyncOp, { kind: 'fog-meta' | 'fog-patch' }>;
+/** The recipient a fog snapshot or op is filtered for. */
+export type FogViewer = PluginViewer;
+
+/** A legacy fog op the fog plugin owns. */
+export type FogOp = Extract<SyncOp, { kind: 'fog-meta' | 'fog-patch' }>;
 
 export interface FogAuthorizationContext {
   readonly userId?: string;
@@ -93,13 +98,36 @@ export interface FogAuthorizationContext {
 
 export interface FogServerPluginOptions {
   authorize?(context: FogAuthorizationContext): boolean | Promise<boolean>;
-  filterSnapshot?(
-    snapshot: PluginSnapshot,
-    viewer: { userId?: string; role?: string },
-  ): PluginSnapshot | null;
+  /** Lets every room member write fog. Cannot be combined with `authorize`. */
+  allowAnyWriter?: boolean;
+  filterSnapshot?(snapshot: PluginSnapshot, viewer: FogViewer): PluginSnapshot | null;
+  filterOp?(op: FogOp, viewer: FogViewer): FogOp | null;
 }
 
 export function createFogServerPlugin(options: FogServerPluginOptions = {}): ServerSyncPlugin {
+  const { authorize, filterOp } = options;
+  if (!authorize && options.allowAnyWriter !== true) {
+    throw new Error(
+      'createFogServerPlugin: pass `authorize`, or `allowAnyWriter: true` to let every member change the fog',
+    );
+  }
+  if (options.allowAnyWriter === true && authorize) {
+    throw new Error('createFogServerPlugin: `allowAnyWriter` cannot be combined with `authorize`');
+  }
+  if (options.filterSnapshot && !filterOp) {
+    throw new Error(
+      'createFogServerPlugin: `filterSnapshot` requires `filterOp` (live fog ops would bypass it)',
+    );
+  }
+  const authorized = async (context: FogAuthorizationContext): Promise<boolean> => {
+    if (!authorize) return true;
+    try {
+      return await authorize(context);
+    } catch {
+      // A failing host check denies the write.
+      return false;
+    }
+  };
   const memory = new Map<string, FogLedger>();
   const ledger = (room: string): FogLedger => {
     let value = memory.get(room);
@@ -128,8 +156,7 @@ export function createFogServerPlugin(options: FogServerPluginOptions = {}): Ser
   const process = async (op: FogOp, context: ServerOpContext): Promise<ApplyResult> => {
     const current = await snapshot(context);
     if (
-      options.authorize &&
-      !(await options.authorize({
+      !(await authorized({
         userId: context.userId,
         role: context.role,
         room: context.room,
@@ -239,6 +266,10 @@ export function createFogServerPlugin(options: FogServerPluginOptions = {}): Ser
       return data ? { pluginName: 'fog', version: 1, data } : undefined;
     },
     filterSnapshot: options.filterSnapshot,
+    ...(filterOp && {
+      filterOp: (op: SyncOp, viewer: FogViewer) =>
+        op.kind === 'fog-meta' || op.kind === 'fog-patch' ? filterOp(op, viewer) : op,
+    }),
     evictRoom(room) {
       memory.delete(room);
     },

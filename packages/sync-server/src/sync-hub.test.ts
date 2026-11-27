@@ -1290,7 +1290,7 @@ describe('SyncHub', () => {
         const hub = new SyncHub({
           authorize: policy,
           backend,
-          plugins: [createFogServerPlugin()],
+          plugins: [createFogServerPlugin({ allowAnyWriter: true })],
         });
         const dm = roleConn('dm', 'R', 'dm1', 'dm');
         const p = roleConn('p', 'R', 'player1', 'player');
@@ -1727,13 +1727,16 @@ describe('SyncHub fog authority', () => {
     expect(
       () =>
         new SyncHub({
-          plugins: [createFogServerPlugin(), createFogServerPlugin()],
+          plugins: [
+            createFogServerPlugin({ allowAnyWriter: true }),
+            createFogServerPlugin({ allowAnyWriter: true }),
+          ],
         }),
     ).toThrow(/two owners|duplicated/);
   });
 
   it('broadcasts only accepted records from a partially stale patch', async () => {
-    const fogHub = new SyncHub({ plugins: [createFogServerPlugin()] });
+    const fogHub = new SyncHub({ plugins: [createFogServerPlugin({ allowAnyWriter: true })] });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
     admit(fogHub, a);
@@ -1841,7 +1844,7 @@ describe('SyncHub fog authority', () => {
   });
 
   it('rejects a same-generation bounds shrink', async () => {
-    const fogHub = new SyncHub({ plugins: [createFogServerPlugin()] });
+    const fogHub = new SyncHub({ plugins: [createFogServerPlugin({ allowAnyWriter: true })] });
     const a = makeConn('A', 'R');
     admit(fogHub, a);
     await fogHub.handleMessage(
@@ -1888,7 +1891,7 @@ describe('SyncHub fog authority', () => {
       ...definition,
       bounds: { x: 0, y: 0, w: 258 * 128, h: 128 },
     };
-    const fogHub = new SyncHub({ plugins: [createFogServerPlugin()] });
+    const fogHub = new SyncHub({ plugins: [createFogServerPlugin({ allowAnyWriter: true })] });
     const a = makeConn('A', 'R');
     const b = makeConn('B', 'R');
     admit(fogHub, a);
@@ -1939,7 +1942,7 @@ describe('SyncHub fog authority', () => {
     fogHub.close();
   });
   it('evictRoom drops one room of the plugin memory ledger', async () => {
-    const plugin = createFogServerPlugin();
+    const plugin = createFogServerPlugin({ allowAnyWriter: true });
     const fogHub = new SyncHub({ plugins: [plugin] });
     const backend = new MemoryHubBackend();
     admit(fogHub, makeConn('A', 'R'));
@@ -3507,7 +3510,7 @@ describe('idle-room eviction', () => {
         getRecord: (room, id) => memory.getRecord(room, id),
         applyElement: (room, write, expected) => memory.applyElement(room, write, expected),
       },
-      plugins: [createFogServerPlugin()],
+      plugins: [createFogServerPlugin({ allowAnyWriter: true })],
       roomIdleTimeoutMs: 1000,
     });
     bus.publish(JSON.stringify({ o: 'A', room: 'R', from: 'a', op }));
