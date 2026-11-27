@@ -875,6 +875,12 @@ room can be overwritten on a viewer by the older copy the re-check sends. The ne
 element, or the next resync, corrects it. The re-check can also resend an element to a viewer who
 already received it live after the gates began to allow it.
 
+When the gates change more than 8 times before one re-check finishes, for example while the
+room's op queue is backlogged, the hub stops tracking which viewer may hold what. The next re-check
+sends a remove for every element the gates deny to every viewer `canRead` admits, including
+elements that viewer never received. A viewer then learns the id, version and number of hidden
+elements, but not their position or content.
+
 Without such a gate, fog is a display aid: every client in the room receives the elements under
 it. `createFogServerPlugin` with `seesUnderFog` installs one that withholds elements fully under
 fog (see [Fog sync in `@fieldnotes/vtt`](../vtt#fog-sync)). To withhold any other element, give it an audience `canRead` denies
