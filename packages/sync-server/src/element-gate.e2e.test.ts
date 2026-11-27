@@ -491,6 +491,27 @@ describe('element gate reconcile', () => {
     expect(seen(player)).toEqual(['hub: remove a']);
   });
 
+  it('sends no hub upsert after a failed first load when a snapshot request loads the gates', async () => {
+    const backend = new MemoryHubBackend();
+    await backend.applyElement('R', { kind: 'upsert', element: el('e') }, null);
+    let calls = 0;
+    const flaky: ServerSyncPlugin = {
+      name: 'gate',
+      elementReadGate: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('gate down');
+        return () => true;
+      },
+    };
+    const hub = makeHub({ backend, plugins: [flaky] });
+    const player = admit(hub, makeConn('player', 'player'));
+
+    await write(hub, player, { kind: 'request-snapshot' });
+    await write(hub, player, { kind: 'upsert', element: el('z') });
+
+    expect(seen(player)).toEqual(['hub: snapshot e']);
+  });
+
   it('removes an element moved while a reconcile that hides it is pending', async () => {
     const { hub, gm, player, writer, flush } = await gateRoom(new Set(), [el('a')]);
 

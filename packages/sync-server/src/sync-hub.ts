@@ -1337,6 +1337,11 @@ export class SyncHub {
     const current = this.gates.current(room);
     if (!current) return;
     const settled = this.gates.settled(room);
+    // Members hold only what snapshots built after the load sent, so 'deny' has nothing to undo.
+    if (settled === 'deny') {
+      this.gates.markSettled(room);
+      return;
+    }
     const { elements } = await this.backend.snapshot(room);
     // The room was dropped and reloaded while this read; the new load owns it.
     if (this.gates.current(room) !== current) return;
@@ -1346,7 +1351,7 @@ export class SyncHub {
       const viewer = this.viewerOf(conn);
       for (const element of elements) {
         if (!this.mayRead(conn, element.audience)) continue;
-        const before = settled !== 'deny' && gatesAllow(settled, element, viewer);
+        const before = gatesAllow(settled, element, viewer);
         const now = gatesAllow(current, element, viewer);
         if (before && !now) {
           this.sendToConnection(conn, HUB_FROM, hubRemoveOf(element));
