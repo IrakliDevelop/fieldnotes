@@ -1,13 +1,22 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { CommandPalette, createPaletteActions } from '../command-palette';
+import type * as CommandPaletteModule from '../command-palette';
 import { Viewport } from '../viewport';
 import type { ViewportOptions } from '../viewport';
 import type { ViewportPlugin } from '../viewport-plugin';
 import { paletteFeature } from './palette-feature';
 import { presentationFeature } from './presentation-feature';
+import { defaultFeatures } from './default-feature';
 import { createFrame } from '../../elements/frame-element';
+
+// Passthrough so a test can reach the slot proxy the feature hands to its actions.
+vi.mock('../command-palette', async (importOriginal) => {
+  const actual = await importOriginal<typeof CommandPaletteModule>();
+  return { ...actual, createPaletteActions: vi.fn(actual.createPaletteActions) };
+});
 
 let container: HTMLDivElement;
 const viewports: Viewport[] = [];
@@ -44,6 +53,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const viewport of viewports.splice(0)) viewport.destroy();
   container.remove();
 });
@@ -66,6 +76,25 @@ describe('paletteFeature', () => {
     viewport.shortcutsHelp.open();
     expect(viewport.shortcutsHelp.isOpen()).toBe(true);
     expect(viewport.palette.isOpen()).toBe(false);
+  });
+
+  it('forwards the query to the palette', () => {
+    const open = vi.spyOn(CommandPalette.prototype, 'open');
+    createViewport({ plugins: [paletteFeature()] });
+    const proxy = vi.mocked(createPaletteActions).mock.lastCall?.[0];
+    proxy?.open('fog');
+    expect(open).toHaveBeenCalledWith('fog');
+  });
+
+  it.each<[string, () => ViewportPlugin[], boolean]>([
+    ['paletteFeature() alone', () => [paletteFeature()], false],
+    ['defaultFeatures()', () => defaultFeatures(), true],
+  ])('with %s, help lists While presenting only with presentation', (_name, plugins, listed) => {
+    const viewport = createViewport({ plugins: plugins() });
+    viewport.shortcutsHelp.open();
+    const titles = [...container.querySelectorAll('h3')].map((node) => node.textContent);
+    expect(titles).toContain('Palette');
+    expect(titles.includes('While presenting')).toBe(listed);
   });
 
   it('applies custom strings to the palette', () => {

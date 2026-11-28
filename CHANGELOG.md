@@ -6,6 +6,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 
 ## [Unreleased]
 
+### Core 0.111.1 — frame structure cache
+
+**Changed**
+
+- A frame no longer walks every element when nothing structural changed (elements added,
+  removed or reordered, layers, or HTML routing). Off-screen notes, text and HTML elements are
+  hidden once instead of every frame.
+- Frame mean measured by `pnpm bench` (drawing stubbed), before and after:
+  - 10,000 canvas elements over 4 layers: 0.29 ms to 0.0019 ms.
+  - 50,000 canvas elements: 1.51 ms to 0.0020 ms.
+  - 10,000 elements with 2,500 notes: 1.16 ms to 0.93 ms.
+  - dragging one element among 10,000: 0.50 ms to 0.22 ms.
+  - 50,000 elements with notes: 7.45 ms to 5.32 ms.
+
+  Boards with notes gain less: canvas elements above the lowest note are still bounds-tested
+  and drawn every frame.
+
+**Fixed**
+
+- `buildHelpSections` no longer lists the "While presenting" group when no `presentation.*`
+  action is registered, so shortcuts help from `paletteFeature()` alone has no presenting rows.
+- The palette that `paletteFeature()` hands to its `palette.*` actions passes the `query`
+  argument of `open` on to the command palette.
+
 ### Core 0.111.0 — optional features out of Viewport
 
 **Breaking**
@@ -46,8 +70,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   - with hand, select and pencil tools: 117,021 to 91,805 (117.0 kB to 91.8 kB).
   - default tools, `defaultFeatures()`, `minimapFeature()` and the three export functions:
     117,020 to 118,699 (117.0 kB to 118.7 kB).
-- A host plugin with `priority` below -1000 now registers its actions before the built-in
-  `presentation.*` and `link.*` actions.
+- A host plugin with `priority` below -1000 now registers its actions before every built-in.
+  One below -950 registers before the built-in `link.*` and `selection.edit-text` actions, and
+  a host plugin that registers one of those ids at such a priority makes the `Viewport`
+  constructor throw.
 - `mountViewport` no longer re-activates a tool that is already active at mount, so tool-change
   listeners subscribed in `onReady` fire once instead of twice.
 

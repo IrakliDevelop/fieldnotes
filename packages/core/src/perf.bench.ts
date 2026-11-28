@@ -62,7 +62,7 @@ function stubCtx(): CanvasRenderingContext2D {
   } as unknown as CanvasRenderingContext2D;
 }
 
-function createFrameLoop(elementCount: number): RenderLoop {
+function createFrameLoop(elementCount: number, { dom = true } = {}): RenderLoop {
   const store = new ElementStore();
   const layerManager = new LayerManager(store);
   const layerIds = [
@@ -87,7 +87,7 @@ function createFrameLoop(elementCount: number): RenderLoop {
     store,
     renderer: {
       setCanvasSize: noop,
-      isDomElement: (el: { type: string }) => el.type === 'note',
+      isDomElement: (el: { type: string }) => dom && el.type === 'note',
       isFullCanvasElement: () => false,
       renderCanvasElement: noop,
     } as unknown as RenderLoopDeps['renderer'],
@@ -256,6 +256,9 @@ test('warmed 10,000-element position update', async ({ bench }) => {
 
 test('RenderLoop frame', async ({ bench }) => {
   const loop = createFrameLoop(10_000);
+  const canvas10k = createFrameLoop(10_000, { dom: false });
+  const canvas50k = createFrameLoop(50_000, { dom: false });
+  const mixed50k = createFrameLoop(50_000);
 
   const dragFixture = createDragFixture();
   const getContext = HTMLCanvasElement.prototype.getContext;
@@ -264,6 +267,18 @@ test('RenderLoop frame', async ({ bench }) => {
     bench('10,000 mixed elements over 4 layers', () => {
       loop.requestRender();
       loop.flush();
+    }),
+    bench('10,000 canvas elements over 4 layers', () => {
+      canvas10k.requestRender();
+      canvas10k.flush();
+    }),
+    bench('50,000 canvas elements over 4 layers', () => {
+      canvas50k.requestRender();
+      canvas50k.flush();
+    }),
+    bench('50,000 mixed elements over 4 layers', () => {
+      mixed50k.requestRender();
+      mixed50k.flush();
     }),
     bench(
       'drag one element in a 10k-element layer (per frame)',

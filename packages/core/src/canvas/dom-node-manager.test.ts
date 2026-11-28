@@ -37,6 +37,36 @@ describe('DomNodeManager', () => {
     manager.syncDomNode(note, 0, 1, null);
     expect(manager.getNode(note.id)?.style.clipPath).toBe('');
   });
+  it('writes display none once for a node hidden twice', () => {
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    manager.syncDomNode(note);
+    manager.hideDomNode(note.id);
+    const style = manager.getNode(note.id)?.style;
+    if (!style) throw new Error('expected node');
+    const setDisplay = vi.fn();
+    Object.defineProperty(style, 'display', {
+      configurable: true,
+      get: () => 'none',
+      set: setDisplay,
+    });
+
+    manager.hideDomNode(note.id);
+
+    expect(setDisplay).not.toHaveBeenCalled();
+  });
+
+  it('hides again after the node was shown', () => {
+    const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
+    manager.syncDomNode(note);
+    manager.hideDomNode(note.id);
+    manager.syncDomNode(note);
+    expect(manager.getNode(note.id)?.style.display).toBe('block');
+
+    manager.hideDomNode(note.id);
+
+    expect(manager.getNode(note.id)?.style.display).toBe('none');
+  });
+
   it('applies camera transforms to every DOM paint stratum', () => {
     const note = createNote({ position: { x: 0, y: 0 }, size: { w: 100, h: 50 } });
     manager.syncDomNode(note, 2);

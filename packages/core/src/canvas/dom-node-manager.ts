@@ -42,6 +42,8 @@ export class DomNodeManager {
   private lastSyncedZIndex = new Map<string, number>();
   private lastSyncedOpacity = new Map<string, number>();
   private lastSyncedClip = new Map<string, string>();
+  // Nodes last set to display:none, so the per-frame hide of an off-screen node writes no style.
+  private hidden = new Set<string>();
   private cameraTransform = '';
 
   constructor(deps: DomNodeManagerDeps) {
@@ -182,6 +184,7 @@ export class DomNodeManager {
     }
 
     const size = 'size' in element && element.type !== 'extension' ? element.size : null;
+    this.hidden.delete(element.id);
     Object.assign(node.style, {
       display: 'block',
       left: `${element.position.x}px`,
@@ -199,10 +202,12 @@ export class DomNodeManager {
   }
 
   hideDomNode(id: string): void {
+    if (this.hidden.has(id)) return;
     const node = this.domNodes.get(id);
     if (node) {
       node.style.display = 'none';
       this.lastSyncedVersion.delete(id);
+      this.hidden.add(id);
     }
   }
 
@@ -234,6 +239,7 @@ export class DomNodeManager {
     this.lastSyncedZIndex.delete(id);
     this.lastSyncedOpacity.delete(id);
     this.lastSyncedClip.delete(id);
+    this.hidden.delete(id);
     const node = this.domNodes.get(id);
     if (!node) return;
     const stratum = node.parentElement;
@@ -279,6 +285,7 @@ export class DomNodeManager {
     this.lastSyncedZIndex.clear();
     this.lastSyncedOpacity.clear();
     this.lastSyncedClip.clear();
+    this.hidden.clear();
     for (const stratum of this.strata.values()) stratum.remove();
     this.strata.clear();
   }
