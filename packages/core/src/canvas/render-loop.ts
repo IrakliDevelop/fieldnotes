@@ -205,18 +205,17 @@ export class RenderLoop {
 
   noteElementUpdate(previous: CanvasElement, current: CanvasElement): void {
     const { id } = current;
+    const moved = previous.layerId !== current.layerId || previous.index !== current.index;
     // A routing flip to canvas takes the warm path below, so the check covers both paths.
     if (
-      previous.layerId !== current.layerId ||
-      previous.index !== current.index ||
+      moved ||
       this.renderer.isDomElement(previous) !== this.renderer.isDomElement(current) ||
       this.renderer.isFullCanvasElement(previous) !== this.renderer.isFullCanvasElement(current)
     ) {
       this.structureDirty = true;
     }
     if (
-      previous.layerId !== current.layerId ||
-      previous.index !== current.index ||
+      moved ||
       this.renderer.isDomElement(current) ||
       this.renderer.isFullCanvasElement(current) ||
       (this.blendedNeverLive && current.type === 'stroke' && current.blendMode !== undefined) ||
@@ -720,7 +719,6 @@ export class RenderLoop {
     const allElements = this.store.getAll();
     let structure = this.structure;
     if (!structure || allElements !== this.structureSource || this.structureDirty) {
-      // Built into a local and assigned once, so a reentrant flush() never sees a partial one.
       structure = buildFrameStructure(
         allElements,
         (layerId) => this.layerManager.isLayerVisible(layerId),

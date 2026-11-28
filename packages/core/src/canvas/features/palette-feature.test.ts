@@ -54,7 +54,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.mocked(createPaletteActions).mockClear();
   for (const viewport of viewports.splice(0)) viewport.destroy();
   container.remove();
 });
@@ -82,7 +81,7 @@ describe('paletteFeature', () => {
   it('forwards the query to the palette', () => {
     const open = vi.spyOn(CommandPalette.prototype, 'open');
     createViewport({ plugins: [paletteFeature()] });
-    const proxy = vi.mocked(createPaletteActions).mock.calls[0]?.[0];
+    const proxy = vi.mocked(createPaletteActions).mock.lastCall?.[0];
     proxy?.open('fog');
     expect(open).toHaveBeenCalledWith('fog');
   });

@@ -2068,8 +2068,8 @@ describe('RenderLoop', () => {
         };
       }
 
-      it.each<[string, () => void]>([
-        ['layer hidden', () => layers.setLayerVisible(upper, false)],
+      it.each<[string, () => void, boolean]>([
+        ['layer hidden', () => layers.setLayerVisible(upper, false), true],
         [
           'layer shown',
           () => {
@@ -2078,15 +2078,17 @@ describe('RenderLoop', () => {
             frame();
             layers.setLayerVisible(upper, true);
           },
+          true,
         ],
-        ['layers reordered', () => layers.reorderLayer(upper, -1)],
-        ['element added', () => store.add({ ...shape('f', 4), layerId: layerId })],
-        ['element removed', () => store.remove('b')],
-        ['element moved to another layer', () => store.update('a', { layerId: upper })],
-      ])('%s', (_name, change) => {
+        ['layers reordered', () => layers.reorderLayer(upper, -1), true],
+        ['element added', () => store.add({ ...shape('f', 4), layerId: layerId }), false],
+        ['element removed', () => store.remove('b'), false],
+        ['element moved to another layer', () => store.update('a', { layerId: upper }), false],
+      ])('%s', (_name, change, layerChange) => {
         frame();
         change();
-        renderLoop.markAllLayersDirty();
+        // Layer state changes reach the loop through the viewport's markAllLayersDirty().
+        if (layerChange) renderLoop.markAllLayersDirty();
         vi.clearAllMocks();
         frame();
 

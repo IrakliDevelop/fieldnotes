@@ -79,6 +79,7 @@ describe('buildFrameStructure', () => {
     expect(s.fullCanvas).toEqual([2]);
     expect(s.hybridActive).toBe(true);
     expect([...s.hybridRuns]).toEqual([[2, [1, 5]]]);
+    expect([...s.hybridOrders]).toEqual([2]);
     expect(s.hiddenDom).toEqual([3]);
     expect(s.visibleCount).toBe(4);
   });
