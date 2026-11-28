@@ -46,8 +46,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
   - with hand, select and pencil tools: 117,021 to 91,805 (117.0 kB to 91.8 kB).
   - default tools, `defaultFeatures()`, `minimapFeature()` and the three export functions:
     117,020 to 118,699 (117.0 kB to 118.7 kB).
-- A host plugin with `priority` below -1000 now registers its actions before the built-in
-  `presentation.*` and `link.*` actions.
+- A host plugin with `priority` below -1000 now registers its actions before every built-in.
+  One below -950 registers before the built-in `link.*` and `selection.edit-text` actions, and
+  a host plugin that registers one of those ids at such a priority makes the `Viewport`
+  constructor throw.
 - `mountViewport` no longer re-activates a tool that is already active at mount, so tool-change
   listeners subscribed in `onReady` fire once instead of twice.
 

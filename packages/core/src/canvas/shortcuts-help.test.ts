@@ -94,7 +94,14 @@ describe('shortcuts help', () => {
   });
 
   it('open renders sections and keys and focuses the dialog', () => {
-    const { help, container, closeOthers } = setup();
+    const { harness, help, container, closeOthers } = setup();
+    cleanup.push(
+      harness.viewport.actions.register({
+        id: 'presentation.test',
+        label: 'Present',
+        perform: () => undefined,
+      }),
+    );
     help.open();
     const root = container.querySelector<HTMLElement>('.fieldnotes-help');
     expect(root).not.toBeNull();
@@ -118,6 +125,14 @@ describe('shortcuts help', () => {
     expect(container.querySelector('.fieldnotes-help-close')?.textContent).toBe('Close');
     expect(document.activeElement).toBe(root);
     expect(closeOthers).toHaveBeenCalledOnce();
+  });
+
+  it('omits the presentation section when no presentation action is defined', () => {
+    const { help, container } = setup();
+    help.open();
+    const titles = [...container.querySelectorAll('h3')].map((node) => node.textContent);
+    expect(titles).toContain('Palette');
+    expect(titles).not.toContain('While presenting');
   });
 
   it('a rebind shows on the next open', () => {

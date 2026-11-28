@@ -127,6 +127,7 @@ describe('palette model', () => {
       action('edit.paste', 'Paste'),
       action('tool.pencil', 'Pencil'),
       action('zoo.frob', 'Frob'),
+      action('presentation.start', 'Present'),
     ];
     const sections = buildHelpSections(
       definitions,
@@ -163,6 +164,34 @@ describe('palette model', () => {
       { label: 'Close the palette', keys: ['escape'] },
     ]);
     expect(sections[4]?.rows).toEqual([{ label: 'Frob', keys: ['mod+shift+f'] }]);
+  });
+
+  it('omits the presentation section when no presentation action is defined', () => {
+    const label = (definition: ActionDefinition) =>
+      typeof definition.label === 'string' ? definition.label : '';
+    const bindings = { 'edit.undo': ['mod+z'] };
+    const without = buildHelpSections(
+      [action('edit.undo', 'Undo'), action('tool.pencil', 'Pencil')],
+      bindings,
+      label,
+      DEFAULT_PALETTE_STRINGS,
+    );
+    expect(without.map((section) => section.title)).not.toContain('While presenting');
+
+    const withPresentation = buildHelpSections(
+      [action('edit.undo', 'Undo'), action('presentation.start', 'Present')],
+      bindings,
+      label,
+      DEFAULT_PALETTE_STRINGS,
+    );
+    const presenting = withPresentation.find((section) => section.title === 'While presenting');
+    expect(presenting?.rows.map((row) => row.label)).toEqual([
+      'Next slide',
+      'Previous slide',
+      'First slide',
+      'Last slide',
+      'End the presentation',
+    ]);
   });
 
   it('FIXED_HELP_ROWS fixes every fixed help row', () => {

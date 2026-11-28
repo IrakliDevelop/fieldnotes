@@ -25,7 +25,7 @@ export function paletteFeature(options?: PaletteOptions): ViewportPlugin {
       latest = slot;
       // Actions register in configure, before the dialogs exist in start.
       const palette: PaletteApi = {
-        open: () => slot.palette?.open(),
+        open: (query) => slot.palette?.open(query),
         close: () => slot.palette?.close(),
         isOpen: () => slot.palette?.isOpen() ?? false,
       };

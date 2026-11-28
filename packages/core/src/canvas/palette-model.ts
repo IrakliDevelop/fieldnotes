@@ -216,7 +216,9 @@ export function buildHelpSections(
     if (rows) rows.push(row);
     else groups.set(group, [row]);
   }
+  const presenting = definitions.some((definition) => definition.id.startsWith('presentation.'));
   for (const fixed of FIXED_HELP_ROWS) {
+    if (fixed.group === 'presentation' && !presenting) continue;
     const rows = groups.get(fixed.group);
     const row = { label: fixed.label, keys: fixed.keys };
     if (rows) rows.push(row);
