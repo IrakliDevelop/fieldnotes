@@ -54,7 +54,7 @@ describe('parseRoadmap', () => {
     );
   });
 
-  it('appends theming to Built and keeps the remaining sections current', () => {
+  it('appends the frame structure cache to Built and keeps the remaining sections current', () => {
     const roadmap = parseRoadmap(
       readFileSync(new URL('../../content/roadmap.md', import.meta.url), 'utf8'),
     );
@@ -78,20 +78,23 @@ describe('parseRoadmap', () => {
     expect(camera).toBeLessThan(frames);
     expect(frames).toBeLessThan(shortcuts);
     expect(roadmap.built.at(-1)).toBe(
-      'Light, dark and system board themes with colour tokens, element colours adapted on the dark board, and exports that follow them',
+      'A render loop that skips the pass over every element when nothing was added, removed or reordered, and hides off-screen notes once',
     );
     expect(roadmap.built.at(-2)).toBe(
-      'PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts',
+      'Light, dark and system board themes with colour tokens, element colours adapted on the dark board, and exports that follow them',
     );
     expect(roadmap.built.at(-3)).toBe(
-      'PNG and SVG exports that reopen as the board they came from',
+      'PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts',
     );
     expect(roadmap.built.at(-4)).toBe(
+      'PNG and SVG exports that reopen as the board they came from',
+    );
+    expect(roadmap.built.at(-5)).toBe(
       'Links on elements that open from a badge or with ⌘/Ctrl+click',
     );
     const elbow = roadmap.built.indexOf('Elbow arrows that route around shapes');
     expect(elbow).toBeGreaterThanOrEqual(0);
-    expect(elbow).toBeLessThan(roadmap.built.length - 5);
+    expect(elbow).toBeLessThan(roadmap.built.length - 6);
     expect(roadmap.built).toContain('React bindings: a canvas component and hooks');
     expect(roadmap.built.indexOf('React bindings: a canvas component and hooks')).toBeLessThan(
       roadmap.built.indexOf(
