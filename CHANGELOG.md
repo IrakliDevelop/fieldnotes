@@ -11,10 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions refer t
 **Changed**
 
 - A frame no longer walks every element when nothing structural changed (elements added,
-  removed or reordered, layers, or HTML routing). Off-screen notes are hidden once instead of
-  every frame.
+  removed or reordered, layers, or HTML routing). Off-screen notes, text and HTML elements are
+  hidden once instead of every frame.
 - Frame mean measured by `pnpm bench` (drawing stubbed), before and after:
-  - 10,000 canvas elements over 4 layers: 0.286 ms to 0.0019 ms.
+  - 10,000 canvas elements over 4 layers: 0.29 ms to 0.0019 ms.
   - 50,000 canvas elements: 1.51 ms to 0.0020 ms.
   - 10,000 elements with 2,500 notes: 1.16 ms to 0.93 ms.
   - dragging one element among 10,000: 0.50 ms to 0.22 ms.

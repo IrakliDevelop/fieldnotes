@@ -78,7 +78,7 @@ describe('parseRoadmap', () => {
     expect(camera).toBeLessThan(frames);
     expect(frames).toBeLessThan(shortcuts);
     expect(roadmap.built.at(-1)).toBe(
-      'A render loop that skips the pass over every element when nothing was added, removed or reordered, and hides off-screen notes once',
+      'A render loop that skips the pass over every element when nothing was added, removed or reordered, and hides off-screen sticky notes, text and HTML elements once instead of every frame',
     );
     expect(roadmap.built.at(-2)).toBe(
       'Light, dark and system board themes with colour tokens, element colours adapted on the dark board, and exports that follow them',

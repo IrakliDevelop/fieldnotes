@@ -41,7 +41,7 @@
 - PNG and SVG exports that reopen as the board they came from
 - PDF export with one page per frame or one for the board, keeping element links, and SVG export with selectable text and embedded fonts
 - Light, dark and system board themes with colour tokens, element colours adapted on the dark board, and exports that follow them
-- A render loop that skips the pass over every element when nothing was added, removed or reordered, and hides off-screen notes once
+- A render loop that skips the pass over every element when nothing was added, removed or reordered, and hides off-screen sticky notes, text and HTML elements once instead of every frame
 
 ## Next
 
