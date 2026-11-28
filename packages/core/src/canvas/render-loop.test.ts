@@ -18,12 +18,19 @@ import type { RenderHooks, ViewportRenderHooks } from './render-hooks';
 import { ElementStore as RealElementStore } from '../elements/element-store';
 import { LayerManager as RealLayerManager } from '../layers/layer-manager';
 import { LayerCache as RealLayerCache } from './layer-cache';
-import { createArrow, createNote, createShape, createStroke } from '../elements/element-factory';
+import {
+  createArrow,
+  createHtmlElement,
+  createNote,
+  createShape,
+  createStroke,
+} from '../elements/element-factory';
 import { DEFAULT_THEME, resolveTheme } from './theme';
-import { getElbowRoute } from '../elements/elbow-cache';
+import { getElbowRoute, invalidateElbowRoutes } from '../elements/elbow-cache';
 import type { ExtensionElementEnvelope } from '../elements/types';
 import { ElementRegistry } from '../elements/element-registry';
 import { createTestBoxRegistry } from '../test-helpers/test-box-type';
+import { DomNodeManager as RealDomNodeManager } from './dom-node-manager';
 
 function createMockDeps() {
   const canvasEl = document.createElement('canvas');
@@ -1896,7 +1903,7 @@ describe('RenderLoop', () => {
 
       frame();
 
-      expect(spy).toHaveBeenCalledTimes(3);
+      expect(spy).not.toHaveBeenCalled();
     });
 
     it('routes canvas content to the layer cache once the only DOM layer is hidden between frames', () => {
@@ -1982,6 +1989,209 @@ describe('RenderLoop', () => {
       expect(vi.mocked(deps.renderer.renderCanvasElement).mock.calls).toEqual([
         [deps.layerCache.getContext(layerId), expect.objectContaining({ id: 'inside' })],
       ]);
+    });
+
+    function routeUpdates(): void {
+      store.on('update', ({ previous, current }) =>
+        renderLoop.noteElementUpdate(previous, current),
+      );
+    }
+
+    it('syncs a moved note with its updated element', () => {
+      routeUpdates();
+      store.add(note('n', 1));
+      frame();
+
+      store.update('n', { position: { x: 40, y: 30 } });
+      frame();
+
+      expect(vi.mocked(deps.domNodeManager.syncDomNode).mock.lastCall?.[0].position).toEqual({
+        x: 40,
+        y: 30,
+      });
+    });
+
+    it('does not rebuild the structure while a note is dragged', () => {
+      routeUpdates();
+      for (let i = 0; i < 199; i++) store.add(shape(`s${i}`, i));
+      store.add(note('n', 500));
+      frame();
+      const isFullCanvas = vi.mocked(deps.renderer.isFullCanvasElement);
+      isFullCanvas.mockClear();
+
+      for (let x = 1; x <= 10; x++) {
+        store.update('n', { position: { x, y: 0 } });
+        frame();
+      }
+
+      expect(isFullCanvas.mock.calls.length).toBeLessThan(200);
+    });
+
+    it('hides a note panned out of view and syncs it when panned back', () => {
+      store.add(note('n', 1));
+      frame();
+      const hide = vi.mocked(deps.domNodeManager.hideDomNode);
+      const sync = vi.mocked(deps.domNodeManager.syncDomNode);
+      sync.mockClear();
+
+      Object.assign(deps.camera, { position: { x: -100_000, y: 0 } });
+      frame();
+      expect(hide).toHaveBeenLastCalledWith('n');
+      expect(sync).not.toHaveBeenCalled();
+
+      Object.assign(deps.camera, { position: { x: 0, y: 0 } });
+      frame();
+      expect(sync).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'n' }), 1, 1, null);
+    });
+
+    describe('matches a fresh loop after each structural change', () => {
+      let upper: string;
+
+      beforeEach(() => {
+        routeUpdates();
+        upper = layers.createLayer().id;
+        store.add(shape('a', 1));
+        store.add(note('b', 2));
+        store.add({ ...note('far', 3), position: { x: 100_000, y: 0 } });
+        store.add({ ...shape('c', 1), layerId: upper });
+        store.add({ ...note('d', 2), layerId: upper });
+        store.add({ ...shape('e', 3), layerId: upper });
+      });
+
+      function calls(d: ReturnType<typeof createMockDeps>) {
+        return {
+          drawn: vi.mocked(d.renderer.renderCanvasElement).mock.calls.map(([, el]) => el.id),
+          synced: vi
+            .mocked(d.domNodeManager.syncDomNode)
+            .mock.calls.map(([el, order, opacity]) => [el.id, order, opacity]),
+          hidden: new Set(vi.mocked(d.domNodeManager.hideDomNode).mock.calls.map(([id]) => id)),
+        };
+      }
+
+      it.each<[string, () => void]>([
+        ['layer hidden', () => layers.setLayerVisible(upper, false)],
+        [
+          'layer shown',
+          () => {
+            layers.setLayerVisible(upper, false);
+            renderLoop.markAllLayersDirty();
+            frame();
+            layers.setLayerVisible(upper, true);
+          },
+        ],
+        ['layers reordered', () => layers.reorderLayer(upper, -1)],
+        ['element added', () => store.add({ ...shape('f', 4), layerId: layerId })],
+        ['element removed', () => store.remove('b')],
+        ['element moved to another layer', () => store.update('a', { layerId: upper })],
+      ])('%s', (_name, change) => {
+        frame();
+        change();
+        renderLoop.markAllLayersDirty();
+        vi.clearAllMocks();
+        frame();
+
+        const fresh = createMockDeps();
+        Object.defineProperty(fresh.canvasEl, 'clientWidth', { value: 800 });
+        Object.defineProperty(fresh.canvasEl, 'clientHeight', { value: 600 });
+        renderLoop = new RenderLoop({ ...fresh, store, layerManager: layers });
+        frame();
+
+        expect(calls(deps)).toEqual(calls(fresh));
+      });
+    });
+
+    it('rebuilds when an element changes between DOM and canvas routing', () => {
+      routeUpdates();
+      vi.mocked(deps.renderer.isDomElement).mockImplementation(
+        (el) => el.type === 'html' && el.htmlType === 'dom-widget',
+      );
+      store.add({
+        ...createHtmlElement({
+          position: { x: 0, y: 0 },
+          size: { w: 10, h: 10 },
+          layerId,
+          index: 'a1',
+          htmlType: 'dom-widget',
+        }),
+        id: 'h',
+      });
+      frame();
+      expect(deps.domNodeManager.syncDomNode).toHaveBeenCalled();
+      vi.clearAllMocks();
+
+      store.update('h', { htmlType: 'canvas-widget' });
+      frame();
+
+      expect(deps.domNodeManager.syncDomNode).not.toHaveBeenCalled();
+      expect(vi.mocked(deps.renderer.renderCanvasElement).mock.calls).toEqual([
+        [deps.layerCache.getContext(layerId), expect.objectContaining({ id: 'h' })],
+      ]);
+    });
+
+    it('passes hook and overlay orders to the hybrid surface on every frame', () => {
+      const hooks = createRenderHooks();
+      hooks.viewport.register({ afterElements: () => undefined });
+      renderLoop = new RenderLoop({ ...deps, store, layerManager: layers, hooks });
+      store.add(shape('a', 1));
+      store.add(note('b', 2));
+      store.add(shape('c', 3));
+
+      frame();
+      frame();
+
+      const [first, second] = vi.mocked(deps.hybridSurface.beginFrame).mock.calls;
+      expect(first?.[0]).toEqual(new Set([3, 4]));
+      expect(second?.[0]).toEqual(new Set([3, 4]));
+      expect(second?.[0]).not.toBe(first?.[0]);
+    });
+
+    it('hides a hidden-layer node that was shown outside the frame', () => {
+      const domNodeManager = new RealDomNodeManager({
+        domLayer: document.createElement('div'),
+        onEditRequest: () => undefined,
+        isEditingElement: () => false,
+      });
+      renderLoop = new RenderLoop({ ...deps, store, layerManager: layers, domNodeManager });
+      store.add(note('n', 1));
+      frame();
+      layers.setLayerVisible(layerId, false);
+      renderLoop.markAllLayersDirty();
+      frame();
+      const element = store.getById('n');
+      if (!element) throw new Error('expected note');
+
+      domNodeManager.syncDomNode(element);
+      expect(domNodeManager.getNode('n')?.style.display).toBe('block');
+      frame();
+
+      expect(domNodeManager.getNode('n')?.style.display).toBe('none');
+    });
+
+    it('re-renders an elbow layer without rebuilding', () => {
+      const arrow = {
+        ...createArrow({
+          from: { x: 0, y: 0 },
+          to: { x: 200, y: 0 },
+          routing: 'elbow',
+          layerId,
+        }),
+        id: 'arrow',
+      };
+      store.add(arrow);
+      for (let i = 0; i < 50; i++) store.add(shape(`s${i}`, i));
+      const installed = store.getById('arrow');
+      if (!installed || installed.type !== 'arrow') throw new Error('expected arrow');
+      getElbowRoute(store, installed);
+      frame();
+      const isFullCanvas = vi.mocked(deps.renderer.isFullCanvasElement);
+      isFullCanvas.mockClear();
+      vi.mocked(deps.layerCache.markDirty).mockClear();
+
+      invalidateElbowRoutes(store, { projectionChanged: true });
+      frame();
+
+      expect(deps.layerCache.markDirty).toHaveBeenCalledWith(layerId);
+      expect(isFullCanvas.mock.calls.length).toBeLessThan(51);
     });
   });
 

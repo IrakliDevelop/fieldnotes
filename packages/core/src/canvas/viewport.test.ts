@@ -614,8 +614,7 @@ describe('Viewport', () => {
           flush(): void;
           setCanvasSize(width: number, height: number): void;
           htmlScratchCanvas: HTMLCanvasElement | null;
-          hybridActive: boolean;
-          firstDomIndex: number;
+          structure: { hybridActive: boolean; firstDomIndex: number } | null;
           layerOpacities: Map<string, number>;
         };
         renderer: { isDomElement(element: HtmlElement): boolean };
@@ -637,8 +636,8 @@ describe('Viewport', () => {
       priv.renderLoop.setCanvasSize(800, 600);
       viewport.requestRender();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      expect(priv.renderLoop.hybridActive).toBe(true);
-      expect(priv.renderLoop.firstDomIndex).toBe(0);
+      expect(priv.renderLoop.structure?.hybridActive).toBe(true);
+      expect(priv.renderLoop.structure?.firstDomIndex).toBe(0);
       expect(priv.renderLoop.layerOpacities.get(viewport.layerManager.activeLayerId)).toBe(0.5);
       expect(priv.renderer.isDomElement(marker)).toBe(false);
       expect(painter).toHaveBeenCalledOnce();

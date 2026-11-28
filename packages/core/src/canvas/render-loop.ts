@@ -17,6 +17,8 @@ import type { RenderHooks } from './render-hooks';
 import { reportFailure } from '../core/report-failure';
 import { takeAffectedElbowLayers } from '../elements/elbow-cache';
 import type { ResolvedTheme } from './theme';
+import { buildFrameStructure } from './frame-structure';
+import type { FrameStructure } from './frame-structure';
 
 /**
  * A world-space draw callback rendered above elements on every frame,
@@ -89,7 +91,6 @@ export class RenderLoop {
   private readonly hooks?: RenderHooks;
   private readonly onFullFrame?: () => void;
   private readonly stats = new RenderStats();
-  private layerGroups = new Map<string, CanvasElement[]>();
   private htmlScratchCanvas: HTMLCanvasElement | null = null;
   private htmlScratchCtx: CanvasRenderingContext2D | null = null;
   private renderErrorReported = false;
@@ -100,9 +101,7 @@ export class RenderLoop {
   // Frame structure, recomputed only when the store array or layer state changes.
   private structureSource: readonly CanvasElement[] | null = null;
   private structureDirty = true;
-  private visibleCount = 0;
-  private firstDomIndex = -1;
-  private hybridActive = false;
+  private structure: FrameStructure | null = null;
   // Overlay stratum and mask state of the last full frame, reused by overlay-only frames.
   private lastOverlayOrder: number | null = null;
   private lastFrameMasked = false;
@@ -199,8 +198,22 @@ export class RenderLoop {
     this.layerCache.markAllDirty();
   }
 
+  // Pixels changed, structure did not.
+  private markLayerCacheDirty(layerId: string): void {
+    this.layerCache.markDirty(layerId);
+  }
+
   noteElementUpdate(previous: CanvasElement, current: CanvasElement): void {
     const { id } = current;
+    // A routing flip to canvas takes the warm path below, so the check covers both paths.
+    if (
+      previous.layerId !== current.layerId ||
+      previous.index !== current.index ||
+      this.renderer.isDomElement(previous) !== this.renderer.isDomElement(current) ||
+      this.renderer.isFullCanvasElement(previous) !== this.renderer.isFullCanvasElement(current)
+    ) {
+      this.structureDirty = true;
+    }
     if (
       previous.layerId !== current.layerId ||
       previous.index !== current.index ||
@@ -213,8 +226,8 @@ export class RenderLoop {
       (this.layerManager.getLayer(current.layerId)?.opacity ?? 1) !== 1
     ) {
       this.live.delete(id);
-      this.markLayerDirty(previous.layerId);
-      this.markLayerDirty(current.layerId);
+      this.markLayerCacheDirty(previous.layerId);
+      this.markLayerCacheDirty(current.layerId);
       return;
     }
     const now = performance.now();
@@ -229,12 +242,12 @@ export class RenderLoop {
     } else {
       this.warm.set(id, now);
     }
-    this.markLayerDirty(current.layerId);
+    this.markLayerCacheDirty(current.layerId);
   }
 
   forgetElement(id: string, layerId: string): void {
     this.warm.delete(id);
-    if (this.live.delete(id)) this.markLayerDirty(layerId);
+    if (this.live.delete(id)) this.markLayerCacheDirty(layerId);
   }
 
   clearLive(): void {
@@ -317,11 +330,12 @@ export class RenderLoop {
     this.restoreTracked(ctx);
   }
 
-  /** Rasterises `elements[start..end)` into a cache part when dirty, then composites it at opacity 1. */
+  /** Rasterises the elements at `ranks[start..end)` into a cache part when dirty, then composites it at opacity 1. */
   private drawLayerPart(
     ctx: CanvasRenderingContext2D,
     layerId: string,
     part: LayerCachePart,
+    ranks: readonly number[],
     elements: readonly CanvasElement[],
     start: number,
     end: number,
@@ -336,7 +350,7 @@ export class RenderLoop {
       this.saveTracked(offCtx);
       this.marginViewport.applyRenderTransform(offCtx);
       for (let i = start; i < end; i++) {
-        const element = elements[i];
+        const element = elements[ranks[i] ?? -1];
         if (element) this.renderCulled(offCtx as CanvasRenderingContext2D, element, cullingRect);
       }
       this.restoreTracked(offCtx);
@@ -349,6 +363,7 @@ export class RenderLoop {
   private drawLayerGroup(
     ctx: CanvasRenderingContext2D,
     layerId: string,
+    ranks: readonly number[],
     elements: readonly CanvasElement[],
     cullingRect: Bounds,
     timers: FrameTimers,
@@ -359,8 +374,8 @@ export class RenderLoop {
     if (this.live.size > 0 && layerOpacity === 1) {
       let lo = -1;
       let hi = -1;
-      for (let i = 0; i < elements.length; i++) {
-        const element = elements[i];
+      for (let i = 0; i < ranks.length; i++) {
+        const element = elements[ranks[i] ?? -1];
         if (!element || !this.live.has(element.id)) continue;
         if (lo < 0) lo = i;
         hi = i;
@@ -369,7 +384,7 @@ export class RenderLoop {
         let includesBlendedStroke = false;
         if (this.blendedNeverLive) {
           for (let i = lo; i <= hi; i++) {
-            const element = elements[i];
+            const element = elements[ranks[i] ?? -1];
             if (element?.type === 'stroke' && element.blendMode !== undefined) {
               includesBlendedStroke = true;
               break;
@@ -380,12 +395,21 @@ export class RenderLoop {
           this.layerCache.markDirty(layerId);
         } else {
           const layerT0 = performance.now();
-          this.drawLayerPart(ctx, layerId, 'under', elements, 0, lo, cullingRect);
+          this.drawLayerPart(ctx, layerId, 'under', ranks, elements, 0, lo, cullingRect);
           for (let i = lo; i <= hi; i++) {
-            const element = elements[i];
+            const element = elements[ranks[i] ?? -1];
             if (element) this.renderCulled(ctx, element, cullingRect);
           }
-          this.drawLayerPart(ctx, layerId, 'over', elements, hi + 1, elements.length, cullingRect);
+          this.drawLayerPart(
+            ctx,
+            layerId,
+            'over',
+            ranks,
+            elements,
+            hi + 1,
+            ranks.length,
+            cullingRect,
+          );
           timers.layersMs += performance.now() - layerT0;
           return;
         }
@@ -406,8 +430,9 @@ export class RenderLoop {
       offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
       this.saveTracked(offCtx);
       this.marginViewport.applyRenderTransform(offCtx);
-      for (const element of elements) {
-        this.renderCulled(offCtx as CanvasRenderingContext2D, element, cullingRect);
+      for (const rank of ranks) {
+        const element = elements[rank];
+        if (element) this.renderCulled(offCtx as CanvasRenderingContext2D, element, cullingRect);
       }
       this.restoreTracked(offCtx);
       this.layerCache.markClean(layerId);
@@ -632,12 +657,12 @@ export class RenderLoop {
         if (t0 - at < LIVE_IDLE_MS) continue;
         this.live.delete(id);
         const element = this.store.getById(id);
-        if (element) this.markLayerDirty(element.layerId);
+        if (element) this.markLayerCacheDirty(element.layerId);
       }
     }
     const ctx = this.canvasEl.getContext('2d');
     if (!ctx) return;
-    for (const layerId of takeAffectedElbowLayers(this.store)) this.markLayerDirty(layerId);
+    for (const layerId of takeAffectedElbowLayers(this.store)) this.markLayerCacheDirty(layerId);
     for (const canvas of this.staleCanvases) resetCanvas(canvas);
     this.staleCanvases.length = 0;
 
@@ -693,103 +718,60 @@ export class RenderLoop {
     const registry = this.store.elementRegistry;
 
     const allElements = this.store.getAll();
-    if (allElements !== this.structureSource || this.structureDirty) {
+    let structure = this.structure;
+    if (!structure || allElements !== this.structureSource || this.structureDirty) {
+      // Built into a local and assigned once, so a reentrant flush() never sees a partial one.
+      structure = buildFrameStructure(
+        allElements,
+        (layerId) => this.layerManager.isLayerVisible(layerId),
+        (element) => this.renderer.isDomElement(element),
+        (element) => this.renderer.isFullCanvasElement(element),
+      );
+      this.structure = structure;
       this.structureSource = allElements;
       this.structureDirty = false;
-      let visibleCount = 0;
-      let firstDomIndex = -1;
-      let hybridActive = false;
-      for (const element of allElements) {
-        if (!this.layerManager.isLayerVisible(element.layerId)) continue;
-        if (!hybridActive) {
-          const isDom = this.renderer.isDomElement(element);
-          if (firstDomIndex < 0 && isDom) firstDomIndex = visibleCount;
-          else if (firstDomIndex >= 0 && !isDom) hybridActive = true;
-        }
-        visibleCount++;
-      }
-      this.visibleCount = visibleCount;
-      this.firstDomIndex = firstDomIndex;
-      this.hybridActive = hybridActive;
     }
-    const { firstDomIndex, hybridActive } = this;
     this.layerOpacities.clear();
     const layers = this.layerManager.getLayers();
     for (const layer of layers) {
       this.layerOpacities.set(layer.id, layer.opacity);
     }
-    const hybridCanvasRuns = new Map<number, CanvasElement[]>();
-    const hybridOrders = new Set<number>();
-    let activeHybridOrder: number | null = null;
-    this.layerGroups.clear();
-    const fullCanvasElements: CanvasElement[] = [];
-    let paintOrder = 0;
     let orphanGroups = 0;
+    for (const layerId of structure.layerGroups.keys()) {
+      if (!this.layerOpacities.has(layerId)) orphanGroups++;
+    }
 
-    for (const element of allElements) {
-      if (!this.layerManager.isLayerVisible(element.layerId)) {
-        if (this.renderer.isDomElement(element)) {
-          this.domNodeManager.hideDomNode(element.id);
-        }
+    for (const rank of structure.hiddenDom) {
+      const element = allElements[rank];
+      if (element) this.domNodeManager.hideDomNode(element.id);
+    }
+    for (const { rank, order } of structure.dom) {
+      const element = allElements[rank];
+      if (!element) continue;
+      const layerOpacity = this.layerOpacities.get(element.layerId) ?? 1;
+      const elBounds = getElementVisualBounds(element, registry);
+      if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
+        this.domNodeManager.hideDomNode(element.id);
         continue;
       }
-
-      const order = ++paintOrder;
-
-      if (this.renderer.isDomElement(element)) {
-        activeHybridOrder = null;
-        const layerOpacity = this.layerOpacities.get(element.layerId) ?? 1;
-        const elBounds = getElementVisualBounds(element, registry);
-        if (elBounds && !boundsIntersect(elBounds, cullingRect)) {
-          this.domNodeManager.hideDomNode(element.id);
-        } else {
-          const clip = this.effectiveClip(element.id);
-          const visible = clip && elBounds ? intersection(elBounds, clip) : elBounds;
-          if (clip === undefined || (clip && (!visible || !intersection(visible, cullingRect)))) {
-            this.domNodeManager.hideDomNode(element.id);
-          } else {
-            this.domNodeManager.syncDomNode(element, order, layerOpacity, clip);
-          }
-        }
-        continue;
+      const clip = this.effectiveClip(element.id);
+      const visible = clip && elBounds ? intersection(elBounds, clip) : elBounds;
+      if (clip === undefined || (clip && (!visible || !intersection(visible, cullingRect)))) {
+        this.domNodeManager.hideDomNode(element.id);
+      } else {
+        this.domNodeManager.syncDomNode(element, order, layerOpacity, clip);
       }
-
-      // Full-canvas extensions (e.g. grids) render on a separate pass with
-      // explicit world bounds, not inline with layer elements.
-      if (this.renderer.isFullCanvasElement(element)) {
-        fullCanvasElements.push(element);
-        continue;
-      }
-
-      if (hybridActive && paintOrder > firstDomIndex + 1) {
-        activeHybridOrder ??= order;
-        let run = hybridCanvasRuns.get(activeHybridOrder);
-        if (!run) {
-          run = [];
-          hybridCanvasRuns.set(activeHybridOrder, run);
-          hybridOrders.add(activeHybridOrder);
-        }
-        run.push(element);
-        continue;
-      }
-
-      let group = this.layerGroups.get(element.layerId);
-      if (!group) {
-        group = [];
-        this.layerGroups.set(element.layerId, group);
-        if (!this.layerOpacities.has(element.layerId)) orphanGroups++;
-      }
-      group.push(element);
     }
 
     const hasAfterElementsHook = this.hooks?.viewport.has('afterElements') ?? false;
     const hasAfterAllHook = this.hooks?.viewport.has('afterAll') ?? false;
     const masked = this.hooks?.viewport.isFailClosed() ?? false;
     const hasAfterElementsStratum = hasAfterElementsHook || masked;
-    const afterElementsOrder = this.visibleCount + 1;
+    const afterElementsOrder = structure.visibleCount + 1;
     const overlayOrder = afterElementsOrder + (hasAfterElementsStratum ? 1 : 0);
     const afterAllOrder = overlayOrder + 1;
     const hasOverlay = this.hasOverlay();
+    const hybridOrders = new Set(structure.hybridOrders);
     if (hasAfterElementsStratum) hybridOrders.add(afterElementsOrder);
     if (hasOverlay) hybridOrders.add(overlayOrder);
     if (hasAfterAllHook) hybridOrders.add(afterAllOrder);
@@ -800,15 +782,15 @@ export class RenderLoop {
     const hasAfterLayerHook = this.hooks?.viewport.has('afterLayer') ?? false;
     // Unlisted layers sort as order 0 in the store, so their groups paint first.
     if (orphanGroups > 0) {
-      for (const [layerId, elements] of this.layerGroups) {
+      for (const [layerId, ranks] of structure.layerGroups) {
         if (!this.layerOpacities.has(layerId)) {
-          this.drawLayerGroup(ctx, layerId, elements, cullingRect, timers);
+          this.drawLayerGroup(ctx, layerId, ranks, allElements, cullingRect, timers);
         }
       }
     }
     for (const layer of layers) {
-      const elements = this.layerGroups.get(layer.id);
-      if (elements) this.drawLayerGroup(ctx, layer.id, elements, cullingRect, timers);
+      const ranks = structure.layerGroups.get(layer.id);
+      if (ranks) this.drawLayerGroup(ctx, layer.id, ranks, allElements, cullingRect, timers);
       if (!this.hooks || !hasAfterLayerHook || !layer.visible) continue;
       this.saveTracked(ctx);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -825,7 +807,7 @@ export class RenderLoop {
 
     // Render full-canvas extensions (e.g. grids) with explicit world bounds.
     // These render after layer elements but before hybrid canvas runs.
-    if (fullCanvasElements.length > 0) {
+    if (structure.fullCanvas.length > 0) {
       const cb = this.marginViewport.cachedWorldBounds();
       const worldBounds = {
         minX: cb.x,
@@ -833,7 +815,9 @@ export class RenderLoop {
         maxX: cb.x + cb.w,
         maxY: cb.y + cb.h,
       };
-      for (const el of fullCanvasElements) {
+      for (const rank of structure.fullCanvas) {
+        const el = allElements[rank];
+        if (!el) continue;
         this.saveTracked(ctx);
         ctx.globalAlpha = this.layerOpacities.get(el.layerId) ?? 1;
         this.renderer.renderExtensionWithBounds(ctx, el, worldBounds, allElements);
@@ -841,7 +825,7 @@ export class RenderLoop {
       }
     }
 
-    for (const [order, elements] of hybridCanvasRuns) {
+    for (const [order, ranks] of structure.hybridRuns) {
       const hybridCtx = this.hybridSurface.getContext(order);
       if (!hybridCtx) continue;
       hybridCtx.clearRect(0, 0, this.canvasEl.width, this.canvasEl.height);
@@ -849,7 +833,9 @@ export class RenderLoop {
       hybridCtx.scale(dpr, dpr);
       hybridCtx.translate(this.camera.position.x, this.camera.position.y);
       hybridCtx.scale(this.camera.zoom, this.camera.zoom);
-      for (const element of elements) {
+      for (const rank of ranks) {
+        const element = allElements[rank];
+        if (!element) continue;
         const elBounds = getElementVisualBounds(element, registry);
         if (elBounds && !boundsIntersect(elBounds, cullingRect)) continue;
         const layerOpacity = this.layerOpacities.get(element.layerId) ?? 1;
