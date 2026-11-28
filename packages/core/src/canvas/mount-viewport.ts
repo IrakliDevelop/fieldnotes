@@ -1,6 +1,5 @@
 import { Viewport } from './viewport';
 import type { ViewportOptions } from './viewport';
-import { createDefaultTools } from '../tools/default-tools';
 import { reportFailure } from '../core/report-failure';
 import { AutoSave } from '../core/auto-save';
 import type { AutoSaveOptions } from '../core/auto-save';
@@ -17,11 +16,8 @@ export type MountAutoSaveOptions = Omit<
 export interface MountViewportOptions {
   /** Read once at mount. */
   options?: ViewportOptions;
-  /**
-   * Read once at mount. `'default'`: `createDefaultTools()` before `onReady`, `select` active.
-   * Omitted (and no `options.tools`): the same bundle after `onReady`, only if none is registered by then.
-   */
-  tools?: Tool[] | 'default';
+  /** Read once at mount, registered before `onReady`; `select` activates when present. Omitted: no tools. */
+  tools?: Tool[];
   /** Read once at mount: a saved state (object or JSON string) loaded before `onReady`. */
   initialData?: ImportableCanvasState | string;
   /** Active tool at mount; wins over `defaultTool`. */
@@ -73,14 +69,12 @@ export function mountViewport(
 
   const activate = (fallback?: string) => {
     const name = opts.tool ?? opts.defaultTool ?? fallback;
-    if (name) vp.setTool(name);
+    if (name && vp.toolManager.activeTool?.name !== name) vp.setTool(name);
   };
-  // An explicit `options.tools` is the host's choice; core registers it and activates select.
-  const deferDefaults = tools === undefined && options?.tools === undefined;
-  for (const t of tools === 'default' ? createDefaultTools() : (tools ?? [])) {
-    register(t);
-  }
-  if (!deferDefaults) activate(tools === 'default' ? 'select' : undefined);
+  // Without host tools, activation waits for tools registered in onReady.
+  const deferActivation = tools === undefined && options?.tools === undefined;
+  for (const t of tools ?? []) register(t);
+  if (!deferActivation) activate(vp.toolManager.getTool('select') ? 'select' : undefined);
 
   try {
     if (typeof initialData === 'string') vp.loadJSON(initialData);
@@ -104,15 +98,7 @@ export function mountViewport(
 
   try {
     opts.onReady?.(vp);
-
-    // Hosts that register their own tools in onReady keep exactly those.
-    if (deferDefaults) {
-      const registerDefaults = vp.toolManager.toolNames.length === 0;
-      if (registerDefaults) {
-        for (const t of createDefaultTools()) register(t);
-      }
-      activate(registerDefaults ? 'select' : undefined);
-    }
+    if (deferActivation) activate();
   } catch (error) {
     clearTimeout(timer);
     unsubscribe();

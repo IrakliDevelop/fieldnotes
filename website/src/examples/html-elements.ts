@@ -1,4 +1,4 @@
-import { Viewport } from '@fieldnotes/core';
+import { Viewport, createDefaultTools, defaultFeatures } from '@fieldnotes/core';
 
 export { createBoard } from './getting-started';
 
@@ -44,7 +44,10 @@ function initiativeCard(title: string): HTMLElement {
 export function renderer(): void {
   // #region renderer
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
-  const viewport = new Viewport(document.getElementById('board')!, { tools: 'default' });
+  const viewport = new Viewport(document.getElementById('board')!, {
+    tools: createDefaultTools(),
+    plugins: defaultFeatures(),
+  });
   viewport.registerHtmlRenderer('initiative', (element) => {
     const title = element.data?.title;
     return initiativeCard(typeof title === 'string' ? title : '');
@@ -65,7 +68,8 @@ export function embedded(): void {
   // #region embedded
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
   const viewport = new Viewport(document.getElementById('board')!, {
-    tools: 'default',
+    tools: createDefaultTools(),
+    plugins: defaultFeatures(),
     embedded: true,
   });
   viewport.shortcuts.disable('select.cycle');

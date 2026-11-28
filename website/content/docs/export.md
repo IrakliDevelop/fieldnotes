@@ -7,7 +7,7 @@ order: 5
 
 ## Export a PNG
 
-`viewport.exportImage(options)` draws the board into a new canvas and resolves to a PNG `Blob`. It resolves to `null` when no element on a visible layer is left to draw and no `region` or `frameId` is set.
+`exportImage(viewport, options)` draws the board into a new canvas and resolves to a PNG `Blob`. It resolves to `null` when no element on a visible layer is left to draw and no `region` or `frameId` is set.
 
 ::code{example="export" region="png"}
 
@@ -32,7 +32,7 @@ The options:
 
 ## Export an SVG
 
-`viewport.exportSVG(options)` resolves to an SVG string. It takes the same `padding`, `filter`, and
+`exportSvg(viewport, options)` resolves to an SVG string. It takes the same `padding`, `filter`, and
 `frameId` options. `frameId` selects one root frame's exact content rectangle and includes only its
 descendants, without frame title, border, padding chrome, or unrelated overlap. An empty frame
 produces an SVG at that size. SVG does not support `region`. `theme` works as for PNG, and an
@@ -66,7 +66,7 @@ redraws. Field Notes doesn't load the font, so load it in your page, for example
 
 ## Export a PDF
 
-`viewport.exportPDF(options)` resolves to a PDF `Blob`, or `null` for an empty board. Each page is a
+`exportPdf(viewport, options)` resolves to a PDF `Blob`, or `null` for an empty board. Each page is a
 picture, so its text can't be selected. Element links to web pages, email addresses and elements in
 the PDF stay clickable. A PDF follows the [board theme](/docs/theming/) unless `theme` overrides it, and an explicit
 `background` wins even when it clashes with themed colours. A dark PDF fills the whole page.

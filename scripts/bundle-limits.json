@@ -1,0 +1,47 @@
+{
+  "viewport": {
+    "gzip": 83762,
+    "forbidden": [
+      "canvas/export-image",
+      "canvas/export-svg",
+      "canvas/export-pdf",
+      "pdf-writer",
+      "export-fonts",
+      "canvas/presentation.ts",
+      "command-palette",
+      "shortcuts-help",
+      "scene-search",
+      "canvas/minimap.ts",
+      "tools/default-tools",
+      "tools/hand-tool",
+      "tools/select-tool",
+      "tools/pencil-tool",
+      "tools/eraser-tool",
+      "tools/arrow-tool",
+      "tools/note-tool",
+      "tools/text-tool",
+      "tools/shape-tool",
+      "tools/frame-tool",
+      "tools/image-tool",
+      "tools/laser-tool",
+      "tools/ping-tool"
+    ]
+  },
+  "board": {
+    "gzip": 92829,
+    "forbidden": [
+      "canvas/export-image",
+      "canvas/export-svg",
+      "canvas/export-pdf",
+      "pdf-writer",
+      "export-fonts",
+      "canvas/presentation.ts",
+      "command-palette",
+      "shortcuts-help",
+      "scene-search",
+      "canvas/minimap.ts",
+      "tools/default-tools"
+    ]
+  },
+  "full": { "gzip": 119725, "forbidden": [] }
+}

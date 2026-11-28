@@ -11,11 +11,11 @@ order: 2
 npm install @fieldnotes/core @fieldnotes/react
 ```
 
-`@fieldnotes/react` needs React 18 or 19 and `@fieldnotes/core >=0.110.0 <1.0.0`.
+`@fieldnotes/react` needs React 18 or 19 and `@fieldnotes/core >=0.111.0 <1.0.0`.
 
 ## Mount a board
 
-`<FieldNotesCanvas>` creates the viewport when it mounts and destroys it when it unmounts. With no `tools` prop, and no tools registered in `onReady`, it registers the default tools and starts on select, as `tools: 'default'` does in [Getting started](/docs/getting-started/).
+`<FieldNotesCanvas>` creates the viewport when it mounts and destroys it when it unmounts. It registers the tools in its `tools` prop and starts on select; without `tools` the board has none. `tools={createDefaultTools()}` and `options={{ plugins: defaultFeatures() }}` give the board from [Getting started](/docs/getting-started/).
 
 :::margin
 `options` and `initialData` are read once, at mount. Changing them later does nothing.

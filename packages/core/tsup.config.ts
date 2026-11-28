@@ -6,4 +6,7 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
+  esbuildOptions(o) {
+    o.sourcesContent = false;
+  },
 });

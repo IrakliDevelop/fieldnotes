@@ -12,7 +12,14 @@ import {
 import { TestBed } from '@angular/core/testing';
 import type { ComponentFixture, TestModuleMetadata } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { HandTool, PencilTool, SelectTool, Viewport, createShape } from '@fieldnotes/core';
+import {
+  HandTool,
+  PencilTool,
+  SelectTool,
+  Viewport,
+  createDefaultTools,
+  createShape,
+} from '@fieldnotes/core';
 import type {
   CanvasState,
   ImportableCanvasState,
@@ -37,7 +44,7 @@ const DEFAULT_TOOL_NAMES = [
 
 interface HostInit {
   options?: ViewportOptions;
-  tools?: Tool[] | 'default';
+  tools?: Tool[];
   initialData?: ImportableCanvasState | string;
   changeDebounceMs?: number;
   defaultTool?: string;
@@ -187,8 +194,8 @@ describe('FieldNotesCanvas', () => {
     expect(mounted(viewport).toolManager.activeTool?.name).toBe('select');
   });
 
-  it('a bare canvas registers the default bundle with select active', async () => {
-    const { viewport } = await mount();
+  it('createDefaultTools() registers the bundle with select active', async () => {
+    const { viewport } = await mount({ tools: createDefaultTools() });
     expect(mounted(viewport).toolManager.toolNames).toEqual(DEFAULT_TOOL_NAMES);
     expect(mounted(viewport).toolManager.activeTool?.name).toBe('select');
   });
@@ -199,16 +206,25 @@ describe('FieldNotesCanvas', () => {
     expect(mounted(viewport).toolManager.activeTool).toBeNull();
   });
 
-  it("tools='default' registers the default bundle even with options.tools set", async () => {
-    const { viewport } = await mount({ tools: 'default', options: { tools: [new HandTool()] } });
+  it('a canvas with no tools has no tools', async () => {
+    const { viewport } = await mount();
+    expect(mounted(viewport).toolManager.toolNames).toEqual([]);
+    expect(mounted(viewport).toolManager.activeTool).toBeNull();
+  });
+
+  it('createDefaultTools() registers the bundle even with options.tools set', async () => {
+    const { viewport } = await mount({
+      tools: createDefaultTools(),
+      options: { tools: [new HandTool()] },
+    });
     expect(mounted(viewport).toolManager.toolNames).toEqual(DEFAULT_TOOL_NAMES);
     expect(mounted(viewport).toolManager.activeTool?.name).toBe('select');
   });
 
-  it("tools='default' registers the bundle before ready", async () => {
+  it('createDefaultTools() registers the bundle before ready', async () => {
     let namesAtReady: string[] = [];
     await mount({
-      tools: 'default',
+      tools: createDefaultTools(),
       onReady: (vp) => {
         namesAtReady = [...vp.toolManager.toolNames];
       },
@@ -238,7 +254,7 @@ describe('FieldNotesCanvas', () => {
   });
 
   it('defaultTool wins over select with the default bundle', async () => {
-    const { viewport } = await mount({ defaultTool: 'pencil' });
+    const { viewport } = await mount({ tools: createDefaultTools(), defaultTool: 'pencil' });
     expect(mounted(viewport).toolManager.activeTool?.name).toBe('pencil');
   });
 
@@ -322,6 +338,7 @@ describe('FieldNotesCanvas', () => {
 
   it('a keyboard tool switch writes back through [(tool)]', async () => {
     const { fixture, host, viewport } = await mount({
+      tools: createDefaultTools(),
       options: { shortcuts: { scope: 'window' } },
     });
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h' }));
@@ -453,8 +470,8 @@ describe('FieldNotesCanvas initialData and stateChange', () => {
     expect(host.states).toEqual([]);
   });
 
-  it('registering deferred defaults after ready does not emit stateChange', async () => {
-    const { host, viewport } = await mount();
+  it('registering tools at mount does not emit stateChange', async () => {
+    const { host, viewport } = await mount({ tools: createDefaultTools() });
     fakeTimers();
     vi.advanceTimersByTime(1000);
     expect(mounted(viewport).toolManager.activeTool?.name).toBe('select');
@@ -549,6 +566,7 @@ describe('FieldNotesCanvas in a zone app', () => {
       @Component({
         imports: [FieldNotesCanvas],
         template: `<fn-canvas
+            [tools]="tools"
             (ready)="viewport = $event"
             (stateChange)="states = states + 1"
             (toolChange)="tool = $event"
@@ -556,6 +574,7 @@ describe('FieldNotesCanvas in a zone app', () => {
           <p>{{ viewport ? 'ready' : 'waiting' }} {{ states }} {{ tool }}</p>`,
       })
       class ZoneHost {
+        readonly tools = createDefaultTools();
         viewport: Viewport | null = null;
         states = 0;
         tool: string | undefined = '';
@@ -584,12 +603,14 @@ describe('FieldNotesCanvas in a zone app', () => {
       @Component({
         imports: [FieldNotesCanvas],
         template: `<fn-canvas
+          [tools]="tools"
           (ready)="record('ready')"
           (stateChange)="record('stateChange')"
           (toolChange)="record('toolChange')"
         />`,
       })
       class ZoneHost {
+        readonly tools = createDefaultTools();
         readonly calls: string[] = [];
         record(name: string): void {
           this.calls.push(`${name} ${NgZone.isInAngularZone()}`);

@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createNote, createText } from '../elements/element-factory';
 import { createFrame } from '../elements/frame-element';
+import { defaultFeatures } from './features/default-feature';
+import { paletteFeature } from './features/palette-feature';
 import { createViewportHarness } from '../test-helpers/viewport-harness';
 import { Camera } from './camera';
 import { CommandPalette, createPaletteActions } from './command-palette';
@@ -57,7 +59,7 @@ const ghostDefinition: ElementTypeDefinition<GhostElement> = {
 };
 
 function makeDeps(overrides: Partial<CommandPaletteDeps> = {}) {
-  const harness = createViewportHarness();
+  const harness = createViewportHarness({ plugins: defaultFeatures() });
   cleanup.push(() => harness.cleanup());
   const container = document.createElement('div');
   const wrapper = document.createElement('div');
@@ -566,7 +568,7 @@ describe('command palette', () => {
     const container = document.createElement('div');
     shadow.append(container);
     document.body.append(host);
-    const viewport = new Viewport(container);
+    const viewport = new Viewport(container, { plugins: [paletteFeature()] });
     cleanup.push(() => viewport.destroy());
     const perform = vi.fn();
     const remove = viewport.actions.register({ id: 'test.ping', label: 'Ping test', perform });

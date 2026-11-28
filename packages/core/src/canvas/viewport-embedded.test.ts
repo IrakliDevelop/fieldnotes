@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Viewport } from './viewport';
+import { createDefaultTools } from '../tools/default-tools';
 import type { ViewportOptions } from './viewport';
 import { createNote } from '../elements/element-factory';
 import type { SelectTool } from '../tools/select-tool';
@@ -70,7 +71,7 @@ describe('Viewport embedded mode', () => {
   const originalElementFromPoint = document.elementFromPoint;
 
   function mount(options: ViewportOptions = { embedded: true }) {
-    vp = new Viewport(container, { tools: 'default', ...options });
+    vp = new Viewport(container, { tools: createDefaultTools(), ...options });
     const first = container.firstElementChild;
     if (!(first instanceof HTMLElement)) throw new Error('wrapper not found');
     wrapper = first;

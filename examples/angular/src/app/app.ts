@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { CanvasElement, FieldNotesCanvas, Minimap } from '@fieldnotes/angular';
-import { createDefaultTools } from '@fieldnotes/core';
+import { createDefaultTools, defaultFeatures } from '@fieldnotes/core';
 import type { Viewport, ViewportOptions } from '@fieldnotes/core';
 import { SaveControls } from './save-controls';
 import { Sidebar } from './sidebar';
@@ -38,6 +38,7 @@ export class App {
   protected readonly tool = signal('select');
   protected readonly clicks = signal(0);
   protected readonly options: ViewportOptions = {
+    plugins: defaultFeatures(),
     onImageError: ({ src }) => window.alert(`Image failed to load: ${src}`),
   };
 

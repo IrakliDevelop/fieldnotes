@@ -1,4 +1,5 @@
-import type { CanvasState } from '@fieldnotes/core';
+import { useMemo } from 'react';
+import { createDefaultTools, defaultFeatures, type CanvasState } from '@fieldnotes/core';
 import { FieldNotesCanvas, useActiveTool, useShortcuts } from '@fieldnotes/react';
 
 // #region app
@@ -6,8 +7,17 @@ const saved = localStorage.getItem('board') ?? undefined;
 const save = (state: CanvasState) => localStorage.setItem('board', JSON.stringify(state));
 
 export function App() {
+  // Tools and plugins belong to one canvas, so each component creates its own.
+  const tools = useMemo(() => createDefaultTools(), []);
+  const options = useMemo(() => ({ plugins: defaultFeatures() }), []);
   return (
-    <FieldNotesCanvas initialData={saved} onChange={save} style={{ height: '100vh' }}>
+    <FieldNotesCanvas
+      tools={tools}
+      options={options}
+      initialData={saved}
+      onChange={save}
+      style={{ height: '100vh' }}
+    >
       <PencilButton />
     </FieldNotesCanvas>
   );
@@ -16,7 +26,16 @@ export function App() {
 
 // #region autosave
 export function AutoSaveApp() {
-  return <FieldNotesCanvas autoSave={{ key: 'board' }} style={{ height: '100vh' }} />;
+  const tools = useMemo(() => createDefaultTools(), []);
+  const options = useMemo(() => ({ plugins: defaultFeatures() }), []);
+  return (
+    <FieldNotesCanvas
+      tools={tools}
+      options={options}
+      autoSave={{ key: 'board' }}
+      style={{ height: '100vh' }}
+    />
+  );
 }
 // #endregion autosave
 

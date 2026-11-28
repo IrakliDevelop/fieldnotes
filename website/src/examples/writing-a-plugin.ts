@@ -1,4 +1,4 @@
-import { pickBaseFields, Viewport } from '@fieldnotes/core';
+import { createDefaultTools, defaultFeatures, pickBaseFields, Viewport } from '@fieldnotes/core';
 import type {
   BaseElement,
   ElementTypeDefinition,
@@ -83,8 +83,8 @@ export function markerBoard(): void {
   // #region plugin
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
   const viewport = new Viewport(document.getElementById('board')!, {
-    tools: 'default',
-    plugins: [markerPlugin],
+    tools: createDefaultTools(),
+    plugins: [markerPlugin, ...defaultFeatures()],
   });
   viewport.setTool('marker');
   // #endregion plugin

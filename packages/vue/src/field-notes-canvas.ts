@@ -25,12 +25,11 @@ export interface FieldNotesCanvasProps {
   /** Constructor-only: changes after mount are ignored (the canvas is stateful). */
   options?: ViewportOptions;
   /**
-   * `'default'` (mount-only): `createDefaultTools()` registered before `onReady`, `select` active.
-   * Omitted: the same bundle after `onReady`, only if no tools are registered by then.
+   * Omitted: no tools.
    * An array is reactive (append-only): tools present here are registered, including ones pushed
    * into a reactive array; removal is not supported, and `[]` registers nothing.
    */
-  tools?: Tool[] | 'default';
+  tools?: Tool[];
   /** Mount-only: a saved state (object or JSON string) loaded before `onReady`. */
   initialData?: ImportableCanvasState | string;
   /** Debounce window for `onChange` in milliseconds (default 250). */
@@ -72,7 +71,7 @@ const ViewportProvider = defineComponent({
 // Exported for the props/interface parity check in the test; not public API.
 export const fieldNotesCanvasProps = {
   options: Object as PropType<ViewportOptions>,
-  tools: [Array, String] as PropType<Tool[] | 'default'>,
+  tools: Array as PropType<Tool[]>,
   initialData: [Object, String] as PropType<ImportableCanvasState | string>,
   changeDebounceMs: { type: Number, default: 250 },
   defaultTool: String,
@@ -100,13 +99,12 @@ export const FieldNotesCanvas = defineComponent({
       const el = root.value;
       if (!el) return;
 
-      const tools = props.tools;
       mounted = mountViewport(el, {
         options:
           props.theme === undefined
             ? toRaw(props.options)
             : { ...toRaw(props.options), theme: toRaw(props.theme) },
-        tools: tools === 'default' ? tools : tools?.map(toRaw),
+        tools: props.tools?.map(toRaw),
         initialData: toRaw(props.initialData),
         get tool() {
           return props.tool;
@@ -154,7 +152,7 @@ export const FieldNotesCanvas = defineComponent({
     watch(
       () => props.tools,
       (tools) => {
-        if (!mounted || !Array.isArray(tools)) return;
+        if (!mounted || !tools) return;
         mounted.addTools(tools.map(toRaw));
       },
       { deep: 1 },

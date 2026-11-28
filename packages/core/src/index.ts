@@ -1,4 +1,4 @@
-export const VERSION = '0.110.2';
+export const VERSION = '0.111.0';
 
 export { resolveTheme, DEFAULT_THEME, LIGHT_THEME_TOKENS, DARK_THEME_TOKENS } from './canvas/theme';
 export type {
@@ -60,6 +60,7 @@ export type {
 export { Viewport } from './canvas/viewport';
 export type {
   ViewportOptions,
+  ExportDefaults,
   AlignEdge,
   DistributeAxis,
   RotateDirection,
@@ -202,6 +203,10 @@ export type {
   PresentationStartOptions,
   PresentationState,
 } from './canvas/presentation';
+export { presentationFeature } from './canvas/features/presentation-feature';
+export { paletteFeature } from './canvas/features/palette-feature';
+export { minimapFeature } from './canvas/features/minimap-feature';
+export { defaultFeatures } from './canvas/features/default-feature';
 export type { PaletteApi } from './canvas/command-palette';
 export type { ShortcutsHelpApi } from './canvas/shortcuts-help';
 export type { PaletteOptions, PaletteStrings } from './canvas/palette-model';

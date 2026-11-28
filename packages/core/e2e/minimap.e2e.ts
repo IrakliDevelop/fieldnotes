@@ -6,7 +6,7 @@ import type { Page } from '@playwright/test';
  * Minimap: thumbnail fidelity (real element shapes, not the old full-bounds
  * colored-rect fill) and tap/drag navigation, on desktop AND iPad.
  *
- * `Viewport`'s built-in minimap (`ViewportOptions.minimap: true`, always on in
+ * `Viewport`'s built-in minimap (`minimapFeature()`, always on in
  * the demo) is a fixed 200x140 CSS-pixel canvas with an 8px content padding
  * (see `packages/core/src/canvas/minimap.ts` and `minimap-controller.ts`).
  * Several cases below re-derive the navigation transform locally with the

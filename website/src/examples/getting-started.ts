@@ -1,13 +1,17 @@
 // #region ten-lines
 // #region mount
-import { Viewport } from '@fieldnotes/core';
+import { Viewport, createDefaultTools, defaultFeatures } from '@fieldnotes/core';
 // #endregion mount
 // #endregion ten-lines
 import type { ViewportOptions } from '@fieldnotes/core';
 
-/** Mounts the docs board with the `mount` tools; `extra` holds the docs page's options. */
+/** Mounts the docs board with the `mount` tools and plugins; `extra` holds the docs page's options. */
 export function createBoard(container: HTMLElement, extra?: ViewportOptions): Viewport {
-  return new Viewport(container, { tools: 'default', ...extra });
+  return new Viewport(container, {
+    tools: createDefaultTools(),
+    plugins: defaultFeatures(),
+    ...extra,
+  });
 }
 
 export function tenLines(): void {
@@ -16,10 +20,10 @@ export function tenLines(): void {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
   const viewport = new Viewport(document.getElementById('board')!, {
     background: { pattern: 'dots', spacing: 24 },
-    tools: 'default',
+    tools: createDefaultTools(),
+    plugins: defaultFeatures(),
   });
   // #endregion mount
-
   const saved = localStorage.getItem('board');
   if (saved) viewport.loadJSON(saved);
   viewport.onStateChange(() => localStorage.setItem('board', viewport.exportJSON()));

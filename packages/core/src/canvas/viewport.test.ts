@@ -4,6 +4,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { Viewport } from './viewport';
+import { createDefaultTools } from '../tools/default-tools';
+import { minimapFeature } from './features/minimap-feature';
+import { exportImage } from './export-image';
+import { exportSvg } from './export-svg';
+import { exportPdf } from './export-pdf';
 import type { PluginConfigureContext, ViewportOptions, ViewportPlugin } from './viewport';
 import { encodeClipboard, FIELDNOTES_CLIPBOARD_TYPE } from './clipboard-codec';
 import type { Tool } from '../tools/types';
@@ -42,6 +47,9 @@ import { setTextMeasurer } from '../elements/text-measure';
 import { ElementRegistry } from '../elements/element-registry';
 import { createBoundText } from '../elements/bound-text';
 import { installRecordingContexts } from '../test-helpers/recording-contexts';
+import { presentationFeature } from './features/presentation-feature';
+import { defaultFeatures } from './features/default-feature';
+import { paletteFeature } from './features/palette-feature';
 import type { RenderLoop } from './render-loop';
 
 function arrowAnchor(from: { x: number; y: number }, to: { x: number; y: number }, bend: number) {
@@ -354,7 +362,10 @@ describe('Viewport', () => {
   });
 
   it('ignores wrapper, window, document, queued-frame, and window shortcut work after destruction', async () => {
-    const viewport = new Viewport(container, { tools: 'default', shortcuts: { scope: 'window' } });
+    const viewport = new Viewport(container, {
+      tools: createDefaultTools(),
+      shortcuts: { scope: 'window' },
+    });
     const note = createNote({
       position: { x: 0, y: 0 },
       layerId: viewport.layerManager.activeLayerId,
@@ -637,14 +648,14 @@ describe('Viewport', () => {
       expect(listenerTypes(scratch as HTMLCanvasElement)).not.toContain('contextrestored');
 
       created.length = 0;
-      await viewport.exportImage();
+      await exportImage(viewport);
       expect(created.length).toBeGreaterThan(0);
       for (const canvas of created) {
         expect(listenerTypes(canvas)).not.toContain('contextlost');
         expect(listenerTypes(canvas)).not.toContain('contextrestored');
       }
       created.length = 0;
-      await viewport.exportSVG();
+      await exportSvg(viewport);
       expect(created.length).toBeGreaterThan(0);
       for (const canvas of created) {
         expect(listenerTypes(canvas)).not.toContain('contextlost');
@@ -3506,7 +3517,7 @@ describe('Viewport', () => {
     });
 
     it('viewport.actions.list() contains the 31 built-ins followed by presentation, palette and tool actions, and shortcuts.getBindings() has canonical keys only', () => {
-      const viewport = new Viewport(container);
+      const viewport = new Viewport(container, { plugins: defaultFeatures() });
       setupSelect(viewport);
       const list = viewport.actions.list();
       const builtins = list.filter(
@@ -3804,8 +3815,8 @@ describe('Viewport', () => {
       );
     }
 
-    it('adds a minimap canvas to the wrapper when minimap: true', () => {
-      const viewport = new Viewport(container, { minimap: true });
+    it('adds a minimap canvas to the wrapper with minimapFeature()', () => {
+      const viewport = new Viewport(container, { plugins: [minimapFeature()] });
       const wrapper = wrapperOf(container);
       expect(wrapper.querySelectorAll('canvas').length).toBe(2);
       expect(minimapCanvas(wrapper)).toBeDefined();
@@ -3821,7 +3832,7 @@ describe('Viewport', () => {
     });
 
     it('survives element add + camera pan (smoke)', () => {
-      const viewport = new Viewport(container, { minimap: true });
+      const viewport = new Viewport(container, { plugins: [minimapFeature()] });
       const wrapper = wrapperOf(container);
       expect(() => {
         viewport.store.add(
@@ -3834,7 +3845,7 @@ describe('Viewport', () => {
     });
 
     it('removes the minimap canvas on destroy', () => {
-      const viewport = new Viewport(container, { minimap: true });
+      const viewport = new Viewport(container, { plugins: [minimapFeature()] });
       const wrapper = wrapperOf(container);
       expect(minimapCanvas(wrapper)).toBeDefined();
       viewport.destroy();
@@ -3900,7 +3911,7 @@ describe('Viewport', () => {
 
   describe('presentation', () => {
     function presentationHarness() {
-      const h = createViewportHarness();
+      const h = createViewportHarness({ plugins: [presentationFeature()] });
       const canvas = h.container.querySelector('canvas');
       if (!(canvas instanceof HTMLCanvasElement)) throw new Error('canvas not found');
       Object.defineProperties(canvas, {
@@ -4063,7 +4074,7 @@ describe('Viewport', () => {
       host: HTMLElement = container,
       options?: ConstructorParameters<typeof Viewport>[1],
     ): Viewport {
-      const viewport = new Viewport(host, options);
+      const viewport = new Viewport(host, { plugins: defaultFeatures(), ...options });
       viewports.add(viewport);
       return viewport;
     }
@@ -4192,8 +4203,8 @@ describe('Viewport', () => {
       expect(container.querySelectorAll('.fieldnotes-palette')).toHaveLength(1);
     });
 
-    it('palette: false registers no actions and returns inert apis', () => {
-      const viewport = createPaletteViewport(container, { palette: false });
+    it('without the palette feature, no palette actions and inert apis', () => {
+      const viewport = createPaletteViewport(container, { plugins: [] });
       expect(viewport.actions.list().some((action) => action.id.startsWith('palette.'))).toBe(
         false,
       );
@@ -4206,7 +4217,7 @@ describe('Viewport', () => {
 
     it('strings reach the palette', () => {
       const viewport = createPaletteViewport(container, {
-        palette: { strings: { placeholder: 'Suche' } },
+        plugins: [paletteFeature({ strings: { placeholder: 'Suche' } })],
       });
       viewport.palette.open();
       const input = container.querySelector('.fieldnotes-palette-input');
@@ -4721,7 +4732,7 @@ describe('Viewport html painters', () => {
       vp.expectCanvasHtmlTypes(['rk-marker']);
       vp.registerHtmlPainter('rk-marker', painter);
       vp.store.add(markerElement());
-      await vp.exportImage();
+      await exportImage(vp);
       expect(painter).toHaveBeenCalled();
     });
 
@@ -4733,7 +4744,7 @@ describe('Viewport html painters', () => {
       const caller = new HtmlPainterRegistry();
       caller.register('rk-marker', callerPainter);
       vp.store.add(markerElement());
-      await vp.exportImage({ htmlPainters: caller });
+      await exportImage(vp, { htmlPainters: caller });
       expect(callerPainter).toHaveBeenCalled();
       expect(viewportPainter).not.toHaveBeenCalled();
     });
@@ -4744,7 +4755,7 @@ describe('Viewport html painters', () => {
       vp.store.add(markerElement());
       vp.store.add(htmlElement('other-canvas-type'));
       const onHtmlError = vi.fn();
-      await vp.exportImage({ expectedCanvasTypes: new Set(['other-canvas-type']), onHtmlError });
+      await exportImage(vp, { expectedCanvasTypes: new Set(['other-canvas-type']), onHtmlError });
       // Filter to 'missing-painter' specifically: an element that falls through to the
       // DOM-raster path instead (because it was never actually canvas-routed) reports
       // 'unsupported' instead, with the same htmlType field — an unfiltered read would
@@ -4756,24 +4767,15 @@ describe('Viewport html painters', () => {
       expect(missingPainterTypes).toEqual(['other-canvas-type', 'rk-marker']);
     });
 
-    // Black-box coverage above cannot distinguish the union computation from a naive
-    // "caller's set replaces declared" implementation: resolveHtmlRouting ORs
-    // registry.canvasTypes directly (the same registry withHtmlDefaults injects as
-    // htmlPainters), so a declared-but-unioned type still routes to canvas regardless
-    // of whether the union actually happened. This white-box test reads
-    // withHtmlDefaults's return value directly to pin the union itself — see the
-    // mutation-verification note in the task report for the empirical confirmation.
-    it('withHtmlDefaults unions expectedCanvasTypes with the registry declarations (white-box)', () => {
+    // Black-box coverage above cannot distinguish the union from "caller's set replaces declared":
+    // resolveHtmlRouting ORs registry.canvasTypes directly, so read the completed options instead.
+    it('exportDefaults().options unions expectedCanvasTypes with the registry declarations', () => {
       const vp = makeViewport();
       vp.expectCanvasHtmlTypes(['rk-marker']);
-      const withHtmlDefaults = (
-        vp as unknown as {
-          withHtmlDefaults: (options?: { expectedCanvasTypes?: ReadonlySet<string> }) => {
-            expectedCanvasTypes: ReadonlySet<string>;
-          };
-        }
-      ).withHtmlDefaults.bind(vp);
-      const result = withHtmlDefaults({ expectedCanvasTypes: new Set(['other-canvas-type']) });
+      const result = vp
+        .exportDefaults()
+        .options({ expectedCanvasTypes: new Set(['other-canvas-type']) });
+      if (!result.expectedCanvasTypes) throw new Error('expectedCanvasTypes missing');
       expect([...result.expectedCanvasTypes].sort()).toEqual(['other-canvas-type', 'rk-marker']);
     });
 
@@ -4781,7 +4783,7 @@ describe('Viewport html painters', () => {
       const vp = makeViewport();
       vp.expectCanvasHtmlTypes(['rk-marker']);
       vp.store.add(markerElement());
-      await expect(vp.exportImage()).resolves.not.toThrow();
+      await expect(exportImage(vp)).resolves.not.toThrow();
     });
 
     it('applies the same delegation to exportSVG', async () => {
@@ -4789,7 +4791,7 @@ describe('Viewport html painters', () => {
       const painter = vi.fn();
       vp.registerHtmlPainter('rk-marker', painter);
       vp.store.add(markerElement());
-      await vp.exportSVG();
+      await exportSvg(vp);
       expect(painter).toHaveBeenCalled();
     });
 
@@ -4834,28 +4836,28 @@ describe('Viewport html painters', () => {
       });
       await nextFrame(vp);
       seen.length = 0;
-      const dark = await vp.exportSVG();
+      const dark = await exportSvg(vp);
       expect(seen).toEqual(['svg:dark']);
       seen.length = 0;
-      const light = await vp.exportSVG({ theme: 'light' });
+      const light = await exportSvg(vp, { theme: 'light' });
       expect(dark).toContain('fill="#1e1f22"');
       expect(light).not.toContain('fill="#1e1f22"');
       expect(seen).toEqual(['svg:light']);
       seen.length = 0;
-      await vp.exportImage();
+      await exportImage(vp);
       expect(seen).toEqual(['image:dark']);
       seen.length = 0;
-      await vp.exportImage({ theme: 'light' });
+      await exportImage(vp, { theme: 'light' });
       expect(seen).toEqual(['image:light']);
       seen.length = 0;
-      const darkPdf = await vp.exportPDF({ dpi: 18 });
+      const darkPdf = await exportPdf(vp, { dpi: 18 });
       if (!darkPdf) throw new Error('dark PDF missing');
       expect(new TextDecoder('latin1').decode(await darkPdf.arrayBuffer())).toContain(
         '0.118 0.122 0.133 rg',
       );
       expect(seen).toEqual(['image:dark']);
       seen.length = 0;
-      const lightPdf = await vp.exportPDF({ theme: 'light', dpi: 18 });
+      const lightPdf = await exportPdf(vp, { theme: 'light', dpi: 18 });
       if (!lightPdf) throw new Error('light PDF missing');
       expect(new TextDecoder('latin1').decode(await lightPdf.arrayBuffer())).not.toContain(
         '0.118 0.122 0.133 rg',
@@ -4877,7 +4879,7 @@ describe('Viewport html painters', () => {
         createShape({ parentId: second.id, position: { x: 200, y: 24 }, size: { w: 80, h: 160 } }),
       );
       vp.renderHooks.imageExport.register({ afterElements: hook });
-      await vp.exportPDF({ frameIds: [first.id, second.id], dpi: 18 });
+      await exportPdf(vp, { frameIds: [first.id, second.id], dpi: 18 });
       expect(hook).toHaveBeenCalledTimes(2);
       vp.destroy();
     });
@@ -4942,8 +4944,8 @@ describe('Viewport html painters', () => {
       vp.store.add(html);
       vp.store.add(overlap);
 
-      await expect(vp.exportImage({ frameId: frame.id, scale: 1 })).resolves.toBeInstanceOf(Blob);
-      await expect(vp.exportSVG({ frameId: frame.id })).resolves.toContain(
+      await expect(exportImage(vp, { frameId: frame.id, scale: 1 })).resolves.toBeInstanceOf(Blob);
+      await expect(exportSvg(vp, { frameId: frame.id })).resolves.toContain(
         'data-viewport-export="viewport-export-extension"',
       );
       expect(rendered).toEqual(['viewport-export-extension']);
@@ -5104,8 +5106,8 @@ describe('Viewport tools option and onStateChange', () => {
     onPointerUp: () => undefined,
   };
 
-  it("tools: 'default' registers the default bundle and activates select", () => {
-    const viewport = new Viewport(container, { tools: 'default' });
+  it('tools: createDefaultTools() registers the default bundle and activates select', () => {
+    const viewport = new Viewport(container, { tools: createDefaultTools() });
     expect(viewport.toolManager.toolNames).toEqual([
       'hand',
       'select',
@@ -5122,7 +5124,7 @@ describe('Viewport tools option and onStateChange', () => {
   });
 
   it('selects a completed default frame gesture and undoes it once', () => {
-    const viewport = new Viewport(container, { tools: 'default' });
+    const viewport = new Viewport(container, { tools: createDefaultTools() });
     const wrapper = wrapperOf(container);
     viewport.runAction('tool.frame');
     for (const [type, clientX, clientY] of [
@@ -5150,7 +5152,7 @@ describe('Viewport tools option and onStateChange', () => {
   });
 
   it('leaves selection and history unchanged when a default frame gesture is cancelled', () => {
-    const viewport = new Viewport(container, { tools: 'default' });
+    const viewport = new Viewport(container, { tools: createDefaultTools() });
     const wrapper = wrapperOf(container);
     viewport.runAction('tool.frame');
     for (const [type, clientX, clientY] of [
@@ -7148,7 +7150,7 @@ describe('Viewport links', () => {
   function withOnOpenLink(onOpenLink: ViewportOptions['onOpenLink']) {
     const container = document.createElement('div');
     document.body.appendChild(container);
-    const viewport = new Viewport(container, { onOpenLink, tools: 'default' });
+    const viewport = new Viewport(container, { onOpenLink, tools: createDefaultTools() });
     return {
       viewport,
       wrapper: wrapperOf(container),

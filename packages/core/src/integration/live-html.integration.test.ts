@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Viewport } from '../canvas/viewport';
+import { createDefaultTools } from '../tools/default-tools';
 import type { SelectTool } from '../tools/select-tool';
 
 // jsdom has no 2D backend; without a context the render loop bails before syncing DOM nodes.
@@ -46,7 +47,7 @@ describe('Integration: live html elements', () => {
     } as never);
     container = document.createElement('div');
     document.body.appendChild(container);
-    vp = new Viewport(container, { tools: 'default' });
+    vp = new Viewport(container, { tools: createDefaultTools() });
     const first = container.firstElementChild;
     if (!(first instanceof HTMLElement)) throw new Error('wrapper not found');
     wrapper = first;

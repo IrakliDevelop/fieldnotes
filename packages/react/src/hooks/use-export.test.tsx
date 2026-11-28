@@ -1,10 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { createShape } from '@fieldnotes/core';
+import { createShape, exportPdf as exportPdfFn, exportSvg as exportSvgFn } from '@fieldnotes/core';
 import type { ReactNode } from 'react';
+import type * as Core from '@fieldnotes/core';
 import { ViewportContext } from '../context';
 import { createTestViewport, destroyTestViewports } from '../test-utils/create-test-viewport';
 import { useExport } from './use-export';
+
+vi.mock('@fieldnotes/core', async (importOriginal) => {
+  const core = await importOriginal<typeof Core>();
+  return { ...core, exportSvg: vi.fn(core.exportSvg), exportPdf: vi.fn(async () => null) };
+});
 
 describe('useExport', () => {
   afterEach(destroyTestViewports);
@@ -19,8 +25,6 @@ describe('useExport', () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <ViewportContext.Provider value={viewport}>{children}</ViewportContext.Provider>
     );
-    const exportSVG = vi.spyOn(viewport, 'exportSVG');
-    const exportPDF = vi.spyOn(viewport, 'exportPDF').mockResolvedValue(null);
     const { result, rerender } = renderHook(useExport, { wrapper });
 
     expect(result.current.exportState().elements).toHaveLength(1);
@@ -29,9 +33,9 @@ describe('useExport', () => {
     expect(result.current.exportSVG).toEqual(expect.any(Function));
     expect(result.current.exportPDF).toEqual(expect.any(Function));
     result.current.exportSVG({ padding: 3 });
-    expect(exportSVG).toHaveBeenCalledWith({ padding: 3 });
+    expect(exportSvgFn).toHaveBeenCalledWith(viewport, { padding: 3 });
     void result.current.exportPDF({ frameIds: ['f'] });
-    expect(exportPDF).toHaveBeenCalledWith({ frameIds: ['f'] });
+    expect(exportPdfFn).toHaveBeenCalledWith(viewport, { frameIds: ['f'] });
 
     const exportImage = result.current.exportImage;
     const exportPdf = result.current.exportPDF;

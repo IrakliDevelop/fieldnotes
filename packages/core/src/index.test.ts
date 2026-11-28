@@ -123,8 +123,8 @@ describe('core public surface', () => {
     ])
       expect(name in FN).toBe(false);
   });
-  it('reports VERSION 0.110.2', () => {
-    expect(FN.VERSION).toBe('0.110.2');
+  it('reports VERSION 0.111.0', () => {
+    expect(FN.VERSION).toBe('0.111.0');
   });
 
   it('exports the elbow arrow document model without routing helpers', () => {
@@ -155,6 +155,26 @@ describe('core public surface', () => {
       'Inter',
       'function',
     ]);
+  });
+
+  it('exports the optional feature plugins and Viewport#exportDefaults', () => {
+    expect([
+      typeof FN.paletteFeature,
+      typeof FN.presentationFeature,
+      typeof FN.minimapFeature,
+      typeof FN.defaultFeatures,
+      typeof FN.Viewport.prototype.exportDefaults,
+    ]).toEqual(['function', 'function', 'function', 'function', 'function']);
+  });
+
+  it('exports ExportDefaults and moves export methods off Viewport', () => {
+    const viewport = new FN.Viewport(document.createElement('div'));
+    const defaults: FN.ExportDefaults = viewport.exportDefaults();
+    expect(
+      ['exportImage', 'exportSVG', 'exportPDF'].filter((name) => name in FN.Viewport.prototype),
+    ).toEqual([]);
+    expect(defaults.options({ padding: 4 }).padding).toBe(4);
+    viewport.destroy();
   });
 
   it('exports PDF export types and function', () => {
@@ -539,7 +559,8 @@ describe('core public surface', () => {
 
   it('exports mountViewport for framework bindings', () => {
     expect(typeof FN.mountViewport).toBe('function');
-    const opts: FN.MountViewportOptions = { tools: 'default', changeDebounceMs: 0 };
+    const tools = FN.createDefaultTools();
+    const opts: FN.MountViewportOptions = { tools, changeDebounceMs: 0 };
     const members: (keyof FN.MountedViewport)[] = [
       'viewport',
       'autoSave',
@@ -548,7 +569,7 @@ describe('core public surface', () => {
       'setTools',
       'destroy',
     ];
-    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual(['default', 0, 6]);
+    expect([opts.tools, opts.changeDebounceMs, members.length]).toEqual([tools, 0, 6]);
   });
 
   it('exports attachHostElement for framework bindings', () => {
@@ -578,9 +599,9 @@ describe('core public surface', () => {
     expect([presence.kind, options.staleMs, host]).toEqual(['stroke', 1, null]);
   });
 
-  it('reads VERSION 0.110.2 from a dynamic import', async () => {
+  it('reads VERSION 0.111.0 from a dynamic import', async () => {
     const { VERSION } = await import('./index');
-    expect(VERSION).toBe('0.110.2');
+    expect(VERSION).toBe('0.111.0');
   });
 
   it('does not re-export VTT-domain symbols (moved to @fieldnotes/vtt)', () => {

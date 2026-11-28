@@ -203,8 +203,8 @@ const svg = await exportSvg(viewport.store, { elementRegistry: viewport.elementR
 Without it, the standalone exports fall back to the global registry and skip plugin elements' bounds
 and rendering. `AutoSave` reads its store's registry at each `load()` and `save()` unless you pass
 `elementRegistry`.
-`viewport.loadJSON`, `viewport.exportState` and `viewport.exportImage`/`exportSVG` use the viewport
-registry automatically. In `@fieldnotes/sync`, `SyncClient` uses the registry of the store it is
+`viewport.loadJSON`, `viewport.exportState`, and `exportImage(viewport)`/`exportSvg(viewport)` use the
+viewport registry automatically. In `@fieldnotes/sync`, `SyncClient` uses the registry of the store it is
 given, so `store: viewport.store` is enough; if you pass `elementRegistry` (also on
 `createManagedSyncConnection`), pass `viewport.elementRegistry`.
 
@@ -502,8 +502,8 @@ Implement `onPointerCancel` when a pinch or platform cancel must not count as in
 
 ## 9. Exports
 
-`viewport.exportImage(options)` and `viewport.exportSVG(options)` pass the viewport's registry and
-render hooks. The standalone `exportImage(store, options, layerManager?)` and
+`exportImage(viewport, options)` and `exportSvg(viewport, options)` pass the viewport's registry and
+render hooks. Called with a store, `exportImage(store, options, layerManager?)` and
 `exportSvg(store, options, layerManager?)` take them as options:
 
 | Option                 | Meaning                                                                             |

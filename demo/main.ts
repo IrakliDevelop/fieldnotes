@@ -27,7 +27,12 @@ import {
   PeerRoster,
   RemoteCursorOverlay,
   createPresentationSource,
+  defaultFeatures,
+  minimapFeature,
   setTextFontFamily,
+  exportImage,
+  exportSvg,
+  exportPdf,
 } from '@fieldnotes/core';
 import type { AlignEdge, DistributeAxis, CameraView, FocusAudience } from '@fieldnotes/core';
 import {
@@ -97,8 +102,7 @@ const fogPlugin = createFogPlugin({
 const viewport = new Viewport(container, {
   background: { pattern: 'dots', spacing: 24 },
   theme: queryTheme ?? { base: 'light', tokens: { pattern: '#c0c0c0' } },
-  minimap: true,
-  plugins: [fogPlugin],
+  plugins: [fogPlugin, ...defaultFeatures(), minimapFeature()],
   onImageError: ({ src }) => {
     console.warn('Image failed to load:', src);
     showToast('image-error-toast', 'Image failed to load');
@@ -928,7 +932,7 @@ document.getElementById('export-png')?.addEventListener('click', async () => {
   const scale = Number(
     (document.getElementById('export-scale') as HTMLSelectElement | null)?.value ?? 2,
   );
-  const blob = await viewport.exportImage({
+  const blob = await exportImage(viewport, {
     scale,
     padding,
     ...(exportBackgroundSelected && exportBackgroundInput
@@ -1221,6 +1225,11 @@ if (info) {
 }
 
 (window as unknown as Record<string, unknown>).__fieldnotes_viewport = viewport;
+(window as unknown as Record<string, unknown>).__fieldnotes_export = {
+  exportImage,
+  exportSvg,
+  exportPdf,
+};
 (window as unknown as Record<string, unknown>).__fieldnotes_set_text_font_family =
   setTextFontFamily;
 (window as unknown as Record<string, unknown>).__fieldnotes_fog_manager = fogPlugin.manager;

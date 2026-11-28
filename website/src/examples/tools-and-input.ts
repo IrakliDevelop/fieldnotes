@@ -3,6 +3,7 @@ import {
   PencilTool,
   Viewport,
   createDefaultTools,
+  defaultFeatures,
   type ShapeTool,
 } from '@fieldnotes/core';
 
@@ -11,6 +12,7 @@ export function chooseTools(): Viewport {
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
   const viewport = new Viewport(document.getElementById('board')!, {
     tools: [...createDefaultTools(), new ImageTool()],
+    plugins: defaultFeatures(),
   });
   // #endregion choose
   return viewport;
@@ -53,7 +55,8 @@ export function keyboardBoard(): void {
   // #region shortcuts
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- // #hide
   const viewport = new Viewport(document.getElementById('board')!, {
-    tools: 'default',
+    tools: createDefaultTools(),
+    plugins: defaultFeatures(),
     shortcuts: {
       bindings: {
         'edit.duplicate': 'mod+shift+d',

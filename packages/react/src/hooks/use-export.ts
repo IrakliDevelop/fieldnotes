@@ -1,4 +1,9 @@
 import { useCallback, useMemo } from 'react';
+import {
+  exportImage as exportImageFn,
+  exportPdf as exportPdfFn,
+  exportSvg as exportSvgFn,
+} from '@fieldnotes/core';
 import type {
   CanvasState,
   ExportImageOptions,
@@ -22,15 +27,15 @@ export function useExport(): UseExportResult {
   const exportState = useCallback(() => viewport.exportState(), [viewport]);
   const exportJSON = useCallback(() => viewport.exportJSON(), [viewport]);
   const exportImage = useCallback(
-    (options?: ExportImageOptions) => viewport.exportImage(options),
+    (options?: ExportImageOptions) => exportImageFn(viewport, options),
     [viewport],
   );
   const exportSVG = useCallback(
-    (options?: ExportSvgOptions) => viewport.exportSVG(options),
+    (options?: ExportSvgOptions) => exportSvgFn(viewport, options),
     [viewport],
   );
   const exportPDF = useCallback(
-    (options?: ExportPdfOptions) => viewport.exportPDF(options),
+    (options?: ExportPdfOptions) => exportPdfFn(viewport, options),
     [viewport],
   );
   return useMemo(

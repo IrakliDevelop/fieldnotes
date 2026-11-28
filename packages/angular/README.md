@@ -8,33 +8,38 @@ Angular bindings for the [Field Notes](https://github.com/IrakliDevelop/fieldnot
 npm install @fieldnotes/core @fieldnotes/angular
 ```
 
-Requires Angular 20 to 22 (`@angular/core >=20.0.0 <23.0.0`) and `@fieldnotes/core >=0.110.0 <1.0.0`.
+Requires Angular 20 to 22 (`@angular/core >=20.0.0 <23.0.0`) and `@fieldnotes/core >=0.111.0 <1.0.0`.
 Every component is standalone; there is no NgModule.
 
 ## Quick start
 
 Full runnable example: `examples/angular` (`pnpm --filter fieldnotes-angular-example dev`)
 
-`<fn-canvas>` fills its own box, so give it a size. With no `tools` input and no tools registered
-in the `ready` handler, it registers the default tool bundle (`createDefaultTools()`: hand, select,
-pencil, eraser, arrow, note, text, shape) with `select` active, so a persisting board is one
-element:
+`<fn-canvas>` fills its own box, so give it a size. It registers the tools you pass in `tools` and
+starts on `select` when it is one of them; without `tools` it has none. A persisting board with the
+default tools (`createDefaultTools()`: hand, select, pencil, eraser, arrow, note, text, shape and
+frame) and the default features (`defaultFeatures()`: command palette, shortcuts help and
+presentation) is one element:
 
 ```ts
 import { Component } from '@angular/core';
 import { FieldNotesCanvas } from '@fieldnotes/angular';
-import type { CanvasState } from '@fieldnotes/core';
+import { createDefaultTools, defaultFeatures, type CanvasState } from '@fieldnotes/core';
 
 @Component({
   selector: 'app-board',
   imports: [FieldNotesCanvas],
   template: `<fn-canvas
+    [tools]="tools"
+    [options]="options"
     [initialData]="saved"
     (stateChange)="save($event)"
     style="width: 100vw; height: 100vh"
   />`,
 })
 export class Board {
+  protected readonly tools = createDefaultTools();
+  protected readonly options = { plugins: defaultFeatures() };
   // The canvas mounts only in the browser; guard storage too so the page also renders on a server.
   protected readonly saved =
     typeof localStorage === 'undefined' ? undefined : (localStorage.getItem('board') ?? undefined);
@@ -118,27 +123,26 @@ reference, and a new array registers whatever tools in it are new.
 The canvas is stateful, so some inputs are read only at mount. Changing a mount-only input
 afterwards has no effect:
 
-| Member             | Kind                        | Reactivity                                                                                     |
-| ------------------ | --------------------------- | ---------------------------------------------------------------------------------------------- |
-| `options`          | input `ViewportOptions`     | Mount-only. The canvas is stateful; construct it with the right options                        |
-| `theme`            | input `Theme`               | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object.                 |
-| `tools`            | input `Tool[] \| 'default'` | An array is append-only: a new array reference registers its new tools. `'default'` mount-only |
-| `initialData`      | input                       | Mount-only. Loaded once before `ready`                                                         |
-| `changeDebounceMs` | input, default `250`        | Read each time a change is scheduled                                                           |
-| `tool`             | model `string \| undefined` | Controlled; `[(tool)]` binds both ways                                                         |
-| `defaultTool`      | input `string`              | Mount-only (uncontrolled initial tool); ignored when `tool` is set                             |
-| `ready`            | output `Viewport`           | Once, after the viewport exists and `initialData` is loaded                                    |
-| `stateChange`      | output `CanvasState`        | Trailing-debounced exported state; a pending one is emitted on destroy                         |
-| `toolChange`       | output `string`             | The `tool` model's change event; see below                                                     |
-| `viewport`         | `Signal<Viewport \| null>`  | Public field; `null` before mount, on the server and after destroy                             |
+| Member             | Kind                        | Reactivity                                                                     |
+| ------------------ | --------------------------- | ------------------------------------------------------------------------------ |
+| `options`          | input `ViewportOptions`     | Mount-only. The canvas is stateful; construct it with the right options        |
+| `theme`            | input `Theme`               | Reactive; `undefined` leaves the viewport's theme alone; hoist a theme object. |
+| `tools`            | input `Tool[]`              | An array is append-only: a new array reference registers its new tools.        |
+| `initialData`      | input                       | Mount-only. Loaded once before `ready`                                         |
+| `changeDebounceMs` | input, default `250`        | Read each time a change is scheduled                                           |
+| `tool`             | model `string \| undefined` | Controlled; `[(tool)]` binds both ways                                         |
+| `defaultTool`      | input `string`              | Mount-only (uncontrolled initial tool); ignored when `tool` is set             |
+| `ready`            | output `Viewport`           | Once, after the viewport exists and `initialData` is loaded                    |
+| `stateChange`      | output `CanvasState`        | Trailing-debounced exported state; a pending one is emitted on destroy         |
+| `toolChange`       | output `string`             | The `tool` model's change event; see below                                     |
+| `viewport`         | `Signal<Viewport \| null>`  | Public field; `null` before mount, on the server and after destroy             |
 
 `tools` as an array registers each tool once (tools cannot be unregistered). Only a new array
 reference is seen: pushing into the array you passed registers nothing, so pass
-`[...tools, stamp]`. `tools="default"` registers `createDefaultTools()` at mount, before `ready`
-(so you can customise them there). Omitted registers the same bundle after `ready` only when
-neither `options.tools` is set nor any tool was registered by then, then activates `tool`,
-`defaultTool` or `select`; hosts that register tools in `ready` get no defaults. `[tools]="[]"`
-registers nothing.
+`[...tools, stamp]`. Tools register at mount, before `ready` (so you can customise
+them there), then `tool`, `defaultTool` or `select` activates. Omitted registers no tools; when
+`options.tools` is also unset, `tool` or `defaultTool` activates after `ready`, so tools registered
+there can be selected. `[tools]="[]"` registers nothing.
 
 - **`ready`** emits once the viewport is created. A listener that throws is reported to Angular's
   `ErrorHandler` and the viewport stays mounted.
@@ -320,7 +324,7 @@ helpers tolerate that order.
 
 `@fieldnotes/core` and `@fieldnotes/angular` are versioned independently. The package's
 `peerDependencies` declare the compatible ranges (`@angular/core >=20.0.0 <23.0.0`,
-`@fieldnotes/core >=0.110.0 <1.0.0`). Each new Angular major needs a peer-range check before the
+`@fieldnotes/core >=0.111.0 <1.0.0`). Each new Angular major needs a peer-range check before the
 upper bound moves. Pre-1.0, minor versions may contain breaking changes; if a core minor ever breaks
 the wrapper, a coordinated release raises the lower bound.
 

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Viewport } from './viewport';
+import { minimapFeature } from './features/minimap-feature';
 import { computeMinimapTransform, miniToWorld } from './minimap-transform';
 import { createNote } from '../elements/element-factory';
 
@@ -75,8 +76,8 @@ describe('Minimap (built-in wrapper)', () => {
     container.remove();
   });
 
-  it('1. new Viewport(container, { minimap: true }) appends a positioned canvas to the wrapper', () => {
-    const viewport = new Viewport(container, { minimap: true });
+  it('1. new Viewport(container, { plugins: [minimapFeature()] }) appends a positioned canvas to the wrapper', () => {
+    const viewport = new Viewport(container, { plugins: [minimapFeature()] });
     const wrapper = wrapperOf(container);
     const canvas = minimapCanvas(wrapper);
 
@@ -90,7 +91,7 @@ describe('Minimap (built-in wrapper)', () => {
   });
 
   it('uses dark chrome and updates it with the viewport theme', () => {
-    const viewport = new Viewport(container, { minimap: true, theme: 'dark' });
+    const viewport = new Viewport(container, { plugins: [minimapFeature()], theme: 'dark' });
     const canvas = minimapCanvas(wrapperOf(container));
     expect(canvas?.style.background).toBe('rgba(30, 31, 34, 0.85)');
     expect(canvas?.style.border).toBe('1px solid rgba(255, 255, 255, 0.15)');
@@ -111,7 +112,7 @@ describe('Minimap (built-in wrapper)', () => {
 
   it('3. viewport.destroy() removes the minimap canvas and cancels its queued frame', () => {
     const cancelSpy = vi.spyOn(window, 'cancelAnimationFrame');
-    const viewport = new Viewport(container, { minimap: true });
+    const viewport = new Viewport(container, { plugins: [minimapFeature()] });
     const wrapper = wrapperOf(container);
     const canvas = minimapCanvas(wrapper);
     expect(canvas).toBeDefined();
@@ -127,7 +128,7 @@ describe('Minimap (built-in wrapper)', () => {
   it('4. pointerdown on the minimap canvas moves the camera (navigation wired end-to-end)', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      const viewport = new Viewport(container, { minimap: true });
+      const viewport = new Viewport(container, { plugins: [minimapFeature()] });
       const layerId = viewport.layerManager.activeLayerId;
       viewport.store.add(
         createNote({ position: { x: 0, y: 0 }, size: { w: 2000, h: 2000 }, layerId }),

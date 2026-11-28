@@ -1,4 +1,11 @@
-import { FIELDNOTES_MIME_TYPE, isFrameElement, readSceneFile } from '@fieldnotes/core';
+import {
+  FIELDNOTES_MIME_TYPE,
+  exportImage,
+  exportPdf as exportPdfFn,
+  exportSvg as exportSvgFn,
+  isFrameElement,
+  readSceneFile,
+} from '@fieldnotes/core';
 import type {
   ExportImageOptions,
   ExportPdfOptions,
@@ -224,23 +231,20 @@ function attach(instance: SceneInstance, sceneId: SceneId): Attached {
       return { padding: 32, renderHtml: renderWidgetForExport };
     };
     const exportPng = (options: ExportImageOptions): Promise<void> =>
-      viewport
-        .exportImage(options)
+      exportImage(viewport, options)
         .then((blob) => {
           if (blob) download(`fieldnotes-${sceneId}.png`, blob);
           else shell.toast('Nothing to export');
         })
         .catch(() => shell.toast('Export failed'));
     const exportSvg = (options: ExportSvgOptions): Promise<void> =>
-      viewport
-        .exportSVG(options)
+      exportSvgFn(viewport, options)
         .then((svg) =>
           download(`fieldnotes-${sceneId}.svg`, new Blob([svg], { type: 'image/svg+xml' })),
         )
         .catch(() => shell.toast('Export failed'));
     const exportPdf = (): Promise<void> =>
-      viewport
-        .exportPDF(pdfOptions())
+      exportPdfFn(viewport, pdfOptions())
         .then((blob) => {
           if (blob) download(`fieldnotes-${sceneId}.pdf`, blob);
           else shell.toast('Nothing to export');

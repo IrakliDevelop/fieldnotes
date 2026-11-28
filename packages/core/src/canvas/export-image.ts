@@ -3,7 +3,6 @@ import type { ElementStore } from '../elements/element-store';
 import { ElementRenderer } from '../elements/element-renderer';
 import { getElementBounds } from '../elements/element-bounds';
 import { withRotation } from '../elements/rotate-canvas';
-import { rotatedAABB } from '../core/geometry';
 import { reportFailure } from '../core/report-failure';
 import type { LayerManager } from '../layers/layer-manager';
 import { renderNoteOnCanvas } from './note-canvas-renderer';
@@ -25,11 +24,13 @@ import type {
 import { resolveFrameExport } from './frame-export';
 import { buildSceneEnvelope, SCENE_PNG_KEYWORD, serializeSceneEnvelope } from './scene-embed';
 import type { SceneEmbedOptions } from './scene-embed';
+import type { ExportSource } from './export-viewport';
 import { appendItxtChunk } from './png-chunks';
 import { renderImagePlaceholder } from '../elements/renderers/image-renderer';
 import { defaultExportBackground, resolveTheme } from './theme';
 import type { FixedTheme, ResolvedTheme } from './theme';
 import { getBoundTextContainerId } from '../elements/bound-text';
+import { getElementRect } from '../elements/element-rect';
 
 export interface ExportImageOptions
   extends ExportResourceOptions, HtmlExportOptions, SceneEmbedOptions {
@@ -165,67 +166,6 @@ function assertRenderCapabilities(
 }
 
 const center = (b: Rect): { x: number; y: number } => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-
-function getStrokeBounds(el: CanvasElement): Rect | null {
-  if (el.type !== 'stroke') return null;
-  if (el.points.length === 0) return null;
-
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const p of el.points) {
-    const px = el.position.x + p.x;
-    const py = el.position.y + p.y;
-    minX = Math.min(minX, px);
-    minY = Math.min(minY, py);
-    maxX = Math.max(maxX, px);
-    maxY = Math.max(maxY, py);
-  }
-
-  const pad = el.width / 2;
-  return {
-    x: minX - pad,
-    y: minY - pad,
-    w: maxX - minX + el.width,
-    h: maxY - minY + el.width,
-  };
-}
-
-function getElementRect(
-  el: CanvasElement,
-  registry: ElementRegistry = getDefaultElementRegistry(),
-): Rect | null {
-  switch (el.type) {
-    case 'stroke': {
-      const r = getStrokeBounds(el);
-      return r ? rotatedAABB(r, el.rotation ?? 0) : r;
-    }
-    case 'arrow': {
-      const b = getElementBounds(el, registry);
-      if (!b) return null;
-      const pad = el.width / 2 + 14;
-      return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
-    }
-    case 'note':
-    case 'image':
-    case 'html':
-    case 'text':
-    case 'shape':
-      if ('size' in el) {
-        return rotatedAABB(
-          { x: el.position.x, y: el.position.y, w: el.size.w, h: el.size.h },
-          el.rotation ?? 0,
-        );
-      }
-      return null;
-    case 'extension':
-      return registry.getAdapter(el.extensionType)?.bounds(el) ?? null;
-    default:
-      return null;
-  }
-}
 
 function computeBounds(
   elements: CanvasElement[],
@@ -759,11 +699,25 @@ export async function paintExport(
   return canvas;
 }
 
-export async function exportImage(
+/** Exports a viewport, or a store with explicit options, as a PNG or JPEG blob. */
+export function exportImage(
+  viewport: ExportSource,
+  options?: ExportImageOptions,
+): Promise<Blob | null>;
+export function exportImage(
   store: ElementStore,
+  options?: ExportImageOptions,
+  layerManager?: LayerManager,
+): Promise<Blob | null>;
+export async function exportImage(
+  store: ElementStore | ExportSource,
   options: ExportImageOptions = {},
   layerManager?: LayerManager,
 ): Promise<Blob | null> {
+  if ('exportDefaults' in store) {
+    const defaults = store.exportDefaults();
+    return exportImage(defaults.store, defaults.options(options), defaults.layerManager);
+  }
   const reportingOptions = withAssetWarning(options);
   assertRenderCapabilities(
     options.renderHooks?.imageExport,
@@ -825,7 +779,6 @@ export {
   assertRenderCapabilities,
   computeBounds,
   fitExportScale,
-  getElementRect,
   loadImages,
   nonNegativeOption,
   positiveOption,

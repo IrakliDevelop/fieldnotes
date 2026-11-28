@@ -7,7 +7,7 @@ import type { CanvasState } from '../core/state-serializer';
 import { exportState } from '../core/state-serializer';
 import { boundsIntersect } from '../elements/element-bounds';
 import { dropDanglingReferences } from '../elements/element-hierarchy';
-import { getElementRect } from './export-image';
+import { getElementRect } from '../elements/element-rect';
 
 /** Envelope `type` of a scene embedded in an exported PNG or SVG. */
 export const SCENE_METADATA_TYPE = 'fieldnotes/scene';

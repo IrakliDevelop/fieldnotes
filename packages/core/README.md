@@ -42,13 +42,14 @@ npm install @fieldnotes/vtt
 ## Quick Start
 
 ```typescript
-import { Viewport } from '@fieldnotes/core';
+import { Viewport, createDefaultTools, defaultFeatures } from '@fieldnotes/core';
 
-// Mount on any container element; 'default' registers hand, select, pencil, eraser,
-// arrow, note, text, shape and frame tools and activates select
+// Mount on any container element; createDefaultTools() returns hand, select, pencil, eraser,
+// arrow, note, text, shape and frame tools, and select starts active
 const viewport = new Viewport(document.getElementById('canvas'), {
   background: { pattern: 'dots', spacing: 24 },
-  tools: 'default',
+  tools: createDefaultTools(),
+  plugins: defaultFeatures(), // command palette, shortcuts help and presentation
 });
 
 // Restore and persist the board
@@ -69,6 +70,19 @@ Pass `tools: [...]` instead (for example `[...createDefaultTools(), new ImageToo
 choose your own set, or register tools later with `viewport.toolManager.register(tool)`.
 
 Your container element needs a defined size (width/height). The canvas fills its container.
+
+### Optional features
+
+`Viewport` installs no tools and no optional features by itself, so a bundle carries only what you
+import. Each feature is a plugin for the `plugins` option:
+
+- `paletteFeature(options?)`: the [command palette and shortcuts help](https://fieldnotesjs.dev/docs/tools-and-input/#command-palette-and-find-on-the-board).
+- `presentationFeature()`: [presentation mode](https://fieldnotesjs.dev/docs/tools-and-input/#presentation) behind `viewport.presentation`.
+- `minimapFeature()`: the overview minimap in the bottom-right corner.
+- `defaultFeatures(options?)`: `paletteFeature` and `presentationFeature` together.
+
+Export works the same way: `exportImage(viewport, options?)`, `exportSvg(viewport, options?)` and
+`exportPdf(viewport, options?)` are functions that take the viewport.
 
 ## Embedding HTML Elements
 
@@ -135,7 +149,7 @@ viewport.addShape({
 Export the canvas as a PNG image:
 
 ```typescript
-const blob = await viewport.exportImage({
+const blob = await exportImage(viewport, {
   scale: 2, // pixel density (default 2)
   padding: 20, // world-space padding around content (default 0)
   background: '#fff', // fill color
@@ -151,7 +165,7 @@ const blob = await viewport.exportImage({
 
 `frameId` exports one root frame's exact content rectangle and only its descendants. It leaves out
 the frame title, border, padding chrome, and unrelated overlap. Empty frames still produce exact-size
-output. `frameId` works with `exportImage()` and `exportSVG()`. For raster export it conflicts with
+output. `frameId` works with `exportImage()` and `exportSvg()`. For raster export it conflicts with
 `region`, so supplying both throws. `filter`, explicit `background`, HTML renderers and painters,
 image diagnostics, registry capabilities, and render hooks still apply. Frame PNG export defaults to
 transparent; JPEG retains its opaque default.
@@ -159,8 +173,8 @@ transparent; JPEG retains its opaque default.
 See the [export guide](https://fieldnotesjs.dev/docs/export/). Remote images are
 requested with anonymous CORS using their original URLs. PNG and PDF exports draw a placeholder when
 an image fails; `onAssetError` reports `cors`, `load`, `timeout`, or `encode`, and without a callback
-each failed URL logs one `console.warn`. `exportSVG` writes text, notes and labels as SVG text and
-can embed font faces you supply. `exportPDF` resolves to a PDF with one picture page per frame, or
+each failed URL logs one `console.warn`. `exportSvg` writes text, notes and labels as SVG text and
+can embed font faces you supply. `exportPdf` resolves to a PDF with one picture page per frame, or
 one for the board, and keeps element links clickable.
 
 `embedScene: true` stores the exported elements in the PNG or SVG, so the file can be opened again
@@ -170,7 +184,7 @@ elements. PDF links still point at elements under fog; pass `links: false` when 
 board. `readSceneFile` reads the scene back, and dropping the file on a board inserts it:
 
 ```typescript
-const png = await viewport.exportImage({ embedScene: true });
+const png = await exportImage(viewport, { embedScene: true });
 const state = png ? await readSceneFile(png) : null;
 if (state) viewport.loadState(state);
 ```
@@ -191,8 +205,8 @@ const options = {
   },
 };
 
-const png = await viewport.exportImage(options);
-const svg = await viewport.exportSVG(options);
+const png = await exportImage(viewport, options);
+const svg = await exportSvg(viewport, options);
 ```
 
 Without `renderHtml`, embeds remain omitted and can be observed through `onHtmlError`.
@@ -238,6 +252,9 @@ Constraints run in registration order for every camera mutation and animation. T
 returned by `addConstraint` unregisters that constraint.
 
 ## Presentation
+
+Install `presentationFeature()` (or `defaultFeatures()`) in `plugins` first; without it
+`presentation.start()` throws.
 
 ```ts
 const presentation = createPresentationSource(viewport);
@@ -466,10 +483,11 @@ Typing filters actions and finds notes, text, arrow labels and frame titles, wit
 ```ts
 viewport.palette.open('budget');
 viewport.shortcutsHelp.open();
-new Viewport(el, { palette: { strings: { placeholder: 'Suche' } } });
+new Viewport(el, { plugins: [paletteFeature({ strings: { placeholder: 'Suche' } })] });
 ```
 
-Pass `palette: false` to remove the palette and help. Use `--fieldnotes-palette-*` custom
+These need `paletteFeature()` (or `defaultFeatures()`) in `plugins`; without it `mod+K` and `?` do
+nothing and `viewport.palette` and `viewport.shortcutsHelp` are inert. Use `--fieldnotes-palette-*` custom
 properties to style the dialogs. They mount in the host container with `position: fixed`; if that container has a CSS `transform` or `filter`, they are placed against it instead of the window.
 
 ## Changing Tool Options at Runtime

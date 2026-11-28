@@ -9,6 +9,7 @@ import {
   TextTool,
   EraserTool,
   attachAwareness,
+  defaultFeatures,
 } from '@fieldnotes/core';
 import type { Tool } from '@fieldnotes/core';
 import { bearerSubprotocols, SyncClient, WebSocketTransport } from '@fieldnotes/sync';
@@ -59,7 +60,10 @@ $('join-form').addEventListener('submit', (e) => {
 
 function start(token: string, name: string, role: Role, room: string): void {
   const color = colorFor(name);
-  const viewport = new Viewport($('host'), { background: { pattern: 'dots' } });
+  const viewport = new Viewport($('host'), {
+    background: { pattern: 'dots' },
+    plugins: defaultFeatures(),
+  });
 
   // The standard canvas tools (all sync live to peers) + the demo's owner-colored TokenTool.
   const palette: Tool[] = [

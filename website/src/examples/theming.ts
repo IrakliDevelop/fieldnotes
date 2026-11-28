@@ -1,13 +1,21 @@
 import {
   Viewport,
+  createDefaultTools,
   createNote,
   createShape,
   createText,
+  defaultFeatures,
+  exportImage,
   type ViewportOptions,
 } from '@fieldnotes/core';
 
 export function createBoard(container: HTMLElement, extra?: ViewportOptions): Viewport {
-  return new Viewport(container, { tools: 'default', ...darkBoardOptions, ...extra });
+  return new Viewport(container, {
+    tools: createDefaultTools(),
+    plugins: defaultFeatures(),
+    ...darkBoardOptions,
+    ...extra,
+  });
 }
 
 // #region options
@@ -55,6 +63,7 @@ export function followSystem(viewport: Viewport): void {
 // #region custom
 export function customTheme(container: HTMLElement): Viewport {
   return new Viewport(container, {
+    plugins: defaultFeatures(),
     theme: { base: 'dark', tokens: { board: '#16191d', selection: '#f0b429' } },
   });
 }
@@ -62,6 +71,6 @@ export function customTheme(container: HTMLElement): Viewport {
 
 // #region export
 export async function exportDarkBoard(viewport: Viewport): Promise<Blob | null> {
-  return viewport.exportImage({ theme: 'dark' });
+  return exportImage(viewport, { theme: 'dark' });
 }
 // #endregion export

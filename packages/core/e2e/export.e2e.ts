@@ -26,7 +26,6 @@ test.describe('export', () => {
         try {
           const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
             store: { add(element: Record<string, unknown>): void };
-            exportSVG(options?: { fonts?: { family: string; src: string }[] }): Promise<string>;
           };
           vp.store.add({
             id: 'embedded-font',
@@ -43,8 +42,10 @@ test.describe('export', () => {
             textAlign: 'left',
             wrap: false,
           });
-          const without = await vp.exportSVG();
-          const withFont = await vp.exportSVG({ fonts: [{ family: 'Kalam', src: url }] });
+          const without = await window.__fieldnotes_export.exportSvg(vp);
+          const withFont = await window.__fieldnotes_export.exportSvg(vp, {
+            fonts: [{ family: 'Kalam', src: url }],
+          });
           const ink = async (svg: string) => {
             const image = new Image();
             const objectUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
@@ -103,10 +104,8 @@ test.describe('export', () => {
     await canvasPage.page.mouse.up();
 
     const hasBlob = await canvasPage.page.evaluate(async () => {
-      const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
-        exportImage: () => Promise<Blob | null>;
-      };
-      const blob = await vp.exportImage();
+      const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport;
+      const blob = await window.__fieldnotes_export.exportImage(vp);
       return blob !== null && blob.size > 0;
     });
     expect(hasBlob).toBe(true);
@@ -118,7 +117,6 @@ test.describe('export', () => {
         const { createFrame, createShape } = await import(moduleUrl);
         const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
           store: { add(element: Record<string, unknown>): void };
-          exportPDF(options: { frameIds: string[] }): Promise<Blob | null>;
         };
         const first = createFrame({ position: { x: 0, y: 0 }, size: { w: 100, h: 74 } });
         const second = createFrame({ position: { x: 200, y: 0 }, size: { w: 80, h: 184 } });
@@ -131,7 +129,9 @@ test.describe('export', () => {
         vp.store.add(first);
         vp.store.add(second);
         vp.store.add(linked);
-        const pdf = await vp.exportPDF({ frameIds: [first.id, second.id] });
+        const pdf = await window.__fieldnotes_export.exportPdf(vp, {
+          frameIds: [first.id, second.id],
+        });
         if (!pdf) throw new Error('PDF export missing');
         return new TextDecoder('latin1').decode(await pdf.arrayBuffer());
       },
@@ -147,8 +147,6 @@ test.describe('export', () => {
     const result = await canvasPage.page.evaluate(async () => {
       const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
         store: { add(element: Record<string, unknown>): void };
-        exportImage(options: Record<string, unknown>): Promise<Blob | null>;
-        exportSVG(options: Record<string, unknown>): Promise<string>;
       };
       const layerId = '';
       vp.store.add({
@@ -180,8 +178,11 @@ test.describe('export', () => {
         backgroundColor: '#ffffff',
       });
 
-      const png = await vp.exportImage({ scale: 2, background: '#ffffff' });
-      const svg = await vp.exportSVG({ background: '#ffffff' });
+      const png = await window.__fieldnotes_export.exportImage(vp, {
+        scale: 2,
+        background: '#ffffff',
+      });
+      const svg = await window.__fieldnotes_export.exportSvg(vp, { background: '#ffffff' });
       if (!png) return null;
       const pngBitmap = await createImageBitmap(png);
       const svgImage = new Image();
@@ -282,11 +283,10 @@ test.describe('export', () => {
           position: { x: number; y: number },
           size: { w: number; h: number },
         ) => string;
-        exportImage: (options: Record<string, unknown>) => Promise<Blob | null>;
       };
       const dom = document.createElement('div');
       vp.addHtmlElement(dom, { x: 0, y: 0 }, { w: 20, h: 20 });
-      const blob = await vp.exportImage({
+      const blob = await window.__fieldnotes_export.exportImage(vp, {
         scale: 1,
         renderHtml: () => {
           const source = document.createElement('canvas');
@@ -322,7 +322,6 @@ test.describe('export', () => {
           position: { x: number; y: number },
           size: { w: number; h: number },
         ) => string;
-        exportImage: (options: Record<string, unknown>) => Promise<Blob | null>;
       };
       const insideId = vp.addHtmlElement(
         document.createElement('div'),
@@ -340,7 +339,7 @@ test.describe('export', () => {
         cx.fillRect(0, 0, 20, 20);
         return c;
       };
-      const blob = await vp.exportImage({
+      const blob = await window.__fieldnotes_export.exportImage(vp, {
         scale: 1,
         region: { x: 0, y: 0, w: 40, h: 40 },
         renderHtml: (el: { id: string }) => paint(el.id === insideId ? '#ff0000' : '#0000ff'),
@@ -375,10 +374,13 @@ test.describe('export', () => {
           position: { x: number; y: number },
           size: { w: number; h: number },
         ) => string;
-        exportImage: (options: Record<string, unknown>) => Promise<Blob | null>;
       };
       vp.addHtmlElement(document.createElement('div'), { x: 0, y: 0 }, { w: 20, h: 20 });
-      const blob = await vp.exportImage({ scale: 1, format: 'jpeg', quality: 0.9 });
+      const blob = await window.__fieldnotes_export.exportImage(vp, {
+        scale: 1,
+        format: 'jpeg',
+        quality: 0.9,
+      });
       return blob?.type ?? null;
     });
     expect(type).toBe('image/jpeg');
@@ -392,10 +394,13 @@ test.describe('export', () => {
           position: { x: number; y: number },
           size: { w: number; h: number },
         ) => string;
-        exportImage: (options: Record<string, unknown>) => Promise<Blob | null>;
       };
       vp.addHtmlElement(document.createElement('div'), { x: 0, y: 0 }, { w: 3000, h: 1000 });
-      const blob = await vp.exportImage({ scale: 4, scaleMode: 'fit', maxDimension: 2000 });
+      const blob = await window.__fieldnotes_export.exportImage(vp, {
+        scale: 4,
+        scaleMode: 'fit',
+        maxDimension: 2000,
+      });
       if (!blob) return null;
       const bitmap = await createImageBitmap(blob);
       return { w: bitmap.width, h: bitmap.height };
@@ -577,15 +582,6 @@ test.describe('export', () => {
       type Pixel = [number, number, number, number];
       const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
         getVisibleRect(): { x: number; y: number; w: number; h: number };
-        exportImage(options: {
-          scale: number;
-          background: string;
-          renderHtml: (element: { id: string }) => HTMLCanvasElement;
-        }): Promise<Blob | null>;
-        exportSVG(options: {
-          background: string;
-          renderHtml: (element: { id: string }) => HTMLCanvasElement;
-        }): Promise<string>;
         renderHooks: {
           svgExport: {
             register(hooks: {
@@ -618,7 +614,7 @@ test.describe('export', () => {
           pixel: (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data] as Pixel,
         };
       };
-      const image = await vp.exportImage({
+      const image = await window.__fieldnotes_export.exportImage(vp, {
         scale: 1,
         background: '#fff',
         renderHtml: (element) => paint(element.id === 'hostile id:/#?' ? '#000000' : '#8e24aa'),
@@ -631,7 +627,7 @@ test.describe('export', () => {
       });
       const svg = await (async () => {
         try {
-          return await vp.exportSVG({
+          return await window.__fieldnotes_export.exportSvg(vp, {
             background: '#fff',
             renderHtml: () => paint('#8e24aa'),
           });
@@ -938,14 +934,9 @@ test.describe('export', () => {
     await expect.poll(() => screenshotIsRed(second)).toBe(true);
     const exported = await canvasPage.page.evaluate(
       async ({ noCors }) => {
-        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport as {
-          exportImage(options: {
-            scale: number;
-            onAssetError(error: { reason: string; src: string }): void;
-          }): Promise<Blob | null>;
-        };
+        const vp = (window as unknown as Record<string, unknown>).__fieldnotes_viewport;
         const reports: { reason: string; src: string }[] = [];
-        const blob = await vp.exportImage({
+        const blob = await window.__fieldnotes_export.exportImage(vp, {
           scale: 1,
           onAssetError: (error) => reports.push({ reason: error.reason, src: error.src }),
         });

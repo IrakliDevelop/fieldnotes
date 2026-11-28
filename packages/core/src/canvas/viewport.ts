@@ -19,14 +19,13 @@ import type { FontSizePreset } from '../elements/note-toolbar';
 import type { CanvasElement, HtmlElement, ShapeKind } from '../elements/types';
 import type { Point, Bounds } from '../core/types';
 import { ContextMenu } from './context-menu';
-import { Minimap } from './minimap';
+import type { Minimap } from './minimap';
 import { createWrapper, createCanvas, createDomLayer, createPaintStack } from './viewport-dom';
 import { HybridRenderSurface } from './hybrid-render-surface';
 import { getElementsBoundingBox } from '../elements/bounds';
 import { ToolManager } from '../tools/tool-manager';
 import type { ToolContext, Tool } from '../tools/types';
 import type { SelectTool } from '../tools/select-tool';
-import { createDefaultTools } from '../tools/default-tools';
 import { hitTest, hitTestResizeHandle, hitTestRotateHandle } from '../tools/select-hit';
 import { HistoryStack } from '../history/history-stack';
 import { HistoryRecorder } from '../history/history-recorder';
@@ -42,11 +41,8 @@ import {
 } from '../elements/bound-text';
 import { isNoteContentEmpty } from '../elements/note-sanitizer';
 import { exportState as exportCanvasState, parseState } from '../core/state-serializer';
-import { exportImage } from './export-image';
 import type { ExportImageOptions } from './export-image';
-import { exportSvg } from './export-svg';
 import type { ExportSvgOptions } from './export-svg';
-import { exportPdf } from './export-pdf';
 import type { ExportPdfOptions } from './export-pdf';
 import type { CanvasState, ImportableCanvasState } from '../core/state-serializer';
 import { LayerManager } from '../layers/layer-manager';
@@ -90,18 +86,10 @@ import { ContextLossGuard } from './context-loss-guard';
 import { getHierarchyClosure } from '../elements/hierarchy-ops';
 import { normalizeLink } from '../elements/link';
 import { LinkController } from './link-controller';
-import {
-  createPresentationActions,
-  framePresentationSlides,
-  PresentationMode,
-} from './presentation';
 import type { PresentationApi } from './presentation';
-import { CommandPalette, createPaletteActions } from './command-palette';
+import { coreActionsPlugin, createFeatureHost, INERT_PRESENTATION } from './feature-host';
 import type { PaletteApi } from './command-palette';
-import { ShortcutsHelp } from './shortcuts-help';
 import type { ShortcutsHelpApi } from './shortcuts-help';
-import { resolvePaletteStrings } from './palette-model';
-import type { PaletteOptions } from './palette-model';
 export type {
   PluginConfigureContext,
   PluginStartContext,
@@ -111,6 +99,14 @@ export type {
 
 export type { AlignEdge, DistributeAxis } from './selection-ops';
 export type { RotateDirection } from './selection-rotate';
+
+/** What `exportImage`/`exportSvg`/`exportPdf` read from a viewport. */
+export interface ExportDefaults {
+  store: ElementStore;
+  layerManager: LayerManager;
+  /** `options` completed with this viewport's registry, render hooks, theme and html painters. */
+  options<T extends ExportImageOptions | ExportSvgOptions | ExportPdfOptions>(options?: T): T;
+}
 
 const EMPTY_IDS: string[] = [];
 
@@ -165,12 +161,8 @@ export interface ViewportOptions {
   panBufferMargin?: number;
   /** Enable the built-in context menu. Default `true`. */
   contextMenu?: boolean;
-  /** Command palette and shortcuts help. `false` removes both and their actions. Default enabled. */
-  palette?: PaletteOptions | false;
   /** Coast (inertial glide) after a pan flick. Default `true`. */
   panInertia?: boolean;
-  /** Show an overview minimap (bottom-right) with tap/drag-to-navigate. Default `false`. */
-  minimap?: boolean;
   /** Element type registry; defaults to a per-viewport registry layered over the global default. */
   elementRegistry?: ElementRegistry;
   /** Domain plugins to install. Each plugin self-wires via the host API. */
@@ -181,7 +173,7 @@ export interface ViewportOptions {
    * Tools registered after plugins start, replacing same-named plugin tools; activates `select` when present.
    * If a plugin activated a tool that an option tool replaces, the plugin's instance stays active.
    */
-  tools?: 'default' | Tool[];
+  tools?: Tool[];
   /**
    * Board inside a scrolling page: plain wheel and, until `setEmbeddedEngaged(true)`, touch scroll
    * the page; Ctrl/⌘+wheel zooms; mouse and pen work as usual. Input only, read at construction.
@@ -224,9 +216,9 @@ export class Viewport {
   private readonly disposers: (() => void)[] = [];
   private readonly actionRegistry: ActionRegistry;
   private readonly inputHandler: InputHandler;
-  private readonly presentationMode: PresentationMode;
-  private readonly commandPalette: CommandPalette | null;
-  private readonly shortcutsHelpDialog: ShortcutsHelp | null;
+  private presentationApi: PresentationApi | null = null;
+  private commandPalette: PaletteApi | null = null;
+  private shortcutsHelpDialog: ShortcutsHelpApi | null = null;
   private readonly background: Background;
   private theme: ResolvedTheme;
   private themeSpec: Theme;
@@ -430,7 +422,7 @@ export class Viewport {
     // Store listeners outlive plugin disposal so plugin removals still unbind arrows.
     const unsubStore: (() => void)[] = [];
     this.disposers.push(() => unsubStore.forEach((unsubscribe) => unsubscribe()));
-    // Plugins dispose after the input handler and minimap release them.
+    // Plugins dispose after the input handler releases them.
     this.disposers.push(() => this.pluginHost.disposePlugins());
 
     this.toolContext = {
@@ -531,27 +523,6 @@ export class Viewport {
       assets: options.assets,
       onImageError: reportImageError,
     });
-    this.presentationMode = new PresentationMode({
-      container: this.container,
-      wrapper: this.wrapper,
-      camera: this.camera,
-      getCanvasSize: () => this.getCanvasSize(),
-      defaultSlides: () =>
-        framePresentationSlides(this.store, (id) => this.layerManager.isLayerVisible(id)),
-      onResize: (listener) => this.onResize(listener),
-      activeToolName: () => this.toolManager.activeTool?.name ?? null,
-      setTool: (name) => this.actionRegistry.run('tool.' + name, { source: 'api' }),
-      clearSelection: () => this.getSelectTool()?.setSelection([]),
-      stopCameraMotion: () => this.inputHandler.stopPanInertia(),
-      hasOpenOverlay: () =>
-        (this.contextMenu?.isOpen() ?? false) ||
-        this.interactMode.isInteracting() ||
-        (this.commandPalette?.isOpen() ?? false) ||
-        (this.shortcutsHelpDialog?.isOpen() ?? false),
-    });
-    const unregisterPresentationActions = createPresentationActions(this.presentationMode).map(
-      (action) => this.actionRegistry.register(action),
-    );
     this.links = new LinkController({
       store: this.store,
       layerManager: this.layerManager,
@@ -570,12 +541,12 @@ export class Viewport {
       },
       setLink: (ids, link) => this.setLink(ids, link),
     });
-    const unregisterLinkActions = createLinkActions({
-      setLink: (ids, link) => this.setLink(ids, link),
-      openLink: (id) => this.links.open(id, null),
-      promptLink: (ids, initial, label) => this.links.prompt(ids, initial, label),
-    }).map((action) => this.actionRegistry.register(action));
-    const unregisterEditText = this.actionRegistry.register(
+    const coreActions = [
+      ...createLinkActions({
+        setLink: (ids, link) => this.setLink(ids, link),
+        openLink: (id) => this.links.open(id, null),
+        promptLink: (ids, initial, label) => this.links.prompt(ids, initial, label),
+      }),
       createEditTextAction({
         store: this.store,
         layerManager: this.layerManager,
@@ -583,14 +554,8 @@ export class Viewport {
         editBoundText: (id) => this.interactions.editBoundText(id),
         startEditingElement: (id) => this.interactions.startEditingElement(id),
       }),
-    );
-    this.disposers.push(
-      ...unregisterPresentationActions,
-      ...unregisterLinkActions,
-      () => this.links.closePrompt(),
-      unregisterEditText,
-      () => this.presentationMode.destroy(),
-    );
+    ];
+    this.disposers.push(() => this.links.closePrompt());
     if (options.embedded) {
       // After InputHandler, whose touch-action: none this overrides.
       const embeddedMode = new EmbeddedMode({
@@ -620,75 +585,42 @@ export class Viewport {
       () => this.insertQueue.destroy(),
     );
 
-    if (options.palette === false) {
-      this.commandPalette = null;
-      this.shortcutsHelpDialog = null;
-    } else {
-      const strings = resolvePaletteStrings(options.palette?.strings);
-      let palette: CommandPalette | null = null;
-      const help = new ShortcutsHelp({
-        container: this.container,
-        wrapper: this.wrapper,
-        actions: this.actionRegistry,
-        getActionContext: () => this.currentActionContext(),
-        getBindings: () => this.inputHandler.shortcuts.getBindings(),
-        matchShortcut: (event) => this.inputHandler.matchShortcut(event),
-        isMac,
-        strings,
-        getTheme: () => this.theme,
-        closeOthers: () => {
-          this.contextMenu?.close();
-          palette?.close();
-        },
-      });
-      palette = new CommandPalette({
-        container: this.container,
-        wrapper: this.wrapper,
-        actions: this.actionRegistry,
-        getActionContext: () => this.currentActionContext(),
-        getBindings: () => this.inputHandler.shortcuts.getBindings(),
-        store: this.store,
-        registry: this.elementRegistry,
-        isLayerVisible: (id) => this.layerManager.isLayerVisible(id),
-        camera: this.camera,
-        getCanvasSize: () => this.getCanvasSize(),
-        overlayHost: this,
-        stopCameraMotion: () => this.inputHandler.stopPanInertia(),
-        closeContextMenu: () => this.contextMenu?.close(),
-        help,
-        matchShortcut: (event) => this.inputHandler.matchShortcut(event),
-        selectionColor: () => options.selectionColor ?? this.theme.tokens.selection,
-        isMac,
-        strings,
-        getTheme: () => this.theme,
-      });
-      this.commandPalette = palette;
-      this.shortcutsHelpDialog = help;
-      this.disposers.push(
-        ...createPaletteActions(palette, help).map((action) =>
-          this.actionRegistry.register(action),
-        ),
-        () => {
-          help.destroy();
-          palette.destroy();
-        },
-      );
-    }
-
+    createFeatureHost({
+      viewport: this,
+      container: this.container,
+      wrapper: this.wrapper,
+      actions: this.actionRegistry,
+      getActionContext: () => this.currentActionContext(),
+      getBindings: () => this.inputHandler.shortcuts.getBindings(),
+      matchShortcut: (event) => this.inputHandler.matchShortcut(event),
+      stopCameraMotion: () => this.inputHandler.stopPanInertia(),
+      closeContextMenu: () => this.contextMenu?.close(),
+      selectionColor: () => options.selectionColor ?? this.theme.tokens.selection,
+      clearSelection: () => this.getSelectTool()?.setSelection([]),
+      isMac,
+      getExtraBounds: () => this.pluginHost.getExtraBounds(),
+      hasViewportOverlay: () =>
+        (this.contextMenu?.isOpen() ?? false) || this.interactMode.isInteracting(),
+      setPresentation: (api) => {
+        this.presentationApi = api;
+      },
+      setPalette: (palette, help) => {
+        this.commandPalette = palette;
+        this.shortcutsHelpDialog = help;
+      },
+      setMinimap: (minimap) => {
+        this.minimap = minimap;
+      },
+    });
     try {
-      this.pluginHost.configurePlugins(options.plugins);
+      this.pluginHost.configurePlugins([
+        coreActionsPlugin(coreActions),
+        ...(options.plugins ?? []),
+      ]);
     } catch (error) {
       this.destroy();
       throw error;
     }
-
-    if (options.minimap) {
-      this.minimap = new Minimap(this.wrapper, this, {
-        minimapHooks: this._renderHooks.minimap,
-        getExtraBounds: () => this.pluginHost.getExtraBounds(),
-      });
-    }
-    this.disposers.push(() => this.minimap?.destroy());
 
     this.domNodeManager = new DomNodeManager({
       domLayer: this.paintStack,
@@ -845,8 +777,7 @@ export class Viewport {
       () => this.stateChangeListeners.clear(),
     );
 
-    const tools = options.tools === 'default' ? createDefaultTools() : (options.tools ?? []);
-    for (const tool of tools) this.toolManager.register(tool);
+    for (const tool of options.tools ?? []) this.toolManager.register(tool);
     if (!this.toolManager.activeTool && this.toolManager.getTool('select')) {
       this.toolManager.setTool('select', this.toolContext);
     }
@@ -1068,46 +999,32 @@ export class Viewport {
   }
 
   /**
-   * Injects this viewport's own html painter registry into export options so a host
-   * that registered painters via `registerHtmlPainter`/`expectCanvasHtmlTypes` gets
-   * markers in exports without passing anything. An explicitly passed `htmlPainters`
-   * REPLACES the viewport's registry rather than merging with it. `expectedCanvasTypes`
-   * is always UNIONED with the resolved registry's own declarations — a caller's set
-   * can only add expectations, never shrink the registry's own.
+   * Export inputs for this viewport. An explicitly passed `htmlPainters` REPLACES the viewport's
+   * registry; `expectedCanvasTypes` is always UNIONED with the resolved registry's declarations.
    */
-  private withHtmlDefaults<
-    T extends { htmlPainters?: HtmlPainterRegistry; expectedCanvasTypes?: ReadonlySet<string> },
-  >(options?: T): T {
-    const base = (options ?? {}) as T;
-    const registry = base.htmlPainters ?? this.html.painters;
-    const declared = registry.canvasTypes;
-    const expected = base.expectedCanvasTypes
-      ? new Set([...declared, ...base.expectedCanvasTypes]) // union only; never shrink
-      : declared;
-    return { ...base, htmlPainters: registry, expectedCanvasTypes: expected };
-  }
-
-  private exportOptions<T extends ExportImageOptions | ExportSvgOptions | ExportPdfOptions>(
-    options?: T,
-  ): T {
+  exportDefaults(): ExportDefaults {
     return {
-      ...this.withHtmlDefaults(options),
-      elementRegistry: options?.elementRegistry ?? this.elementRegistry,
-      renderHooks: options?.renderHooks ?? this._renderHooks,
-      theme: options?.theme ?? { base: this.theme.base, tokens: this.theme.tokens },
+      store: this.store,
+      layerManager: this.layerManager,
+      options: <T extends ExportImageOptions | ExportSvgOptions | ExportPdfOptions>(
+        options?: T,
+      ): T => {
+        const base = (options ?? {}) as T;
+        const htmlPainters = base.htmlPainters ?? this.html.painters;
+        const declared = htmlPainters.canvasTypes;
+        const expectedCanvasTypes = base.expectedCanvasTypes
+          ? new Set([...declared, ...base.expectedCanvasTypes])
+          : declared;
+        return {
+          ...base,
+          htmlPainters,
+          expectedCanvasTypes,
+          elementRegistry: base.elementRegistry ?? this.elementRegistry,
+          renderHooks: base.renderHooks ?? this._renderHooks,
+          theme: base.theme ?? { base: this.theme.base, tokens: this.theme.tokens },
+        };
+      },
     };
-  }
-
-  async exportImage(options?: ExportImageOptions): Promise<Blob | null> {
-    return exportImage(this.store, this.exportOptions(options), this.layerManager);
-  }
-
-  async exportSVG(options?: ExportSvgOptions): Promise<string> {
-    return exportSvg(this.store, this.exportOptions(options), this.layerManager);
-  }
-
-  async exportPDF(options?: ExportPdfOptions): Promise<Blob | null> {
-    return exportPdf(this.store, this.exportOptions(options), this.layerManager);
   }
 
   loadState(state: ImportableCanvasState): void {
@@ -1158,7 +1075,7 @@ export class Viewport {
 
   /** Presentation controls for this viewport. */
   get presentation(): PresentationApi {
-    return this.presentationMode;
+    return this.presentationApi ?? INERT_PRESENTATION;
   }
 
   /** Command palette controls for this viewport. */
@@ -1649,7 +1566,6 @@ export class Viewport {
     this.renderLoop.setTheme(theme);
     this.domNodeManager.setTheme(theme);
     this.noteEditor.setTheme(theme);
-    this.minimap?.setTheme(theme);
     this.renderLoop.markAllLayersDirty();
     this.requestRender();
     for (const listener of [...this.themeListeners]) {

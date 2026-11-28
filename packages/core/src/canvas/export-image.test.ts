@@ -1,12 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import {
-  computeBounds,
-  getElementRect,
-  exportImage,
-  loadImages,
-  fitExportScale,
-} from './export-image';
+import { computeBounds, exportImage, loadImages, fitExportScale } from './export-image';
+import { getElementRect } from '../elements/element-rect';
 import type { ExportImageOptions } from './export-image';
 import {
   createStroke,

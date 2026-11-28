@@ -1,4 +1,5 @@
 import { Viewport } from '../canvas/viewport';
+import type { ViewportOptions } from '../canvas/viewport';
 import { SelectTool } from '../tools/select-tool';
 import { HandTool } from '../tools/hand-tool';
 import { PencilTool } from '../tools/pencil-tool';
@@ -17,14 +18,14 @@ export interface ViewportHarness {
   cleanup: () => void;
 }
 
-export function createViewportHarness(): ViewportHarness {
+export function createViewportHarness(options?: ViewportOptions): ViewportHarness {
   const container = document.createElement('div');
   Object.defineProperty(container, 'getBoundingClientRect', {
     value: () => ({ left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600 }),
   });
   document.body.appendChild(container);
 
-  const viewport = new Viewport(container);
+  const viewport = new Viewport(container, options);
 
   const tools: Tool[] = [
     new SelectTool(),

@@ -16,7 +16,7 @@ const viewport = new Viewport(containerElement, {
   background: { pattern: 'grid' },
   toolbar: true,
   contextMenu: true,
-  minimap: false,
+  plugins: defaultFeatures(),
   fog: { mode: 'editor' },
 });
 ```
@@ -35,9 +35,11 @@ const viewport = new Viewport(containerElement, {
 - `setTool(name)` — switch active tool
 - `undo()` / `redo()` — history navigation
 - `beginTransact()` / `commit()` / `rollback()` — history transactions
-- `exportImage()` / `exportSvg()` — render exports
 - `registerHtmlRenderer()` — register custom HTML element renderers
 - `dispose()` — cleanup (call on unmount!)
+
+Export is a set of functions that take the viewport: `exportImage(viewport)`, `exportSvg(viewport)`
+and `exportPdf(viewport)`.
 
 **Lifecycle:**
 

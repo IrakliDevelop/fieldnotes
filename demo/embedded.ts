@@ -1,4 +1,4 @@
-import { Viewport, PencilTool, SelectTool } from '@fieldnotes/core';
+import { Viewport, PencilTool, SelectTool, defaultFeatures } from '@fieldnotes/core';
 
 const container = document.getElementById('canvas');
 const template = document.getElementById('live-template');
@@ -11,6 +11,7 @@ if (!(live instanceof HTMLElement)) throw new Error('Empty #live-template');
 const viewport = new Viewport(container, {
   embedded: true,
   background: { pattern: 'dots', spacing: 24, color: '#c0c0c0' },
+  plugins: defaultFeatures(),
 });
 viewport.toolManager.register(new SelectTool());
 viewport.toolManager.register(new PencilTool({ color: '#1a1a1a', width: 2 }));

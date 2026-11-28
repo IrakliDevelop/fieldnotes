@@ -8,7 +8,7 @@ const HEIGHT = 140;
 const MARGIN = 16;
 
 /**
- * Built-in bottom-right minimap for `ViewportOptions.minimap: true`. Thin DOM
+ * Built-in bottom-right minimap installed by `minimapFeature()`. Thin DOM
  * wrapper over `MinimapController`, which owns rendering, invalidation, and
  * tap/drag navigation.
  */
